@@ -322,15 +322,29 @@ function frame(now: number): void {
 
   for (const event of simulation.drainEvents()) {
     recordTelemetry(event.type, event.flight, event.runway, event.taxiway);
-    if (event.type === 'chime') audio.chime();
+    if (event.type === 'spawn') audio.traffic(event.flight.category, 'spawn');
+    if (event.type === 'chime') {
+      audio.chime();
+      audio.traffic(event.flight.category, 'land');
+    }
+    if (event.type === 'depart') audio.traffic(event.flight.category, 'depart');
     if (event.type === 'spawn') setStatus(
       `${event.flight.callsign} entering the hold`,
       simulation.state.mode === 'auto' ? 'tower plotting an automatic route' : 'awaiting your runway clearance',
     );
-    if (event.type === 'clear') setStatus(`${event.flight.callsign} cleared to land`, 'route accepted · runway lights are yours');
-    if (event.type === 'auto-clear') setStatus(`${event.flight.callsign} cleared by the tower`, 'automatic approach is established');
+    if (event.type === 'clear') {
+      audio.radio();
+      setStatus(`${event.flight.callsign} cleared to land`, 'route accepted · runway lights are yours');
+    }
+    if (event.type === 'auto-clear') {
+      audio.radio();
+      setStatus(`${event.flight.callsign} cleared by the tower`, 'automatic approach is established');
+    }
     if (event.type === 'land') setStatus(`${event.flight.callsign} touched down`, `${simulation.state.arrivals} safe arrival${simulation.state.arrivals === 1 ? '' : 's'}`);
-    if (event.type === 'hold-short') setStatus(`${event.flight.callsign} holding short`, `${event.taxiway} · runway ${runwayDesignation(event.runway ?? event.flight.runway)}`);
+    if (event.type === 'hold-short') {
+      audio.radio();
+      setStatus(`${event.flight.callsign} holding short`, `${event.taxiway} · runway ${runwayDesignation(event.runway ?? event.flight.runway)}`);
+    }
     if (event.type === 'runway-entry') setStatus(`${event.flight.callsign} cleared onto runway`, `${event.taxiway} · runway ${runwayDesignation(event.runway ?? event.flight.runway)}`);
     if (event.type === 'runway-crossing') setStatus(`${event.flight.callsign} crossing clearance`, `cross runway ${runwayDesignation(event.runway ?? event.flight.runway)}`);
     if (event.type === 'depart') setStatus(`${event.flight.callsign} is away`, 'departure corridor is clear');

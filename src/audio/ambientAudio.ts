@@ -43,6 +43,44 @@ export class AmbientAudio {
     });
   }
 
+  radio(): void {
+    if (!this.context || !this.master || !this.enabled) return;
+    const now = this.context.currentTime;
+    const oscillator = this.context.createOscillator();
+    const filter = this.context.createBiquadFilter();
+    const gain = this.context.createGain();
+    oscillator.type = 'triangle';
+    oscillator.frequency.setValueAtTime(840, now);
+    oscillator.frequency.exponentialRampToValueAtTime(560, now + 0.18);
+    filter.type = 'bandpass';
+    filter.frequency.value = 1_250;
+    filter.Q.value = 2.6;
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.018, now + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.24);
+    oscillator.connect(filter).connect(gain).connect(this.master);
+    oscillator.start(now);
+    oscillator.stop(now + 0.28);
+  }
+
+  traffic(category: 'regional' | 'narrowbody' | 'widebody' | 'cargo', phase: 'spawn' | 'land' | 'depart'): void {
+    if (!this.context || !this.master || !this.enabled) return;
+    const now = this.context.currentTime;
+    const base = category === 'regional' ? 118 : category === 'widebody' || category === 'cargo' ? 72 : 92;
+    const duration = phase === 'depart' ? 1.35 : phase === 'land' ? 0.55 : 0.8;
+    const oscillator = this.context.createOscillator();
+    const gain = this.context.createGain();
+    oscillator.type = phase === 'land' ? 'sine' : 'sawtooth';
+    oscillator.frequency.setValueAtTime(base, now);
+    oscillator.frequency.exponentialRampToValueAtTime(phase === 'depart' ? base * 1.8 : base * 0.72, now + duration);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(phase === 'spawn' ? 0.012 : 0.02, now + 0.08);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    oscillator.connect(gain).connect(this.master);
+    oscillator.start(now);
+    oscillator.stop(now + duration + 0.08);
+  }
+
   private create(): void {
     this.context = new AudioContext();
     this.master = this.context.createGain();
