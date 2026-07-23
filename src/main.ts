@@ -799,6 +799,16 @@ function airportSnapshot() {
         .filter((flight) => flight.runway === runway.id && movingPhases.has(flight.phase))
         .map((flight) => ({ id: flight.id, callsign: flight.callsign, phase: flight.phase, progress: Number(flight.progress.toFixed(3)) })),
     })),
+    surfaceGraph: {
+      schemaVersion: config.surfaceGraph.schemaVersion,
+      airportCode: config.surfaceGraph.airportCode,
+      seed: config.surfaceGraph.seed,
+      nodes: config.surfaceGraph.nodes.map((node) => ({ ...node, position: [...node.position], taxiwayIds: [...node.taxiwayIds] })),
+      edges: config.surfaceGraph.edges.map((edge) => ({ ...edge })),
+      taxiways: config.surfaceGraph.taxiways.map((taxiway) => ({ ...taxiway, edgeIds: [...taxiway.edgeIds] })),
+      stands: config.surfaceGraph.stands.map((stand) => ({ ...stand, position: [...stand.position] })),
+      runwayAccess: config.surfaceGraph.runwayAccess.map((access) => ({ ...access })),
+    },
     surface: simulation.state.flights
       .filter((flight) => flight.phase === 'taxi-in' || flight.phase === 'taxi-out')
       .map((flight) => ({
@@ -806,6 +816,11 @@ function airportSnapshot() {
         callsign: flight.callsign,
         phase: flight.phase,
         taxiway: flight.taxiway,
+        stand: flight.standId,
+        route: flight.surfaceRoute ?? [],
+        routeEdges: flight.surfaceRouteEdges ?? [],
+        node: flight.surfaceNode,
+        edge: flight.surfaceEdge,
         progress: Number(flight.progress.toFixed(3)),
         holdingShortOf: flight.holdShortRunway,
         runwayEntryCleared: flight.runwayEntryCleared,
@@ -868,8 +883,13 @@ function airportSnapshot() {
         fuelPercent: Number(flight.kinematics.fuelPercent.toFixed(2)),
       },
       gateSlot: flight.gateSlot,
+      stand: flight.standId,
       cleared: flight.cleared,
       taxiway: flight.taxiway,
+      surfaceRoute: flight.surfaceRoute ?? [],
+      surfaceRouteEdges: flight.surfaceRouteEdges ?? [],
+      surfaceNode: flight.surfaceNode,
+      surfaceEdge: flight.surfaceEdge,
       holdingShortOf: flight.holdShortRunway,
       runwayEntryCleared: flight.runwayEntryCleared,
       requiredCrossings: flight.requiredCrossings ?? [],
@@ -927,7 +947,7 @@ function executeAirportCommand(command: AirportControlCommand): ReturnType<typeo
 }
 
 window.airportControl = {
-  version: '1.8.0',
+  version: '1.9.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },
@@ -953,6 +973,7 @@ window.airportControl = {
       station: "airportControl.command({ action: 'setStation', station: 'ground' })",
       emergency: "airportControl.command({ action: 'triggerEmergency', flightId: 1, type: 'medical' })",
       aircraft: 'airportControl.snapshot().flights[0].aircraft',
+      surfaceGraph: 'airportControl.snapshot().surfaceGraph',
       replay: 'airportControl.replay()',
       zigzag: "airportControl.command({ action: 'controlFlights', flightIds: [1], instruction: 'zigzag' })",
       weather: "airportControl.command({ action: 'setWeather', condition: 'rain', directionDegrees: 270, windSpeed: 18 })",

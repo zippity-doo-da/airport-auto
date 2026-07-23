@@ -47,6 +47,11 @@ export interface Flight {
   cleared: boolean;
   clearanceLeft: number;
   taxiway?: string;
+  standId?: string;
+  surfaceRoute?: string[];
+  surfaceRouteEdges?: string[];
+  surfaceNode?: string;
+  surfaceEdge?: string;
   holdShortRunway?: number;
   holdNotified?: boolean;
   runwayEntryCleared?: boolean;

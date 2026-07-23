@@ -1,6 +1,7 @@
 import type { AirportConfig } from './airportConfig';
 import { aircraftProfile } from './aircraftProfiles';
 import type { Flight, FlightPhase, WakeClass } from './types';
+import { sampleSurfaceRoute } from './surfaceGraph';
 
 /**
  * The renderer has a richer spline for presentation. The simulation uses this
@@ -18,6 +19,8 @@ export interface FlightProxy {
   protectedSurface: boolean;
   runway: number;
   taxiway?: string;
+  surfaceNode?: string;
+  surfaceEdge?: string;
 }
 
 export interface FlightConflict {
@@ -101,9 +104,42 @@ export function flightProxy(config: AirportConfig, flight: Flight, progress = fl
     };
   }
 
-  const gate = gatePoint(config, flight.gateSlot);
+  const stand = config.surfaceGraph.stands.find((item) => item.slot === flight.gateSlot);
+  const standNode = stand ? config.surfaceGraph.nodes.find((node) => node.id === stand.nodeId) : undefined;
+  const gate = standNode ? { x: standNode.position[0], y: standNode.position[1] } : gatePoint(config, flight.gateSlot);
   if (flight.phase === 'resting') {
-    return { id: flight.id, x: gate.x, y: gate.y, altitude: 2.1, radius, airborne: false, surface: true, protectedSurface: false, runway: flight.runway, taxiway: 'APRON' };
+    return {
+      id: flight.id,
+      x: gate.x,
+      y: gate.y,
+      altitude: 2.1,
+      radius,
+      airborne: false,
+      surface: true,
+      protectedSurface: false,
+      runway: flight.runway,
+      taxiway: stand?.apronTaxiwayId ?? 'APRON',
+      surfaceNode: standNode?.id,
+    };
+  }
+
+  const routeSample = sampleSurfaceRoute(config.surfaceGraph, flight.surfaceRoute, p);
+  if (routeSample) {
+    const protectedSurface = routeSample.edge?.kind === 'runway' || routeSample.edge?.kind === 'runway-access';
+    return {
+      id: flight.id,
+      x: routeSample.x,
+      y: routeSample.y,
+      altitude: 2.1,
+      radius,
+      airborne: false,
+      surface: true,
+      protectedSurface,
+      runway: routeSample.edge?.runwayId ?? flight.runway,
+      taxiway: routeSample.edge?.taxiwayId ?? flight.taxiway,
+      surfaceNode: routeSample.nearestNodeId,
+      surfaceEdge: routeSample.edge?.id,
+    };
   }
 
   const runwayAnchor = flight.phase === 'taxi-in'

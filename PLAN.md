@@ -21,6 +21,7 @@ The current TypeScript/Vite/Three.js build already includes, or has a first pass
 - Night mode and optional radar/route overlays.
 - Aircraft categories, airline profiles, registrations, callsigns, procedures, and liveries.
 - Approach, landing, taxi-in, gate/rest, taxi-out, and takeoff phases.
+- A serializable airport surface graph with named taxiways, stands, intersections, runway access, and hold-short nodes.
 - Runway-entry and runway-crossing clearances, hold-short state, runway reservations, and conflict predictions.
 - Emergency actions including go-around and disabled aircraft.
 - Multiple controller stations: tower, ground, approach, and supervisor.
@@ -56,8 +57,8 @@ These rules protect the core fantasy and should be enforced in the simulation la
 
 - [ ] Replace phase-only movement with an explicit state machine plus continuous kinematics.
 - [ ] Define aircraft position, heading, altitude, speed, acceleration, and turn rate in simulation units.
-- [ ] Add an airport surface graph: runways, taxiways, ramps, stands, intersections, and hold-short nodes.
-- [ ] Give every taxiway a stable name and direction-aware segments.
+- [x] Add an airport surface graph: runways, taxiways, ramps, stands, intersections, and hold-short nodes.
+- [x] Give every taxiway a stable name and direction-aware segments.
 - [ ] Add runway threshold, touchdown zone, rollout, exit, and takeoff-rotation nodes.
 - [ ] Add runway occupancy intervals and a reservation queue per runway end.
 - [ ] Add runway crossing requests with a specific route and list of runways to cross.
@@ -389,7 +390,7 @@ Every command should be validated by the same safety layer used by the UI. An ag
 
 ## First 12 implementation tickets
 
-1. Add a serializable `AirportSurfaceGraph` with named taxiways, stands, intersections, and hold-short nodes.
+1. [x] Add a serializable `AirportSurfaceGraph` with named taxiways, stands, intersections, and hold-short nodes.
 2. Add a fixed-step simulation test harness with seeded time advancement.
 3. Add collision envelopes and assert no aircraft-aircraft or aircraft-building overlap.
 4. Implement continuous arrival splines from edge entry through touchdown and rollout.

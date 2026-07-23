@@ -1,3 +1,5 @@
+import { buildAirportSurfaceGraph, type AirportSurfaceGraph } from './surfaceGraph';
+
 export type FlightColor = 'rose' | 'mist' | 'sage';
 export type TerrainTheme = 'coast' | 'highland' | 'woodland';
 
@@ -26,7 +28,10 @@ export interface AirportConfig {
   annualOperations: number | null;
   trafficInterval: number;
   trafficCap: number;
+  surfaceGraph: AirportSurfaceGraph;
 }
+
+type AirportConfigSource = Omit<AirportConfig, 'surfaceGraph'>;
 
 type HubProfile = {
   code: string;
@@ -168,7 +173,7 @@ export function generateAirportConfig(seed = Math.floor(Math.random() * 0x7fffff
   const terrain = (['coast', 'highland', 'woodland'] as TerrainTheme[])[Math.floor(random() * 3)];
   const terminalBase: [number, number] = runwayCount === 1 ? [0, -24] : [-2, -4];
   const terminal = rotate(terminalBase, quarterTurn);
-  return {
+  return withSurfaceGraph({
     seed,
     name: NAMES[Math.floor(random() * NAMES.length)],
     code: 'LOCAL',
@@ -181,7 +186,7 @@ export function generateAirportConfig(seed = Math.floor(Math.random() * 0x7fffff
     annualOperations: null,
     trafficInterval: 7.2,
     trafficCap: 6,
-  };
+  });
 }
 
 export function generateHubConfig(index = 0): AirportConfig {
@@ -197,7 +202,7 @@ export function generateHubConfig(index = 0): AirportConfig {
     role: runway.role,
     designation: runway.designation,
   }));
-  return {
+  return withSurfaceGraph({
     seed: index + 10_000,
     name: profile.name,
     code: profile.code,
@@ -210,7 +215,11 @@ export function generateHubConfig(index = 0): AirportConfig {
     annualOperations: profile.operations,
     trafficInterval: profile.interval,
     trafficCap: Math.max(8, Math.round(8 + (profile.operations - 450_000) / 90_000)),
-  };
+  });
+}
+
+function withSurfaceGraph(config: AirportConfigSource): AirportConfig {
+  return { ...config, surfaceGraph: buildAirportSurfaceGraph(config) };
 }
 
 function rotate(point: [number, number], angle: number): [number, number] {

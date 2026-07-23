@@ -3,6 +3,7 @@ import type { AirportEvent, AirportState, ConflictPrediction, ControlMode, Contr
 import { AIRCRAFT_ROSTER, aircraftProfile, type AircraftModel } from './aircraftProfiles';
 import { AIRPORT_AIRLINES, airlineProfile, type AirlineCode } from './airlineProfiles';
 import { findFlightConflicts, findProposedConflict } from './collisionDetection';
+import { sampleSurfaceRoute, surfaceRouteForFlight, validateAirportSurfaceGraph, type SurfaceGraphValidation } from './surfaceGraph';
 
 const PHASE_DURATION: Record<FlightPhase, number> = {
   approach: 38,
@@ -51,6 +52,7 @@ export class AirportSimulation {
   private weatherOverrideUntil = 0;
   private closedRunway: number | null = null;
   private autoSurfaceOwnerId: number | null = null;
+  private readonly surfaceGraphValidation: SurfaceGraphValidation;
   private readonly metrics: ShiftMetrics = {
     safeArrivals: 0,
     safeDepartures: 0,
@@ -72,6 +74,7 @@ export class AirportSimulation {
     const reference = config.runways.find((runway) => runway.role !== 'inactive') ?? config.runways[0];
     this.baseWindDirection = this.normalizeAngle(reference.heading + (reference.landingEnd === 1 ? Math.PI : 0) + Math.sin(config.seed) * 0.32);
     this.baseWindSpeed = 8 + config.seed % 7;
+    this.surfaceGraphValidation = validateAirportSurfaceGraph(config);
     this.updateWeather();
   }
 
@@ -339,6 +342,7 @@ export class AirportSimulation {
       }
       flight.progress = Math.min(1, flight.phaseElapsed / flight.duration);
       const surfaceClock = flight.phase === 'taxi-in' || flight.phase === 'resting' || flight.phase === 'taxi-out';
+      if (surfaceClock) this.updateSurfaceRouteState(flight);
       this.updateFlightKinematics(flight, surfaceClock ? realStep : delta, flightDelta > 0);
 
       if (flight.progress >= 1) this.advance(flight);
@@ -367,7 +371,7 @@ export class AirportSimulation {
     return result;
   }
 
-  diagnostics(): { flow: 'continuous'; approachCapacity: number; nextArrivalIn: number; activeFlights: number; runwayReservations: Array<{ runway: number; flight: number }>; scenario: TrafficScenario; closedRunway: number | null; predictions: ConflictPrediction[]; collisions: ReturnType<typeof findFlightConflicts>; metrics: ShiftMetrics } {
+  diagnostics(): { flow: 'continuous'; approachCapacity: number; nextArrivalIn: number; activeFlights: number; runwayReservations: Array<{ runway: number; flight: number }>; scenario: TrafficScenario; closedRunway: number | null; predictions: ConflictPrediction[]; collisions: ReturnType<typeof findFlightConflicts>; metrics: ShiftMetrics; surfaceGraph: SurfaceGraphValidation } {
     return {
       flow: 'continuous',
       approachCapacity: this.weatherApproachCapacity(),
@@ -379,6 +383,7 @@ export class AirportSimulation {
       predictions: this.conflictPredictions(),
       collisions: findFlightConflicts(this.config, this.state.flights),
       metrics: this.shiftMetrics(),
+      surfaceGraph: this.surfaceGraphValidation,
     };
   }
 
@@ -438,6 +443,7 @@ export class AirportSimulation {
         fuelPercent: 38 + ((id * 17 + Math.abs(this.config.seed)) % 34),
       },
     };
+    flight.standId = this.config.surfaceGraph.stands.find((stand) => stand.slot === flight.gateSlot)?.id;
 
     if (this.state.scenario === 'emergency' && id === 1) flight.emergency = 'medical';
 
@@ -470,7 +476,6 @@ export class AirportSimulation {
       flight.runway = departureRunway;
       flight.operatingEnd = this.preferredOperatingEnd(flight.runway);
       flight.palette = this.config.runways[flight.runway].color;
-      flight.taxiway = this.taxiwayName(flight.runway);
       flight.holdShortRunway = flight.runway;
       flight.holdNotified = false;
       flight.runwayEntryCleared = false;
@@ -507,17 +512,20 @@ export class AirportSimulation {
     flight.controlPattern = undefined;
     flight.controlPatternStart = undefined;
     flight.duration = this.phaseDuration(flight.aircraft, next);
+    if (next === 'taxi-in' || next === 'resting' || next === 'taxi-out') this.assignSurfaceRoute(flight, next);
 
     if (next === 'taxi-in') {
-      flight.taxiway = this.taxiwayName(flight.runway);
       this.state.arrivals += 1;
       this.metrics.safeArrivals += 1;
       this.events.push({ type: 'land', flight });
       this.events.push({ type: 'chime', flight });
     }
-    if (next === 'resting') flight.taxiway = 'TERMINAL APRON';
     if (next === 'takeoff') {
       flight.taxiway = undefined;
+      flight.surfaceRoute = undefined;
+      flight.surfaceRouteEdges = undefined;
+      flight.surfaceNode = undefined;
+      flight.surfaceEdge = undefined;
       flight.holdShortRunway = undefined;
     }
   }
@@ -714,7 +722,7 @@ export class AirportSimulation {
         : this.lerp(profile.approachKts, profile.taxiKts + 3, this.smoothRange(flight.progress, 0.12, 0.9));
       acceleration = this.effectiveLandingBraking(profile);
       targetAltitude = 50 * (1 - this.smoothRange(flight.progress, 0.12, 0.55));
-      altitudeRateFpm = 720;
+      altitudeRateFpm = this.lerp(720, 160, this.smoothRange(flight.progress, 0, 0.28));
     } else if (flight.phase === 'taxi-in') {
       targetSpeed = profile.taxiKts * (1 - this.smoothRange(flight.progress, 0.62, 1));
       acceleration = targetSpeed < previousSpeed ? Math.min(1.4, profile.brakingMps2) : Math.min(0.85, profile.accelerationMps2);
@@ -831,6 +839,32 @@ export class AirportSimulation {
     if (this.config.code !== 'ORD') return `TAXIWAY ${String.fromCharCode(65 + runway % 20)}`;
     const centerY = this.config.runways[runway].center[1];
     return centerY >= 8 ? 'NORTH PERIMETER' : centerY <= -8 ? 'SOUTH PERIMETER' : 'EAST PERIMETER';
+  }
+
+  private assignSurfaceRoute(flight: Flight, phase: 'taxi-in' | 'resting' | 'taxi-out'): void {
+    const route = surfaceRouteForFlight(this.config.surfaceGraph, flight.runway, flight.operatingEnd, phase, flight.gateSlot);
+    flight.surfaceRoute = route?.nodeIds;
+    flight.surfaceRouteEdges = route?.edgeIds;
+    flight.standId = this.config.surfaceGraph.stands.find((stand) => stand.slot === flight.gateSlot)?.id;
+    flight.surfaceNode = route?.nodeIds[0];
+    flight.surfaceEdge = route?.edgeIds[0];
+    if (phase === 'resting') {
+      const stand = this.config.surfaceGraph.stands.find((item) => item.slot === flight.gateSlot);
+      const apron = this.config.surfaceGraph.taxiways.find((taxiway) => taxiway.id === stand?.apronTaxiwayId);
+      flight.taxiway = apron?.name ?? 'Terminal Apron';
+      return;
+    }
+    const firstTaxiwayId = route?.taxiwayIds[0];
+    flight.taxiway = this.config.surfaceGraph.taxiways.find((taxiway) => taxiway.id === firstTaxiwayId)?.name ?? this.taxiwayName(flight.runway);
+    this.updateSurfaceRouteState(flight);
+  }
+
+  private updateSurfaceRouteState(flight: Flight): void {
+    const sample = sampleSurfaceRoute(this.config.surfaceGraph, flight.surfaceRoute, flight.progress);
+    if (!sample) return;
+    flight.surfaceNode = sample.nearestNodeId;
+    flight.surfaceEdge = sample.edge?.id;
+    if (sample.edge?.taxiwayId) flight.taxiway = sample.edge.name;
   }
 
   private intersectingRunways(runwayId: number): number[] {

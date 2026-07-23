@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { AirportConfig, FlightColor, RunwayConfig } from '../simulation/airportConfig';
-import { aircraftProfile, type AircraftModel } from '../simulation/aircraftProfiles';
+import { aircraftProfile } from '../simulation/aircraftProfiles';
 import { airlineProfile } from '../simulation/airlineProfiles';
 import type { AirportState, Flight, FlightPhase } from '../simulation/types';
 
@@ -183,10 +183,10 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
       }
       visual.active = true;
       if (visual.routePhase !== flight.phase || !visual.route) {
-        const key = `${flight.runway}:${flight.operatingEnd}:${flight.phase}:${flight.id % 2}:${flight.gateSlot}:${flight.aircraft}`;
+        const key = `${flight.runway}:${flight.operatingEnd}:${flight.phase}:${flight.id % 2}:${flight.gateSlot}:${flight.aircraft}:${flight.surfaceRoute?.join('>') ?? ''}`;
         let route = flightRoutes.get(key);
         if (!route) {
-          route = routeFor(config, flight.runway, flight.operatingEnd, flight.phase, flight.id, flight.gateSlot, flight.aircraft);
+          route = routeFor(config, flight);
           flightRoutes.set(key, route);
         }
         visual.route = route;
@@ -477,40 +477,21 @@ function buildAirport(root: THREE.Group, config: AirportConfig): RunwayLight[] {
   });
 
   const taxiMaterial = new THREE.MeshStandardMaterial({ color: 0x515b58, roughness: 0.96 });
-  const terminalCenter = new THREE.Vector3(config.terminal[0], config.terminal[1], 2);
-  const gateLayout = airportGateLayout(config);
-  for (const apronSide of [-1, 1]) {
-    const gateY = terminalCenter.y + apronSide * gateLayout.sideOffset;
-    const laneY = gateY + apronSide * gateLayout.laneOffset;
-    const apronHalfWidth = (gateLayout.columns - 1) * gateLayout.spacing / 2 + 5;
+  const surfaceNodes = new Map(config.surfaceGraph.nodes.map((node) => [node.id, node]));
+  for (const edge of config.surfaceGraph.edges) {
+    if (edge.kind === 'runway') continue;
+    const from = surfaceNodes.get(edge.from);
+    const to = surfaceNodes.get(edge.to);
+    if (!from || !to) continue;
     addTaxiPath(root, [
-      new THREE.Vector3(terminalCenter.x - apronHalfWidth, laneY, 2),
-      new THREE.Vector3(terminalCenter.x + apronHalfWidth, laneY, 2),
-    ], taxiMaterial);
-    for (let gate = 0; gate < gateLayout.columns; gate += 1) {
-      const gateX = terminalCenter.x + (gate - (gateLayout.columns - 1) / 2) * gateLayout.spacing;
-      addTaxiPath(root, [new THREE.Vector3(gateX, laneY, 2), new THREE.Vector3(gateX, gateY, 2)], taxiMaterial);
-    }
+      new THREE.Vector3(from.position[0], from.position[1], 2),
+      new THREE.Vector3(to.position[0], to.position[1], 2),
+    ], taxiMaterial, edge.width);
   }
-  config.runways.forEach((runway) => {
-    const anchors: THREE.Vector3[] = [];
-    if (runway.role === 'arrival' || runway.role === 'mixed') {
-      anchors.push(runwayEnd(runway, -1, -5), runwayEnd(runway, 1, -5));
-    }
-    if (runway.role === 'departure' || runway.role === 'mixed') {
-      for (const operatingEnd of [-1, 1] as const) {
-        const holdShort = runwayEnd(runway, operatingEnd, 8);
-        anchors.push(holdShort);
-        addHoldShortMarking(root, runway, holdShort);
-      }
-    }
-    for (const anchor of anchors) {
-      for (const apronSide of [-1, 1]) {
-        const apronGate = new THREE.Vector3(terminalCenter.x, terminalCenter.y + apronSide * gateLayout.sideOffset, 2);
-        addTaxiPath(root, taxiRoutePoints(config, runway, anchor, apronGate), taxiMaterial);
-      }
-    }
-  });
+  for (const node of config.surfaceGraph.nodes.filter((item) => item.kind === 'hold-short')) {
+    const runway = node.runwayId === undefined ? undefined : config.runways[node.runwayId];
+    if (runway) addHoldShortMarking(root, runway, new THREE.Vector3(node.position[0], node.position[1], 2));
+  }
 
   const terminal = new THREE.Group();
   terminal.position.set(config.terminal[0], config.terminal[1], 1.7);
@@ -960,8 +941,16 @@ function positionFlight(visual: FlightVisual, flight: Flight, elapsed: number, c
     || flight.phase === 'taxi-out'
     || (flight.phase === 'takeoff' && groundFactor > 0.12);
   visual.root.rotation.x = airborne ? Math.sin(elapsed * 0.8 + flight.id) * 0.035 : 0;
-  visual.root.rotation.y = flight.phase === 'landing'
-    ? -0.08 * (1 - flight.progress)
+  const approachFlare = flight.phase === 'approach'
+    ? THREE.MathUtils.smoothstep(flight.progress, 0.84, 1)
+    : 0;
+  const landingFlare = flight.phase === 'landing'
+    ? 1 - THREE.MathUtils.smoothstep(flight.progress, 0.34, 0.72)
+    : 0;
+  visual.root.rotation.y = flight.phase === 'approach'
+    ? -0.11 * approachFlare
+    : flight.phase === 'landing'
+      ? -0.11 * landingFlare
     : flight.phase === 'takeoff'
       ? Math.min(0.12, Math.max(0, point.z - 2.2) * 0.018)
       : 0;
@@ -1011,22 +1000,26 @@ function controlledRoutePoint(
   return target;
 }
 
-function routeFor(config: AirportConfig, runwayId: number, operatingEnd: -1 | 1, phase: FlightPhase, flightId: number, gateSlot: number, aircraft: AircraftModel): THREE.CatmullRomCurve3 {
-  const runway = config.runways[runwayId];
-  const aircraftSpec = aircraftProfile(aircraft);
+function routeFor(config: AirportConfig, flight: Flight): THREE.CatmullRomCurve3 {
+  const runway = config.runways[flight.runway];
+  const aircraftSpec = aircraftProfile(flight.aircraft);
+  const operatingEnd = flight.operatingEnd;
+  const phase = flight.phase;
   const landingSign = operatingEnd;
   const takeoffSign = -landingSign as -1 | 1;
-  const lateralSign = flightId % 2 ? 1 : -1;
-  const terminal = new THREE.Vector3(config.terminal[0], config.terminal[1], 2);
-  const gateLayout = airportGateLayout(config);
-  terminal.x += (gateSlot % gateLayout.columns - (gateLayout.columns - 1) / 2) * gateLayout.spacing;
-  terminal.y += gateSlot < gateLayout.columns ? -gateLayout.sideOffset : gateLayout.sideOffset;
+  const lateralSign = flight.id % 2 ? 1 : -1;
   const landingThreshold = runwayEnd(runway, landingSign, -2, 4.2);
   const rolloutEnd = runwayEnd(runway, takeoffSign, -5, 2);
   const holdShort = runwayEnd(runway, landingSign, 8, 2);
   const takeoffStart = runwayEnd(runway, landingSign, -3, 2);
   const takeoffEnd = runwayEnd(runway, takeoffSign, -2, 2.2);
   const side = new THREE.Vector3(-Math.sin(runway.heading), Math.cos(runway.heading), 0);
+  const surfacePoints = surfaceRoutePoints(config, flight);
+  const stand = config.surfaceGraph.stands.find((item) => item.slot === flight.gateSlot);
+  const standNode = stand ? config.surfaceGraph.nodes.find((node) => node.id === stand.nodeId) : undefined;
+  const standPoint = standNode
+    ? new THREE.Vector3(standNode.position[0], standNode.position[1], 2)
+    : new THREE.Vector3(config.terminal[0], config.terminal[1], 2);
   const routeByPhase: Record<FlightPhase, THREE.Vector3[]> = {
     approach: [
       runwayEnd(runway, landingSign, config.scope === 'center' ? 265 : 175, config.scope === 'center' ? 28 : 32).addScaledVector(side, config.scope === 'center' ? 0 : lateralSign * Math.min(42, aircraftSpec.turnRadiusM / 28)),
@@ -1038,9 +1031,9 @@ function routeFor(config: AirportConfig, runwayId: number, operatingEnd: -1 | 1,
       landingThreshold,
     ],
     landing: [landingThreshold, runwayPoint(runway, landingSign * 0.72, 2.8), runwayPoint(runway, 0, 2.1), rolloutEnd],
-    'taxi-in': taxiRoutePoints(config, runway, rolloutEnd, terminal),
-    resting: [terminal, terminal.clone()],
-    'taxi-out': taxiRoutePoints(config, runway, holdShort, terminal).reverse(),
+    'taxi-in': surfacePoints.length >= 2 ? surfacePoints : [rolloutEnd, standPoint],
+    resting: surfacePoints.length ? [surfacePoints[0], surfacePoints[0].clone()] : [standPoint, standPoint.clone()],
+    'taxi-out': surfacePoints.length >= 2 ? surfacePoints : [standPoint, holdShort],
     takeoff: [
       holdShort,
       takeoffStart,
@@ -1057,6 +1050,15 @@ function routeFor(config: AirportConfig, runwayId: number, operatingEnd: -1 | 1,
   };
   const points = routeByPhase[phase];
   return new THREE.CatmullRomCurve3(points, false, 'centripetal');
+}
+
+function surfaceRoutePoints(config: AirportConfig, flight: Flight): THREE.Vector3[] {
+  if (!flight.surfaceRoute?.length) return [];
+  const nodes = new Map(config.surfaceGraph.nodes.map((node) => [node.id, node]));
+  return flight.surfaceRoute
+    .map((id) => nodes.get(id))
+    .filter((node): node is NonNullable<typeof node> => Boolean(node))
+    .map((node) => new THREE.Vector3(node.position[0], node.position[1], 2));
 }
 
 function addHoldShortMarking(root: THREE.Group, runway: RunwayConfig, point: THREE.Vector3): void {
@@ -1090,87 +1092,9 @@ function runwayEnd(runway: RunwayConfig, sign: number, beyond = 0, z = 2): THREE
   return new THREE.Vector3(runway.center[0] + Math.cos(runway.heading) * distance, runway.center[1] + Math.sin(runway.heading) * distance, z);
 }
 
-export function taxiRoutePoints(config: AirportConfig, runway: RunwayConfig, anchor: THREE.Vector3, gate: THREE.Vector3): THREE.Vector3[] {
-  if (config.code === 'ORD') return oharePerimeterTaxiRoute(config, runway, anchor, gate);
-  const center = new THREE.Vector3(config.terminal[0], config.terminal[1], 2);
-  const runwaySide = new THREE.Vector3(-Math.sin(runway.heading), Math.cos(runway.heading), 0);
-  if (center.clone().sub(anchor).dot(runwaySide) < 0) runwaySide.multiplyScalar(-1);
-  const turnoff = anchor.clone().addScaledVector(runwaySide, 8);
-  const detourSign = turnoff.x >= center.x ? 1 : -1;
-  const gateLayout = airportGateLayout(config);
-  const perimeterX = center.x + detourSign * ((gateLayout.columns - 1) * gateLayout.spacing / 2 + 8);
-  const gateSide = Math.sign(gate.y - center.y) || 1;
-  const laneY = gate.y + gateSide * gateLayout.laneOffset;
-  return [
-    anchor.clone(),
-    turnoff,
-    new THREE.Vector3(perimeterX, turnoff.y, 2),
-    new THREE.Vector3(perimeterX, laneY, 2),
-    new THREE.Vector3(gate.x, laneY, 2),
-    gate.clone(),
-  ];
-}
-
-function oharePerimeterTaxiRoute(config: AirportConfig, runway: RunwayConfig, anchor: THREE.Vector3, gate: THREE.Vector3): THREE.Vector3[] {
-  const padding = 14;
-  let left = Infinity;
-  let right = -Infinity;
-  let bottom = Infinity;
-  let top = -Infinity;
-  for (const item of config.runways) {
-    const extentX = Math.abs(Math.cos(item.heading)) * item.length / 2 + item.width / 2;
-    const extentY = Math.abs(Math.sin(item.heading)) * item.length / 2 + item.width / 2;
-    left = Math.min(left, item.center[0] - extentX - padding);
-    right = Math.max(right, item.center[0] + extentX + padding);
-    bottom = Math.min(bottom, item.center[1] - extentY - padding);
-    top = Math.max(top, item.center[1] + extentY + padding);
-  }
-  right = Math.max(right, config.terminal[0] + 28);
-
-  const direction = new THREE.Vector3(Math.cos(runway.heading), Math.sin(runway.heading), 0);
-  const sign = anchor.clone().sub(new THREE.Vector3(runway.center[0], runway.center[1], 2)).dot(direction) >= 0 ? 1 : -1;
-  const exit = runwayEnd(runway, sign, 12, 2);
-  const outward = direction.clone().multiplyScalar(sign);
-  const gateLayout = airportGateLayout(config);
-  const gateSide = Math.sign(gate.y - config.terminal[1]) || 1;
-  const laneY = gate.y + gateSide * gateLayout.laneOffset;
-  const points = [anchor.clone(), exit];
-
-  if (Math.abs(outward.x) >= Math.abs(outward.y)) {
-    if (outward.x > 0) {
-      points.push(new THREE.Vector3(right, exit.y, 2), new THREE.Vector3(right, laneY, 2));
-    } else {
-      const outerY = exit.y >= 0 ? top : bottom;
-      points.push(
-        new THREE.Vector3(left, exit.y, 2),
-        new THREE.Vector3(left, outerY, 2),
-        new THREE.Vector3(right, outerY, 2),
-        new THREE.Vector3(right, laneY, 2),
-      );
-    }
-  } else {
-    const outerY = outward.y > 0 ? top : bottom;
-    points.push(
-      new THREE.Vector3(exit.x, outerY, 2),
-      new THREE.Vector3(right, outerY, 2),
-      new THREE.Vector3(right, laneY, 2),
-    );
-  }
-
-  points.push(new THREE.Vector3(gate.x, laneY, 2), gate.clone());
-  return points;
-}
-
-function airportGateLayout(config: AirportConfig): { columns: number; spacing: number; sideOffset: number; laneOffset: number } {
-  return config.scope === 'center'
-    ? { columns: 6, spacing: 8.5, sideOffset: 9, laneOffset: 6 }
-    : { columns: 3, spacing: 10.5, sideOffset: 10, laneOffset: 6.5 };
-}
-
-function addTaxiPath(root: THREE.Group, points: THREE.Vector3[], material: THREE.Material): void {
+function addTaxiPath(root: THREE.Group, points: THREE.Vector3[], material: THREE.Material, width = 8): void {
   const curve = new THREE.CatmullRomCurve3(points, false, 'centripetal');
   const segments = 48;
-  const width = 8;
   const positions: number[] = [];
   const indices: number[] = [];
   for (let index = 0; index <= segments; index += 1) {
