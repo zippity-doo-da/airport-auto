@@ -74,6 +74,14 @@
         </nav>
       </aside>
 
+      <aside id="flight-strip" class="flight-strip" aria-label="Live flight information">
+        <button id="flight-strip-toggle" class="flight-strip__toggle" type="button" aria-controls="flight-chips" aria-expanded="true">
+          <span><b>Live traffic</b><small id="flight-strip-count">0 aircraft</small></span>
+          <i aria-hidden="true">−</i>
+        </button>
+        <div id="flight-chips" class="flight-chips" role="list"></div>
+      </aside>
+
       <section class="scoreboard" aria-label="Shift score">
         <div><strong id="landed-count">00</strong><span>Landed</span></div>
         <i aria-hidden="true"></i>

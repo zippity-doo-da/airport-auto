@@ -3,7 +3,7 @@ import { AirportSimulation } from './simulation/airportSimulation';
 import { generateAirportConfig, generateHubConfig, HUB_AIRPORTS } from './simulation/airportConfig';
 import { aircraftProfile } from './simulation/aircraftProfiles';
 import { airlineProfile } from './simulation/airlineProfiles';
-import type { ControlMode, ControllerStation, EmergencyType, FlightInstruction, ReplayFrame, TrafficScenario, WeatherCondition } from './simulation/types';
+import type { ControlMode, ControllerStation, EmergencyType, FlightInstruction, FlightPhase, ReplayFrame, TrafficScenario, WeatherCondition } from './simulation/types';
 import { AmbientAudio } from './audio/ambientAudio';
 import { createWorld } from './render/createWorld';
 
@@ -120,6 +120,10 @@ const replaySlider = $<HTMLInputElement>('#replay-slider');
 const replayTime = $<HTMLOutputElement>('#replay-time');
 const replayExport = $<HTMLButtonElement>('#replay-export');
 const safetyScore = $<HTMLElement>('#safety-score');
+const flightStrip = $<HTMLElement>('#flight-strip');
+const flightStripToggle = $<HTMLButtonElement>('#flight-strip-toggle');
+const flightStripCount = $<HTMLElement>('#flight-strip-count');
+const flightChips = $<HTMLElement>('#flight-chips');
 
 let lastTime = performance.now();
 let audioUpdateIn = 0;
@@ -136,6 +140,8 @@ let lastWeatherCondition: WeatherCondition | null = null;
 let lastPredictionKey = '';
 let replayIndex = -1;
 let replayMode = false;
+let focusedFlightId: number | null = null;
+let lastFlightStripRender = -Infinity;
 const replayFrames: ReplayFrame[] = [];
 const telemetryEvents: TelemetryEvent[] = [];
 const launchOptions = new URLSearchParams(window.location.search);
@@ -143,6 +149,7 @@ const telemetryEnabled = launchOptions.get('telemetry') === '1';
 updateAirportUi();
 updateNightControl();
 updateRadarControl();
+renderFlightStrip();
 
 function startShift(): void {
   setControlPanelOpen(false);
@@ -152,6 +159,22 @@ function startShift(): void {
 }
 
 enterButton.addEventListener('click', startShift);
+flightStripToggle.addEventListener('click', () => {
+  const collapsed = flightStrip.classList.toggle('flight-strip--collapsed');
+  flightStripToggle.setAttribute('aria-expanded', String(!collapsed));
+  flightStripToggle.querySelector('i')!.textContent = collapsed ? '+' : '−';
+});
+flightChips.addEventListener('click', (event) => {
+  const chip = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-flight-chip]');
+  if (!chip) return;
+  const flightId = Number(chip.dataset.flightChip);
+  const flight = simulation.state.flights.find((item) => item.id === flightId);
+  if (!flight) return;
+  focusedFlightId = flightId;
+  world.selectFlight(flightId);
+  renderFlightStrip();
+  setStatus(`${flight.callsign} tracked`, `${flight.aircraft} · ${formatPhase(flight.phase)} · runway ${runwayDesignation(flight.runway)}`);
+});
 menuButton.addEventListener('click', (event) => {
   event.stopPropagation();
   setControlPanelOpen(!controlPanel.classList.contains('control-panel--open'));
@@ -273,6 +296,8 @@ canvas.addEventListener('pointerdown', (event) => {
   routePoints = [world.flightScreenPosition(flight.id) ?? { x: event.clientX, y: event.clientY }, { x: event.clientX, y: event.clientY }];
   canvas.setPointerCapture(event.pointerId);
   world.selectFlight(flight.id);
+  focusedFlightId = flight.id;
+  renderFlightStrip();
   routePath.style.setProperty('--route-color', flight.palette === 'rose' ? '#ef937f' : '#79c8e8');
   routeShadow.style.setProperty('--route-color', flight.palette === 'rose' ? '#ef937f' : '#79c8e8');
   routePath.classList.add('route--active');
@@ -325,6 +350,10 @@ function frame(now: number): void {
   if (audioUpdateIn <= 0) {
     audio.setBreeze(simulation.state.breeze);
     audioUpdateIn = 0.25;
+  }
+  if (now - lastFlightStripRender >= 200) {
+    renderFlightStrip();
+    lastFlightStripRender = now;
   }
 
   const hudSecond = Math.floor(simulation.state.elapsed);
@@ -382,6 +411,7 @@ function frame(now: number): void {
     }
     if (event.type === 'runway-entry') setStatus(`${event.flight.callsign} cleared onto runway`, `${event.taxiway} · runway ${runwayDesignation(event.runway ?? event.flight.runway)}`);
     if (event.type === 'runway-crossing') setStatus(`${event.flight.callsign} crossing clearance`, `cross runway ${runwayDesignation(event.runway ?? event.flight.runway)}`);
+    if (event.type === 'safety-hold') setStatus(`${event.flight.callsign} held for separation`, event.flight.safetyHoldReason ?? 'protected traffic envelope occupied');
     if (event.type === 'depart') setStatus(`${event.flight.callsign} is away`, 'departure corridor is clear');
     if (event.type === 'conflict') showGameOver(event.flight.callsign);
     if (event.type === 'emergency') setStatus(`${event.flight.callsign} emergency`, `${event.flight.emergency} · priority handling active`);
@@ -395,6 +425,66 @@ function frame(now: number): void {
     lastTelemetrySecond = hudSecond;
   }
   requestAnimationFrame(frame);
+}
+
+function renderFlightStrip(): void {
+  const phaseOrder: Record<FlightPhase, number> = { landing: 0, approach: 1, takeoff: 2, 'taxi-in': 3, 'taxi-out': 4, resting: 5 };
+  const flights = [...simulation.state.flights].sort((first, second) => phaseOrder[first.phase] - phaseOrder[second.phase] || first.id - second.id);
+  if (focusedFlightId !== null && !flights.some((flight) => flight.id === focusedFlightId)) focusedFlightId = null;
+  flightStripCount.textContent = `${flights.length} aircraft`;
+  if (!flights.length) {
+    flightChips.innerHTML = '<p class="flight-chips__empty">No active tracks<br />waiting at the edge of the scope</p>';
+    return;
+  }
+
+  flightChips.innerHTML = flights.map((flight) => {
+    const kinematics = flight.kinematics;
+    const surface = flight.phase === 'taxi-in' || flight.phase === 'taxi-out' || flight.phase === 'resting';
+    const held = Boolean(flight.controlHold || flight.automaticHold || flight.safetyHold);
+    const speed = surface ? kinematics.groundSpeedKts : kinematics.airspeedKts;
+    const speedLabel = surface ? 'GS' : 'IAS';
+    const altitude = Math.max(0, Math.round(kinematics.altitudeFt / 10) * 10);
+    const verticalSpeed = Math.round(kinematics.verticalSpeedFpm / 100) * 100;
+    const verticalText = Math.abs(verticalSpeed) < 100
+      ? 'LEVEL'
+      : `${verticalSpeed > 0 ? '↑' : '↓'} ${Math.abs(verticalSpeed).toLocaleString()} FPM`;
+    const acceleration = kinematics.accelerationMps2;
+    const motionText = acceleration > 0.06
+      ? `ACC +${acceleration.toFixed(1)} M/S²`
+      : acceleration < -0.06
+        ? `BRAKE ${acceleration.toFixed(1)} M/S²`
+        : 'SPEED STABLE';
+    const fuel = Math.max(0, Math.min(100, kinematics.fuelPercent));
+    const accent = flight.palette === 'rose' ? 'var(--rose)' : flight.palette === 'sage' ? '#9bc8a0' : 'var(--blue)';
+    const classes = [
+      'flight-chip',
+      focusedFlightId === flight.id ? 'flight-chip--selected' : '',
+      held ? 'flight-chip--hold' : '',
+      flight.emergency ? 'flight-chip--emergency' : '',
+      fuel < 15 ? 'flight-chip--low-fuel' : '',
+    ].filter(Boolean).join(' ');
+    const phase = held ? 'Hold' : formatPhase(flight.phase);
+    const detail = `${flight.aircraft} · ${formatPhase(flight.phase)} · RWY ${runwayDesignation(flight.runway)}`;
+    const aria = `${flight.callsign}, ${flight.aircraft}, ${phase}, fuel ${fuel.toFixed(0)} percent, ${speedLabel} ${speed.toFixed(0)} knots, altitude ${altitude} feet`;
+    return `<div role="listitem"><button class="${classes}" type="button" data-flight-chip="${flight.id}" style="--flight-accent:${accent};--fuel:${fuel.toFixed(1)}%" aria-label="${escapeHtml(aria)}">
+      <span class="flight-chip__identity"><strong>${escapeHtml(flight.callsign)}</strong><span>${escapeHtml(phase)}</span></span>
+      <span class="flight-chip__metrics">
+        <span class="flight-chip__metric"><small>Fuel</small><b>${fuel.toFixed(0)}<em>%</em></b></span>
+        <span class="flight-chip__metric"><small>${speedLabel}</small><b>${Math.round(speed)}<em>KT</em></b></span>
+        <span class="flight-chip__metric"><small>Altitude</small><b>${altitude.toLocaleString()}<em>FT</em></b></span>
+      </span>
+      <span class="flight-chip__detail"><span>${escapeHtml(detail)}</span><span class="flight-chip__trend">${verticalText} · ${motionText}</span></span>
+      <span class="flight-chip__fuel" aria-hidden="true"><i></i></span>
+    </button></div>`;
+  }).join('');
+}
+
+function formatPhase(phase: FlightPhase): string {
+  return phase.replace('-', ' ');
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character] ?? character);
 }
 
 telemetryControls.addEventListener('click', (event) => {
@@ -439,7 +529,7 @@ function renderTelemetryControls(): void {
     const entry = flight.phase !== 'taxi-out' || flight.progress < 0.995 || flight.runwayEntryCleared
       ? ''
       : `<button data-action="entry" data-flight="${flight.id}">Clear enter ${runwayDesignation(flight.runway)}</button>`;
-    const directive = flight.controlHold ? ' · HELD' : flight.controlPattern === 'zigzag' ? ' · ZIGZAG' : flight.controlPace && flight.controlPace !== 1 ? ` · ${flight.controlPace < 1 ? 'SLOW' : 'EXPEDITE'}` : '';
+    const directive = flight.safetyHold ? ' · SAFETY HOLD' : flight.controlHold ? ' · HELD' : flight.controlPattern === 'zigzag' ? ' · ZIGZAG' : flight.controlPace && flight.controlPace !== 1 ? ` · ${flight.controlPace < 1 ? 'SLOW' : 'EXPEDITE'}` : '';
     const profile = aircraftProfile(flight.aircraft);
     const airline = airlineProfile(flight.airline);
     return `<div class="telemetry__flight"><strong>${flight.callsign} · ${flight.aircraft} · ${flight.phase.toUpperCase()}${flight.taxiway ? ` · ${flight.taxiway}` : ''}${directive}</strong><small>${airline.name} · ${flight.registration} · ${flight.service} · ${profile.name} · ${profile.wakeClass} wake · ${profile.approachKts} kt approach</small>${flightControls}${crossings}${entry}</div>`;
@@ -554,6 +644,8 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   updateAirportUi();
   clearRoute();
   replayFrames.length = 0;
+  focusedFlightId = null;
+  renderFlightStrip();
   lastPredictionKey = '';
   replayMode = false;
   replayIndex = -1;
@@ -767,6 +859,14 @@ function airportSnapshot() {
       operatingEnd: flight.operatingEnd,
       activeRunwayEnd: config.runways[flight.runway]?.designation?.[flight.operatingEnd === 1 ? 1 : 0],
       progress: Number(flight.progress.toFixed(3)),
+      kinematics: {
+        airspeedKts: Number(flight.kinematics.airspeedKts.toFixed(1)),
+        groundSpeedKts: Number(flight.kinematics.groundSpeedKts.toFixed(1)),
+        altitudeFt: Math.round(flight.kinematics.altitudeFt),
+        verticalSpeedFpm: Math.round(flight.kinematics.verticalSpeedFpm),
+        accelerationMps2: Number(flight.kinematics.accelerationMps2.toFixed(2)),
+        fuelPercent: Number(flight.kinematics.fuelPercent.toFixed(2)),
+      },
       gateSlot: flight.gateSlot,
       cleared: flight.cleared,
       taxiway: flight.taxiway,
@@ -778,6 +878,8 @@ function airportSnapshot() {
         pace: flight.controlPace ?? 1,
         held: flight.controlHold ?? false,
         automaticHold: flight.automaticHold ?? false,
+        safetyHold: flight.safetyHold ?? false,
+        safetyHoldReason: flight.safetyHoldReason ?? null,
         pattern: flight.controlPattern ?? null,
       },
     })),
@@ -808,7 +910,11 @@ function executeAirportCommand(command: AirportControlCommand): ReturnType<typeo
     const callsigns = simulation.state.flights.filter((flight) => controlled.includes(flight.id)).map((flight) => flight.callsign);
     if (callsigns.length) setStatus(`${command.instruction.toUpperCase()} command`, callsigns.join(' · '));
   }
-  if (command.action === 'focusFlight') world.selectFlight(command.flightId);
+  if (command.action === 'focusFlight') {
+    focusedFlightId = command.flightId;
+    world.selectFlight(command.flightId);
+    renderFlightStrip();
+  }
   if (command.action === 'setScenario') setScenario(command.scenario);
   if (command.action === 'setStation') setStation(command.station);
   if (command.action === 'triggerEmergency') simulation.triggerEmergency(command.flightId, command.type);
@@ -821,7 +927,7 @@ function executeAirportCommand(command: AirportControlCommand): ReturnType<typeo
 }
 
 window.airportControl = {
-  version: '1.6.0',
+  version: '1.8.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },

@@ -2,15 +2,18 @@ import type { AirportConfig } from './airportConfig';
 import type { AirportEvent, AirportState, ConflictPrediction, ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, ShiftMetrics, TrafficScenario, WeatherCondition } from './types';
 import { AIRCRAFT_ROSTER, aircraftProfile, type AircraftModel } from './aircraftProfiles';
 import { AIRPORT_AIRLINES, airlineProfile, type AirlineCode } from './airlineProfiles';
+import { findFlightConflicts, findProposedConflict } from './collisionDetection';
 
 const PHASE_DURATION: Record<FlightPhase, number> = {
-  approach: 12,
-  landing: 5.5,
+  approach: 38,
+  landing: 34,
   'taxi-in': 18,
-  resting: 3.5,
+  resting: 10,
   'taxi-out': 20,
-  takeoff: 25,
+  takeoff: 48,
 };
+
+const KNOT_TO_MPS = 0.514444;
 
 const NEXT_PHASE: Partial<Record<FlightPhase, FlightPhase>> = {
   approach: 'landing',
@@ -59,6 +62,8 @@ export class AirportSimulation {
     taxiSeconds: 0,
     estimatedDelaySeconds: 0,
     emergencyResponses: 0,
+    safetyHolds: 0,
+    collisionAlerts: 0,
   };
 
   constructor(private readonly config: AirportConfig) {
@@ -257,7 +262,7 @@ export class AirportSimulation {
     this.closedRunway = null;
     this.state.scenario = 'normal';
     this.state.station = 'supervisor';
-    Object.assign(this.metrics, { safeArrivals: 0, safeDepartures: 0, preventedConflicts: 0, holdsIssued: 0, manualCommands: 0, maxConcurrent: 0, airborneSeconds: 0, taxiSeconds: 0, estimatedDelaySeconds: 0, emergencyResponses: 0 });
+    Object.assign(this.metrics, { safeArrivals: 0, safeDepartures: 0, preventedConflicts: 0, holdsIssued: 0, manualCommands: 0, maxConcurrent: 0, airborneSeconds: 0, taxiSeconds: 0, estimatedDelaySeconds: 0, emergencyResponses: 0, safetyHolds: 0, collisionAlerts: 0 });
   }
 
   update(realDelta: number): void {
@@ -277,19 +282,50 @@ export class AirportSimulation {
     this.metrics.maxConcurrent = Math.max(this.metrics.maxConcurrent, this.state.flights.length);
     this.coordinateAutomaticSurfaceTraffic();
 
-    for (const flight of [...this.state.flights]) {
+    const proposedProgressById = new Map<number, number>();
+    const requestedDeltaById = new Map<number, number>();
+    const wasSafetyHeld = new Set(this.state.flights.filter((flight) => flight.safetyHold).map((flight) => flight.id));
+    for (const flight of this.state.flights) {
+      flight.safetyHold = false;
+      flight.safetyHoldReason = undefined;
       // The pace control accelerates the traffic picture, not aircraft driving
       // on the surface. Keeping taxi motion at 1x prevents high-speed ground
       // movement from reading as low-level flight.
       const onSurface = flight.phase === 'taxi-in' || flight.phase === 'taxi-out';
       const commandedPace = Math.max(0.35, Math.min(onSurface ? 1 : 1.4, flight.controlPace ?? 1));
       const held = onSurface && (flight.controlHold || flight.automaticHold);
-      const flightDelta = held
-        ? 0
-        : (onSurface ? realStep : delta) * commandedPace;
+      const flightDelta = held ? 0 : (onSurface ? realStep : delta) * commandedPace;
+      requestedDeltaById.set(flight.id, flightDelta);
+      proposedProgressById.set(flight.id, Math.min(1, (flight.phaseElapsed + flightDelta) / flight.duration));
+    }
+
+    // Resolve proposed movement in a deterministic order. The collision layer
+    // applies arrival/departure priority and then a stable flight-ID tie break
+    // before a proxy can enter the protected envelope. This is the simulation's
+    // final safety net, independent of the renderer and control mode.
+    for (const flight of [...this.state.flights].sort((first, second) => first.id - second.id)) {
+      const requestedDelta = requestedDeltaById.get(flight.id) ?? 0;
+      const proposedProgress = proposedProgressById.get(flight.id) ?? flight.progress;
+      const conflict = requestedDelta > 0
+        ? findProposedConflict(this.config, flight, proposedProgress, this.state.flights, proposedProgressById)
+        : null;
+      if (conflict) {
+        flight.safetyHold = true;
+        flight.safetyHoldReason = conflict.detail;
+        proposedProgressById.set(flight.id, flight.progress);
+        this.metrics.preventedConflicts += 1;
+        this.metrics.safetyHolds += 1;
+        if (!wasSafetyHeld.has(flight.id)) this.events.push({ type: 'safety-hold', flight, runway: flight.runway, taxiway: flight.taxiway });
+      }
+    }
+
+    for (const flight of [...this.state.flights]) {
+      const onSurface = flight.phase === 'taxi-in' || flight.phase === 'taxi-out';
+      const requestedDelta = requestedDeltaById.get(flight.id) ?? 0;
+      const flightDelta = flight.safetyHold ? 0 : requestedDelta;
       if (flight.phase === 'approach' || flight.phase === 'landing' || flight.phase === 'takeoff') this.metrics.airborneSeconds += flightDelta;
       if (onSurface) this.metrics.taxiSeconds += flightDelta;
-      if (held) this.metrics.estimatedDelaySeconds += realStep;
+      if (flight.safetyHold || (onSurface && (flight.controlHold || flight.automaticHold))) this.metrics.estimatedDelaySeconds += realStep;
       if (flight.phase === 'approach' && !flight.cleared) {
         flight.clearanceLeft -= flightDelta;
         flight.phaseElapsed += flightDelta;
@@ -302,8 +338,26 @@ export class AirportSimulation {
         flight.phaseElapsed += flightDelta;
       }
       flight.progress = Math.min(1, flight.phaseElapsed / flight.duration);
+      const surfaceClock = flight.phase === 'taxi-in' || flight.phase === 'resting' || flight.phase === 'taxi-out';
+      this.updateFlightKinematics(flight, surfaceClock ? realStep : delta, flightDelta > 0);
 
       if (flight.progress >= 1) this.advance(flight);
+    }
+
+    // Report any proxy overlap that was already present at the end of a tick.
+    // The higher ID is held on the next tick, while the event and diagnostics
+    // make the condition visible to the player, replay, and agent interface.
+    const activeConflicts = findFlightConflicts(this.config, this.state.flights);
+    if (activeConflicts.length) {
+      this.metrics.collisionAlerts += activeConflicts.length;
+      for (const conflict of activeConflicts) {
+        const flight = this.state.flights.find((item) => item.id === Math.max(conflict.first, conflict.second));
+        if (flight && !flight.safetyHold) {
+          flight.safetyHold = true;
+          flight.safetyHoldReason = conflict.detail;
+          if (!wasSafetyHeld.has(flight.id)) this.events.push({ type: 'safety-hold', flight, runway: flight.runway, taxiway: flight.taxiway });
+        }
+      }
     }
   }
 
@@ -313,7 +367,7 @@ export class AirportSimulation {
     return result;
   }
 
-  diagnostics(): { flow: 'continuous'; approachCapacity: number; nextArrivalIn: number; activeFlights: number; runwayReservations: Array<{ runway: number; flight: number }>; scenario: TrafficScenario; closedRunway: number | null; predictions: ConflictPrediction[]; metrics: ShiftMetrics } {
+  diagnostics(): { flow: 'continuous'; approachCapacity: number; nextArrivalIn: number; activeFlights: number; runwayReservations: Array<{ runway: number; flight: number }>; scenario: TrafficScenario; closedRunway: number | null; predictions: ConflictPrediction[]; collisions: ReturnType<typeof findFlightConflicts>; metrics: ShiftMetrics } {
     return {
       flow: 'continuous',
       approachCapacity: this.weatherApproachCapacity(),
@@ -323,6 +377,7 @@ export class AirportSimulation {
       scenario: this.state.scenario,
       closedRunway: this.closedRunway,
       predictions: this.conflictPredictions(),
+      collisions: findFlightConflicts(this.config, this.state.flights),
       metrics: this.shiftMetrics(),
     };
   }
@@ -374,6 +429,14 @@ export class AirportSimulation {
       origin: this.originFor(id),
       destination: this.config.code === 'LOCAL' ? 'LOCAL' : this.config.code,
       squawk: String(4300 + (id * 37) % 700).padStart(4, '0'),
+      kinematics: {
+        airspeedKts: profile.approachKts + 24,
+        groundSpeedKts: profile.approachKts + 24,
+        altitudeFt: this.approachStartAltitude(aircraft),
+        verticalSpeedFpm: -profile.descentFpm,
+        accelerationMps2: 0,
+        fuelPercent: 38 + ((id * 17 + Math.abs(this.config.seed)) % 34),
+      },
     };
 
     if (this.state.scenario === 'emergency' && id === 1) flight.emergency = 'medical';
@@ -480,17 +543,22 @@ export class AirportSimulation {
     if (this.state.mode !== 'auto') return;
     const surfaceFlights = this.state.flights.filter((flight) => flight.phase === 'taxi-in' || flight.phase === 'taxi-out');
     const sharedRouteFlights = surfaceFlights.filter((flight) => flight.phase === 'taxi-out' || flight.progress >= 0.28);
-    const owner = sharedRouteFlights.find((flight) => flight.id === this.autoSurfaceOwnerId && flight.emergency !== 'disabled');
-    if (!owner) {
-      const candidates = sharedRouteFlights
-        .filter((flight) => flight.emergency !== 'disabled')
-        .sort((first, second) => {
-          if (first.phase !== second.phase) return first.phase === 'taxi-in' ? -1 : 1;
-          if (first.progress !== second.progress) return second.progress - first.progress;
-          return first.id - second.id;
-        });
-      this.autoSurfaceOwnerId = candidates[0]?.id ?? null;
-    }
+    const candidates = sharedRouteFlights
+      .filter((flight) => flight.emergency !== 'disabled')
+      .sort((first, second) => {
+        if (first.phase !== second.phase) {
+          // Arrivals get priority only while clearing the runway. Once a
+          // taxi-in aircraft is on the shared perimeter route, let a
+          // waiting departure leave the gate area first so opposing flows
+          // do not deadlock nose-to-nose on the same taxiway.
+          if (first.phase === 'taxi-in' && first.progress < 0.28) return -1;
+          if (second.phase === 'taxi-in' && second.progress < 0.28) return 1;
+          return first.phase === 'taxi-out' ? -1 : 1;
+        }
+        if (first.progress !== second.progress) return second.progress - first.progress;
+        return first.id - second.id;
+      });
+    this.autoSurfaceOwnerId = candidates[0]?.id ?? null;
 
     for (const flight of surfaceFlights) {
       const clearingRunway = flight.phase === 'taxi-in' && flight.progress < 0.28;
@@ -606,14 +674,140 @@ export class AirportSimulation {
     const profile = aircraftProfile(aircraft);
     if (phase === 'resting') return PHASE_DURATION.resting;
     if (phase === 'approach') {
-      const base = this.config.scope === 'center' ? 18 : PHASE_DURATION.approach;
+      const base = this.config.scope === 'center' ? 52 : PHASE_DURATION.approach;
       const turnFactor = Math.pow(profile.turnRadiusM / 1_000, 0.08);
-      return base * (145 / profile.approachKts) * turnFactor * (1_800 / profile.descentFpm) ** 0.08 * this.weatherDurationMultiplier(phase);
+      return base * (145 / profile.approachKts) ** 0.24 * turnFactor * (1_800 / profile.descentFpm) ** 0.12 * this.weatherDurationMultiplier(phase);
     }
-    if (phase === 'landing') return PHASE_DURATION.landing * (profile.landingRollM / 1_650) * (1.8 / profile.brakingMps2) ** 0.2 * this.weatherDurationMultiplier(phase);
+    if (phase === 'landing') {
+      const touchdownMps = profile.approachKts * KNOT_TO_MPS;
+      const taxiMps = profile.taxiKts * KNOT_TO_MPS;
+      const braking = this.effectiveLandingBraking(profile);
+      return ((touchdownMps - taxiMps) / braking + 6) * this.weatherDurationMultiplier(phase);
+    }
     if (phase === 'taxi-in' || phase === 'taxi-out') return 19 * (18 / profile.taxiKts) * (1.9 / profile.brakingMps2) ** 0.08 * this.weatherDurationMultiplier(phase);
-    if (phase === 'takeoff') return PHASE_DURATION.takeoff * (profile.takeoffRollM / 2_250) * (2 / profile.accelerationMps2) ** 0.35 * this.weatherDurationMultiplier(phase);
+    if (phase === 'takeoff') {
+      const rotationMps = this.rotationSpeedKts(profile) * KNOT_TO_MPS;
+      const rollSeconds = rotationMps / this.effectiveTakeoffAcceleration(profile);
+      return (rollSeconds + (this.config.scope === 'center' ? 18 : 12)) * this.weatherDurationMultiplier(phase);
+    }
     return PHASE_DURATION[phase] * this.weatherDurationMultiplier(phase);
+  }
+
+  private updateFlightKinematics(flight: Flight, delta: number, moving: boolean): void {
+    if (delta <= 0) return;
+    const profile = aircraftProfile(flight.aircraft);
+    const telemetry = flight.kinematics;
+    const previousSpeed = telemetry.airspeedKts;
+    const previousAltitude = telemetry.altitudeFt;
+    let targetSpeed = previousSpeed;
+    let acceleration = 0.65;
+    let targetAltitude = previousAltitude;
+    let altitudeRateFpm = profile.descentFpm;
+
+    if (flight.phase === 'approach') {
+      targetSpeed = profile.approachKts + 24 * (1 - this.smoothRange(flight.progress, 0.05, 0.78));
+      targetAltitude = 50 + (this.approachStartAltitude(flight.aircraft) - 50) * (1 - Math.max(0, Math.min(1, flight.progress)));
+      altitudeRateFpm = targetAltitude >= previousAltitude ? profile.climbFpm : profile.descentFpm;
+    } else if (flight.phase === 'landing') {
+      targetSpeed = flight.progress < 0.12
+        ? profile.approachKts
+        : this.lerp(profile.approachKts, profile.taxiKts + 3, this.smoothRange(flight.progress, 0.12, 0.9));
+      acceleration = this.effectiveLandingBraking(profile);
+      targetAltitude = 50 * (1 - this.smoothRange(flight.progress, 0.12, 0.55));
+      altitudeRateFpm = 720;
+    } else if (flight.phase === 'taxi-in') {
+      targetSpeed = profile.taxiKts * (1 - this.smoothRange(flight.progress, 0.62, 1));
+      acceleration = targetSpeed < previousSpeed ? Math.min(1.4, profile.brakingMps2) : Math.min(0.85, profile.accelerationMps2);
+      targetAltitude = 0;
+      altitudeRateFpm = 1_800;
+    } else if (flight.phase === 'resting') {
+      targetSpeed = 0;
+      acceleration = 1.1;
+      targetAltitude = 0;
+      altitudeRateFpm = 1_800;
+    } else if (flight.phase === 'taxi-out') {
+      const departurePace = this.smoothRange(flight.progress, 0, 0.14) * (1 - this.smoothRange(flight.progress, 0.62, 1));
+      targetSpeed = profile.taxiKts * departurePace;
+      acceleration = targetSpeed < previousSpeed ? Math.min(1.4, profile.brakingMps2) : Math.min(0.85, profile.accelerationMps2);
+      targetAltitude = 0;
+      altitudeRateFpm = 1_800;
+    } else if (flight.phase === 'takeoff') {
+      const rotationSpeed = this.rotationSpeedKts(profile);
+      const rotationProgress = Math.min(0.82, (rotationSpeed * KNOT_TO_MPS / this.effectiveTakeoffAcceleration(profile)) / flight.duration);
+      targetSpeed = flight.progress < rotationProgress ? rotationSpeed : Math.min(250, rotationSpeed + 58);
+      acceleration = this.effectiveTakeoffAcceleration(profile);
+      const climbProgress = this.smoothRange(flight.progress, rotationProgress, 1);
+      const climbSeconds = Math.max(0, flight.duration * (1 - rotationProgress));
+      targetAltitude = profile.climbFpm * climbSeconds / 60 * climbProgress;
+      altitudeRateFpm = profile.climbFpm;
+    }
+
+    const surfacePhase = flight.phase === 'taxi-in' || flight.phase === 'resting' || flight.phase === 'taxi-out';
+    if (!moving && surfacePhase) targetSpeed = 0;
+    if (!moving && !surfacePhase) targetSpeed = previousSpeed;
+    telemetry.airspeedKts = this.moveTowards(previousSpeed, targetSpeed, acceleration / KNOT_TO_MPS * delta);
+    telemetry.accelerationMps2 = (telemetry.airspeedKts - previousSpeed) * KNOT_TO_MPS / delta;
+    telemetry.altitudeFt = this.moveTowards(previousAltitude, targetAltitude, altitudeRateFpm / 60 * delta);
+    telemetry.verticalSpeedFpm = (telemetry.altitudeFt - previousAltitude) / delta * 60;
+
+    const airborne = flight.phase === 'approach' || flight.phase === 'landing' || flight.phase === 'takeoff';
+    const headwind = airborne ? this.headwindComponent(flight.runway) : 0;
+    telemetry.groundSpeedKts = Math.max(0, telemetry.airspeedKts - headwind);
+
+    if (flight.phase === 'resting') {
+      const dispatchFuel = 74 + ((flight.id * 11 + Math.abs(this.config.seed)) % 18);
+      telemetry.fuelPercent = Math.min(dispatchFuel, telemetry.fuelPercent + delta * 2);
+    } else {
+      const burnPerMinute = flight.phase === 'takeoff'
+        ? 2.4
+        : flight.phase === 'approach'
+          ? 0.72
+          : flight.phase === 'landing'
+            ? 0.55
+            : 0.2;
+      telemetry.fuelPercent = Math.max(0, telemetry.fuelPercent - burnPerMinute / 60 * delta);
+    }
+  }
+
+  private approachStartAltitude(aircraft: AircraftModel): number {
+    const profile = aircraftProfile(aircraft);
+    const duration = this.phaseDuration(aircraft, 'approach');
+    return Math.round((50 + profile.descentFpm * duration / 60) / 50) * 50;
+  }
+
+  private rotationSpeedKts(profile: ReturnType<typeof aircraftProfile>): number {
+    return profile.approachKts * 1.12;
+  }
+
+  private effectiveTakeoffAcceleration(profile: ReturnType<typeof aircraftProfile>): number {
+    const rotationMps = this.rotationSpeedKts(profile) * KNOT_TO_MPS;
+    const runwayLimited = rotationMps * rotationMps / (2 * profile.takeoffRollM);
+    return Math.max(0.75, Math.min(profile.accelerationMps2, runwayLimited));
+  }
+
+  private effectiveLandingBraking(profile: ReturnType<typeof aircraftProfile>): number {
+    const touchdownMps = profile.approachKts * KNOT_TO_MPS;
+    const taxiMps = profile.taxiKts * KNOT_TO_MPS;
+    const runwayLimited = (touchdownMps * touchdownMps - taxiMps * taxiMps) / (2 * profile.landingRollM);
+    return Math.max(0.65, Math.min(profile.brakingMps2, runwayLimited));
+  }
+
+  private smoothRange(value: number, start: number, end: number): number {
+    return this.smooth01((value - start) / Math.max(0.0001, end - start));
+  }
+
+  private smooth01(value: number): number {
+    const clamped = Math.max(0, Math.min(1, value));
+    return clamped * clamped * (3 - 2 * clamped);
+  }
+
+  private moveTowards(current: number, target: number, maximumDelta: number): number {
+    if (Math.abs(target - current) <= maximumDelta) return target;
+    return current + Math.sign(target - current) * maximumDelta;
+  }
+
+  private lerp(start: number, end: number, amount: number): number {
+    return start + (end - start) * amount;
   }
 
   private originFor(id: number): string {

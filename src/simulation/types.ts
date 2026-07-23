@@ -23,6 +23,16 @@ export interface WeatherState {
   visibility: number;
 }
 
+export interface FlightKinematics {
+  /** Indicated airspeed; ground movement uses groundSpeedKts in the HUD. */
+  airspeedKts: number;
+  groundSpeedKts: number;
+  altitudeFt: number;
+  verticalSpeedFpm: number;
+  accelerationMps2: number;
+  fuelPercent: number;
+}
+
 export interface Flight {
   id: number;
   callsign: string;
@@ -45,6 +55,8 @@ export interface Flight {
   controlPace?: number;
   controlHold?: boolean;
   automaticHold?: boolean;
+  safetyHold?: boolean;
+  safetyHoldReason?: string;
   controlPattern?: 'zigzag';
   controlPatternStart?: number;
   gateSlot: number;
@@ -60,6 +72,7 @@ export interface Flight {
   destination: string;
   squawk: string;
   emergency?: EmergencyType;
+  kinematics: FlightKinematics;
 }
 
 export interface ConflictPrediction {
@@ -82,6 +95,8 @@ export interface ShiftMetrics {
   taxiSeconds: number;
   estimatedDelaySeconds: number;
   emergencyResponses: number;
+  safetyHolds: number;
+  collisionAlerts: number;
 }
 
 export interface ReplayFrame {
@@ -92,7 +107,7 @@ export interface ReplayFrame {
 }
 
 export interface AirportEvent {
-  type: 'spawn' | 'land' | 'chime' | 'depart' | 'clear' | 'auto-clear' | 'reject' | 'conflict' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'emergency';
+  type: 'spawn' | 'land' | 'chime' | 'depart' | 'clear' | 'auto-clear' | 'reject' | 'conflict' | 'safety-hold' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'emergency';
   flight: Flight;
   runway?: number;
   taxiway?: string;
