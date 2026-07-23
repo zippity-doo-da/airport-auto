@@ -17,12 +17,23 @@
         <div><p id="airport-name">Stillwater</p><span id="airport-meta">Local · airfield control</span></div>
       </header>
 
-      <section class="quick-setup" aria-label="Airport and control selection">
+      <button id="menu-toggle" class="menu-toggle" type="button" aria-label="Open controls" aria-controls="control-panel" aria-expanded="false">
+        <span class="menu-toggle__icon" aria-hidden="true"><i></i><i></i><i></i></span>
+        <small>Controls</small>
+      </button>
+
+      <aside id="control-panel" class="control-panel" aria-label="Airfield controls" aria-hidden="true" inert>
+        <section class="quick-setup" aria-label="Airport and control selection">
         <label><span>Airport</span><select id="airport-select">
           <option value="LOCAL">Random local airfield</option>
           <option value="ATL">ATL — Atlanta</option>
-          <option value="ORD">ORD — O’Hare</option>
+          <option value="DXB">DXB — Dubai</option>
+          <option value="HND">HND — Tokyo Haneda</option>
           <option value="DFW">DFW — Dallas/Fort Worth</option>
+          <option value="ORD">ORD — Chicago O’Hare</option>
+          <option value="LHR">LHR — London Heathrow</option>
+          <option value="IST">IST — Istanbul</option>
+          <option value="DEN">DEN — Denver</option>
           <option value="LAX">LAX — Los Angeles</option>
           <option value="JFK">JFK — New York</option>
         </select></label>
@@ -46,10 +57,22 @@
         </select></label>
         <label class="speed-control"><span>Speed <output id="speed-output" for="speed-control">1×</output></span><input id="speed-control" type="range" min="0.5" max="3" step="0.25" value="1" aria-label="Simulation speed" /></label>
         <div class="weather-readout" aria-label="Current weather">
-          <span id="weather-condition">Clear</span><b id="weather-wind">270° 10G14 kt</b><small id="weather-visibility">10 mi visibility</small>
-          <div class="weather-readout__switches"><button id="weather-toggle" type="button" aria-pressed="true">WX ON</button><button id="wind-toggle" type="button" aria-pressed="true">WIND ON</button></div>
+          <span id="weather-condition">WX off</span><b id="weather-wind">calm · wind off</b><small id="weather-visibility">10 mi visibility</small>
+          <div class="weather-readout__switches"><button id="weather-toggle" type="button" aria-pressed="false">WX OFF</button><button id="wind-toggle" type="button" aria-pressed="false">WIND OFF</button></div>
         </div>
-      </section>
+        </section>
+
+        <nav class="controls" aria-label="Game controls">
+          <button id="mode-toggle" class="control control--active" type="button" aria-label="Switch control mode" aria-pressed="true"><span id="mode-icon" aria-hidden="true">A</span><small id="mode-label">Auto</small></button>
+          <button id="scope-toggle" class="control" type="button" aria-label="Switch between airfield and center view" aria-pressed="false"><span aria-hidden="true">⌁</span><small id="scope-label">Center</small></button>
+          <button id="night-toggle" class="control" type="button" aria-label="Toggle night mode" aria-pressed="false"><span id="night-icon" aria-hidden="true">☀</span><small id="night-label">Day</small></button>
+          <button id="sound-toggle" class="control" type="button" aria-label="Toggle sound" aria-pressed="false"><span aria-hidden="true">◖))</span><small>Sound</small></button>
+          <button id="pause-toggle" class="control" type="button" aria-label="Pause shift" aria-pressed="false"><span id="pause-icon" aria-hidden="true">Ⅱ</span><small id="pause-label">Pause</small></button>
+          <button id="view-toggle" class="control" type="button" aria-label="Change camera view"><span aria-hidden="true">◇</span><small>New view</small></button>
+          <button id="radar-toggle" class="control" type="button" aria-label="Show radar circles" aria-pressed="false"><span aria-hidden="true">◎</span><small id="radar-label">Radar off</small></button>
+          <button id="field-toggle" class="control" type="button" aria-label="Generate a new airfield"><span aria-hidden="true">↻</span><small id="field-label">New field</small></button>
+        </nav>
+      </aside>
 
       <section class="scoreboard" aria-label="Shift score">
         <div><strong id="landed-count">00</strong><span>Landed</span></div>
@@ -66,7 +89,7 @@
         <div><b id="status-label">Airspace is clear</b><small id="status-detail">awaiting first arrival</small></div>
       </section>
 
-      <p class="instruction"><span class="mouse" aria-hidden="true"></span><span id="instruction-copy">The tower routes automatically · <b>drag to take control</b></span></p>
+      <p class="instruction"><span class="instruction__menu-icon" aria-hidden="true"><i></i><i></i><i></i></span><span id="instruction-copy">The tower routes automatically · <b>open Controls to adjust</b></span></p>
 
       <aside id="telemetry-panel" class="telemetry" aria-label="Airport telemetry" hidden>
         <div class="replay-tools" aria-label="Replay controls">
@@ -79,15 +102,6 @@
         <pre id="telemetry-output"></pre>
       </aside>
 
-      <nav class="controls" aria-label="Game controls">
-        <button id="mode-toggle" class="control control--active" type="button" aria-label="Switch control mode" aria-pressed="true"><span id="mode-icon" aria-hidden="true">A</span><small id="mode-label">Auto</small></button>
-        <button id="scope-toggle" class="control" type="button" aria-label="Switch between airfield and center view" aria-pressed="false"><span aria-hidden="true">⌁</span><small id="scope-label">Center</small></button>
-        <button id="sound-toggle" class="control" type="button" aria-label="Toggle sound" aria-pressed="false"><span aria-hidden="true">◖))</span><small>Sound</small></button>
-        <button id="pause-toggle" class="control" type="button" aria-label="Pause shift" aria-pressed="false"><span id="pause-icon" aria-hidden="true">Ⅱ</span><small id="pause-label">Pause</small></button>
-        <button id="view-toggle" class="control" type="button" aria-label="Change camera view"><span aria-hidden="true">◇</span><small>New view</small></button>
-        <button id="field-toggle" class="control" type="button" aria-label="Generate a new airfield"><span aria-hidden="true">↻</span><small id="field-label">New field</small></button>
-      </nav>
-
       <div id="intro" class="modal modal--intro" role="dialog" aria-labelledby="intro-title" aria-modal="true">
         <div class="modal__panel intro__panel">
           <span class="intro__rule" aria-hidden="true"></span>
@@ -97,8 +111,13 @@
             <label><span>Airport</span><select id="intro-airport-select">
               <option value="LOCAL">Random local airfield</option>
               <option value="ATL">ATL — Atlanta</option>
-              <option value="ORD">ORD — Chicago O’Hare</option>
+              <option value="DXB">DXB — Dubai</option>
+              <option value="HND">HND — Tokyo Haneda</option>
               <option value="DFW">DFW — Dallas/Fort Worth</option>
+              <option value="ORD">ORD — Chicago O’Hare</option>
+              <option value="LHR">LHR — London Heathrow</option>
+              <option value="IST">IST — Istanbul</option>
+              <option value="DEN">DEN — Denver</option>
               <option value="LAX">LAX — Los Angeles</option>
               <option value="JFK">JFK — New York</option>
             </select></label>

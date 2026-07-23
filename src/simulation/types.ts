@@ -44,8 +44,10 @@ export interface Flight {
   crossingClearances?: number[];
   controlPace?: number;
   controlHold?: boolean;
+  automaticHold?: boolean;
   controlPattern?: 'zigzag';
   controlPatternStart?: number;
+  gateSlot: number;
   aircraft: AircraftModel;
   airline: AirlineCode;
   flightNumber: number;
@@ -105,6 +107,7 @@ export interface AirportState {
   gameOver: boolean;
   paused: boolean;
   mode: ControlMode;
+  nightMode: boolean;
   station: ControllerStation;
   weather: WeatherState;
   scenario: TrafficScenario;

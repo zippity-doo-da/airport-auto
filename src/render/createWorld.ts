@@ -6,10 +6,14 @@ import type { AirportState, Flight, FlightPhase } from '../simulation/types';
 
 type FlightVisual = {
   root: THREE.Group;
+  baseScale: number;
   shadow: THREE.Mesh;
   gear: THREE.Group;
   propellers: THREE.Object3D[];
   navLights: THREE.Mesh[];
+  landingLamp: THREE.Mesh;
+  landingLight: THREE.PointLight;
+  shadowCasters: THREE.Mesh[];
   contrail: THREE.Line;
   beacon: THREE.PointLight;
   halo: THREE.Mesh;
@@ -20,6 +24,13 @@ type FlightVisual = {
   routePhase: FlightPhase | null;
   route: THREE.CatmullRomCurve3 | null;
   active: boolean;
+};
+
+type RunwayLight = {
+  mesh: THREE.Mesh;
+  dayOpacity: number;
+  nightOpacity: number;
+  phase: number;
 };
 
 export interface AirportWorld {
@@ -58,7 +69,7 @@ const PALETTE_COLOR: Record<FlightColor, number> = {
 };
 
 export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): AirportWorld {
-  config = { ...config, terminal: findClearTerminalPosition(config) };
+  config = config.scope === 'airfield' ? { ...config, terminal: findClearTerminalPosition(config) } : config;
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
   renderer.shadowMap.enabled = true;
@@ -76,6 +87,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   camera.up.set(0, 0, 1);
   camera.position.set(112, -128, 108);
   camera.lookAt(0, 0, 0);
+  camera.updateMatrixWorld();
 
   const world = new THREE.Group();
   scene.add(world);
@@ -91,6 +103,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   sun.shadow.camera.right = 120;
   sun.shadow.camera.top = 120;
   sun.shadow.camera.bottom = -120;
+  sun.shadow.bias = -0.0008;
   scene.add(sun);
 
   buildLandscape(world, config);
@@ -114,6 +127,12 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   let viewportWidth = canvas.clientWidth;
   let viewportHeight = canvas.clientHeight;
   let manualZoom = 1;
+  const cameraFocus = new THREE.Vector2();
+  const groundPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -1.3);
+  const zoomRaycaster = new THREE.Raycaster();
+  const zoomNdc = new THREE.Vector2();
+  const zoomGroundPoint = new THREE.Vector3();
+  let nightMix = 0;
 
   function updateProjection(): void {
     const aspect = viewportWidth / Math.max(1, viewportHeight);
@@ -130,18 +149,21 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     cameraTime += delta;
     const weatherFog = state.weather.condition === 'fog' ? 0.0074 : state.weather.condition === 'rain' ? 0.0052 : 0.0032;
     fog.density = THREE.MathUtils.lerp(fog.density, weatherFog, Math.min(1, delta * 0.9));
+    nightMix = THREE.MathUtils.lerp(nightMix, state.nightMode ? 1 : 0, Math.min(1, delta * 2.2));
     const skyTarget = new THREE.Color(state.weather.condition === 'rain' ? 0x627675 : state.weather.condition === 'fog' ? 0x89938c : COLORS.sky);
+    skyTarget.lerp(new THREE.Color(state.weather.condition === 'fog' ? 0x28343b : 0x091b29), nightMix);
     (scene.background as THREE.Color).lerp(skyTarget, Math.min(1, delta * 0.6));
-    const daylight = 0.5 + 0.5 * Math.cos((state.elapsed % 360) / 360 * Math.PI * 2);
-    const night = 1 - daylight;
-    sun.intensity = 0.64 + daylight * 1.7;
-    hemisphere.intensity = 0.86 + daylight * 0.6;
-    const nightSky = new THREE.Color(0x263d4c);
-    (scene.background as THREE.Color).lerp(nightSky, Math.min(1, night * delta * 0.18));
+    fog.color.lerp(skyTarget, Math.min(1, delta * 0.6));
+    sun.intensity = THREE.MathUtils.lerp(2.25, 0.5, nightMix);
+    sun.color.setHex(state.nightMode ? 0xa8c6df : 0xffd6a3);
+    hemisphere.intensity = THREE.MathUtils.lerp(1.45, 0.62, nightMix);
+    renderer.toneMappingExposure = THREE.MathUtils.lerp(0.94, 0.86, nightMix);
     for (let index = 0; index < runwayLights.length; index += 1) {
       const light = runwayLights[index];
-      const material = light.material as THREE.MeshBasicMaterial;
-      material.opacity = THREE.MathUtils.clamp(0.28 + night * 0.7 + Math.sin(state.elapsed * 3 + index) * 0.07, 0.2, 1);
+      const material = light.mesh.material as THREE.MeshBasicMaterial;
+      const shimmer = Math.sin(state.elapsed * 2.4 + light.phase) * 0.035;
+      material.opacity = THREE.MathUtils.clamp(THREE.MathUtils.lerp(light.dayOpacity, light.nightOpacity, nightMix) + shimmer * nightMix, 0.08, 1);
+      light.mesh.scale.setScalar(THREE.MathUtils.lerp(0.82, 1.18, nightMix));
     }
     updateRain(rain, state, delta);
     for (const visual of flightVisuals.values()) visual.active = false;
@@ -151,31 +173,39 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
       if (!visual) {
         visual = createPlane(flight);
         if (config.scope === 'center') {
-          visual.root.scale.setScalar(0.72);
-          visual.beacon.visible = false;
+          visual.baseScale = 0.72;
         } else {
-          visual.root.scale.setScalar(0.92);
+          visual.baseScale = 0.92;
         }
+        visual.root.scale.setScalar(visual.baseScale);
         flightVisuals.set(flight.id, visual);
         world.add(visual.root);
       }
       visual.active = true;
       if (visual.routePhase !== flight.phase || !visual.route) {
-        const gateSlot = config.scope === 'center' ? (flight.id - 1) % 16 : (flight.id - 1) % 8;
-        const key = `${flight.runway}:${flight.operatingEnd}:${flight.phase}:${gateSlot}`;
+        const key = `${flight.runway}:${flight.operatingEnd}:${flight.phase}:${flight.id % 2}:${flight.gateSlot}:${flight.aircraft}`;
         let route = flightRoutes.get(key);
         if (!route) {
-          route = routeFor(config, flight.runway, flight.operatingEnd, flight.phase, flight.id, flight.aircraft);
+          route = routeFor(config, flight.runway, flight.operatingEnd, flight.phase, flight.id, flight.gateSlot, flight.aircraft);
           flightRoutes.set(key, route);
         }
         visual.route = route;
         visual.routePhase = flight.phase;
       }
-      positionFlight(visual, flight, state.elapsed, visual.route);
+      positionFlight(visual, flight, state.elapsed, visual.route, nightMix);
+      visual.root.visible = flight.phase !== 'approach' || isNearViewportEdge(visual.root.position);
       const spool = flight.phase === 'takeoff' ? 28 : flight.phase === 'approach' || flight.phase === 'landing' ? 16 : 8;
       for (const propeller of visual.propellers) propeller.rotation.z += delta * spool;
-      const blink = Math.sin(state.elapsed * 5.4 + flight.id * 0.7) > 0.72;
-      for (const light of visual.navLights) light.visible = blink;
+      const strobe = Math.sin(state.elapsed * 5.4 + flight.id * 0.7) > 0.72;
+      for (const light of visual.navLights) {
+        light.visible = nightMix > 0.02 || strobe;
+        (light.material as THREE.MeshBasicMaterial).opacity = THREE.MathUtils.lerp(strobe ? 0.72 : 0.32, strobe ? 1 : 0.86, nightMix);
+        light.scale.setScalar(strobe ? 1.55 : 1);
+      }
+      const landingLightsOn = flight.phase === 'approach' || flight.phase === 'landing' || flight.phase === 'taxi-out' || flight.phase === 'takeoff';
+      visual.landingLamp.visible = landingLightsOn && nightMix > 0.02;
+      visual.landingLight.intensity = landingLightsOn ? 3.8 * nightMix : 0;
+      visual.beacon.intensity = (strobe ? 3.4 : 0.12) * THREE.MathUtils.lerp(0.45, 1.35, nightMix);
       updateContrail(visual, flight, state.elapsed);
       visual.halo.visible = selectedFlightId === flight.id;
       visual.halo.scale.setScalar(1 + Math.sin(state.elapsed * 5) * 0.08);
@@ -215,11 +245,21 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
 
     const view = views[viewIndex];
     const orbit = view.phase + Math.sin(cameraTime * 0.035) * 0.13;
-    const targetX = Math.sin(cameraTime * 0.021) * 5;
-    const targetY = Math.cos(cameraTime * 0.017) * 3;
-    camera.position.set(Math.cos(orbit) * view.radius, Math.sin(orbit) * view.radius, view.height);
+    const targetX = cameraFocus.x + Math.sin(cameraTime * 0.021) * 5;
+    const targetY = cameraFocus.y + Math.cos(cameraTime * 0.017) * 3;
+    camera.position.set(
+      cameraFocus.x + Math.cos(orbit) * view.radius,
+      cameraFocus.y + Math.sin(orbit) * view.radius,
+      view.height,
+    );
     camera.lookAt(targetX, targetY, 0);
+    camera.updateMatrixWorld();
     renderer.render(scene, camera);
+  }
+
+  function isNearViewportEdge(position: THREE.Vector3): boolean {
+    const clip = position.clone().project(camera);
+    return Math.abs(clip.x) <= 1.12 && Math.abs(clip.y) <= 1.12;
   }
 
   function nextView(): void {
@@ -235,12 +275,13 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
 
   function flightScreenPosition(id: number): { x: number; y: number } | null {
     const visual = flightVisuals.get(id);
-    return visual ? project(visual.root.position) : null;
+    return visual?.root.visible ? project(visual.root.position) : null;
   }
 
   function pickFlight(clientX: number, clientY: number): number | null {
     let best: { id: number; distance: number } | null = null;
     for (const [id, visual] of flightVisuals) {
+      if (!visual.root.visible) continue;
       const point = project(visual.root.position);
       const distance = Math.hypot(point.x - clientX, point.y - clientY);
       const hitRadius = config.scope === 'center' ? 30 : 44;
@@ -270,11 +311,28 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     updateProjection();
   }
 
+  function groundPointAt(clientX: number, clientY: number): THREE.Vector3 | null {
+    const rect = canvas.getBoundingClientRect();
+    zoomNdc.set(
+      (clientX - rect.left) / Math.max(1, rect.width) * 2 - 1,
+      -(clientY - rect.top) / Math.max(1, rect.height) * 2 + 1,
+    );
+    zoomRaycaster.setFromCamera(zoomNdc, camera);
+    return zoomRaycaster.ray.intersectPlane(groundPlane, zoomGroundPoint)?.clone() ?? null;
+  }
+
   const onWheel = (event: WheelEvent): void => {
-    if (config.scope !== 'center') return;
     event.preventDefault();
-    manualZoom = THREE.MathUtils.clamp(manualZoom * Math.exp(event.deltaY * 0.001), 0.72, 1.9);
+    const before = groundPointAt(event.clientX, event.clientY);
+    const minimumZoom = config.scope === 'center' ? 0.08 : 0.12;
+    manualZoom = THREE.MathUtils.clamp(manualZoom * Math.exp(event.deltaY * 0.0014), minimumZoom, 3);
     updateProjection();
+    const after = groundPointAt(event.clientX, event.clientY);
+    if (before && after) {
+      const focusLimit = config.scope === 'center' ? 170 : 110;
+      cameraFocus.x = THREE.MathUtils.clamp(cameraFocus.x + before.x - after.x, -focusLimit, focusLimit);
+      cameraFocus.y = THREE.MathUtils.clamp(cameraFocus.y + before.y - after.y, -focusLimit, focusLimit);
+    }
   };
 
   resize();
@@ -300,78 +358,34 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
 
 function buildLandscape(root: THREE.Group, config: AirportConfig): void {
   const terrainColors = {
-    coast: { grass: COLORS.grass, meadow: COLORS.lightGrass, water: COLORS.water },
-    highland: { grass: 0x756f55, meadow: 0x98906a, water: 0x456c71 },
-    woodland: { grass: 0x4f6852, meadow: 0x70825d, water: 0x315f65 },
+    coast: { ground: 0x6f8068, district: 0x829071 },
+    highland: { ground: 0x756f55, district: 0x918868 },
+    woodland: { ground: 0x4f6852, district: 0x687a5c },
   }[config.terrain];
-  if (config.code === 'ORD') {
-    buildOhareGround(root);
-    return;
-  }
-  const water = new THREE.Mesh(
-    new THREE.CircleGeometry(230, 96),
-    new THREE.MeshStandardMaterial({ color: terrainColors.water, roughness: 0.36, metalness: 0.06 }),
-  );
-  water.position.z = -3.2;
-  water.receiveShadow = true;
-  root.add(water);
-
-  const island = new THREE.Mesh(
-    new THREE.CylinderGeometry(94, 99, 5.5, 64),
-    new THREE.MeshStandardMaterial({ color: terrainColors.grass, roughness: 0.92 }),
-  );
-  island.rotation.x = Math.PI / 2;
-  island.scale.set(config.islandScale[0], config.islandScale[1], 1);
-  island.position.z = -1.4;
-  island.receiveShadow = true;
-  island.castShadow = true;
-  root.add(island);
-
-  const meadow = new THREE.Mesh(
-    new THREE.CircleGeometry(72, 64),
-    new THREE.MeshStandardMaterial({ color: terrainColors.meadow, roughness: 1 }),
-  );
-  meadow.scale.y = 0.72;
-  meadow.position.set(-9, 2, 1.38);
-  meadow.receiveShadow = true;
-  root.add(meadow);
-
-  for (let index = 0; index < 9; index += 1) {
-    const rock = new THREE.Mesh(
-      new THREE.DodecahedronGeometry(1.2 + (index % 3) * 0.45, 0),
-      new THREE.MeshStandardMaterial({ color: index % 2 ? 0x8c9d8e : 0xb4b8a7, roughness: 1 }),
-    );
-    const angle = (index / 9) * Math.PI * 2 + 0.2;
-    rock.position.set(Math.cos(angle) * 88, Math.sin(angle) * 66, 0.7);
-    rock.scale.z = 0.65;
-    rock.castShadow = true;
-    root.add(rock);
-  }
-}
-
-function buildOhareGround(root: THREE.Group): void {
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(1200, 900),
-    new THREE.MeshStandardMaterial({ color: 0x718064, roughness: 1 }),
+    new THREE.PlaneGeometry(1400, 1000),
+    new THREE.MeshStandardMaterial({ color: terrainColors.ground, roughness: 1 }),
   );
-  ground.position.z = -1.35;
+  ground.position.z = 1.24;
   ground.receiveShadow = true;
   root.add(ground);
 
-  const districtMaterial = new THREE.MeshStandardMaterial({ color: 0x7f876f, roughness: 1 });
-  for (let row = -2; row <= 2; row += 1) {
-    for (let column = -3; column <= 3; column += 1) {
+  const districtMaterial = new THREE.MeshStandardMaterial({ color: terrainColors.district, roughness: 1 });
+  for (let row = -3; row <= 3; row += 1) {
+    for (let column = -4; column <= 4; column += 1) {
       if (Math.abs(row) <= 1 && Math.abs(column) <= 1) continue;
-      const district = new THREE.Mesh(new THREE.PlaneGeometry(42, 26), districtMaterial);
-      district.position.set(column * 66, row * 58, -1.18);
+      const district = new THREE.Mesh(new THREE.PlaneGeometry(48, 30), districtMaterial);
+      district.position.set(column * 70, row * 58, 1.26);
       district.rotation.z = (row + column) * 0.035;
       root.add(district);
     }
   }
 
-  addHighway(root, new THREE.Vector3(-600, -92, -0.95), new THREE.Vector3(600, -92, -0.95), 10);
-  addHighway(root, new THREE.Vector3(-600, 96, -0.95), new THREE.Vector3(600, 96, -0.95), 8);
-  addHighway(root, new THREE.Vector3(-128, -450, -0.88), new THREE.Vector3(-128, 450, -0.88), 9);
+  if (config.scope === 'center') {
+    addHighway(root, new THREE.Vector3(-700, -104, 1.42), new THREE.Vector3(700, -104, 1.42), 9);
+    addHighway(root, new THREE.Vector3(-700, 112, 1.42), new THREE.Vector3(700, 112, 1.42), 7);
+    addHighway(root, new THREE.Vector3(-142, -500, 1.43), new THREE.Vector3(-142, 500, 1.43), 8);
+  }
 }
 
 function addHighway(root: THREE.Group, start: THREE.Vector3, end: THREE.Vector3, width: number): void {
@@ -397,10 +411,10 @@ function addHighway(root: THREE.Group, start: THREE.Vector3, end: THREE.Vector3,
   }
 }
 
-function buildAirport(root: THREE.Group, config: AirportConfig): THREE.Mesh[] {
+function buildAirport(root: THREE.Group, config: AirportConfig): RunwayLight[] {
   const asphalt = new THREE.MeshStandardMaterial({ color: COLORS.runway, roughness: 0.88 });
   const stripe = new THREE.MeshBasicMaterial({ color: COLORS.runwayLine });
-  const runwayLights: THREE.Mesh[] = [];
+  const runwayLights: RunwayLight[] = [];
   config.runways.forEach((data, runwayIndex) => {
     const runway = new THREE.Group();
     runway.position.set(data.center[0], data.center[1], 1.7);
@@ -424,6 +438,14 @@ function buildAirport(root: THREE.Group, config: AirportConfig): THREE.Mesh[] {
       thresholdBar.position.set(landingX, bar * 0.92, 0.25);
       runway.add(thresholdBar);
     }
+    if (data.designation) {
+      const negativeLabel = createRunwayLabel(data.designation[0]);
+      negativeLabel.position.set(-data.length / 2 + 5.6, 0, 0.48);
+      runway.add(negativeLabel);
+      const positiveLabel = createRunwayLabel(data.designation[1]);
+      positiveLabel.position.set(data.length / 2 - 5.6, 0, 0.48);
+      runway.add(positiveLabel);
+    }
     const takeoffX = -data.landingEnd * (data.length / 2 - 4.8);
     for (const side of [-1, 1]) {
       const chevron = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.42, 0.06), stripe);
@@ -431,23 +453,44 @@ function buildAirport(root: THREE.Group, config: AirportConfig): THREE.Mesh[] {
       chevron.rotation.z = side * data.landingEnd * 0.38;
       runway.add(chevron);
     }
+    const addLight = (x: number, y: number, color: number, dayOpacity: number, nightOpacity: number, radius = 0.27): void => {
+      const material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: dayOpacity, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
+      const light = new THREE.Mesh(new THREE.SphereGeometry(radius, 10, 6), material);
+      light.position.set(x, y, 0.45);
+      runway.add(light);
+      runwayLights.push({ mesh: light, dayOpacity, nightOpacity, phase: runwayIndex * 1.7 + runwayLights.length * 0.31 });
+    };
     const thresholdColor = PALETTE_COLOR[data.color];
     for (let lightIndex = 1; lightIndex <= 6; lightIndex += 1) {
-      const light = new THREE.Mesh(new THREE.SphereGeometry(0.38, 10, 6), new THREE.MeshBasicMaterial({ color: thresholdColor }));
-      light.position.set(data.landingEnd * (data.length / 2 + lightIndex * 3.1), 0, 0.45);
-      runway.add(light);
-      runwayLights.push(light);
+      addLight(data.landingEnd * (data.length / 2 + lightIndex * 3.1), 0, thresholdColor, 0.36, 1, 0.38);
+    }
+    const edgeLightCount = Math.max(8, Math.round(data.length / 6));
+    for (let lightIndex = 0; lightIndex <= edgeLightCount; lightIndex += 1) {
+      const x = -data.length / 2 + 2 + (data.length - 4) * lightIndex / edgeLightCount;
+      addLight(x, -data.width / 2 + 0.38, 0xb9ddff, 0.14, 0.92);
+      addLight(x, data.width / 2 - 0.38, 0xb9ddff, 0.14, 0.92);
+    }
+    for (const side of [-1, 1]) {
+      addLight(-data.landingEnd * (data.length / 2 - 0.8), side * (data.width / 2 - 1.2), 0xff6d61, 0.18, 1, 0.32);
     }
     root.add(runway);
   });
 
   const taxiMaterial = new THREE.MeshStandardMaterial({ color: 0x515b58, roughness: 0.96 });
   const terminalCenter = new THREE.Vector3(config.terminal[0], config.terminal[1], 2);
+  const gateLayout = airportGateLayout(config);
   for (const apronSide of [-1, 1]) {
+    const gateY = terminalCenter.y + apronSide * gateLayout.sideOffset;
+    const laneY = gateY + apronSide * gateLayout.laneOffset;
+    const apronHalfWidth = (gateLayout.columns - 1) * gateLayout.spacing / 2 + 5;
     addTaxiPath(root, [
-      new THREE.Vector3(terminalCenter.x - 18, terminalCenter.y + apronSide * 7, 2),
-      new THREE.Vector3(terminalCenter.x + 18, terminalCenter.y + apronSide * 7, 2),
+      new THREE.Vector3(terminalCenter.x - apronHalfWidth, laneY, 2),
+      new THREE.Vector3(terminalCenter.x + apronHalfWidth, laneY, 2),
     ], taxiMaterial);
+    for (let gate = 0; gate < gateLayout.columns; gate += 1) {
+      const gateX = terminalCenter.x + (gate - (gateLayout.columns - 1) / 2) * gateLayout.spacing;
+      addTaxiPath(root, [new THREE.Vector3(gateX, laneY, 2), new THREE.Vector3(gateX, gateY, 2)], taxiMaterial);
+    }
   }
   config.runways.forEach((runway) => {
     const anchors: THREE.Vector3[] = [];
@@ -463,7 +506,7 @@ function buildAirport(root: THREE.Group, config: AirportConfig): THREE.Mesh[] {
     }
     for (const anchor of anchors) {
       for (const apronSide of [-1, 1]) {
-        const apronGate = new THREE.Vector3(terminalCenter.x, terminalCenter.y + apronSide * 7, 2);
+        const apronGate = new THREE.Vector3(terminalCenter.x, terminalCenter.y + apronSide * gateLayout.sideOffset, 2);
         addTaxiPath(root, taxiRoutePoints(config, runway, anchor, apronGate), taxiMaterial);
       }
     }
@@ -511,6 +554,27 @@ function buildAirport(root: THREE.Group, config: AirportConfig): THREE.Mesh[] {
   tower.add(top);
   root.add(tower);
   return runwayLights;
+}
+
+function createRunwayLabel(label: string): THREE.Sprite {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 48;
+  const context = canvas.getContext('2d');
+  if (context) {
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = 'rgba(244, 244, 234, 0.94)';
+    context.font = '800 34px Arial, sans-serif';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(label, canvas.width / 2, canvas.height / 2 + 1);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false }));
+  sprite.scale.set(label.length > 2 ? 5.4 : 4.6, 2.05, 1);
+  sprite.renderOrder = 3;
+  return sprite;
 }
 
 function buildDetails(root: THREE.Group, config: AirportConfig): THREE.Object3D[] {
@@ -630,16 +694,9 @@ function updateRain(rain: THREE.Points, state: AirportState, delta: number): voi
 }
 
 function buildRipples(root: THREE.Group, config: AirportConfig): THREE.Mesh[] {
-  if (config.code === 'ORD') return [];
-  return Array.from({ length: 5 }, (_, index) => {
-    const ripple = new THREE.Mesh(
-      new THREE.RingGeometry(2.6, 2.75, 36),
-      new THREE.MeshBasicMaterial({ color: 0xe1efea, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false }),
-    );
-    ripple.position.set(-118 + index * 55, index % 2 ? 78 : -82, -2.9);
-    root.add(ripple);
-    return ripple;
-  });
+  void root;
+  void config;
+  return [];
 }
 
 function createPlane(flight: Flight): FlightVisual {
@@ -717,15 +774,32 @@ function createPlane(flight: Flight): FlightVisual {
 
   const navLights: THREE.Mesh[] = [];
   for (const [y, colorCode] of [[visual.wingSpan * 0.47, 0xe35f68], [-visual.wingSpan * 0.47, 0x72d59b]] as Array<[number, number]>) {
-    const light = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 6), new THREE.MeshBasicMaterial({ color: colorCode, transparent: true }));
+    const light = new THREE.Mesh(new THREE.SphereGeometry(0.25, 10, 7), new THREE.MeshBasicMaterial({ color: colorCode, transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
     light.position.set(wingTip, y, 0.18);
     body.add(light);
     navLights.push(light);
   }
-  const tailLight = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), new THREE.MeshBasicMaterial({ color: 0xf4eee0, transparent: true }));
+  const tailLight = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 7), new THREE.MeshBasicMaterial({ color: 0xf4eee0, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
   tailLight.position.set(-visual.bodyLength * 0.48, 0, visual.bodyRadius * 0.18);
   body.add(tailLight);
   navLights.push(tailLight);
+  const beaconLamp = new THREE.Mesh(
+    new THREE.SphereGeometry(0.22, 10, 7),
+    new THREE.MeshBasicMaterial({ color: 0xff6f61, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }),
+  );
+  beaconLamp.position.set(-visual.bodyLength * 0.08, 0, visual.tailHeight * 0.7);
+  body.add(beaconLamp);
+  navLights.push(beaconLamp);
+  const landingLamp = new THREE.Mesh(
+    new THREE.SphereGeometry(0.3, 10, 7),
+    new THREE.MeshBasicMaterial({ color: 0xfff2c7, transparent: true, opacity: 0.95, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }),
+  );
+  landingLamp.position.set(visual.bodyLength * 0.42, 0, -visual.bodyRadius * 0.22);
+  landingLamp.visible = false;
+  body.add(landingLamp);
+  const landingLight = new THREE.PointLight(0xffe5b0, 0, 24, 2);
+  landingLight.position.copy(landingLamp.position);
+  body.add(landingLight);
 
   const strutMaterial = new THREE.MeshStandardMaterial({ color: 0x707978, roughness: 0.6, metalness: 0.25 });
   const engineMaterial = new THREE.MeshStandardMaterial({ color: 0x6d7774, roughness: 0.55, metalness: 0.22 });
@@ -792,17 +866,22 @@ function createPlane(flight: Flight): FlightVisual {
   const contrail = new THREE.Line(contrailGeometry, new THREE.LineBasicMaterial({ color: 0xeaf2ef, transparent: true, opacity: 0.16, depthWrite: false }));
   contrail.visible = false;
   root.add(contrail);
+  const shadowCasters: THREE.Mesh[] = [];
   for (const part of [body, gear]) {
     part.traverse((object) => {
-      if (object instanceof THREE.Mesh) object.castShadow = false;
+      if (object instanceof THREE.Mesh && object.castShadow) shadowCasters.push(object);
     });
   }
   return {
     root,
+    baseScale: 1,
     shadow,
     gear,
     propellers,
     navLights,
+    landingLamp,
+    landingLight,
+    shadowCasters,
     contrail,
     beacon,
     halo,
@@ -816,7 +895,21 @@ function createPlane(flight: Flight): FlightVisual {
   };
 }
 
-function positionFlight(visual: FlightVisual, flight: Flight, elapsed: number, curve: THREE.CatmullRomCurve3): void {
+function positionFlight(visual: FlightVisual, flight: Flight, elapsed: number, curve: THREE.CatmullRomCurve3, nightMix: number): void {
+  // The orthographic camera has no natural perspective scaling. Gently scale
+  // aircraft down through final approach to preserve the visual cue of descent.
+  const approachDescent = flight.phase === 'approach'
+    ? THREE.MathUtils.smoothstep(flight.progress, 0.06, 0.96)
+    : 1;
+  const takeoffClimb = flight.phase === 'takeoff'
+    ? THREE.MathUtils.smoothstep(flight.progress, 0.34, 0.92)
+    : 0;
+  const presentationScale = flight.phase === 'approach'
+    ? THREE.MathUtils.lerp(visual.baseScale * 1.3, visual.baseScale, approachDescent)
+    : flight.phase === 'takeoff'
+      ? THREE.MathUtils.lerp(visual.baseScale, visual.baseScale * 1.22, takeoffClimb)
+      : visual.baseScale;
+  visual.root.scale.setScalar(presentationScale);
   // Preserve some forward velocity at brake release, then build speed through the ground roll.
   const routeProgress = flight.phase === 'takeoff'
     ? flight.progress * (0.55 + 0.45 * flight.progress)
@@ -859,6 +952,7 @@ function positionFlight(visual: FlightVisual, flight: Flight, elapsed: number, c
   const airborne = flight.phase === 'approach'
     || (flight.phase === 'landing' && groundFactor < 0.65)
     || (flight.phase === 'takeoff' && groundFactor < 0.55);
+  for (const caster of visual.shadowCasters) caster.castShadow = airborne;
   visual.gear.visible = (flight.phase === 'approach' && flight.progress > 0.72)
     || flight.phase === 'landing'
     || flight.phase === 'taxi-in'
@@ -874,13 +968,14 @@ function positionFlight(visual: FlightVisual, flight: Flight, elapsed: number, c
   const visualAltitude = visual.root.position.z;
   const shadowSurface = isTaxiing ? 1.64 : 1.82;
   const heightAboveSurface = Math.max(0, visualAltitude - shadowSurface);
-  const shadowOpacity = isTaxiing ? 0.2 : THREE.MathUtils.clamp(0.16 - heightAboveSurface * 0.018, 0, 0.16);
+  const shadowOpacity = isTaxiing ? THREE.MathUtils.lerp(0.2, 0.27, nightMix) : THREE.MathUtils.clamp(THREE.MathUtils.lerp(0.16, 0.21, nightMix) - heightAboveSurface * 0.018, 0, 0.21);
   const shadowScale = 0.72 + Math.max(0, 16 - visualAltitude) * 0.018;
-  visual.shadow.position.z = shadowSurface - visualAltitude;
+  // The shadow is parented beneath a scaled aircraft. Convert the desired
+  // world-space contact height back into local space so it stays on pavement.
+  visual.shadow.position.z = (shadowSurface - visualAltitude) / modelScale;
   visual.shadow.scale.set(1.9 * shadowScale, 0.7 * shadowScale, 1);
   visual.shadow.visible = shadowOpacity > 0.002;
   (visual.shadow.material as THREE.MeshBasicMaterial).opacity = shadowOpacity;
-  visual.beacon.intensity = Math.sin(elapsed * 4.2 + flight.id) > 0.78 ? 2.6 : 0.15;
 }
 
 function updateContrail(visual: FlightVisual, flight: Flight, elapsed: number): void {
@@ -916,18 +1011,16 @@ function controlledRoutePoint(
   return target;
 }
 
-function routeFor(config: AirportConfig, runwayId: number, operatingEnd: -1 | 1, phase: FlightPhase, flightId: number, aircraft: AircraftModel): THREE.CatmullRomCurve3 {
+function routeFor(config: AirportConfig, runwayId: number, operatingEnd: -1 | 1, phase: FlightPhase, flightId: number, gateSlot: number, aircraft: AircraftModel): THREE.CatmullRomCurve3 {
   const runway = config.runways[runwayId];
   const aircraftSpec = aircraftProfile(aircraft);
   const landingSign = operatingEnd;
   const takeoffSign = -landingSign as -1 | 1;
   const lateralSign = flightId % 2 ? 1 : -1;
   const terminal = new THREE.Vector3(config.terminal[0], config.terminal[1], 2);
-  const gateColumns = config.scope === 'center' ? 8 : 4;
-  const gateSlots = gateColumns * 2;
-  const gateSlot = (flightId - 1) % gateSlots;
-  terminal.x += (gateSlot % gateColumns - (gateColumns - 1) / 2) * (config.scope === 'center' ? 3.4 : 4.2);
-  terminal.y += gateSlot < gateColumns ? -7 : 7;
+  const gateLayout = airportGateLayout(config);
+  terminal.x += (gateSlot % gateLayout.columns - (gateLayout.columns - 1) / 2) * gateLayout.spacing;
+  terminal.y += gateSlot < gateLayout.columns ? -gateLayout.sideOffset : gateLayout.sideOffset;
   const landingThreshold = runwayEnd(runway, landingSign, -2, 4.2);
   const rolloutEnd = runwayEnd(runway, takeoffSign, -5, 2);
   const holdShort = runwayEnd(runway, landingSign, 8, 2);
@@ -936,9 +1029,9 @@ function routeFor(config: AirportConfig, runwayId: number, operatingEnd: -1 | 1,
   const side = new THREE.Vector3(-Math.sin(runway.heading), Math.cos(runway.heading), 0);
   const routeByPhase: Record<FlightPhase, THREE.Vector3[]> = {
     approach: [
-      runwayEnd(runway, landingSign, config.scope === 'center' ? 190 : 115, config.scope === 'center' ? 24 : 28).addScaledVector(side, config.scope === 'center' ? 0 : lateralSign * Math.min(42, aircraftSpec.turnRadiusM / 28)),
-      runwayEnd(runway, landingSign, config.scope === 'center' ? 142 : 78, config.scope === 'center' ? 19 : 21).addScaledVector(side, config.scope === 'center' ? 0 : lateralSign * 25),
-      runwayEnd(runway, landingSign, config.scope === 'center' ? 94 : 48, config.scope === 'center' ? 14 : 14).addScaledVector(side, config.scope === 'center' ? 0 : lateralSign * 8),
+      runwayEnd(runway, landingSign, config.scope === 'center' ? 265 : 175, config.scope === 'center' ? 28 : 32).addScaledVector(side, config.scope === 'center' ? 0 : lateralSign * Math.min(42, aircraftSpec.turnRadiusM / 28)),
+      runwayEnd(runway, landingSign, config.scope === 'center' ? 190 : 120, config.scope === 'center' ? 22 : 24).addScaledVector(side, config.scope === 'center' ? 0 : lateralSign * 25),
+      runwayEnd(runway, landingSign, config.scope === 'center' ? 118 : 70, config.scope === 'center' ? 15 : 16).addScaledVector(side, config.scope === 'center' ? 0 : lateralSign * 8),
       ...(config.scope === 'center' ? [runwayEnd(runway, landingSign, 58, 10)] : []),
       runwayEnd(runway, landingSign, 25, 8),
       runwayEnd(runway, landingSign, 10, 5.5),
@@ -1004,12 +1097,16 @@ export function taxiRoutePoints(config: AirportConfig, runway: RunwayConfig, anc
   if (center.clone().sub(anchor).dot(runwaySide) < 0) runwaySide.multiplyScalar(-1);
   const turnoff = anchor.clone().addScaledVector(runwaySide, 8);
   const detourSign = turnoff.x >= center.x ? 1 : -1;
-  const perimeterX = center.x + detourSign * 18;
+  const gateLayout = airportGateLayout(config);
+  const perimeterX = center.x + detourSign * ((gateLayout.columns - 1) * gateLayout.spacing / 2 + 8);
+  const gateSide = Math.sign(gate.y - center.y) || 1;
+  const laneY = gate.y + gateSide * gateLayout.laneOffset;
   return [
     anchor.clone(),
     turnoff,
     new THREE.Vector3(perimeterX, turnoff.y, 2),
-    new THREE.Vector3(perimeterX, gate.y, 2),
+    new THREE.Vector3(perimeterX, laneY, 2),
+    new THREE.Vector3(gate.x, laneY, 2),
     gate.clone(),
   ];
 }
@@ -1034,18 +1131,21 @@ function oharePerimeterTaxiRoute(config: AirportConfig, runway: RunwayConfig, an
   const sign = anchor.clone().sub(new THREE.Vector3(runway.center[0], runway.center[1], 2)).dot(direction) >= 0 ? 1 : -1;
   const exit = runwayEnd(runway, sign, 12, 2);
   const outward = direction.clone().multiplyScalar(sign);
+  const gateLayout = airportGateLayout(config);
+  const gateSide = Math.sign(gate.y - config.terminal[1]) || 1;
+  const laneY = gate.y + gateSide * gateLayout.laneOffset;
   const points = [anchor.clone(), exit];
 
   if (Math.abs(outward.x) >= Math.abs(outward.y)) {
     if (outward.x > 0) {
-      points.push(new THREE.Vector3(right, exit.y, 2), new THREE.Vector3(right, gate.y, 2));
+      points.push(new THREE.Vector3(right, exit.y, 2), new THREE.Vector3(right, laneY, 2));
     } else {
       const outerY = exit.y >= 0 ? top : bottom;
       points.push(
         new THREE.Vector3(left, exit.y, 2),
         new THREE.Vector3(left, outerY, 2),
         new THREE.Vector3(right, outerY, 2),
-        new THREE.Vector3(right, gate.y, 2),
+        new THREE.Vector3(right, laneY, 2),
       );
     }
   } else {
@@ -1053,12 +1153,18 @@ function oharePerimeterTaxiRoute(config: AirportConfig, runway: RunwayConfig, an
     points.push(
       new THREE.Vector3(exit.x, outerY, 2),
       new THREE.Vector3(right, outerY, 2),
-      new THREE.Vector3(right, gate.y, 2),
+      new THREE.Vector3(right, laneY, 2),
     );
   }
 
-  points.push(gate.clone());
+  points.push(new THREE.Vector3(gate.x, laneY, 2), gate.clone());
   return points;
+}
+
+function airportGateLayout(config: AirportConfig): { columns: number; spacing: number; sideOffset: number; laneOffset: number } {
+  return config.scope === 'center'
+    ? { columns: 6, spacing: 8.5, sideOffset: 9, laneOffset: 6 }
+    : { columns: 3, spacing: 10.5, sideOffset: 10, laneOffset: 6.5 };
 }
 
 function addTaxiPath(root: THREE.Group, points: THREE.Vector3[], material: THREE.Material): void {

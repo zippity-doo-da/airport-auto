@@ -11,6 +11,8 @@ type AirportControlCommand =
   | { action: 'pause' | 'resume' | 'nextView' | 'restart' }
   | { action: 'setSpeed'; value: number }
   | { action: 'setMode'; value: ControlMode }
+  | { action: 'setNightMode'; enabled: boolean }
+  | { action: 'setRadarVisible'; enabled: boolean }
   | { action: 'selectAirport'; code: string }
   | { action: 'clearFlight'; flightId: number; runway: number }
   | { action: 'clearRunwayEntry'; flightId: number }
@@ -56,6 +58,8 @@ const $ = <T extends Element>(selector: string): T => {
 };
 
 const canvas = $<HTMLCanvasElement>('#scene');
+const menuButton = $<HTMLButtonElement>('#menu-toggle');
+const controlPanel = $<HTMLElement>('#control-panel');
 const audio = new AmbientAudio();
 let config = generateAirportConfig();
 let simulation = new AirportSimulation(config);
@@ -76,6 +80,11 @@ const fieldLabel = $<HTMLElement>('#field-label');
 const modeButton = $<HTMLButtonElement>('#mode-toggle');
 const modeIcon = $<HTMLElement>('#mode-icon');
 const modeLabel = $<HTMLElement>('#mode-label');
+const nightButton = $<HTMLButtonElement>('#night-toggle');
+const nightIcon = $<HTMLElement>('#night-icon');
+const nightLabel = $<HTMLElement>('#night-label');
+const radarButton = $<HTMLButtonElement>('#radar-toggle');
+const radarLabel = $<HTMLElement>('#radar-label');
 const scopeButton = $<HTMLButtonElement>('#scope-toggle');
 const scopeLabel = $<HTMLElement>('#scope-label');
 const brandMark = $<HTMLElement>('#brand-mark');
@@ -121,6 +130,7 @@ let hubIndex = 0;
 let activeFlightId: number | null = null;
 let routePoints: Array<{ x: number; y: number }> = [];
 let simulationSpeed = 1;
+let radarVisible = false;
 let telemetrySequence = 0;
 let lastWeatherCondition: WeatherCondition | null = null;
 let lastPredictionKey = '';
@@ -131,14 +141,29 @@ const telemetryEvents: TelemetryEvent[] = [];
 const launchOptions = new URLSearchParams(window.location.search);
 const telemetryEnabled = launchOptions.get('telemetry') === '1';
 updateAirportUi();
+updateNightControl();
+updateRadarControl();
 
 function startShift(): void {
+  setControlPanelOpen(false);
   intro.classList.add('modal--hidden');
   simulation.setPaused(false);
   setStatus(`${config.code === 'LOCAL' ? config.name : config.code} control is open`, 'the tower will guide each arrival');
 }
 
 enterButton.addEventListener('click', startShift);
+menuButton.addEventListener('click', (event) => {
+  event.stopPropagation();
+  setControlPanelOpen(!controlPanel.classList.contains('control-panel--open'));
+});
+document.addEventListener('pointerdown', (event) => {
+  if (!controlPanel.classList.contains('control-panel--open')) return;
+  const target = event.target;
+  if (target instanceof Node && !controlPanel.contains(target) && !menuButton.contains(target)) setControlPanelOpen(false);
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') setControlPanelOpen(false);
+});
 
 airportSelect.addEventListener('change', () => selectAirport(airportSelect.value, false));
 introAirportSelect.addEventListener('change', () => selectAirport(introAirportSelect.value, true));
@@ -215,7 +240,17 @@ modeButton.addEventListener('click', () => {
   const mode: ControlMode = simulation.state.mode === 'auto' ? 'manual' : 'auto';
   simulation.setMode(mode);
   updateModeControl();
-  setStatus(`${mode === 'auto' ? 'Automatic tower' : 'Manual control'} active`, mode === 'auto' ? 'the tower routes all traffic' : 'drag every arrival to its runway');
+  setStatus(`${mode === 'auto' ? 'Automatic tower' : 'Manual control'} active`, mode === 'auto' ? 'the tower routes all traffic' : 'clear every arrival to its runway');
+});
+nightButton.addEventListener('click', () => {
+  simulation.setNightMode(!simulation.state.nightMode);
+  updateNightControl();
+  setStatus(simulation.state.nightMode ? 'Night lighting active' : 'Day lighting active', simulation.state.nightMode ? 'runway and aircraft lights are illuminated' : 'full daylight visibility restored');
+});
+radarButton.addEventListener('click', () => {
+  radarVisible = !radarVisible;
+  updateRadarControl();
+  setStatus(radarVisible ? 'Radar circles visible' : 'Radar circles hidden', radarVisible ? 'range rings enabled for center view' : 'unobstructed map view restored');
 });
 
 restartButton.addEventListener('click', () => {
@@ -467,20 +502,50 @@ function updateModeControl(): void {
   modeButton.classList.toggle('control--active', automatic);
   modeIcon.textContent = automatic ? 'A' : 'M';
   modeLabel.textContent = automatic ? 'Auto' : 'Manual';
-  const zoomHint = config.scope === 'center' ? ' · scroll to zoom' : '';
+  const zoomHint = ' · scroll to zoom';
   instructionCopy.innerHTML = automatic
-    ? `The tower routes automatically${zoomHint} · <b>drag to take control</b>`
-    : `Manual control${zoomHint} · <b>route every arrival</b>`;
+    ? `The tower routes automatically${zoomHint} · <b>open Controls to adjust</b>`
+    : `Manual control${zoomHint} · <b>clear every arrival</b>`;
   controlSelect.value = simulation.state.mode;
   introControlSelect.value = simulation.state.mode;
 }
 
+function setControlPanelOpen(open: boolean): void {
+  menuButton.classList.toggle('menu-toggle--open', open);
+  menuButton.setAttribute('aria-expanded', String(open));
+  menuButton.setAttribute('aria-label', open ? 'Close controls' : 'Open controls');
+  controlPanel.classList.toggle('control-panel--open', open);
+  controlPanel.setAttribute('aria-hidden', String(!open));
+  controlPanel.toggleAttribute('inert', !open);
+}
+
+function updateNightControl(): void {
+  const night = simulation.state.nightMode;
+  nightButton.setAttribute('aria-pressed', String(night));
+  nightButton.classList.toggle('control--active', night);
+  nightIcon.textContent = night ? '☾' : '☀';
+  nightLabel.textContent = night ? 'Night' : 'Day';
+  document.body.classList.toggle('night-mode', night);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', night ? '#071827' : '#183638');
+}
+
+function updateRadarControl(): void {
+  radarButton.setAttribute('aria-pressed', String(radarVisible));
+  radarButton.setAttribute('aria-label', radarVisible ? 'Hide radar circles' : 'Show radar circles');
+  radarButton.classList.toggle('control--active', radarVisible);
+  radarLabel.textContent = radarVisible ? 'Radar on' : 'Radar off';
+  document.body.classList.toggle('radar-visible', radarVisible);
+}
+
 function newSession(paused: boolean, nextConfig = generateAirportConfig()): void {
   const mode = simulation.state.mode;
+  const nightMode = simulation.state.nightMode;
+  setControlPanelOpen(false);
   world.dispose();
   config = nextConfig;
   simulation = new AirportSimulation(config);
   simulation.setMode(mode);
+  simulation.setNightMode(nightMode);
   simulation.setScenario(scenarioSelect.value as TrafficScenario);
   simulation.setStation(stationSelect.value as ControllerStation);
   simulation.setPace(simulationSpeed);
@@ -496,6 +561,8 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   replayToggle.textContent = 'Replay';
   updateReplayUi();
   updateModeControl();
+  updateNightControl();
+  updateRadarControl();
 }
 
 function updateAirportUi(): void {
@@ -609,7 +676,10 @@ function airportSnapshot() {
     },
     clock: Number(simulation.state.elapsed.toFixed(2)),
     paused: simulation.state.paused,
+    gameOver: simulation.state.gameOver,
     mode: simulation.state.mode,
+    nightMode: simulation.state.nightMode,
+    radarVisible,
     station: simulation.state.station,
     scenario: simulation.state.scenario,
     speed: simulationSpeed,
@@ -697,6 +767,7 @@ function airportSnapshot() {
       operatingEnd: flight.operatingEnd,
       activeRunwayEnd: config.runways[flight.runway]?.designation?.[flight.operatingEnd === 1 ? 1 : 0],
       progress: Number(flight.progress.toFixed(3)),
+      gateSlot: flight.gateSlot,
       cleared: flight.cleared,
       taxiway: flight.taxiway,
       holdingShortOf: flight.holdShortRunway,
@@ -706,6 +777,7 @@ function airportSnapshot() {
       control: {
         pace: flight.controlPace ?? 1,
         held: flight.controlHold ?? false,
+        automaticHold: flight.automaticHold ?? false,
         pattern: flight.controlPattern ?? null,
       },
     })),
@@ -719,6 +791,14 @@ function executeAirportCommand(command: AirportControlCommand): ReturnType<typeo
   if (command.action === 'nextView') world.nextView();
   if (command.action === 'setSpeed') setSimulationSpeed(command.value);
   if (command.action === 'setMode') selectControl(command.value);
+  if (command.action === 'setNightMode') {
+    simulation.setNightMode(command.enabled);
+    updateNightControl();
+  }
+  if (command.action === 'setRadarVisible') {
+    radarVisible = command.enabled;
+    updateRadarControl();
+  }
   if (command.action === 'selectAirport') selectAirport(command.code.toUpperCase(), false);
   if (command.action === 'clearFlight') simulation.clearFlight(command.flightId, command.runway);
   if (command.action === 'clearRunwayEntry') simulation.clearRunwayEntry(command.flightId);
@@ -741,7 +821,7 @@ function executeAirportCommand(command: AirportControlCommand): ReturnType<typeo
 }
 
 window.airportControl = {
-  version: '1.4.0',
+  version: '1.6.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },
@@ -754,6 +834,8 @@ window.airportControl = {
       speed: "airportControl.command({ action: 'setSpeed', value: 2 })",
       airport: "airportControl.command({ action: 'selectAirport', code: 'ORD' })",
       mode: "airportControl.command({ action: 'setMode', value: 'auto' })",
+      nightMode: "airportControl.command({ action: 'setNightMode', enabled: true })",
+      radar: "airportControl.command({ action: 'setRadarVisible', enabled: true })",
       clearance: "airportControl.command({ action: 'clearFlight', flightId: 1, runway: 0 })",
       runwayEntry: "airportControl.command({ action: 'clearRunwayEntry', flightId: 1 })",
       runwayCrossing: "airportControl.command({ action: 'clearRunwayCrossing', flightId: 1, runway: 4 })",
@@ -793,6 +875,14 @@ const launchSpeed = Number(launchOptions.get('speed'));
 if (Number.isFinite(launchSpeed) && launchOptions.has('speed')) setSimulationSpeed(launchSpeed);
 const launchMode = launchOptions.get('mode');
 if (launchMode === 'auto' || launchMode === 'manual') selectControl(launchMode);
+if (launchOptions.get('night') === '1') {
+  simulation.setNightMode(true);
+  updateNightControl();
+}
+if (launchOptions.get('radar') === '1') {
+  radarVisible = true;
+  updateRadarControl();
+}
 const launchScenario = launchOptions.get('scenario') as TrafficScenario | null;
 if (launchScenario && ['normal', 'rush', 'storm', 'closure', 'training', 'emergency'].includes(launchScenario)) setScenario(launchScenario);
 const launchStation = launchOptions.get('station') as ControllerStation | null;

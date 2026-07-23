@@ -30,8 +30,9 @@ export class AirportSimulation {
     gameOver: false,
     paused: false,
     mode: 'auto',
+    nightMode: false,
     station: 'supervisor',
-    weather: { weatherEnabled: true, windEnabled: true, condition: 'clear', windDirection: Math.PI, windSpeed: 10, gustSpeed: 14, visibility: 10 },
+    weather: { weatherEnabled: false, windEnabled: false, condition: 'clear', windDirection: Math.PI, windSpeed: 0, gustSpeed: 0, visibility: 10 },
     scenario: 'normal',
   };
 
@@ -46,6 +47,7 @@ export class AirportSimulation {
   private baseWindSpeed = 10;
   private weatherOverrideUntil = 0;
   private closedRunway: number | null = null;
+  private autoSurfaceOwnerId: number | null = null;
   private readonly metrics: ShiftMetrics = {
     safeArrivals: 0,
     safeDepartures: 0,
@@ -80,13 +82,24 @@ export class AirportSimulation {
     this.state.mode = mode;
     if (mode === 'auto') {
       for (const flight of this.state.flights) {
+        if (flight.emergency !== 'disabled') flight.controlHold = false;
+        flight.controlPace = 1;
+        flight.controlPattern = undefined;
+        flight.controlPatternStart = undefined;
         if (flight.phase === 'approach' && !flight.cleared) {
           flight.cleared = true;
           flight.clearanceLeft = 99;
           this.events.push({ type: 'auto-clear', flight });
         }
       }
+    } else {
+      this.autoSurfaceOwnerId = null;
+      for (const flight of this.state.flights) flight.automaticHold = false;
     }
+  }
+
+  setNightMode(enabled: boolean): void {
+    this.state.nightMode = enabled;
   }
 
   setStation(station: ControllerStation): void {
@@ -240,6 +253,7 @@ export class AirportSimulation {
     this.events = [];
     this.runwayReservations.clear();
     this.taxiOutReleaseIn = 0;
+    this.autoSurfaceOwnerId = null;
     this.closedRunway = null;
     this.state.scenario = 'normal';
     this.state.station = 'supervisor';
@@ -261,6 +275,7 @@ export class AirportSimulation {
       this.spawnIn = spawnedAircraft ? this.arrivalSpacing(aircraftProfile(spawnedAircraft)) : 0.6;
     }
     this.metrics.maxConcurrent = Math.max(this.metrics.maxConcurrent, this.state.flights.length);
+    this.coordinateAutomaticSurfaceTraffic();
 
     for (const flight of [...this.state.flights]) {
       // The pace control accelerates the traffic picture, not aircraft driving
@@ -268,12 +283,13 @@ export class AirportSimulation {
       // movement from reading as low-level flight.
       const onSurface = flight.phase === 'taxi-in' || flight.phase === 'taxi-out';
       const commandedPace = Math.max(0.35, Math.min(onSurface ? 1 : 1.4, flight.controlPace ?? 1));
-      const flightDelta = flight.controlHold && onSurface
+      const held = onSurface && (flight.controlHold || flight.automaticHold);
+      const flightDelta = held
         ? 0
         : (onSurface ? realStep : delta) * commandedPace;
       if (flight.phase === 'approach' || flight.phase === 'landing' || flight.phase === 'takeoff') this.metrics.airborneSeconds += flightDelta;
       if (onSurface) this.metrics.taxiSeconds += flightDelta;
-      if (flight.controlHold) this.metrics.estimatedDelaySeconds += realStep;
+      if (held) this.metrics.estimatedDelaySeconds += realStep;
       if (flight.phase === 'approach' && !flight.cleared) {
         flight.clearanceLeft -= flightDelta;
         flight.phaseElapsed += flightDelta;
@@ -346,6 +362,7 @@ export class AirportSimulation {
       duration: this.phaseDuration(aircraft, 'approach'),
       cleared: automatic,
       clearanceLeft: automatic ? 99 : this.phaseDuration(aircraft, 'approach') * 0.96,
+      gateSlot: this.availableGateSlot(),
       aircraft,
       airline: airlineCode,
       flightNumber,
@@ -423,6 +440,7 @@ export class AirportSimulation {
     flight.phaseElapsed = 0;
     flight.controlPace = 1;
     flight.controlHold = false;
+    flight.automaticHold = false;
     flight.controlPattern = undefined;
     flight.controlPatternStart = undefined;
     flight.duration = this.phaseDuration(flight.aircraft, next);
@@ -455,6 +473,40 @@ export class AirportSimulation {
       }
     }
     return false;
+  }
+
+  /** Auto mode serializes shared taxi/apron movement after arrivals clear the runway. */
+  private coordinateAutomaticSurfaceTraffic(): void {
+    if (this.state.mode !== 'auto') return;
+    const surfaceFlights = this.state.flights.filter((flight) => flight.phase === 'taxi-in' || flight.phase === 'taxi-out');
+    const sharedRouteFlights = surfaceFlights.filter((flight) => flight.phase === 'taxi-out' || flight.progress >= 0.28);
+    const owner = sharedRouteFlights.find((flight) => flight.id === this.autoSurfaceOwnerId && flight.emergency !== 'disabled');
+    if (!owner) {
+      const candidates = sharedRouteFlights
+        .filter((flight) => flight.emergency !== 'disabled')
+        .sort((first, second) => {
+          if (first.phase !== second.phase) return first.phase === 'taxi-in' ? -1 : 1;
+          if (first.progress !== second.progress) return second.progress - first.progress;
+          return first.id - second.id;
+        });
+      this.autoSurfaceOwnerId = candidates[0]?.id ?? null;
+    }
+
+    for (const flight of surfaceFlights) {
+      const clearingRunway = flight.phase === 'taxi-in' && flight.progress < 0.28;
+      const shouldHold = flight.emergency === 'disabled' || (!clearingRunway && flight.id !== this.autoSurfaceOwnerId);
+      if (shouldHold && !flight.automaticHold) this.metrics.preventedConflicts += 1;
+      flight.automaticHold = shouldHold;
+    }
+  }
+
+  private availableGateSlot(): number {
+    const gateCount = this.config.scope === 'center' ? 12 : 6;
+    const occupied = new Set(this.state.flights.map((flight) => flight.gateSlot));
+    for (let slot = 0; slot < gateCount; slot += 1) {
+      if (!occupied.has(slot)) return slot;
+    }
+    return (this.nextId - 1) % gateCount;
   }
 
   private reserveDeparture(flight: Flight): boolean {
@@ -569,7 +621,12 @@ export class AirportSimulation {
     const origins: Record<string, string[]> = {
       ORD: ['KATL', 'KDFW', 'KLAX', 'KJFK'],
       ATL: ['KORD', 'KMIA', 'KDFW', 'KCLT'],
+      DXB: ['EGLL', 'WSSS', 'VIDP', 'LTFM'],
+      HND: ['RJAA', 'RJBB', 'RKSI', 'RCTP'],
       DFW: ['KDEN', 'KPHX', 'KORD', 'KIAH'],
+      LHR: ['KJFK', 'LFPG', 'EDDF', 'OMDB'],
+      IST: ['EGLL', 'OMDB', 'EDDF', 'LIRF'],
+      DEN: ['KORD', 'KLAX', 'KDFW', 'KSEA'],
       LAX: ['KSEA', 'KSFO', 'KLAS', 'KPHX'],
       JFK: ['KBOS', 'KORD', 'KMCO', 'KATL'],
     };
