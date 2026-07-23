@@ -3,11 +3,12 @@ import { aircraftProfile } from './aircraftProfiles';
 import type { Flight, FlightPhase, WakeClass } from './types';
 import { sampleSurfaceRoute } from './surfaceGraph';
 import { distanceToObstacleBoundary, type AirportObstacleEnvelope } from './airportObstacles';
+import { sampleFlightTrajectory } from './flightTrajectory';
 
 /**
- * The renderer has a richer spline for presentation. The simulation uses this
- * deliberately conservative proxy so safety never depends on Three.js state.
- * Distances are abstract airport-world units, not nautical miles.
+ * Safety samples the same renderer-independent trajectory used by the view.
+ * The envelope remains deliberately conservative and never depends on a
+ * Three.js object. Distances are airport-world units, not nautical miles.
  */
 export interface AircraftCollisionEnvelope {
   kind: 'aircraft';
@@ -70,15 +71,19 @@ export function aircraftCollisionEnvelope(config: AirportConfig, flight: Flight,
   const runway = config.runways[flight.runway] ?? config.runways[0];
   const aircraft = aircraftProfile(flight.aircraft);
   const p = clamp(progress, 0, 1);
-  const direction = { x: Math.cos(runway.heading), y: Math.sin(runway.heading) };
-  const side = { x: -direction.y, y: direction.x };
   const landingSign = flight.operatingEnd;
   const takeoffSign = -landingSign as -1 | 1;
-  const halfLength = (aircraft.visual.bodyLength + aircraft.visual.bodyRadius * 2) / 2;
-  const halfWidth = aircraft.visual.wingSpan / 2;
+  const baseScale = config.scope === 'center' ? 0.72 : 0.92;
+  const approachScale = flight.phase === 'approach'
+    ? lerp(baseScale * 1.3, baseScale, smoothRange(p, 0.06, 0.96))
+    : baseScale;
+  const takeoffScale = flight.phase === 'takeoff'
+    ? lerp(baseScale, baseScale * 1.22, smoothRange(p, 0.34, 0.92))
+    : baseScale;
+  const presentationScale = flight.phase === 'approach' ? approachScale : takeoffScale;
+  const halfLength = (aircraft.visual.bodyLength + aircraft.visual.bodyRadius * 2) / 2 * presentationScale;
+  const halfWidth = aircraft.visual.wingSpan / 2 * presentationScale;
   const bodyRadius = Math.max(2.2, halfLength, halfWidth);
-  const landingHeading = normalizeAngle(runway.heading + (landingSign === 1 ? Math.PI : 0));
-  const takeoffHeading = normalizeAngle(runway.heading + (landingSign === -1 ? Math.PI : 0));
   const envelope = (
     values: Omit<AircraftCollisionEnvelope, 'kind' | 'id' | 'halfLength' | 'halfWidth' | 'bodyRadius' | 'minimumAltitude' | 'maximumAltitude'>,
   ): AircraftCollisionEnvelope => ({
@@ -92,52 +97,16 @@ export function aircraftCollisionEnvelope(config: AirportConfig, flight: Flight,
     ...values,
   });
 
-  if (flight.phase === 'approach') {
-    const approachDistance = config.scope === 'center' ? 265 : 175;
-    const along = runway.length / 2 + approachDistance * (1 - p);
-    const lateral = config.scope === 'center' ? 0 : (flight.id % 2 ? 5 : -5) * (1 - p);
+  const trajectory = sampleFlightTrajectory(config, flight, p);
+  if (trajectory) {
     return envelope({
-      x: runway.center[0] + direction.x * landingSign * along + side.x * lateral,
-      y: runway.center[1] + direction.y * landingSign * along + side.y * lateral,
-      altitude: 5 + (config.scope === 'center' ? 30 : 24) * (1 - p),
-      heading: landingHeading,
-      airborne: true,
-      surface: false,
-      protectedSurface: false,
-      runway: flight.runway,
-    });
-  }
-
-  if (flight.phase === 'landing') {
-    // Finish at the same modeled runway-exit point where taxi-in begins. This
-    // keeps the safety envelope continuous across the landing/taxi transition.
-    const along = landingSign * (runway.length / 2 - p * (runway.length - 5));
-    return envelope({
-      x: runway.center[0] + direction.x * along,
-      y: runway.center[1] + direction.y * along,
-      altitude: 2.2 + (1 - p) * 5.2,
-      heading: landingHeading,
-      airborne: p < 0.65,
-      surface: p >= 0.65,
-      protectedSurface: p >= 0.65,
-      runway: flight.runway,
-    });
-  }
-
-  if (flight.phase === 'takeoff') {
-    const routeProgress = p * (0.55 + 0.45 * p);
-    // Begin at the hold-short end used by the taxi route and continue through
-    // the full runway into climb-out, matching the renderer's travel direction.
-    const distance = landingSign * (runway.length / 2 + 8 - (runway.length + 136) * routeProgress);
-    const altitude = 2.2 + Math.max(0, routeProgress - 0.42) * 56;
-    return envelope({
-      x: runway.center[0] + direction.x * distance,
-      y: runway.center[1] + direction.y * distance,
-      altitude,
-      heading: takeoffHeading,
-      airborne: altitude > 8,
-      surface: altitude <= 8,
-      protectedSurface: altitude <= 8,
+      x: trajectory.x,
+      y: trajectory.y,
+      altitude: trajectory.z,
+      heading: trajectory.heading,
+      airborne: !trajectory.onGround,
+      surface: trajectory.onGround,
+      protectedSurface: trajectory.protectedRunway,
       runway: flight.runway,
     });
   }
@@ -226,6 +195,11 @@ export function detectFlightConflict(first: FlightProxy, second: FlightProxy, fi
   }
 
   if (first.airborne && second.airborne) {
+    // Independent parallel runway streams may be closer laterally than an
+    // in-trail wake interval while remaining physically separated. Wake and
+    // compression spacing applies only to the same or intersecting runway
+    // system; the physical envelope check above still applies globally.
+    if (!runwayConflict) return null;
     const requiredHorizontal = Math.max(
       AIRBORNE_HORIZONTAL[firstWake],
       AIRBORNE_HORIZONTAL[secondWake],
@@ -447,14 +421,13 @@ function lerp(first: number, second: number, amount: number): number {
   return first + (second - first) * amount;
 }
 
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.max(minimum, Math.min(maximum, value));
+function smoothRange(value: number, start: number, end: number): number {
+  const amount = clamp((value - start) / Math.max(0.0001, end - start), 0, 1);
+  return amount * amount * (3 - 2 * amount);
 }
 
-function normalizeAngle(angle: number): number {
-  let normalized = angle % (Math.PI * 2);
-  if (normalized < 0) normalized += Math.PI * 2;
-  return normalized;
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.max(minimum, Math.min(maximum, value));
 }
 
 export function phaseIsMoving(phase: FlightPhase): boolean {

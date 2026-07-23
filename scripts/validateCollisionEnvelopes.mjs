@@ -114,11 +114,30 @@ for (const config of configs) {
   for (let tick = 0; tick < ticks; tick += 1) {
     harness.advanceTicks(1);
     totals.aircraftEnvelopeTicks += harness.simulation.state.flights.length;
+    const liveDiagnostics = harness.simulation.diagnostics();
+    assert(liveDiagnostics.collisions.length === 0 && liveDiagnostics.obstacleCollisions.length === 0, config.code + ' seed ' + config.seed + ' tick ' + tick + ': transient collision ' + JSON.stringify({
+      collisions: liveDiagnostics.collisions,
+      obstacleCollisions: liveDiagnostics.obstacleCollisions,
+      flights: harness.simulation.state.flights.map((flight) => ({
+        id: flight.id,
+        phase: flight.phase,
+        progress: flight.progress,
+        safetyHold: flight.safetyHold,
+        reason: flight.safetyHoldReason,
+        route: flight.surfaceRoute,
+      })),
+      envelopes: liveDiagnostics.collisionEnvelopes.aircraft,
+    }));
   }
   const snapshot = harness.snapshot();
   assert(snapshot.diagnostics.collisionPairs.length === 0, config.code + ': active aircraft overlap after rush run');
   assert(snapshot.diagnostics.obstacleCollisions.length === 0, config.code + ': active aircraft-building overlap after rush run');
-  assert(snapshot.diagnostics.metrics.collisionAlerts === 0, config.code + ': transient collision envelope breach during rush run');
+  assert(snapshot.diagnostics.metrics.collisionAlerts === 0, config.code + ' seed ' + config.seed + ': transient collision envelope breach during rush run ' + JSON.stringify({
+    collisionPairs: snapshot.diagnostics.collisionPairs,
+    obstacleCollisions: snapshot.diagnostics.obstacleCollisions,
+    metrics: snapshot.diagnostics.metrics,
+    flights: snapshot.flights.map((flight) => ({ id: flight.id, phase: flight.phase, progress: flight.progress, trajectory: flight.trajectory })),
+  }));
   totals.spawnedFlights += snapshot.events.filter((event) => event.type === 'spawn').length;
   totals.trafficRuns += 1;
   totals.ticks += ticks;

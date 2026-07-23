@@ -8,6 +8,7 @@ import type {
   ShiftMetrics,
   TrafficScenario,
 } from './types';
+import { sampleFlightTrajectory, type FlightTrajectoryStage } from './flightTrajectory';
 
 const DEFAULT_STEP_SECONDS = 0.05;
 const MAX_STEP_SECONDS = 0.1;
@@ -59,10 +60,22 @@ export interface FixedStepFlightSnapshot {
   altitudeFt: number;
   verticalSpeedFpm: number;
   fuelPercent: number;
+  trajectory: {
+    stage: FlightTrajectoryStage;
+    stageProgress: number;
+    x: number;
+    y: number;
+    z: number;
+    heading: number;
+    pitch: number;
+    onGround: boolean;
+    distanceAlong: number;
+    totalDistance: number;
+  } | null;
 }
 
 export interface FixedStepSimulationSnapshot {
-  schemaVersion: 1;
+  schemaVersion: 2;
   seed: number;
   airportCode: string;
   stepSeconds: number;
@@ -207,7 +220,7 @@ export class FixedStepSimulationHarness {
   snapshot(): FixedStepSimulationSnapshot {
     const diagnostics = this.simulation.diagnostics();
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       seed: this.config.seed,
       airportCode: this.config.code,
       stepSeconds: round(this.stepSeconds),
@@ -234,7 +247,7 @@ export class FixedStepSimulationHarness {
       },
       flights: [...this.simulation.state.flights]
         .sort((first, second) => first.id - second.id)
-        .map(snapshotFlight),
+        .map((flight) => snapshotFlight(this.config, flight)),
       diagnostics: {
         approachCapacity: diagnostics.approachCapacity,
         nextArrivalIn: round(diagnostics.nextArrivalIn),
@@ -297,7 +310,8 @@ export function createHubSimulationHarness(airport: number | string, options: Fi
   return new FixedStepSimulationHarness(generateHubConfig(index), options);
 }
 
-function snapshotFlight(flight: Flight): FixedStepFlightSnapshot {
+function snapshotFlight(config: AirportConfig, flight: Flight): FixedStepFlightSnapshot {
+  const trajectory = sampleFlightTrajectory(config, flight);
   return {
     id: flight.id,
     callsign: flight.callsign,
@@ -325,6 +339,18 @@ function snapshotFlight(flight: Flight): FixedStepFlightSnapshot {
     altitudeFt: round(flight.kinematics.altitudeFt),
     verticalSpeedFpm: round(flight.kinematics.verticalSpeedFpm),
     fuelPercent: round(flight.kinematics.fuelPercent),
+    trajectory: trajectory ? {
+      stage: trajectory.stage,
+      stageProgress: round(trajectory.stageProgress),
+      x: round(trajectory.x),
+      y: round(trajectory.y),
+      z: round(trajectory.z),
+      heading: round(trajectory.heading),
+      pitch: round(trajectory.pitch),
+      onGround: trajectory.onGround,
+      distanceAlong: round(trajectory.distanceAlong),
+      totalDistance: round(trajectory.totalDistance),
+    } : null,
   };
 }
 

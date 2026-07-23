@@ -24,6 +24,7 @@ The current TypeScript/Vite/Three.js build already includes, or has a first pass
 - A serializable airport surface graph with named taxiways, stands, intersections, runway access, and hold-short nodes.
 - A renderer-independent fixed-step test harness with seeded clocks, stable snapshots, and normalized event capture.
 - Shared physical aircraft and static-structure collision envelopes with predictive movement blocking and telemetry.
+- Shared renderer-independent arrival and departure trajectories with edge entry, flare, touchdown, rollout, lineup, rotation, and climb-out stages.
 - Runway-entry and runway-crossing clearances, hold-short state, runway reservations, and conflict predictions.
 - Emergency actions including go-around and disabled aircraft.
 - Multiple controller stations: tower, ground, approach, and supervisor.
@@ -67,8 +68,8 @@ These rules protect the core fantasy and should be enforced in the simulation la
 - [ ] Add hold-short behavior with stopping distance and a visible stop line.
 - [ ] Add runway-entry clearance separate from takeoff clearance.
 - [ ] Add takeoff sequencing: pushback, taxi, hold short, line up, takeoff roll, rotation, climb-out.
-- [ ] Add landing sequencing: edge entry, downwind/base/final or an equivalent curved arrival, threshold crossing, touchdown, rollout, runway exit.
-- [ ] Add continuous curved approaches so arrivals never make a sharp last-second turn.
+- [x] Add landing sequencing: edge entry, downwind/base/final or an equivalent curved arrival, threshold crossing, touchdown, rollout, runway exit.
+- [x] Add continuous curved approaches so arrivals never make a sharp last-second turn.
 - [ ] Add go-around paths that climb away from the runway and rejoin an approach queue.
 - [ ] Add runway exit selection based on touchdown distance and aircraft braking profile.
 - [ ] Add aircraft-specific taxi speeds, runway speeds, rotation speeds, and climb/descend rates.
@@ -395,8 +396,8 @@ Every command should be validated by the same safety layer used by the UI. An ag
 1. [x] Add a serializable `AirportSurfaceGraph` with named taxiways, stands, intersections, and hold-short nodes.
 2. [x] Add a fixed-step simulation test harness with seeded time advancement.
 3. [x] Add collision envelopes and assert no aircraft-aircraft or aircraft-building overlap.
-4. Implement continuous arrival splines from edge entry through touchdown and rollout.
-5. Implement continuous departure roll, rotation, and climb-out.
+4. [x] Implement continuous arrival splines from edge entry through touchdown and rollout.
+5. [x] Implement continuous departure roll, rotation, and climb-out.
 6. Make taxi routing graph-based and prohibit grass positions.
 7. Add runway crossing reservations and explicit hold-short clearance UI.
 8. Replace batch spawning with a rolling traffic scheduler and hub-specific peak curves.

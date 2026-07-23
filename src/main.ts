@@ -6,6 +6,7 @@ import { airlineProfile } from './simulation/airlineProfiles';
 import type { ControlMode, ControllerStation, EmergencyType, FlightInstruction, FlightPhase, ReplayFrame, TrafficScenario, WeatherCondition } from './simulation/types';
 import { AmbientAudio } from './audio/ambientAudio';
 import { createWorld } from './render/createWorld';
+import { sampleFlightTrajectory } from './simulation/flightTrajectory';
 
 type AirportControlCommand =
   | { action: 'pause' | 'resume' | 'nextView' | 'restart' }
@@ -882,6 +883,7 @@ function airportSnapshot() {
         accelerationMps2: Number(flight.kinematics.accelerationMps2.toFixed(2)),
         fuelPercent: Number(flight.kinematics.fuelPercent.toFixed(2)),
       },
+      trajectory: flightTrajectorySnapshot(flight),
       gateSlot: flight.gateSlot,
       stand: flight.standId,
       cleared: flight.cleared,
@@ -947,7 +949,7 @@ function executeAirportCommand(command: AirportControlCommand): ReturnType<typeo
 }
 
 window.airportControl = {
-  version: '1.11.0',
+  version: '1.12.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },
@@ -982,6 +984,27 @@ window.airportControl = {
     };
   },
 };
+
+function flightTrajectorySnapshot(flight: Parameters<typeof sampleFlightTrajectory>[1]) {
+  const trajectory = sampleFlightTrajectory(config, flight);
+  if (!trajectory) return null;
+  return {
+    stage: trajectory.stage,
+    stageProgress: Number(trajectory.stageProgress.toFixed(3)),
+    position: {
+      x: Number(trajectory.x.toFixed(3)),
+      y: Number(trajectory.y.toFixed(3)),
+      z: Number(trajectory.z.toFixed(3)),
+    },
+    headingDegrees: Number((trajectory.heading * 180 / Math.PI).toFixed(2)),
+    pitchDegrees: Number((trajectory.pitch * 180 / Math.PI).toFixed(2)),
+    bankDegrees: Number((trajectory.bank * 180 / Math.PI).toFixed(2)),
+    onGround: trajectory.onGround,
+    protectedRunway: trajectory.protectedRunway,
+    distanceAlong: Number(trajectory.distanceAlong.toFixed(2)),
+    totalDistance: Number(trajectory.totalDistance.toFixed(2)),
+  };
+}
 
 function runwayDesignation(runwayId: number): string {
   return config.runways[runwayId]?.designation?.join('/') ?? String(runwayId + 1);

@@ -3,6 +3,7 @@ import type { AirportConfig, FlightColor, RunwayConfig } from '../simulation/air
 import { aircraftProfile } from '../simulation/aircraftProfiles';
 import { airlineProfile } from '../simulation/airlineProfiles';
 import type { AirportState, Flight, FlightPhase } from '../simulation/types';
+import { phaseUsesFlightTrajectory, sampleFlightTrajectory } from '../simulation/flightTrajectory';
 
 type FlightVisual = {
   root: THREE.Group;
@@ -20,9 +21,10 @@ type FlightVisual = {
   routePoint: THREE.Vector3;
   routeSample: THREE.Vector3;
   routeTangent: THREE.Vector3;
-  routeSide: THREE.Vector3;
   routePhase: FlightPhase | null;
   route: THREE.CatmullRomCurve3 | null;
+  renderedHeading: number;
+  poseInitialized: boolean;
   active: boolean;
 };
 
@@ -181,7 +183,10 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
         world.add(visual.root);
       }
       visual.active = true;
-      if (visual.routePhase !== flight.phase || !visual.route) {
+      if (phaseUsesFlightTrajectory(flight.phase)) {
+        visual.route = null;
+        visual.routePhase = flight.phase;
+      } else if (visual.routePhase !== flight.phase || !visual.route) {
         const key = `${flight.runway}:${flight.operatingEnd}:${flight.phase}:${flight.id % 2}:${flight.gateSlot}:${flight.aircraft}:${flight.surfaceRoute?.join('>') ?? ''}`;
         let route = flightRoutes.get(key);
         if (!route) {
@@ -191,7 +196,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
         visual.route = route;
         visual.routePhase = flight.phase;
       }
-      positionFlight(visual, flight, state.elapsed, visual.route, nightMix);
+      positionFlight(visual, flight, config, state.elapsed, delta, visual.route, nightMix);
       visual.root.visible = flight.phase !== 'approach' || isNearViewportEdge(visual.root.position);
       const spool = flight.phase === 'takeoff' ? 28 : flight.phase === 'approach' || flight.phase === 'landing' ? 16 : 8;
       for (const propeller of visual.propellers) propeller.rotation.z += delta * spool;
@@ -205,7 +210,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
       visual.landingLamp.visible = landingLightsOn && nightMix > 0.02;
       visual.landingLight.intensity = landingLightsOn ? 3.8 * nightMix : 0;
       visual.beacon.intensity = (strobe ? 3.4 : 0.12) * THREE.MathUtils.lerp(0.45, 1.35, nightMix);
-      updateContrail(visual, flight, state.elapsed);
+      updateContrail(visual, flight, config, state.elapsed);
       visual.halo.visible = selectedFlightId === flight.id;
       visual.halo.scale.setScalar(1 + Math.sin(state.elapsed * 5) * 0.08);
     }
@@ -872,14 +877,23 @@ function createPlane(flight: Flight): FlightVisual {
     routePoint: new THREE.Vector3(),
     routeSample: new THREE.Vector3(),
     routeTangent: new THREE.Vector3(),
-    routeSide: new THREE.Vector3(),
     routePhase: null,
     route: null,
+    renderedHeading: 0,
+    poseInitialized: false,
     active: true,
   };
 }
 
-function positionFlight(visual: FlightVisual, flight: Flight, elapsed: number, curve: THREE.CatmullRomCurve3, nightMix: number): void {
+function positionFlight(
+  visual: FlightVisual,
+  flight: Flight,
+  config: AirportConfig,
+  elapsed: number,
+  delta: number,
+  curve: THREE.CatmullRomCurve3 | null,
+  nightMix: number,
+): void {
   // The orthographic camera has no natural perspective scaling. Gently scale
   // aircraft down through final approach to preserve the visual cue of descent.
   const approachDescent = flight.phase === 'approach'
@@ -894,32 +908,32 @@ function positionFlight(visual: FlightVisual, flight: Flight, elapsed: number, c
       ? THREE.MathUtils.lerp(visual.baseScale, visual.baseScale * 1.22, takeoffClimb)
       : visual.baseScale;
   visual.root.scale.setScalar(presentationScale);
-  // Preserve some forward velocity at brake release, then build speed through the ground roll.
-  const routeProgress = flight.phase === 'takeoff'
-    ? flight.progress * (0.55 + 0.45 * flight.progress)
-    : flight.progress;
-  const point = controlledRoutePoint(visual, flight, curve, routeProgress, visual.routePoint);
-  const forwardSample = routeProgress < 0.998;
-  const sampleProgress = forwardSample ? routeProgress + 0.002 : routeProgress - 0.002;
-  const sample = controlledRoutePoint(visual, flight, curve, sampleProgress, visual.routeSample);
-  const tangent = visual.routeTangent.copy(sample);
-  if (forwardSample) {
-    tangent.sub(point);
+  const trajectory = sampleFlightTrajectory(config, flight);
+  const point = visual.routePoint;
+  const tangent = visual.routeTangent;
+  if (trajectory) {
+    point.set(trajectory.x, trajectory.y, trajectory.z);
+    tangent.set(Math.cos(trajectory.heading), Math.sin(trajectory.heading), 0);
+  } else if (curve) {
+    curve.getPointAt(flight.progress, point);
+    const forwardSample = flight.progress < 0.998;
+    const sampleProgress = forwardSample ? flight.progress + 0.002 : flight.progress - 0.002;
+    curve.getPointAt(sampleProgress, visual.routeSample);
+    tangent.copy(visual.routeSample);
+    if (forwardSample) {
+      tangent.sub(point);
+    } else {
+      tangent.set(point.x - tangent.x, point.y - tangent.y, point.z - tangent.z);
+    }
+    tangent.normalize();
   } else {
-    tangent.set(point.x - tangent.x, point.y - tangent.y, point.z - tangent.z);
+    return;
   }
-  tangent.normalize();
   visual.root.position.copy(point);
   const modelScale = visual.root.scale.x;
   const wheelOnSurfaceLift = Math.max(0.3, 1.29 * modelScale - 0.32);
   const isTaxiing = flight.phase === 'taxi-in' || flight.phase === 'resting' || flight.phase === 'taxi-out';
-  const groundFactor = isTaxiing
-    ? 1
-    : flight.phase === 'landing'
-      ? THREE.MathUtils.smoothstep(flight.progress, 0.15, 0.6)
-      : flight.phase === 'takeoff'
-        ? 1 - THREE.MathUtils.smoothstep(point.z, 2.15, 5.5)
-      : 0;
+  const groundFactor = trajectory?.groundBlend ?? (isTaxiing ? 1 : 0);
   if (isTaxiing) {
     // Taxi route points describe the pavement centerline, not aircraft altitude.
     // Clamp the lowest wheel to the taxi/apron surface so a taxiing plane can
@@ -932,31 +946,30 @@ function positionFlight(visual: FlightVisual, flight: Flight, elapsed: number, c
   } else {
     visual.root.position.z += wheelOnSurfaceLift * groundFactor;
   }
-  visual.root.rotation.z = Math.atan2(tangent.y, tangent.x);
-  const airborne = flight.phase === 'approach'
-    || (flight.phase === 'landing' && groundFactor < 0.65)
-    || (flight.phase === 'takeoff' && groundFactor < 0.55);
+  const targetHeading = trajectory?.heading ?? Math.atan2(tangent.y, tangent.x);
+  if (!visual.poseInitialized) {
+    visual.renderedHeading = targetHeading;
+    visual.poseInitialized = true;
+  } else {
+    visual.renderedHeading = dampAngle(visual.renderedHeading, targetHeading, trajectory ? 8 : 10, delta);
+  }
+  visual.root.rotation.z = visual.renderedHeading;
+  const airborne = trajectory ? !trajectory.onGround : false;
   for (const caster of visual.shadowCasters) caster.castShadow = airborne;
   visual.gear.visible = (flight.phase === 'approach' && flight.progress > 0.72)
     || flight.phase === 'landing'
     || flight.phase === 'taxi-in'
     || flight.phase === 'resting'
     || flight.phase === 'taxi-out'
-    || (flight.phase === 'takeoff' && groundFactor > 0.12);
-  visual.root.rotation.x = airborne ? Math.sin(elapsed * 0.8 + flight.id) * 0.035 : 0;
-  const approachFlare = flight.phase === 'approach'
-    ? THREE.MathUtils.smoothstep(flight.progress, 0.84, 1)
-    : 0;
-  const landingFlare = flight.phase === 'landing'
-    ? 1 - THREE.MathUtils.smoothstep(flight.progress, 0.34, 0.72)
-    : 0;
-  visual.root.rotation.y = flight.phase === 'approach'
-    ? -0.11 * approachFlare
-    : flight.phase === 'landing'
-      ? -0.11 * landingFlare
-    : flight.phase === 'takeoff'
-      ? Math.min(0.12, Math.max(0, point.z - 2.2) * 0.018)
-      : 0;
+    || (flight.phase === 'takeoff' && (
+      trajectory?.stage === 'lineup'
+      || trajectory?.stage === 'takeoff-roll'
+      || trajectory?.stage === 'rotation'
+      || (trajectory?.stage === 'climbout' && trajectory.stageProgress < 0.28)
+    ));
+  const airMotion = airborne ? Math.sin(elapsed * 0.8 + flight.id) * 0.018 : 0;
+  visual.root.rotation.x = (trajectory?.bank ?? 0) + airMotion;
+  visual.root.rotation.y = -(trajectory?.pitch ?? 0);
   const visualAltitude = visual.root.position.z;
   const shadowSurface = isTaxiing ? 1.64 : 1.82;
   const heightAboveSurface = Math.max(0, visualAltitude - shadowSurface);
@@ -970,53 +983,24 @@ function positionFlight(visual: FlightVisual, flight: Flight, elapsed: number, c
   (visual.shadow.material as THREE.MeshBasicMaterial).opacity = shadowOpacity;
 }
 
-function updateContrail(visual: FlightVisual, flight: Flight, elapsed: number): void {
-  const airborne = flight.phase === 'approach'
-    || (flight.phase === 'landing' && flight.progress < 0.62)
-    || (flight.phase === 'takeoff' && flight.progress > 0.38);
-  visual.contrail.visible = airborne && flight.phase !== 'takeoff' || (airborne && flight.progress > 0.62);
+function updateContrail(visual: FlightVisual, flight: Flight, config: AirportConfig, elapsed: number): void {
+  const trajectory = sampleFlightTrajectory(config, flight);
+  const airborne = trajectory ? !trajectory.onGround : false;
+  visual.contrail.visible = airborne && (
+    flight.phase === 'approach'
+    || (flight.phase === 'takeoff' && trajectory?.stage === 'climbout' && trajectory.stageProgress > 0.62)
+  );
   if (!visual.contrail.visible) return;
   const material = visual.contrail.material as THREE.LineBasicMaterial;
   material.opacity = 0.08 + Math.sin(elapsed * 0.8 + flight.id) * 0.025;
 }
 
-function controlledRoutePoint(
-  visual: FlightVisual,
-  flight: Flight,
-  curve: THREE.CatmullRomCurve3,
-  amount: number,
-  target: THREE.Vector3,
-): THREE.Vector3 {
-  curve.getPointAt(amount, target);
-  if (flight.phase !== 'approach' || flight.controlPattern !== 'zigzag') return target;
-  const start = THREE.MathUtils.clamp(flight.controlPatternStart ?? 0, 0, 0.94);
-  const patternProgress = THREE.MathUtils.clamp((amount - start) / Math.max(0.06, 1 - start), 0, 1);
-  const amplitude = visual.root.scale.x < 0.8 ? 18 : 10;
-  const envelope = Math.sin(Math.PI * patternProgress);
-  const offset = amplitude * envelope * envelope * Math.sin(patternProgress * Math.PI * 4);
-  curve.getTangentAt(amount, visual.routeSide);
-  const sideX = -visual.routeSide.y;
-  const sideY = visual.routeSide.x;
-  const sideLength = Math.hypot(sideX, sideY) || 1;
-  target.x += offset * sideX / sideLength;
-  target.y += offset * sideY / sideLength;
-  return target;
-}
-
 function routeFor(config: AirportConfig, flight: Flight): THREE.CatmullRomCurve3 {
   const runway = config.runways[flight.runway];
-  const aircraftSpec = aircraftProfile(flight.aircraft);
-  const operatingEnd = flight.operatingEnd;
   const phase = flight.phase;
-  const landingSign = operatingEnd;
-  const takeoffSign = -landingSign as -1 | 1;
-  const lateralSign = flight.id % 2 ? 1 : -1;
-  const landingThreshold = runwayEnd(runway, landingSign, -2, 4.2);
+  const takeoffSign = -flight.operatingEnd as -1 | 1;
   const rolloutEnd = runwayEnd(runway, takeoffSign, -5, 2);
-  const holdShort = runwayEnd(runway, landingSign, 8, 2);
-  const takeoffStart = runwayEnd(runway, landingSign, -3, 2);
-  const takeoffEnd = runwayEnd(runway, takeoffSign, -2, 2.2);
-  const side = new THREE.Vector3(-Math.sin(runway.heading), Math.cos(runway.heading), 0);
+  const holdShort = runwayEnd(runway, flight.operatingEnd, 8, 2);
   const surfacePoints = surfaceRoutePoints(config, flight);
   const stand = config.surfaceGraph.stands.find((item) => item.slot === flight.gateSlot);
   const standNode = stand ? config.surfaceGraph.nodes.find((node) => node.id === stand.nodeId) : undefined;
@@ -1029,35 +1013,11 @@ function routeFor(config: AirportConfig, flight: Flight): THREE.CatmullRomCurve3
     -Math.sin(standHeading) * 0.001,
     0,
   ));
-  const routeByPhase: Record<FlightPhase, THREE.Vector3[]> = {
-    approach: [
-      runwayEnd(runway, landingSign, config.scope === 'center' ? 265 : 175, config.scope === 'center' ? 28 : 32).addScaledVector(side, config.scope === 'center' ? 0 : lateralSign * Math.min(42, aircraftSpec.turnRadiusM / 28)),
-      runwayEnd(runway, landingSign, config.scope === 'center' ? 190 : 120, config.scope === 'center' ? 22 : 24).addScaledVector(side, config.scope === 'center' ? 0 : lateralSign * 25),
-      runwayEnd(runway, landingSign, config.scope === 'center' ? 118 : 70, config.scope === 'center' ? 15 : 16).addScaledVector(side, config.scope === 'center' ? 0 : lateralSign * 8),
-      ...(config.scope === 'center' ? [runwayEnd(runway, landingSign, 58, 10)] : []),
-      runwayEnd(runway, landingSign, 25, 8),
-      runwayEnd(runway, landingSign, 10, 5.5),
-      landingThreshold,
-    ],
-    landing: [landingThreshold, runwayPoint(runway, landingSign * 0.72, 2.8), runwayPoint(runway, 0, 2.1), rolloutEnd],
-    'taxi-in': surfacePoints.length >= 2 ? surfacePoints : [rolloutEnd, standPoint],
-    resting: [standAlignmentPoint, standPoint],
-    'taxi-out': surfacePoints.length >= 2 ? surfacePoints : [standPoint, holdShort],
-    takeoff: [
-      holdShort,
-      takeoffStart,
-      runwayPoint(runway, landingSign * 0.72, 2),
-      runwayPoint(runway, landingSign * 0.22, 2),
-      runwayPoint(runway, takeoffSign * 0.28, 2.02),
-      runwayPoint(runway, takeoffSign * 0.68, 2.08),
-      takeoffEnd,
-      runwayEnd(runway, takeoffSign, 16, 5.5),
-      runwayEnd(runway, takeoffSign, 48, 13),
-      runwayEnd(runway, takeoffSign, 88, 25),
-      runwayEnd(runway, takeoffSign, 128, 38),
-    ],
-  };
-  const points = routeByPhase[phase];
+  const points = phase === 'taxi-in'
+    ? (surfacePoints.length >= 2 ? surfacePoints : [rolloutEnd, standPoint])
+    : phase === 'taxi-out'
+      ? (surfacePoints.length >= 2 ? surfacePoints : [standPoint, holdShort])
+      : [standAlignmentPoint, standPoint];
   return new THREE.CatmullRomCurve3(points, false, 'centripetal');
 }
 
@@ -1091,14 +1051,14 @@ function addHoldShortMarking(root: THREE.Group, runway: RunwayConfig, point: THR
   root.add(marking);
 }
 
-function runwayPoint(runway: RunwayConfig, normalized: number, z = 2): THREE.Vector3 {
-  const distance = normalized * runway.length / 2;
-  return new THREE.Vector3(runway.center[0] + Math.cos(runway.heading) * distance, runway.center[1] + Math.sin(runway.heading) * distance, z);
-}
-
 function runwayEnd(runway: RunwayConfig, sign: number, beyond = 0, z = 2): THREE.Vector3 {
   const distance = sign * (runway.length / 2 + beyond);
   return new THREE.Vector3(runway.center[0] + Math.cos(runway.heading) * distance, runway.center[1] + Math.sin(runway.heading) * distance, z);
+}
+
+function dampAngle(current: number, target: number, smoothing: number, delta: number): number {
+  const difference = Math.atan2(Math.sin(target - current), Math.cos(target - current));
+  return current + difference * (1 - Math.exp(-smoothing * Math.max(0, delta)));
 }
 
 function addTaxiPath(root: THREE.Group, points: THREE.Vector3[], material: THREE.Material, width = 8): void {
