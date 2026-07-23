@@ -1,12 +1,14 @@
 import * as THREE from 'three';
 import type { AirportConfig, FlightColor, RunwayConfig } from '../simulation/airportConfig';
-import { aircraftProfile } from '../simulation/aircraftProfiles';
+import { aircraftProfile, type AircraftModel } from '../simulation/aircraftProfiles';
+import { airlineProfile } from '../simulation/airlineProfiles';
 import type { AirportState, Flight, FlightPhase } from '../simulation/types';
 
 type FlightVisual = {
   root: THREE.Group;
   shadow: THREE.Mesh;
   gear: THREE.Group;
+  propellers: THREE.Object3D[];
   beacon: THREE.PointLight;
   halo: THREE.Mesh;
   routePoint: THREE.Vector3;
@@ -150,13 +152,15 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
         const key = `${flight.runway}:${flight.operatingEnd}:${flight.phase}:${gateSlot}`;
         let route = flightRoutes.get(key);
         if (!route) {
-          route = routeFor(config, flight.runway, flight.operatingEnd, flight.phase, flight.id);
+          route = routeFor(config, flight.runway, flight.operatingEnd, flight.phase, flight.id, flight.aircraft);
           flightRoutes.set(key, route);
         }
         visual.route = route;
         visual.routePhase = flight.phase;
       }
       positionFlight(visual, flight, state.elapsed, visual.route);
+      const spool = flight.phase === 'takeoff' ? 28 : flight.phase === 'approach' || flight.phase === 'landing' ? 16 : 8;
+      for (const propeller of visual.propellers) propeller.rotation.z += delta * spool;
       visual.halo.visible = selectedFlightId === flight.id;
       visual.halo.scale.setScalar(1 + Math.sin(state.elapsed * 5) * 0.08);
     }
@@ -621,11 +625,13 @@ function buildRipples(root: THREE.Group, config: AirportConfig): THREE.Mesh[] {
 
 function createPlane(flight: Flight): FlightVisual {
   const profile = aircraftProfile(flight.aircraft);
+  const airline = airlineProfile(flight.airline);
   const root = new THREE.Group();
   const body = new THREE.Group();
   root.add(body);
   const color = PALETTE_COLOR[flight.palette];
-  const paint = new THREE.MeshStandardMaterial({ color, roughness: 0.46, metalness: 0.05 });
+  const paint = new THREE.MeshStandardMaterial({ color: airline.primaryColor, roughness: 0.46, metalness: 0.05 });
+  const accent = new THREE.MeshStandardMaterial({ color: airline.accentColor, roughness: 0.4, metalness: 0.08 });
   const cream = new THREE.MeshStandardMaterial({ color: 0xf1eadc, roughness: 0.5, metalness: 0.04 });
   const dark = new THREE.MeshStandardMaterial({ color: COLORS.ink, roughness: 0.42 });
 
@@ -680,6 +686,10 @@ function createPlane(flight: Flight): FlightVisual {
   fin.position.set(-visual.bodyLength * 0.37, 0, visual.tailHeight * 0.43);
   fin.rotation.y = -0.16;
   body.add(fin);
+  const tailMark = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.2, visual.tailHeight * 0.52), accent);
+  tailMark.position.set(-visual.bodyLength * 0.37, 0, visual.tailHeight * 0.43);
+  tailMark.rotation.y = -0.16;
+  body.add(tailMark);
 
   const cockpit = new THREE.Mesh(new THREE.SphereGeometry(visual.bodyRadius * 0.82, 12, 8), dark);
   cockpit.scale.set(1.25, 0.78, 0.43);
@@ -691,6 +701,7 @@ function createPlane(flight: Flight): FlightVisual {
   const engineOffsets = profile.engines === 4
     ? [-visual.engineOffset, -visual.engineOffset * 0.5, visual.engineOffset * 0.5, visual.engineOffset]
     : [-visual.engineOffset, visual.engineOffset];
+  const propellers: THREE.Object3D[] = [];
   for (const offset of engineOffsets) {
     const engine = new THREE.Mesh(new THREE.CylinderGeometry(visual.engineRadius, visual.engineRadius * 1.04, visual.engineLength, 12), engineMaterial);
     engine.rotation.z = -Math.PI / 2;
@@ -705,6 +716,7 @@ function createPlane(flight: Flight): FlightVisual {
       prop.rotation.y = Math.PI / 2;
       prop.position.set(visual.bodyLength * 0.04 + visual.engineLength * 0.53, offset, -visual.bodyRadius * 0.85);
       body.add(prop);
+      propellers.push(prop);
     }
   }
 
@@ -749,6 +761,7 @@ function createPlane(flight: Flight): FlightVisual {
     root,
     shadow,
     gear,
+    propellers,
     beacon,
     halo,
     routePoint: new THREE.Vector3(),
@@ -851,8 +864,9 @@ function controlledRoutePoint(
   return target;
 }
 
-function routeFor(config: AirportConfig, runwayId: number, operatingEnd: -1 | 1, phase: FlightPhase, flightId: number): THREE.CatmullRomCurve3 {
+function routeFor(config: AirportConfig, runwayId: number, operatingEnd: -1 | 1, phase: FlightPhase, flightId: number, aircraft: AircraftModel): THREE.CatmullRomCurve3 {
   const runway = config.runways[runwayId];
+  const aircraftSpec = aircraftProfile(aircraft);
   const landingSign = operatingEnd;
   const takeoffSign = -landingSign as -1 | 1;
   const lateralSign = flightId % 2 ? 1 : -1;
@@ -870,7 +884,7 @@ function routeFor(config: AirportConfig, runwayId: number, operatingEnd: -1 | 1,
   const side = new THREE.Vector3(-Math.sin(runway.heading), Math.cos(runway.heading), 0);
   const routeByPhase: Record<FlightPhase, THREE.Vector3[]> = {
     approach: [
-      runwayEnd(runway, landingSign, config.scope === 'center' ? 190 : 115, config.scope === 'center' ? 24 : 28).addScaledVector(side, config.scope === 'center' ? 0 : lateralSign * 42),
+      runwayEnd(runway, landingSign, config.scope === 'center' ? 190 : 115, config.scope === 'center' ? 24 : 28).addScaledVector(side, config.scope === 'center' ? 0 : lateralSign * Math.min(42, aircraftSpec.turnRadiusM / 28)),
       runwayEnd(runway, landingSign, config.scope === 'center' ? 142 : 78, config.scope === 'center' ? 19 : 21).addScaledVector(side, config.scope === 'center' ? 0 : lateralSign * 25),
       runwayEnd(runway, landingSign, config.scope === 'center' ? 94 : 48, config.scope === 'center' ? 14 : 14).addScaledVector(side, config.scope === 'center' ? 0 : lateralSign * 8),
       ...(config.scope === 'center' ? [runwayEnd(runway, landingSign, 58, 10)] : []),

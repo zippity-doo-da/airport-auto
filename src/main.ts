@@ -2,6 +2,7 @@ import './styles.css';
 import { AirportSimulation } from './simulation/airportSimulation';
 import { generateAirportConfig, generateHubConfig, HUB_AIRPORTS } from './simulation/airportConfig';
 import { aircraftProfile } from './simulation/aircraftProfiles';
+import { airlineProfile } from './simulation/airlineProfiles';
 import type { ControlMode, ControllerStation, EmergencyType, FlightInstruction, ReplayFrame, TrafficScenario, WeatherCondition } from './simulation/types';
 import { AmbientAudio } from './audio/ambientAudio';
 import { createWorld } from './render/createWorld';
@@ -391,7 +392,8 @@ function renderTelemetryControls(): void {
       : `<button data-action="entry" data-flight="${flight.id}">Clear enter ${runwayDesignation(flight.runway)}</button>`;
     const directive = flight.controlHold ? ' · HELD' : flight.controlPattern === 'zigzag' ? ' · ZIGZAG' : flight.controlPace && flight.controlPace !== 1 ? ` · ${flight.controlPace < 1 ? 'SLOW' : 'EXPEDITE'}` : '';
     const profile = aircraftProfile(flight.aircraft);
-    return `<div class="telemetry__flight"><strong>${flight.callsign} · ${flight.aircraft} · ${flight.phase.toUpperCase()}${flight.taxiway ? ` · ${flight.taxiway}` : ''}${directive}</strong><small>${profile.name} · ${profile.wakeClass} wake · ${profile.approachKts} kt approach</small>${flightControls}${crossings}${entry}</div>`;
+    const airline = airlineProfile(flight.airline);
+    return `<div class="telemetry__flight"><strong>${flight.callsign} · ${flight.aircraft} · ${flight.phase.toUpperCase()}${flight.taxiway ? ` · ${flight.taxiway}` : ''}${directive}</strong><small>${airline.name} · ${flight.registration} · ${flight.service} · ${profile.name} · ${profile.wakeClass} wake · ${profile.approachKts} kt approach</small>${flightControls}${crossings}${entry}</div>`;
   }).join('');
 }
 
@@ -640,6 +642,16 @@ function airportSnapshot() {
       phase: flight.phase,
       runway: flight.runway,
       departureRunway: flight.departureRunway,
+      airline: {
+        code: flight.airline,
+        name: airlineProfile(flight.airline).name,
+        callsign: airlineProfile(flight.airline).callsign,
+        primaryColor: `#${airlineProfile(flight.airline).primaryColor.toString(16).padStart(6, '0')}`,
+        accentColor: `#${airlineProfile(flight.airline).accentColor.toString(16).padStart(6, '0')}`,
+      },
+      flightNumber: flight.flightNumber,
+      registration: flight.registration,
+      service: flight.service,
       aircraft: {
         model: flight.aircraft,
         name: aircraftProfile(flight.aircraft).name,
@@ -655,6 +667,11 @@ function airportSnapshot() {
         takeoffRollM: aircraftProfile(flight.aircraft).takeoffRollM,
         landingRollM: aircraftProfile(flight.aircraft).landingRollM,
         climbFpm: aircraftProfile(flight.aircraft).climbFpm,
+        descentFpm: aircraftProfile(flight.aircraft).descentFpm,
+        accelerationMps2: aircraftProfile(flight.aircraft).accelerationMps2,
+        brakingMps2: aircraftProfile(flight.aircraft).brakingMps2,
+        turnRadiusM: aircraftProfile(flight.aircraft).turnRadiusM,
+        wakeSeparationSeconds: aircraftProfile(flight.aircraft).wakeSeparationSeconds,
       },
       category: flight.category,
       wakeClass: flight.wakeClass,

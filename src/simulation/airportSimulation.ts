@@ -1,6 +1,7 @@
 import type { AirportConfig } from './airportConfig';
 import type { AirportEvent, AirportState, ConflictPrediction, ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, ShiftMetrics, TrafficScenario, WeatherCondition } from './types';
 import { AIRCRAFT_ROSTER, aircraftProfile, type AircraftModel } from './aircraftProfiles';
+import { AIRPORT_AIRLINES, airlineProfile, type AirlineCode } from './airlineProfiles';
 
 const PHASE_DURATION: Record<FlightPhase, number> = {
   approach: 12,
@@ -18,8 +19,6 @@ const NEXT_PHASE: Partial<Record<FlightPhase, FlightPhase>> = {
   resting: 'taxi-out',
   'taxi-out': 'takeoff',
 };
-
-const NAMES = ['Bluebell', 'Mallow', 'Juniper', 'Linen', 'Wren', 'Aster', 'Willow', 'Dove'];
 
 export class AirportSimulation {
   readonly state: AirportState = {
@@ -258,8 +257,8 @@ export class AirportSimulation {
     this.taxiOutReleaseIn = Math.max(0, this.taxiOutReleaseIn - delta);
 
     if (this.spawnIn <= 0) {
-      const spawned = this.state.flights.length < this.config.trafficCap && this.spawnFlight();
-      this.spawnIn = spawned ? this.arrivalSpacing() : 0.6;
+      const spawnedAircraft = this.state.flights.length < this.config.trafficCap ? this.spawnFlight() : null;
+      this.spawnIn = spawnedAircraft ? this.arrivalSpacing(aircraftProfile(spawnedAircraft)) : 0.6;
     }
     this.metrics.maxConcurrent = Math.max(this.metrics.maxConcurrent, this.state.flights.length);
 
@@ -312,14 +311,14 @@ export class AirportSimulation {
     };
   }
 
-  private spawnFlight(): boolean {
+  private spawnFlight(): AircraftModel | null {
     const approachLimit = this.weatherApproachCapacity();
-    if (this.state.flights.filter((flight) => flight.phase === 'approach' || flight.phase === 'landing').length >= approachLimit) return false;
+    if (this.state.flights.filter((flight) => flight.phase === 'approach' || flight.phase === 'landing').length >= approachLimit) return null;
     const arrivalRunways = this.config.runways.filter((runway) => (runway.role === 'arrival' || runway.role === 'mixed') && runway.id !== this.closedRunway);
     const unblocked = arrivalRunways.filter((runway) => !this.arrivalBlocked(runway.id));
     const usable = unblocked.filter((runway) => this.headwindComponent(runway.id) >= -5);
     const candidates = (usable.length ? usable : unblocked).sort((first, second) => this.headwindComponent(second.id) - this.headwindComponent(first.id));
-    if (candidates.length === 0) return false;
+    if (candidates.length === 0) return null;
 
     const id = this.nextId++;
     const runway = candidates[0].id;
@@ -327,11 +326,16 @@ export class AirportSimulation {
     const departureRunways = this.config.runways.filter((item) => (item.role === 'departure' || item.role === 'mixed') && item.id !== this.closedRunway);
     const departureRunway = [...departureRunways].sort((first, second) => this.headwindComponent(second.id) - this.headwindComponent(first.id))[(id - 1) % departureRunways.length].id;
     const automatic = this.state.mode === 'auto';
-    const aircraft = AIRCRAFT_ROSTER[(id - 1 + Math.abs(this.config.seed)) % AIRCRAFT_ROSTER.length];
+    const airlineCode = this.airlineFor(id);
+    const airline = airlineProfile(airlineCode);
+    const aircraft = this.aircraftFor(airlineCode, id);
     const profile = aircraftProfile(aircraft);
+    const flightNumber = 100 + ((id * 37 + Math.abs(this.config.seed)) % 890);
+    const registration = this.registrationFor(airlineCode, id);
+    const service = airline.cargo || profile.category === 'cargo' ? 'cargo' : 'passenger';
     const flight: Flight = {
       id,
-      callsign: `${NAMES[(id - 1) % NAMES.length]} ${String(id * 3 + 1).padStart(2, '0')}`,
+      callsign: `${airline.callsign} ${flightNumber}`,
       palette: runwayConfig.color,
       runway,
       departureRunway,
@@ -343,6 +347,10 @@ export class AirportSimulation {
       cleared: automatic,
       clearanceLeft: automatic ? 99 : this.phaseDuration(aircraft, 'approach') * 0.96,
       aircraft,
+      airline: airlineCode,
+      flightNumber,
+      registration,
+      service,
       category: profile.category,
       wakeClass: profile.wakeClass,
       procedure: this.arrivalProcedure(runway),
@@ -357,7 +365,7 @@ export class AirportSimulation {
     this.events.push({ type: 'spawn', flight });
     if (automatic) this.events.push({ type: 'auto-clear', flight });
     if (flight.emergency) this.events.push({ type: 'emergency', flight });
-    return true;
+    return aircraft;
   }
 
   private advance(flight: Flight): void {
@@ -507,15 +515,34 @@ export class AirportSimulation {
     return this.approachCapacity;
   }
 
-  private arrivalSpacing(): number {
+  private arrivalSpacing(profile?: ReturnType<typeof aircraftProfile>): number {
     const base = this.config.scope === 'center'
       ? Math.max(8, this.config.trafficInterval * 0.9)
       : Math.max(6.5, this.config.trafficInterval * 0.95);
     const scenarioMultiplier = this.state.scenario === 'rush' ? 0.62 : this.state.scenario === 'storm' ? 1.55 : this.state.scenario === 'closure' ? 1.18 : this.state.scenario === 'training' ? 2.1 : this.state.scenario === 'emergency' ? 1.35 : 1;
-    const scenarioBase = base * scenarioMultiplier;
+    const wakeMultiplier = profile ? profile.wakeSeparationSeconds / 4.2 : 1;
+    const scenarioBase = base * scenarioMultiplier * wakeMultiplier;
     if (this.state.weather.condition === 'fog') return scenarioBase * 1.55;
     if (this.state.weather.condition === 'rain') return scenarioBase * 1.2;
     return scenarioBase;
+  }
+
+  private airlineFor(id: number): AirlineCode {
+    const roster = AIRPORT_AIRLINES[this.config.code] ?? AIRPORT_AIRLINES.LOCAL;
+    return roster[(id - 1 + Math.abs(this.config.seed)) % roster.length];
+  }
+
+  private aircraftFor(airlineCode: AirlineCode, id: number): AircraftModel {
+    const airline = airlineProfile(airlineCode);
+    if (airline.cargo) return id % 3 === 0 ? 'B738' : 'B77F';
+    const passengerRoster = AIRCRAFT_ROSTER.filter((model) => model !== 'B77F');
+    return passengerRoster[(id - 1 + Math.abs(this.config.seed)) % passengerRoster.length];
+  }
+
+  private registrationFor(airlineCode: AirlineCode, id: number): string {
+    const airline = airlineProfile(airlineCode);
+    const suffix = String(100 + ((id * 73 + Math.abs(this.config.seed)) % 890)).padStart(3, '0');
+    return `${airline.registrationPrefix}${suffix}${airlineCode === 'UA' ? 'U' : airlineCode === 'AA' ? 'A' : ''}`;
   }
 
   private arrivalProcedure(runway: number): string {
@@ -528,11 +555,12 @@ export class AirportSimulation {
     if (phase === 'resting') return PHASE_DURATION.resting;
     if (phase === 'approach') {
       const base = this.config.scope === 'center' ? 18 : PHASE_DURATION.approach;
-      return base * (145 / profile.approachKts) * this.weatherDurationMultiplier(phase);
+      const turnFactor = Math.pow(profile.turnRadiusM / 1_000, 0.08);
+      return base * (145 / profile.approachKts) * turnFactor * (1_800 / profile.descentFpm) ** 0.08 * this.weatherDurationMultiplier(phase);
     }
-    if (phase === 'landing') return PHASE_DURATION.landing * (profile.landingRollM / 1_650) * this.weatherDurationMultiplier(phase);
-    if (phase === 'taxi-in' || phase === 'taxi-out') return 19 * (18 / profile.taxiKts) * this.weatherDurationMultiplier(phase);
-    if (phase === 'takeoff') return PHASE_DURATION.takeoff * (profile.takeoffRollM / 2_250) * this.weatherDurationMultiplier(phase);
+    if (phase === 'landing') return PHASE_DURATION.landing * (profile.landingRollM / 1_650) * (1.8 / profile.brakingMps2) ** 0.2 * this.weatherDurationMultiplier(phase);
+    if (phase === 'taxi-in' || phase === 'taxi-out') return 19 * (18 / profile.taxiKts) * (1.9 / profile.brakingMps2) ** 0.08 * this.weatherDurationMultiplier(phase);
+    if (phase === 'takeoff') return PHASE_DURATION.takeoff * (profile.takeoffRollM / 2_250) * (2 / profile.accelerationMps2) ** 0.35 * this.weatherDurationMultiplier(phase);
     return PHASE_DURATION[phase] * this.weatherDurationMultiplier(phase);
   }
 

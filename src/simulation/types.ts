@@ -2,6 +2,7 @@ export type FlightPhase = 'approach' | 'landing' | 'taxi-in' | 'resting' | 'taxi
 
 import type { FlightColor } from './airportConfig';
 import type { AircraftModel } from './aircraftProfiles';
+import type { AirlineCode } from './airlineProfiles';
 
 export type ControlMode = 'auto' | 'manual';
 export type WeatherCondition = 'clear' | 'rain' | 'fog';
@@ -46,6 +47,10 @@ export interface Flight {
   controlPattern?: 'zigzag';
   controlPatternStart?: number;
   aircraft: AircraftModel;
+  airline: AirlineCode;
+  flightNumber: number;
+  registration: string;
+  service: 'passenger' | 'cargo';
   category: AircraftCategory;
   wakeClass: WakeClass;
   procedure: string;
