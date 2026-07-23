@@ -49,6 +49,11 @@ body.center-scope #app::before {
 .brand, .scoreboard, .status, .instruction, .controls, .quick-setup { position: absolute; z-index: 4; }
 .telemetry { position: absolute; z-index: 8; top: 168px; right: 22px; width: min(430px, 42vw); max-height: calc(100vh - 260px); overflow: auto; padding: 12px; border: 1px solid rgba(121, 200, 232, 0.45); color: #d9f4f4; background: rgba(8, 29, 31, 0.9); font: 11px/1.45 Consolas, monospace; }
 .telemetry pre { margin: 0; white-space: pre-wrap; }
+.replay-tools { display: grid; grid-template-columns: auto 1fr auto auto; gap: 6px; align-items: center; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid rgba(121, 200, 232, 0.28); }
+.replay-tools button { border: 1px solid rgba(121, 200, 232, 0.5); border-radius: 3px; padding: 4px 7px; color: #d9f4f4; background: rgba(121, 200, 232, 0.1); font: inherit; cursor: pointer; }
+.replay-tools button:hover, .replay-tools button[aria-pressed="true"] { background: rgba(121, 200, 232, 0.26); }
+.replay-tools input { width: 100%; accent-color: var(--amber); }
+.replay-tools output { min-width: 42px; color: var(--amber); text-align: right; }
 .telemetry__controls:empty { display: none; }
 .telemetry__controls { display: grid; gap: 6px; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid rgba(121, 200, 232, 0.28); }
 .telemetry__flight { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }

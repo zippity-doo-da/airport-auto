@@ -35,6 +35,13 @@
           <option value="rush">Rush hour</option>
           <option value="storm">Storm front</option>
           <option value="closure">Runway closure</option>
+          <option value="training">Training pattern</option>
+        </select></label>
+        <label><span>Station</span><select id="station-select">
+          <option value="supervisor">Supervisor</option>
+          <option value="approach">Approach</option>
+          <option value="tower">Tower</option>
+          <option value="ground">Ground</option>
         </select></label>
         <label class="speed-control"><span>Speed <output id="speed-output" for="speed-control">1×</output></span><input id="speed-control" type="range" min="0.5" max="3" step="0.25" value="1" aria-label="Simulation speed" /></label>
         <div class="weather-readout" aria-label="Current weather">
@@ -48,6 +55,8 @@
         <i aria-hidden="true"></i>
         <div><strong id="departed-count">00</strong><span>Departed</span></div>
         <i aria-hidden="true"></i>
+        <div><strong id="safety-score">100</strong><span>Safety</span></div>
+        <i aria-hidden="true"></i>
         <div><strong id="shift-time">00:00</strong><span>Shift</span></div>
       </section>
 
@@ -59,6 +68,12 @@
       <p class="instruction"><span class="mouse" aria-hidden="true"></span><span id="instruction-copy">The tower routes automatically · <b>drag to take control</b></span></p>
 
       <aside id="telemetry-panel" class="telemetry" aria-label="Airport telemetry" hidden>
+        <div class="replay-tools" aria-label="Replay controls">
+          <button id="replay-toggle" type="button">Replay</button>
+          <input id="replay-slider" type="range" min="0" max="0" value="0" step="1" aria-label="Replay position" disabled />
+          <output id="replay-time">LIVE</output>
+          <button id="replay-export" type="button">Export</button>
+        </div>
         <div id="telemetry-controls" class="telemetry__controls" aria-label="Manual surface clearances"></div>
         <pre id="telemetry-output"></pre>
       </aside>

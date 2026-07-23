@@ -1,7 +1,7 @@
 import './styles.css';
 import { AirportSimulation } from './simulation/airportSimulation';
 import { generateAirportConfig, generateHubConfig, HUB_AIRPORTS } from './simulation/airportConfig';
-import type { ControlMode, FlightInstruction, ReplayFrame, TrafficScenario, WeatherCondition } from './simulation/types';
+import type { ControlMode, ControllerStation, FlightInstruction, ReplayFrame, TrafficScenario, WeatherCondition } from './simulation/types';
 import { AmbientAudio } from './audio/ambientAudio';
 import { createWorld } from './render/createWorld';
 
@@ -16,6 +16,7 @@ type AirportControlCommand =
   | { action: 'controlFlights'; flightIds: number[]; instruction: FlightInstruction }
   | { action: 'focusFlight'; flightId: number | null }
   | { action: 'setScenario'; scenario: TrafficScenario }
+  | { action: 'setStation'; station: ControllerStation }
   | { action: 'setWeather'; condition: WeatherCondition; directionDegrees: number; windSpeed: number }
   | { action: 'setWeatherEnabled'; enabled: boolean }
   | { action: 'setWindEnabled'; enabled: boolean };
@@ -81,6 +82,7 @@ const instructionCopy = $<HTMLElement>('#instruction-copy');
 const airportSelect = $<HTMLSelectElement>('#airport-select');
 const controlSelect = $<HTMLSelectElement>('#control-select');
 const scenarioSelect = $<HTMLSelectElement>('#scenario-select');
+const stationSelect = $<HTMLSelectElement>('#station-select');
 const introAirportSelect = $<HTMLSelectElement>('#intro-airport-select');
 const introControlSelect = $<HTMLSelectElement>('#intro-control-select');
 const speedControl = $<HTMLInputElement>('#speed-control');
@@ -101,6 +103,11 @@ const routeShadow = $<SVGPathElement>('#route-shadow');
 const telemetryPanel = $<HTMLElement>('#telemetry-panel');
 const telemetryControls = $<HTMLElement>('#telemetry-controls');
 const telemetryOutput = $<HTMLElement>('#telemetry-output');
+const replayToggle = $<HTMLButtonElement>('#replay-toggle');
+const replaySlider = $<HTMLInputElement>('#replay-slider');
+const replayTime = $<HTMLOutputElement>('#replay-time');
+const replayExport = $<HTMLButtonElement>('#replay-export');
+const safetyScore = $<HTMLElement>('#safety-score');
 
 let lastTime = performance.now();
 let audioUpdateIn = 0;
@@ -114,6 +121,8 @@ let simulationSpeed = 1;
 let telemetrySequence = 0;
 let lastWeatherCondition: WeatherCondition | null = null;
 let lastPredictionKey = '';
+let replayIndex = -1;
+let replayMode = false;
 const replayFrames: ReplayFrame[] = [];
 const telemetryEvents: TelemetryEvent[] = [];
 const launchOptions = new URLSearchParams(window.location.search);
@@ -132,6 +141,7 @@ airportSelect.addEventListener('change', () => selectAirport(airportSelect.value
 introAirportSelect.addEventListener('change', () => selectAirport(introAirportSelect.value, true));
 controlSelect.addEventListener('change', () => selectControl(controlSelect.value as ControlMode));
 scenarioSelect.addEventListener('change', () => setScenario(scenarioSelect.value as TrafficScenario));
+stationSelect.addEventListener('change', () => setStation(stationSelect.value as ControllerStation));
 introControlSelect.addEventListener('change', () => selectControl(introControlSelect.value as ControlMode));
 speedControl.addEventListener('input', () => setSimulationSpeed(Number(speedControl.value)));
 weatherToggle.addEventListener('click', () => {
@@ -141,6 +151,29 @@ weatherToggle.addEventListener('click', () => {
 windToggle.addEventListener('click', () => {
   simulation.setWindEnabled(!simulation.state.weather.windEnabled);
   updateWeatherUi();
+});
+
+replayToggle.addEventListener('click', () => {
+  replayMode = !replayMode;
+  replayToggle.setAttribute('aria-pressed', String(replayMode));
+  replayToggle.textContent = replayMode ? 'Live' : 'Replay';
+  replaySlider.disabled = !replayMode || replayFrames.length === 0;
+  if (!replayMode) replayIndex = -1;
+  else replayIndex = Math.max(0, replayFrames.length - 1);
+  updateReplayUi();
+});
+replaySlider.addEventListener('input', () => {
+  replayIndex = Number(replaySlider.value);
+  updateReplayUi();
+});
+replayExport.addEventListener('click', () => {
+  const payload = JSON.stringify(replayFrames, null, 2);
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([payload], { type: 'application/json' }));
+  link.download = `${config.code.toLowerCase()}-replay.json`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+  setStatus('Replay exported', `${replayFrames.length} frames · JSON download ready`);
 });
 
 soundButton.addEventListener('click', async () => {
@@ -272,6 +305,8 @@ function frame(now: number): void {
       predictions,
     });
     if (replayFrames.length > 900) replayFrames.shift();
+    updateSafetyUi(predictions);
+    updateReplayUi();
   }
   if (simulation.state.arrivals !== lastArrivals) {
     landedCount.textContent = two(simulation.state.arrivals);
@@ -302,7 +337,8 @@ function frame(now: number): void {
   world.update(simulation.state, delta);
   if (telemetryEnabled && hudSecond !== lastTelemetrySecond) {
     renderTelemetryControls();
-    telemetryOutput.textContent = JSON.stringify(airportSnapshot(), null, 2);
+    telemetryOutput.textContent = JSON.stringify(replayMode && replayFrames[replayIndex] ? { replay: replayFrames[replayIndex], live: airportSnapshot() } : airportSnapshot(), null, 2);
+    updateReplayUi();
     lastTelemetrySecond = hudSecond;
   }
   requestAnimationFrame(frame);
@@ -348,6 +384,28 @@ function renderTelemetryControls(): void {
     const directive = flight.controlHold ? ' · HELD' : flight.controlPattern === 'zigzag' ? ' · ZIGZAG' : flight.controlPace && flight.controlPace !== 1 ? ` · ${flight.controlPace < 1 ? 'SLOW' : 'EXPEDITE'}` : '';
     return `<div class="telemetry__flight"><strong>${flight.callsign} · ${flight.phase.toUpperCase()}${flight.taxiway ? ` · ${flight.taxiway}` : ''}${directive}</strong>${flightControls}${crossings}${entry}</div>`;
   }).join('');
+}
+
+function updateSafetyUi(predictions = simulation.conflictPredictions()): void {
+  const metrics = simulation.shiftMetrics();
+  const penalty = predictions.reduce((sum, prediction) => sum + (prediction.severity === 'warning' ? 22 : 7), 0);
+  const score = Math.max(0, Math.min(100, Math.round(100 - penalty - metrics.estimatedDelaySeconds / 90)));
+  safetyScore.textContent = String(score).padStart(3, '0');
+  safetyScore.style.color = score > 84 ? '#d9f4f4' : score > 64 ? '#f2c84b' : '#ef937f';
+}
+
+function updateReplayUi(): void {
+  replaySlider.max = String(Math.max(0, replayFrames.length - 1));
+  replaySlider.disabled = !replayMode || replayFrames.length === 0;
+  if (replayMode && replayFrames.length) {
+    replayIndex = Math.max(0, Math.min(replayFrames.length - 1, replayIndex < 0 ? replayFrames.length - 1 : replayIndex));
+    replaySlider.value = String(replayIndex);
+    replayTime.value = formatTime(replayFrames[replayIndex].clock);
+    replayTime.textContent = formatTime(replayFrames[replayIndex].clock);
+  } else {
+    replayTime.value = 'LIVE';
+    replayTime.textContent = 'LIVE';
+  }
 }
 
 function setStatus(label: string, detail: string): void {
@@ -399,6 +457,7 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   simulation = new AirportSimulation(config);
   simulation.setMode(mode);
   simulation.setScenario(scenarioSelect.value as TrafficScenario);
+  simulation.setStation(stationSelect.value as ControllerStation);
   simulation.setPace(simulationSpeed);
   simulation.setPaused(paused);
   world = createWorld(canvas, config);
@@ -406,6 +465,11 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   clearRoute();
   replayFrames.length = 0;
   lastPredictionKey = '';
+  replayMode = false;
+  replayIndex = -1;
+  replayToggle.setAttribute('aria-pressed', 'false');
+  replayToggle.textContent = 'Replay';
+  updateReplayUi();
   updateModeControl();
 }
 
@@ -446,8 +510,15 @@ function selectControl(mode: ControlMode): void {
 function setScenario(scenario: TrafficScenario): void {
   simulation.setScenario(scenario);
   scenarioSelect.value = scenario;
-  const labels: Record<TrafficScenario, string> = { normal: 'Normal flow', rush: 'Rush hour', storm: 'Storm front', closure: 'Runway closure' };
-  setStatus(`${labels[scenario]} scenario`, scenario === 'closure' ? 'one runway closed · arrivals re-sequencing' : scenario === 'storm' ? 'reduced visibility · wider spacing' : scenario === 'rush' ? 'compressed arrival stream · watch separation' : 'standard traffic picture');
+  const labels: Record<TrafficScenario, string> = { normal: 'Normal flow', rush: 'Rush hour', storm: 'Storm front', closure: 'Runway closure', training: 'Training pattern' };
+  setStatus(`${labels[scenario]} scenario`, scenario === 'closure' ? 'one runway closed · arrivals re-sequencing' : scenario === 'storm' ? 'reduced visibility · wider spacing' : scenario === 'rush' ? 'compressed arrival stream · watch separation' : scenario === 'training' ? 'one aircraft at a time · practice clearances' : 'standard traffic picture');
+}
+
+function setStation(station: ControllerStation): void {
+  simulation.setStation(station);
+  stationSelect.value = station;
+  const labels: Record<ControllerStation, string> = { supervisor: 'Supervisor', approach: 'Approach', tower: 'Tower', ground: 'Ground' };
+  setStatus(`${labels[station]} station`, station === 'supervisor' ? 'full picture · all clearances available' : `${labels[station].toLowerCase()} frequency selected`);
 }
 
 function trafficDescription(): string {
@@ -514,6 +585,7 @@ function airportSnapshot() {
     clock: Number(simulation.state.elapsed.toFixed(2)),
     paused: simulation.state.paused,
     mode: simulation.state.mode,
+    station: simulation.state.station,
     scenario: simulation.state.scenario,
     speed: simulationSpeed,
     weather: {
@@ -597,6 +669,7 @@ function executeAirportCommand(command: AirportControlCommand): ReturnType<typeo
   }
   if (command.action === 'focusFlight') world.selectFlight(command.flightId);
   if (command.action === 'setScenario') setScenario(command.scenario);
+  if (command.action === 'setStation') setStation(command.station);
   if (command.action === 'setWeather') simulation.setWeather(command.condition, aviationDegreesToMathAngle(command.directionDegrees), command.windSpeed);
   if (command.action === 'setWeatherEnabled') simulation.setWeatherEnabled(command.enabled);
   if (command.action === 'setWindEnabled') simulation.setWindEnabled(command.enabled);
@@ -606,7 +679,7 @@ function executeAirportCommand(command: AirportControlCommand): ReturnType<typeo
 }
 
 window.airportControl = {
-  version: '1.2.0',
+  version: '1.3.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },
@@ -627,6 +700,7 @@ window.airportControl = {
       surfaceHold: "airportControl.command({ action: 'controlFlights', flightIds: [3], instruction: 'hold' })",
       focus: "airportControl.command({ action: 'focusFlight', flightId: 1 })",
       scenario: "airportControl.command({ action: 'setScenario', scenario: 'rush' })",
+      station: "airportControl.command({ action: 'setStation', station: 'ground' })",
       replay: 'airportControl.replay()',
       zigzag: "airportControl.command({ action: 'controlFlights', flightIds: [1], instruction: 'zigzag' })",
       weather: "airportControl.command({ action: 'setWeather', condition: 'rain', directionDegrees: 270, windSpeed: 18 })",
@@ -656,7 +730,9 @@ if (Number.isFinite(launchSpeed) && launchOptions.has('speed')) setSimulationSpe
 const launchMode = launchOptions.get('mode');
 if (launchMode === 'auto' || launchMode === 'manual') selectControl(launchMode);
 const launchScenario = launchOptions.get('scenario') as TrafficScenario | null;
-if (launchScenario && ['normal', 'rush', 'storm', 'closure'].includes(launchScenario)) setScenario(launchScenario);
+if (launchScenario && ['normal', 'rush', 'storm', 'closure', 'training'].includes(launchScenario)) setScenario(launchScenario);
+const launchStation = launchOptions.get('station') as ControllerStation | null;
+if (launchStation && ['supervisor', 'approach', 'tower', 'ground'].includes(launchStation)) setStation(launchStation);
 const launchWeatherValue = launchOptions.get('weather');
 const launchWeather = launchWeatherValue as WeatherCondition | null;
 const launchWindDirection = Number(launchOptions.get('windDir') ?? 270);

@@ -1,5 +1,5 @@
 import type { AirportConfig } from './airportConfig';
-import type { AirportEvent, AirportState, AircraftCategory, ConflictPrediction, ControlMode, Flight, FlightInstruction, FlightPhase, ShiftMetrics, TrafficScenario, WeatherCondition } from './types';
+import type { AirportEvent, AirportState, AircraftCategory, ConflictPrediction, ControlMode, ControllerStation, Flight, FlightInstruction, FlightPhase, ShiftMetrics, TrafficScenario, WeatherCondition } from './types';
 
 const PHASE_DURATION: Record<FlightPhase, number> = {
   approach: 12,
@@ -30,6 +30,7 @@ export class AirportSimulation {
     gameOver: false,
     paused: false,
     mode: 'auto',
+    station: 'supervisor',
     weather: { weatherEnabled: true, windEnabled: true, condition: 'clear', windDirection: Math.PI, windSpeed: 10, gustSpeed: 14, visibility: 10 },
     scenario: 'normal',
   };
@@ -85,6 +86,10 @@ export class AirportSimulation {
         }
       }
     }
+  }
+
+  setStation(station: ControllerStation): void {
+    this.state.station = station;
   }
 
   setScenario(scenario: TrafficScenario): void {
@@ -218,6 +223,7 @@ export class AirportSimulation {
     this.taxiOutReleaseIn = 0;
     this.closedRunway = null;
     this.state.scenario = 'normal';
+    this.state.station = 'supervisor';
     Object.assign(this.metrics, { safeArrivals: 0, safeDepartures: 0, preventedConflicts: 0, holdsIssued: 0, manualCommands: 0, maxConcurrent: 0, airborneSeconds: 0, taxiSeconds: 0, estimatedDelaySeconds: 0 });
   }
 
@@ -228,7 +234,6 @@ export class AirportSimulation {
     this.state.elapsed += delta;
     this.state.breeze = Math.sin(this.state.elapsed * 0.07) * 0.5 + 0.5;
     this.updateWeather();
-    this.metrics.maxConcurrent = Math.max(this.metrics.maxConcurrent, this.state.flights.length);
     this.spawnIn -= delta;
     this.taxiOutReleaseIn = Math.max(0, this.taxiOutReleaseIn - delta);
 
@@ -236,6 +241,7 @@ export class AirportSimulation {
       const spawned = this.state.flights.length < this.config.trafficCap && this.spawnFlight();
       this.spawnIn = spawned ? this.arrivalSpacing() : 0.6;
     }
+    this.metrics.maxConcurrent = Math.max(this.metrics.maxConcurrent, this.state.flights.length);
 
     for (const flight of [...this.state.flights]) {
       // The pace control accelerates the traffic picture, not aircraft driving
@@ -465,6 +471,7 @@ export class AirportSimulation {
   }
 
   private weatherApproachCapacity(): number {
+    if (this.state.scenario === 'training') return 1;
     if (this.state.scenario === 'rush') return Math.min(this.approachCapacity + 1, this.state.weather.condition === 'clear' ? 5 : this.approachCapacity);
     if (this.state.scenario === 'storm') return Math.min(2, this.approachCapacity);
     if (this.state.weather.condition === 'fog') return Math.min(2, this.approachCapacity);
@@ -476,7 +483,7 @@ export class AirportSimulation {
     const base = this.config.scope === 'center'
       ? Math.max(8, this.config.trafficInterval * 0.9)
       : Math.max(6.5, this.config.trafficInterval * 0.95);
-    const scenarioMultiplier = this.state.scenario === 'rush' ? 0.62 : this.state.scenario === 'storm' ? 1.55 : this.state.scenario === 'closure' ? 1.18 : 1;
+    const scenarioMultiplier = this.state.scenario === 'rush' ? 0.62 : this.state.scenario === 'storm' ? 1.55 : this.state.scenario === 'closure' ? 1.18 : this.state.scenario === 'training' ? 2.1 : 1;
     const scenarioBase = base * scenarioMultiplier;
     if (this.state.weather.condition === 'fog') return scenarioBase * 1.55;
     if (this.state.weather.condition === 'rain') return scenarioBase * 1.2;

@@ -4,7 +4,8 @@ import type { FlightColor } from './airportConfig';
 
 export type ControlMode = 'auto' | 'manual';
 export type WeatherCondition = 'clear' | 'rain' | 'fog';
-export type TrafficScenario = 'normal' | 'rush' | 'storm' | 'closure';
+export type TrafficScenario = 'normal' | 'rush' | 'storm' | 'closure' | 'training';
+export type ControllerStation = 'tower' | 'ground' | 'approach' | 'supervisor';
 export type FlightInstruction = 'slow' | 'normal' | 'expedite' | 'hold' | 'resume' | 'zigzag';
 export type AircraftCategory = 'regional' | 'narrowbody' | 'widebody' | 'cargo';
 
@@ -89,6 +90,7 @@ export interface AirportState {
   gameOver: boolean;
   paused: boolean;
   mode: ControlMode;
+  station: ControllerStation;
   weather: WeatherState;
   scenario: TrafficScenario;
 }
