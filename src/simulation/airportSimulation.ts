@@ -2,8 +2,9 @@ import type { AirportConfig } from './airportConfig';
 import type { AirportEvent, AirportState, ConflictPrediction, ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, ShiftMetrics, TrafficScenario, WeatherCondition } from './types';
 import { AIRCRAFT_ROSTER, aircraftProfile, type AircraftModel } from './aircraftProfiles';
 import { AIRPORT_AIRLINES, airlineProfile, type AirlineCode } from './airlineProfiles';
-import { findFlightConflicts, findProposedConflict } from './collisionDetection';
+import { aircraftCollisionEnvelope, findFlightConflicts, findObstacleConflicts, findProposedConflict } from './collisionDetection';
 import { sampleSurfaceRoute, surfaceRouteForFlight, validateAirportSurfaceGraph, type SurfaceGraphValidation } from './surfaceGraph';
+import { validateAirportObstacleEnvelopes, type AirportObstacleValidation } from './airportObstacles';
 
 const PHASE_DURATION: Record<FlightPhase, number> = {
   approach: 38,
@@ -53,6 +54,7 @@ export class AirportSimulation {
   private closedRunway: number | null = null;
   private autoSurfaceOwnerId: number | null = null;
   private readonly surfaceGraphValidation: SurfaceGraphValidation;
+  private readonly obstacleEnvelopeValidation: AirportObstacleValidation;
   private readonly metrics: ShiftMetrics = {
     safeArrivals: 0,
     safeDepartures: 0,
@@ -75,6 +77,7 @@ export class AirportSimulation {
     this.baseWindDirection = this.normalizeAngle(reference.heading + (reference.landingEnd === 1 ? Math.PI : 0) + Math.sin(config.seed) * 0.32);
     this.baseWindSpeed = 8 + config.seed % 7;
     this.surfaceGraphValidation = validateAirportSurfaceGraph(config);
+    this.obstacleEnvelopeValidation = validateAirportObstacleEnvelopes(config);
     this.updateWeather();
   }
 
@@ -348,14 +351,23 @@ export class AirportSimulation {
       if (flight.progress >= 1) this.advance(flight);
     }
 
-    // Report any proxy overlap that was already present at the end of a tick.
-    // The higher ID is held on the next tick, while the event and diagnostics
-    // make the condition visible to the player, replay, and agent interface.
+    // Report any physical or protected-envelope overlap already present at the
+    // end of a tick. Proposed movement should prevent these; diagnostics make
+    // any invariant breach visible to tests, replays, and the agent interface.
     const activeConflicts = findFlightConflicts(this.config, this.state.flights);
-    if (activeConflicts.length) {
-      this.metrics.collisionAlerts += activeConflicts.length;
+    const activeObstacleConflicts = findObstacleConflicts(this.config, this.state.flights);
+    if (activeConflicts.length || activeObstacleConflicts.length) {
+      this.metrics.collisionAlerts += activeConflicts.length + activeObstacleConflicts.length;
       for (const conflict of activeConflicts) {
         const flight = this.state.flights.find((item) => item.id === Math.max(conflict.first, conflict.second));
+        if (flight && !flight.safetyHold) {
+          flight.safetyHold = true;
+          flight.safetyHoldReason = conflict.detail;
+          if (!wasSafetyHeld.has(flight.id)) this.events.push({ type: 'safety-hold', flight, runway: flight.runway, taxiway: flight.taxiway });
+        }
+      }
+      for (const conflict of activeObstacleConflicts) {
+        const flight = this.state.flights.find((item) => item.id === conflict.flight);
         if (flight && !flight.safetyHold) {
           flight.safetyHold = true;
           flight.safetyHoldReason = conflict.detail;
@@ -371,7 +383,7 @@ export class AirportSimulation {
     return result;
   }
 
-  diagnostics(): { flow: 'continuous'; approachCapacity: number; nextArrivalIn: number; activeFlights: number; runwayReservations: Array<{ runway: number; flight: number }>; scenario: TrafficScenario; closedRunway: number | null; predictions: ConflictPrediction[]; collisions: ReturnType<typeof findFlightConflicts>; metrics: ShiftMetrics; surfaceGraph: SurfaceGraphValidation } {
+  diagnostics(): { flow: 'continuous'; approachCapacity: number; nextArrivalIn: number; activeFlights: number; runwayReservations: Array<{ runway: number; flight: number }>; scenario: TrafficScenario; closedRunway: number | null; predictions: ConflictPrediction[]; collisions: ReturnType<typeof findFlightConflicts>; obstacleCollisions: ReturnType<typeof findObstacleConflicts>; collisionEnvelopes: { aircraft: ReturnType<typeof aircraftCollisionEnvelope>[]; obstacles: AirportConfig['obstacles'] }; metrics: ShiftMetrics; surfaceGraph: SurfaceGraphValidation; obstacleEnvelopes: AirportObstacleValidation } {
     return {
       flow: 'continuous',
       approachCapacity: this.weatherApproachCapacity(),
@@ -382,8 +394,14 @@ export class AirportSimulation {
       closedRunway: this.closedRunway,
       predictions: this.conflictPredictions(),
       collisions: findFlightConflicts(this.config, this.state.flights),
+      obstacleCollisions: findObstacleConflicts(this.config, this.state.flights),
+      collisionEnvelopes: {
+        aircraft: this.state.flights.map((flight) => aircraftCollisionEnvelope(this.config, flight)),
+        obstacles: this.config.obstacles.map((obstacle) => ({ ...obstacle })),
+      },
       metrics: this.shiftMetrics(),
       surfaceGraph: this.surfaceGraphValidation,
+      obstacleEnvelopes: this.obstacleEnvelopeValidation,
     };
   }
 

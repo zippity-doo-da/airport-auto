@@ -69,7 +69,6 @@ const PALETTE_COLOR: Record<FlightColor, number> = {
 };
 
 export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): AirportWorld {
-  config = config.scope === 'airfield' ? { ...config, terminal: findClearTerminalPosition(config) } : config;
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
   renderer.shadowMap.enabled = true;
@@ -493,8 +492,10 @@ function buildAirport(root: THREE.Group, config: AirportConfig): RunwayLight[] {
     if (runway) addHoldShortMarking(root, runway, new THREE.Vector3(node.position[0], node.position[1], 2));
   }
 
+  const terminalEnvelope = config.obstacles.find((obstacle) => obstacle.kind === 'terminal');
+  const terminalCenter = terminalEnvelope?.center ?? config.terminal;
   const terminal = new THREE.Group();
-  terminal.position.set(config.terminal[0], config.terminal[1], 1.7);
+  terminal.position.set(terminalCenter[0], terminalCenter[1], 1.7);
   const building = new THREE.Mesh(
     new THREE.BoxGeometry(28, 9, 5.5),
     new THREE.MeshStandardMaterial({ color: COLORS.terminal, roughness: 0.78 }),
@@ -521,8 +522,10 @@ function buildAirport(root: THREE.Group, config: AirportConfig): RunwayLight[] {
   }
   root.add(terminal);
 
+  const towerEnvelope = config.obstacles.find((obstacle) => obstacle.kind === 'control-tower');
+  const towerCenter = towerEnvelope?.center ?? [config.terminal[0] - 17, config.terminal[1] + 6];
   const tower = new THREE.Group();
-  tower.position.set(config.terminal[0] - 17, config.terminal[1] + 6, 1.8);
+  tower.position.set(towerCenter[0], towerCenter[1], 1.8);
   const stem = new THREE.Mesh(new THREE.CylinderGeometry(2.1, 3.2, 12, 8), new THREE.MeshStandardMaterial({ color: 0xd7cfbd }));
   stem.rotation.x = Math.PI / 2;
   stem.position.z = 6;
@@ -1020,6 +1023,12 @@ function routeFor(config: AirportConfig, flight: Flight): THREE.CatmullRomCurve3
   const standPoint = standNode
     ? new THREE.Vector3(standNode.position[0], standNode.position[1], 2)
     : new THREE.Vector3(config.terminal[0], config.terminal[1], 2);
+  const standHeading = stand?.heading ?? 0;
+  const standAlignmentPoint = standPoint.clone().add(new THREE.Vector3(
+    -Math.cos(standHeading) * 0.001,
+    -Math.sin(standHeading) * 0.001,
+    0,
+  ));
   const routeByPhase: Record<FlightPhase, THREE.Vector3[]> = {
     approach: [
       runwayEnd(runway, landingSign, config.scope === 'center' ? 265 : 175, config.scope === 'center' ? 28 : 32).addScaledVector(side, config.scope === 'center' ? 0 : lateralSign * Math.min(42, aircraftSpec.turnRadiusM / 28)),
@@ -1032,7 +1041,7 @@ function routeFor(config: AirportConfig, flight: Flight): THREE.CatmullRomCurve3
     ],
     landing: [landingThreshold, runwayPoint(runway, landingSign * 0.72, 2.8), runwayPoint(runway, 0, 2.1), rolloutEnd],
     'taxi-in': surfacePoints.length >= 2 ? surfacePoints : [rolloutEnd, standPoint],
-    resting: surfacePoints.length ? [surfacePoints[0], surfacePoints[0].clone()] : [standPoint, standPoint.clone()],
+    resting: [standAlignmentPoint, standPoint],
     'taxi-out': surfacePoints.length >= 2 ? surfacePoints : [standPoint, holdShort],
     takeoff: [
       holdShort,
@@ -1117,46 +1126,6 @@ function addTaxiPath(root: THREE.Group, points: THREE.Vector3[], material: THREE
   taxi.receiveShadow = true;
   root.add(taxi);
 
-}
-
-function findClearTerminalPosition(config: AirportConfig): [number, number] {
-  const preferred = new THREE.Vector2(...config.terminal);
-  const candidates = [
-    preferred,
-    ...[52, 62, 72].flatMap((radius) => [
-      new THREE.Vector2(0, radius),
-      new THREE.Vector2(radius, 0),
-      new THREE.Vector2(0, -radius),
-      new THREE.Vector2(-radius, 0),
-      new THREE.Vector2(radius * 0.72, radius * 0.72),
-      new THREE.Vector2(-radius * 0.72, radius * 0.72),
-      new THREE.Vector2(radius * 0.72, -radius * 0.72),
-      new THREE.Vector2(-radius * 0.72, -radius * 0.72),
-    ]),
-  ];
-
-  const isClear = (terminal: THREE.Vector2): boolean => {
-    const tower = terminal.clone().add(new THREE.Vector2(-17, 6));
-    return config.runways.every((runway) => {
-      const direction = new THREE.Vector2(Math.cos(runway.heading), Math.sin(runway.heading));
-      const half = direction.clone().multiplyScalar(runway.length / 2);
-      const start = new THREE.Vector2(...runway.center).sub(half);
-      const end = new THREE.Vector2(...runway.center).add(half);
-      const runwayMargin = runway.width / 2 + 3;
-      return distanceToSegment(terminal, start, end) > 16 + runwayMargin
-        && distanceToSegment(tower, start, end) > 5.5 + runwayMargin;
-    });
-  };
-
-  return (candidates.find(isClear) ?? preferred).toArray() as [number, number];
-}
-
-function distanceToSegment(point: THREE.Vector2, start: THREE.Vector2, end: THREE.Vector2): number {
-  const segment = end.clone().sub(start);
-  const lengthSquared = segment.lengthSq();
-  if (lengthSquared === 0) return point.distanceTo(start);
-  const amount = THREE.MathUtils.clamp(point.clone().sub(start).dot(segment) / lengthSquared, 0, 1);
-  return point.distanceTo(start.clone().addScaledVector(segment, amount));
 }
 
 function disposeObject(object: THREE.Object3D): void {

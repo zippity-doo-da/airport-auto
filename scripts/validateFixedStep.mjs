@@ -59,6 +59,7 @@ for (const seed of seeds) {
   assert(snapshot.tick === 4_800, 'seed ' + seed + ': unexpected tick count');
   assert(snapshot.simulationTimeSeconds === 240, 'seed ' + seed + ': unexpected simulation time');
   assert(snapshot.diagnostics.collisionPairs.length === 0, 'seed ' + seed + ': collision in deterministic run');
+  assert(snapshot.diagnostics.obstacleCollisions.length === 0, 'seed ' + seed + ': aircraft-building collision in deterministic run');
   assert(snapshot.diagnostics.metrics.collisionAlerts === 0, 'seed ' + seed + ': collision alert in deterministic run');
   assert(JSON.stringify(JSON.parse(JSON.stringify(snapshot))) === JSON.stringify(snapshot), 'seed ' + seed + ': snapshot is not JSON stable');
   totals.seeds += 1;
@@ -96,6 +97,7 @@ const ordSnapshot = ord.snapshot();
 assert(ordSnapshot.state.arrivals > 0, 'ORD: fixed-step run produced no arrivals');
 assert(ordSnapshot.state.departures > 0, 'ORD: fixed-step run produced no departures');
 assert(ordSnapshot.diagnostics.collisionPairs.length === 0, 'ORD: collision in fixed-step run');
+assert(ordSnapshot.diagnostics.obstacleCollisions.length === 0, 'ORD: aircraft-building collision in fixed-step run');
 assert(ordSnapshot.diagnostics.metrics.collisionAlerts === 0, 'ORD: collision alert in fixed-step run');
 totals.partitionComparisons += 1;
 totals.ticks += ord.tickCount + ordTwin.tickCount;

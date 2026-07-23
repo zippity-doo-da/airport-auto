@@ -94,6 +94,8 @@ export interface FixedStepSimulationSnapshot {
     activeFlights: number;
     runwayReservations: Array<{ runway: number; flight: number }>;
     collisionPairs: Array<[number, number]>;
+    obstacleCollisions: Array<[number, string]>;
+    collisionEnvelopeCounts: { aircraft: number; obstacles: number };
     metrics: ShiftMetrics;
   };
   events: FixedStepHarnessEvent[];
@@ -242,6 +244,13 @@ export class FixedStepSimulationHarness {
         collisionPairs: diagnostics.collisions
           .map((collision) => [collision.first, collision.second] as [number, number])
           .sort((first, second) => first[0] - second[0] || first[1] - second[1]),
+        obstacleCollisions: diagnostics.obstacleCollisions
+          .map((collision) => [collision.flight, collision.obstacle] as [number, string])
+          .sort((first, second) => first[0] - second[0] || first[1].localeCompare(second[1])),
+        collisionEnvelopeCounts: {
+          aircraft: diagnostics.collisionEnvelopes.aircraft.length,
+          obstacles: diagnostics.collisionEnvelopes.obstacles.length,
+        },
         metrics: snapshotMetrics(diagnostics.metrics),
       },
       events: this.eventLog.map((event) => ({ ...event })),

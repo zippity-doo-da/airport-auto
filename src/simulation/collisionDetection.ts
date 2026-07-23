@@ -2,18 +2,25 @@ import type { AirportConfig } from './airportConfig';
 import { aircraftProfile } from './aircraftProfiles';
 import type { Flight, FlightPhase, WakeClass } from './types';
 import { sampleSurfaceRoute } from './surfaceGraph';
+import { distanceToObstacleBoundary, type AirportObstacleEnvelope } from './airportObstacles';
 
 /**
  * The renderer has a richer spline for presentation. The simulation uses this
  * deliberately conservative proxy so safety never depends on Three.js state.
  * Distances are abstract airport-world units, not nautical miles.
  */
-export interface FlightProxy {
+export interface AircraftCollisionEnvelope {
+  kind: 'aircraft';
   id: number;
   x: number;
   y: number;
   altitude: number;
-  radius: number;
+  heading: number;
+  halfLength: number;
+  halfWidth: number;
+  bodyRadius: number;
+  minimumAltitude: number;
+  maximumAltitude: number;
   airborne: boolean;
   surface: boolean;
   protectedSurface: boolean;
@@ -22,6 +29,8 @@ export interface FlightProxy {
   surfaceNode?: string;
   surfaceEdge?: string;
 }
+
+export type FlightProxy = AircraftCollisionEnvelope;
 
 export interface FlightConflict {
   type: 'airborne' | 'surface' | 'runway-incursion';
@@ -32,6 +41,17 @@ export interface FlightConflict {
   requiredHorizontal: number;
   detail: string;
 }
+
+export interface AircraftObstacleConflict {
+  type: 'obstacle';
+  flight: number;
+  obstacle: string;
+  horizontalDistance: number;
+  requiredHorizontal: number;
+  detail: string;
+}
+
+export type CollisionConflict = FlightConflict | AircraftObstacleConflict;
 
 const AIRBORNE_HORIZONTAL: Record<WakeClass, number> = {
   // Normalized airport-world envelopes. The wake class scales the buffer,
@@ -44,8 +64,9 @@ const AIRBORNE_VERTICAL = 4.5;
 const AIR_SURFACE_HORIZONTAL = 10;
 const AIR_SURFACE_ALTITUDE = 8;
 const SURFACE_GAP = 1.4;
+const PHYSICAL_GAP = 0.35;
 
-export function flightProxy(config: AirportConfig, flight: Flight, progress = flight.progress): FlightProxy {
+export function aircraftCollisionEnvelope(config: AirportConfig, flight: Flight, progress = flight.progress): AircraftCollisionEnvelope {
   const runway = config.runways[flight.runway] ?? config.runways[0];
   const aircraft = aircraftProfile(flight.aircraft);
   const p = clamp(progress, 0, 1);
@@ -53,85 +74,100 @@ export function flightProxy(config: AirportConfig, flight: Flight, progress = fl
   const side = { x: -direction.y, y: direction.x };
   const landingSign = flight.operatingEnd;
   const takeoffSign = -landingSign as -1 | 1;
-  const radius = Math.max(1.8, aircraft.visual.bodyLength * 0.38);
+  const halfLength = (aircraft.visual.bodyLength + aircraft.visual.bodyRadius * 2) / 2;
+  const halfWidth = aircraft.visual.wingSpan / 2;
+  const bodyRadius = Math.max(2.2, halfLength, halfWidth);
+  const landingHeading = normalizeAngle(runway.heading + (landingSign === 1 ? Math.PI : 0));
+  const takeoffHeading = normalizeAngle(runway.heading + (landingSign === -1 ? Math.PI : 0));
+  const envelope = (
+    values: Omit<AircraftCollisionEnvelope, 'kind' | 'id' | 'halfLength' | 'halfWidth' | 'bodyRadius' | 'minimumAltitude' | 'maximumAltitude'>,
+  ): AircraftCollisionEnvelope => ({
+    kind: 'aircraft',
+    id: flight.id,
+    halfLength,
+    halfWidth,
+    bodyRadius,
+    minimumAltitude: values.altitude - Math.max(1.4, aircraft.visual.bodyRadius * 1.8),
+    maximumAltitude: values.altitude + Math.max(1.2, aircraft.visual.tailHeight),
+    ...values,
+  });
 
   if (flight.phase === 'approach') {
     const approachDistance = config.scope === 'center' ? 265 : 175;
     const along = runway.length / 2 + approachDistance * (1 - p);
     const lateral = config.scope === 'center' ? 0 : (flight.id % 2 ? 5 : -5) * (1 - p);
-    return {
-      id: flight.id,
+    return envelope({
       x: runway.center[0] + direction.x * landingSign * along + side.x * lateral,
       y: runway.center[1] + direction.y * landingSign * along + side.y * lateral,
       altitude: 5 + (config.scope === 'center' ? 30 : 24) * (1 - p),
-      radius,
+      heading: landingHeading,
       airborne: true,
       surface: false,
       protectedSurface: false,
       runway: flight.runway,
-    };
+    });
   }
 
   if (flight.phase === 'landing') {
-    const along = landingSign * (runway.length / 2 - p * runway.length);
-    return {
-      id: flight.id,
+    // Finish at the same modeled runway-exit point where taxi-in begins. This
+    // keeps the safety envelope continuous across the landing/taxi transition.
+    const along = landingSign * (runway.length / 2 - p * (runway.length - 5));
+    return envelope({
       x: runway.center[0] + direction.x * along,
       y: runway.center[1] + direction.y * along,
       altitude: 2.2 + (1 - p) * 5.2,
-      radius,
+      heading: landingHeading,
       airborne: p < 0.65,
       surface: p >= 0.65,
       protectedSurface: p >= 0.65,
       runway: flight.runway,
-    };
+    });
   }
 
   if (flight.phase === 'takeoff') {
     const routeProgress = p * (0.55 + 0.45 * p);
-    const distance = runway.length / 2 * (-landingSign + 2 * landingSign * routeProgress);
+    // Begin at the hold-short end used by the taxi route and continue through
+    // the full runway into climb-out, matching the renderer's travel direction.
+    const distance = landingSign * (runway.length / 2 + 8 - (runway.length + 136) * routeProgress);
     const altitude = 2.2 + Math.max(0, routeProgress - 0.42) * 56;
-    return {
-      id: flight.id,
+    return envelope({
       x: runway.center[0] + direction.x * distance,
       y: runway.center[1] + direction.y * distance,
       altitude,
-      radius,
+      heading: takeoffHeading,
       airborne: altitude > 8,
       surface: altitude <= 8,
-      protectedSurface: true,
+      protectedSurface: altitude <= 8,
       runway: flight.runway,
-    };
+    });
   }
 
   const stand = config.surfaceGraph.stands.find((item) => item.slot === flight.gateSlot);
   const standNode = stand ? config.surfaceGraph.nodes.find((node) => node.id === stand.nodeId) : undefined;
   const gate = standNode ? { x: standNode.position[0], y: standNode.position[1] } : gatePoint(config, flight.gateSlot);
   if (flight.phase === 'resting') {
-    return {
-      id: flight.id,
+    return envelope({
       x: gate.x,
       y: gate.y,
       altitude: 2.1,
-      radius,
+      heading: stand?.heading ?? 0,
       airborne: false,
       surface: true,
       protectedSurface: false,
       runway: flight.runway,
       taxiway: stand?.apronTaxiwayId ?? 'APRON',
       surfaceNode: standNode?.id,
-    };
+    });
   }
 
   const routeSample = sampleSurfaceRoute(config.surfaceGraph, flight.surfaceRoute, p);
   if (routeSample) {
     const protectedSurface = routeSample.edge?.kind === 'runway' || routeSample.edge?.kind === 'runway-access';
-    return {
-      id: flight.id,
+    return envelope({
       x: routeSample.x,
       y: routeSample.y,
       altitude: 2.1,
-      radius,
+      heading: surfaceRouteHeading(config, flight, p),
       airborne: false,
       surface: true,
       protectedSurface,
@@ -139,7 +175,7 @@ export function flightProxy(config: AirportConfig, flight: Flight, progress = fl
       taxiway: routeSample.edge?.taxiwayId ?? flight.taxiway,
       surfaceNode: routeSample.nearestNodeId,
       surfaceEdge: routeSample.edge?.id,
-    };
+    });
   }
 
   const runwayAnchor = flight.phase === 'taxi-in'
@@ -150,29 +186,50 @@ export function flightProxy(config: AirportConfig, flight: Flight, progress = fl
   const taxiway = flight.taxiway === 'APRON'
     ? 'APRON'
     : `${flight.taxiway ?? `RUNWAY-${flight.runway}`}#${flight.runway}`;
-  return {
-    id: flight.id,
+  return envelope({
     x: lerp(from.x, to.x, p),
     y: lerp(from.y, to.y, p),
     altitude: 2.1,
-    radius,
+    heading: Math.atan2(to.y - from.y, to.x - from.x),
     airborne: false,
     surface: true,
     protectedSurface: flight.phase === 'taxi-in' ? p < 0.3 : p > 0.7,
     runway: flight.runway,
     taxiway,
-  };
+  });
 }
+
+export const flightProxy = aircraftCollisionEnvelope;
 
 export function detectFlightConflict(first: FlightProxy, second: FlightProxy, firstWake: WakeClass, secondWake: WakeClass, runwayConflict = first.runway === second.runway): FlightConflict | null {
   const horizontalDistance = Math.hypot(first.x - second.x, first.y - second.y);
   const verticalDistance = Math.abs(first.altitude - second.altitude);
+  const physicalRequired = first.bodyRadius + second.bodyRadius + PHYSICAL_GAP;
+  const physicalVerticalOverlap = first.minimumAltitude < second.maximumAltitude
+    && first.maximumAltitude > second.minimumAltitude;
+  if (horizontalDistance < physicalRequired && physicalVerticalOverlap) {
+    const sameProtectedRunway = first.runway === second.runway && first.protectedSurface && second.protectedSurface;
+    const type = first.airborne && second.airborne
+      ? 'airborne'
+      : first.airborne !== second.airborne || sameProtectedRunway
+        ? 'runway-incursion'
+        : 'surface';
+    return {
+      type,
+      first: first.id,
+      second: second.id,
+      horizontalDistance,
+      verticalDistance,
+      requiredHorizontal: physicalRequired,
+      detail: 'physical aircraft envelopes overlap',
+    };
+  }
 
   if (first.airborne && second.airborne) {
     const requiredHorizontal = Math.max(
       AIRBORNE_HORIZONTAL[firstWake],
       AIRBORNE_HORIZONTAL[secondWake],
-      first.radius + second.radius + 2,
+      first.bodyRadius + second.bodyRadius + 2,
     );
     if (horizontalDistance < requiredHorizontal && verticalDistance < AIRBORNE_VERTICAL) {
       return {
@@ -214,7 +271,7 @@ export function detectFlightConflict(first: FlightProxy, second: FlightProxy, fi
   const sameRunway = first.runway === second.runway && first.protectedSurface && second.protectedSurface;
   const sameTaxiway = Boolean(first.taxiway && second.taxiway && first.taxiway === second.taxiway);
   const sharedApron = first.taxiway === 'APRON' && second.taxiway === 'APRON';
-  const requiredHorizontal = Math.max(SURFACE_GAP, first.radius + second.radius + SURFACE_GAP);
+  const requiredHorizontal = Math.max(SURFACE_GAP, first.bodyRadius + second.bodyRadius + SURFACE_GAP);
   // Different taxiway routes can visually converge near a terminal without
   // being a collision. Only apply the aircraft envelope when the flights share
   // a runway, named taxiway, or apron stand area.
@@ -234,6 +291,26 @@ export function detectFlightConflict(first: FlightProxy, second: FlightProxy, fi
   return null;
 }
 
+export function detectAircraftObstacleConflict(
+  aircraft: AircraftCollisionEnvelope,
+  obstacle: AirportObstacleEnvelope,
+): AircraftObstacleConflict | null {
+  const verticalOverlap = aircraft.minimumAltitude < obstacle.maximumAltitude
+    && aircraft.maximumAltitude > obstacle.minimumAltitude;
+  if (!verticalOverlap) return null;
+  const horizontalDistance = distanceToObstacleBoundary([aircraft.x, aircraft.y], obstacle);
+  const requiredHorizontal = aircraft.bodyRadius + obstacle.clearance;
+  if (horizontalDistance >= requiredHorizontal) return null;
+  return {
+    type: 'obstacle',
+    flight: aircraft.id,
+    obstacle: obstacle.id,
+    horizontalDistance,
+    requiredHorizontal,
+    detail: `aircraft envelope overlaps ${obstacle.label}`,
+  };
+}
+
 export function findFlightConflicts(config: AirportConfig, flights: Flight[]): FlightConflict[] {
   const proxies = flights.map((flight) => ({ flight, proxy: flightProxy(config, flight) }));
   const conflicts: FlightConflict[] = [];
@@ -248,20 +325,40 @@ export function findFlightConflicts(config: AirportConfig, flights: Flight[]): F
   return conflicts;
 }
 
+export function findObstacleConflicts(config: AirportConfig, flights: Flight[]): AircraftObstacleConflict[] {
+  const conflicts: AircraftObstacleConflict[] = [];
+  for (const flight of flights) {
+    const aircraft = aircraftCollisionEnvelope(config, flight);
+    for (const obstacle of config.obstacles) {
+      const conflict = detectAircraftObstacleConflict(aircraft, obstacle);
+      if (conflict) conflicts.push(conflict);
+    }
+  }
+  return conflicts;
+}
+
 export function findProposedConflict(
   config: AirportConfig,
   flight: Flight,
   proposedProgress: number,
   otherFlights: Flight[],
   proposedProgressById: Map<number, number>,
-): FlightConflict | null {
-  const proposed = flightProxy(config, flight, proposedProgress);
+): CollisionConflict | null {
+  const proposed = aircraftCollisionEnvelope(config, flight, proposedProgress);
+  const current = aircraftCollisionEnvelope(config, flight, flight.progress);
+  for (const obstacle of config.obstacles) {
+    const conflict = detectAircraftObstacleConflict(proposed, obstacle);
+    if (!conflict) continue;
+    const existing = detectAircraftObstacleConflict(current, obstacle);
+    if (existing && conflict.horizontalDistance > existing.horizontalDistance + 1e-6) continue;
+    return conflict;
+  }
   for (const other of otherFlights) {
     const otherProgress = proposedProgressById.get(other.id) ?? other.progress;
     if (other.id === flight.id) continue;
     const conflict = detectFlightConflict(
       proposed,
-      flightProxy(config, other, otherProgress),
+      aircraftCollisionEnvelope(config, other, otherProgress),
       flight.wakeClass,
       other.wakeClass,
       runwaysConflict(config, flight.runway, other.runway),
@@ -277,8 +374,7 @@ export function findProposedConflict(
       continue;
     }
 
-    const currentOther = flightProxy(config, other, other.progress);
-    const current = flightProxy(config, flight, flight.progress);
+    const currentOther = aircraftCollisionEnvelope(config, other, other.progress);
     const existingConflict = detectFlightConflict(
       current,
       currentOther,
@@ -307,6 +403,15 @@ export function findProposedConflict(
     if (!existingConflict && distanceToCurrentOther < currentDistance) return conflict;
   }
   return null;
+}
+
+function surfaceRouteHeading(config: AirportConfig, flight: Flight, progress: number): number {
+  const before = sampleSurfaceRoute(config.surfaceGraph, flight.surfaceRoute, clamp(progress - 0.002, 0, 1));
+  const after = sampleSurfaceRoute(config.surfaceGraph, flight.surfaceRoute, clamp(progress + 0.002, 0, 1));
+  if (!before || !after) return 0;
+  const x = after.x - before.x;
+  const y = after.y - before.y;
+  return Math.hypot(x, y) > 1e-6 ? Math.atan2(y, x) : 0;
 }
 
 function airbornePriority(phase: FlightPhase): number {
@@ -344,6 +449,12 @@ function lerp(first: number, second: number, amount: number): number {
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value));
+}
+
+function normalizeAngle(angle: number): number {
+  let normalized = angle % (Math.PI * 2);
+  if (normalized < 0) normalized += Math.PI * 2;
+  return normalized;
 }
 
 export function phaseIsMoving(phase: FlightPhase): boolean {

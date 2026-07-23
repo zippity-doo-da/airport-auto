@@ -493,8 +493,8 @@ export function validateAirportSurfaceGraph(config: SurfaceGraphConfig & { surfa
 
 export function surfaceGateLayout(scope: AirportConfig['scope']): { columns: number; spacing: number; sideOffset: number; laneOffset: number } {
   return scope === 'center'
-    ? { columns: 6, spacing: 8.5, sideOffset: 9, laneOffset: 6 }
-    : { columns: 3, spacing: 10.5, sideOffset: 10, laneOffset: 6.5 };
+    ? { columns: 6, spacing: 12.5, sideOffset: 13, laneOffset: 7 }
+    : { columns: 3, spacing: 12.5, sideOffset: 13, laneOffset: 7 };
 }
 
 function taxiwayForRunway(config: SurfaceGraphConfig, runway: RunwayConfig): { id: string; name: string } {
@@ -513,9 +513,18 @@ function taxiRoutePoints(config: SurfaceGraphConfig, runway: RunwayConfig, ancho
   let runwaySide: Point = [-Math.sin(runway.heading), Math.cos(runway.heading)];
   if (dot(subtract(center, anchor), runwaySide) < 0) runwaySide = scale(runwaySide, -1);
   const turnoff = add(anchor, scale(runwaySide, 8));
+  // Keep the cross-airport leg outside the terminal's physical aircraft
+  // envelope. This prevents an otherwise valid centerline from clipping a
+  // roof corner before it reaches the apron perimeter.
+  const terminalClearY = 12;
+  const relativeTurnoffY = turnoff[1] - center[1];
+  if (Math.abs(relativeTurnoffY) < terminalClearY) {
+    const fallbackSide = apronEntry[1] >= center[1] ? 1 : -1;
+    turnoff[1] = center[1] + (relativeTurnoffY === 0 ? fallbackSide : Math.sign(relativeTurnoffY)) * terminalClearY;
+  }
   const detourSign = turnoff[0] >= center[0] ? 1 : -1;
   const layout = surfaceGateLayout(config.scope);
-  const perimeterX = center[0] + detourSign * ((layout.columns - 1) * layout.spacing / 2 + 8);
+  const perimeterX = center[0] + detourSign * ((layout.columns - 1) * layout.spacing / 2 + 10);
   return [anchor, turnoff, [perimeterX, turnoff[1]], [perimeterX, apronEntry[1]], apronEntry];
 }
 
@@ -540,7 +549,14 @@ function oharePerimeterTaxiRoute(config: SurfaceGraphConfig, runway: RunwayConfi
   const outward = scale(direction, sign);
   const points: Point[] = [anchor, exit];
   if (Math.abs(outward[0]) >= Math.abs(outward[1])) {
-    if (outward[0] > 0) points.push([right, exit[1]], [right, apronEntry[1]]);
+    if (outward[0] > 0) {
+      const terminalRelativeY = exit[1] - config.terminal[1];
+      const apronSide = apronEntry[1] >= config.terminal[1] ? 1 : -1;
+      const corridorY = Math.abs(terminalRelativeY) < 13
+        ? config.terminal[1] + (terminalRelativeY === 0 ? apronSide : Math.sign(terminalRelativeY)) * 13
+        : exit[1];
+      points.push([exit[0], corridorY], [right, corridorY], [right, apronEntry[1]]);
+    }
     else {
       const outerY = exit[1] >= 0 ? top : bottom;
       points.push([left, exit[1]], [left, outerY], [right, outerY], [right, apronEntry[1]]);

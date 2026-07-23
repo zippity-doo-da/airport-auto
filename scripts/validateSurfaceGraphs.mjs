@@ -55,11 +55,27 @@ const trafficConfigs = [
 for (const config of trafficConfigs) {
   const harness = new FixedStepSimulationHarness(config, { stepSeconds: 0.1 });
   const ticks = 6_000;
-  harness.advanceTicks(ticks);
   const simulation = harness.simulation;
+  let previousCollisionAlerts = 0;
+  for (let tick = 0; tick < ticks; tick += 1) {
+    harness.advanceTicks(1);
+    const tickDiagnostics = simulation.diagnostics();
+    if (tickDiagnostics.metrics.collisionAlerts > previousCollisionAlerts) {
+      throw new Error(config.code + ': collision at tick ' + tick + ' ' + JSON.stringify({
+        flights: simulation.state.flights.map((flight) => ({ id: flight.id, phase: flight.phase, progress: flight.progress, runway: flight.runway, taxiway: flight.taxiway, safetyHoldReason: flight.safetyHoldReason })),
+        collisions: tickDiagnostics.collisions,
+        obstacleCollisions: tickDiagnostics.obstacleCollisions,
+      }));
+    }
+    previousCollisionAlerts = tickDiagnostics.metrics.collisionAlerts;
+  }
   const diagnostics = simulation.diagnostics();
-  if (diagnostics.collisions.length || diagnostics.metrics.collisionAlerts) {
-    throw new Error(config.code + ': collision detected during surface graph traffic run');
+  if (diagnostics.collisions.length || diagnostics.obstacleCollisions.length || diagnostics.metrics.collisionAlerts) {
+    throw new Error(config.code + ': collision detected during surface graph traffic run ' + JSON.stringify({
+      collisions: diagnostics.collisions,
+      obstacleCollisions: diagnostics.obstacleCollisions,
+      collisionAlerts: diagnostics.metrics.collisionAlerts,
+    }));
   }
   for (const flight of simulation.state.flights.filter((item) => item.phase === 'taxi-in' || item.phase === 'taxi-out' || item.phase === 'resting')) {
     if (!flight.surfaceRoute?.length || !flight.surfaceNode) throw new Error(config.code + ': surface flight ' + flight.id + ' has no graph route');

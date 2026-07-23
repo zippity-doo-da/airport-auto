@@ -1,4 +1,5 @@
 import { buildAirportSurfaceGraph, type AirportSurfaceGraph } from './surfaceGraph';
+import { buildAirportObstacleEnvelopes, resolveAirportTerminal, type AirportObstacleEnvelope } from './airportObstacles';
 
 export type FlightColor = 'rose' | 'mist' | 'sage';
 export type TerrainTheme = 'coast' | 'highland' | 'woodland';
@@ -28,10 +29,11 @@ export interface AirportConfig {
   annualOperations: number | null;
   trafficInterval: number;
   trafficCap: number;
+  obstacles: AirportObstacleEnvelope[];
   surfaceGraph: AirportSurfaceGraph;
 }
 
-type AirportConfigSource = Omit<AirportConfig, 'surfaceGraph'>;
+type AirportConfigSource = Omit<AirportConfig, 'obstacles' | 'surfaceGraph'>;
 
 type HubProfile = {
   code: string;
@@ -219,7 +221,13 @@ export function generateHubConfig(index = 0): AirportConfig {
 }
 
 function withSurfaceGraph(config: AirportConfigSource): AirportConfig {
-  return { ...config, surfaceGraph: buildAirportSurfaceGraph(config) };
+  const terminal = resolveAirportTerminal(config);
+  const geometry = { ...config, terminal };
+  return {
+    ...geometry,
+    obstacles: buildAirportObstacleEnvelopes(geometry),
+    surfaceGraph: buildAirportSurfaceGraph(geometry),
+  };
 }
 
 function rotate(point: [number, number], angle: number): [number, number] {

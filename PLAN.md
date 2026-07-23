@@ -23,6 +23,7 @@ The current TypeScript/Vite/Three.js build already includes, or has a first pass
 - Approach, landing, taxi-in, gate/rest, taxi-out, and takeoff phases.
 - A serializable airport surface graph with named taxiways, stands, intersections, runway access, and hold-short nodes.
 - A renderer-independent fixed-step test harness with seeded clocks, stable snapshots, and normalized event capture.
+- Shared physical aircraft and static-structure collision envelopes with predictive movement blocking and telemetry.
 - Runway-entry and runway-crossing clearances, hold-short state, runway reservations, and conflict predictions.
 - Emergency actions including go-around and disabled aircraft.
 - Multiple controller stations: tower, ground, approach, and supervisor.
@@ -393,7 +394,7 @@ Every command should be validated by the same safety layer used by the UI. An ag
 
 1. [x] Add a serializable `AirportSurfaceGraph` with named taxiways, stands, intersections, and hold-short nodes.
 2. [x] Add a fixed-step simulation test harness with seeded time advancement.
-3. Add collision envelopes and assert no aircraft-aircraft or aircraft-building overlap.
+3. [x] Add collision envelopes and assert no aircraft-aircraft or aircraft-building overlap.
 4. Implement continuous arrival splines from edge entry through touchdown and rollout.
 5. Implement continuous departure roll, rotation, and climb-out.
 6. Make taxi routing graph-based and prohibit grass positions.
