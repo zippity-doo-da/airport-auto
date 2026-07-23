@@ -2,7 +2,7 @@ import { build } from 'esbuild';
 
 const validationSource = `
 import { generateAirportConfig, generateHubConfig, HUB_AIRPORTS } from './src/simulation/airportConfig.ts';
-import { AirportSimulation } from './src/simulation/airportSimulation.ts';
+import { FixedStepSimulationHarness } from './src/simulation/fixedStepHarness.ts';
 import { sampleSurfaceRoute, surfaceRouteForFlight, validateAirportSurfaceGraph } from './src/simulation/surfaceGraph.ts';
 
 const configs = [
@@ -53,9 +53,10 @@ const trafficConfigs = [
   ...Array.from({ length: 8 }, (_, index) => generateAirportConfig(50_000 + index * 313)),
 ];
 for (const config of trafficConfigs) {
-  const simulation = new AirportSimulation(config);
+  const harness = new FixedStepSimulationHarness(config, { stepSeconds: 0.1 });
   const ticks = 6_000;
-  for (let tick = 0; tick < ticks; tick += 1) simulation.update(0.1);
+  harness.advanceTicks(ticks);
+  const simulation = harness.simulation;
   const diagnostics = simulation.diagnostics();
   if (diagnostics.collisions.length || diagnostics.metrics.collisionAlerts) {
     throw new Error(config.code + ': collision detected during surface graph traffic run');

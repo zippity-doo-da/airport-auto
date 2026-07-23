@@ -947,7 +947,7 @@ function executeAirportCommand(command: AirportControlCommand): ReturnType<typeo
 }
 
 window.airportControl = {
-  version: '1.9.0',
+  version: '1.10.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },

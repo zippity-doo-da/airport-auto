@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test:surface": "node scripts/validateSurfaceGraphs.mjs"
+    "test": "npm run test:surface && npm run test:simulation",
+    "test:surface": "node scripts/validateSurfaceGraphs.mjs",
+    "test:simulation": "node scripts/validateFixedStep.mjs"
   },
   "dependencies": {
     "three": "^0.180.0"
