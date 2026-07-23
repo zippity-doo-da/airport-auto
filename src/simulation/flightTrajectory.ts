@@ -1,5 +1,6 @@
 import type { AirportConfig, RunwayConfig } from './airportConfig';
 import { aircraftProfile, type AircraftModel } from './aircraftProfiles';
+import { WORLD_METERS_PER_UNIT } from './runwayPerformance';
 import type { Flight, FlightPhase } from './types';
 
 export type FlightTrajectoryStage =
@@ -53,7 +54,6 @@ type Point3 = { x: number; y: number; z: number };
 type PathSample = { point: Point3; tangent: Point3; distanceAlong: number; totalDistance: number };
 
 const KNOT_TO_MPS = 0.514444;
-const WORLD_METERS_PER_UNIT = 38;
 
 export function phaseUsesFlightTrajectory(phase: FlightPhase): phase is 'approach' | 'landing' | 'takeoff' {
   return phase === 'approach' || phase === 'landing' || phase === 'takeoff';
@@ -223,7 +223,9 @@ function sampleLanding(config: AirportConfig, flight: Flight, progress: number):
   const travel = runwayTravelDirection(runway, flight.operatingEnd);
   const threshold = runwayEnd(runway, flight.operatingEnd, 0, 4.2);
   const exitDistance = Math.max(1, runway.length - 5);
-  const touchdownDistance = Math.min(9, runway.length * 0.14);
+  // Put the mains down close to the threshold so the stopping calculation can
+  // use nearly all of the available pavement, especially on shorter runways.
+  const touchdownDistance = Math.min(5.5, runway.length * 0.09);
   const rolloutDistance = landingRollDistance(runway, flight.aircraft);
   const rolloutEnd = Math.min(exitDistance - 2, touchdownDistance + rolloutDistance);
   const rolloutTravel = Math.max(1, rolloutEnd - touchdownDistance);

@@ -8,6 +8,7 @@ import {
   landingTrajectoryTiming,
   sampleFlightTrajectory,
 } from './src/simulation/flightTrajectory.ts';
+import { runwaySupportsAircraft } from './src/simulation/runwayPerformance.ts';
 import { surfaceRouteForFlight } from './src/simulation/surfaceGraph.ts';
 import { FixedStepSimulationHarness } from './src/simulation/fixedStepHarness.ts';
 
@@ -139,6 +140,8 @@ for (const config of configs) {
         assert(lateral < 1e-6, config.code + ' runway ' + runway.id + ': landing left the runway centerline');
       }
       assert(sawFlare && sawRollout && touchedDown, config.code + ' runway ' + runway.id + ': landing sequence omitted flare, touchdown, or rollout');
+      const touchdown = landingSamples.find((sample) => sample.onGround);
+      assert(touchdown && touchdown.distanceAlong <= 5.6, config.code + ' runway ' + runway.id + ': touchdown is too far beyond the threshold');
       assert(Math.max(...landingSamples.map((sample) => sample.pitch)) >= 0.11, config.code + ' runway ' + runway.id + ': landing did not flare nose-up');
       assert(Math.abs(landingEnd.pitch) < 1e-8 && landingEnd.onGround, config.code + ' runway ' + runway.id + ': landing did not lower the nose for runway exit');
       const taxiInRoute = surfaceRouteForFlight(config.surfaceGraph, runway.id, runway.landingEnd, 'taxi-in', landing.gateSlot);
@@ -190,6 +193,9 @@ for (let tick = 0; tick < 7_000; tick += 1) {
   liveHarness.advanceTicks(1);
   totals.liveMotionTicks += 1;
   for (const flight of liveHarness.simulation.state.flights) {
+    const runway = ordConfig.runways[flight.runway];
+    const operation = flight.phase === 'taxi-out' || flight.phase === 'takeoff' ? 'takeoff' : 'landing';
+    assert(runwaySupportsAircraft(runway, flight.aircraft, operation), 'ORD live motion: ' + flight.aircraft + ' assigned to undersized runway ' + flight.runway + ' for ' + operation);
     const motion = sampleFlightTrajectory(ordConfig, flight);
     if (!motion) {
       previousMotion.delete(flight.id);

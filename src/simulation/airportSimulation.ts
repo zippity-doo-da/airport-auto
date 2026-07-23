@@ -6,6 +6,7 @@ import { aircraftCollisionEnvelope, findFlightConflicts, findObstacleConflicts, 
 import { sampleSurfaceRoute, surfaceRouteForFlight, validateAirportSurfaceGraph, type SurfaceGraphValidation } from './surfaceGraph';
 import { validateAirportObstacleEnvelopes, type AirportObstacleValidation } from './airportObstacles';
 import { departureTrajectoryTiming, landingTrajectoryTiming, sampleFlightTrajectory } from './flightTrajectory';
+import { runwaySupportsAircraft } from './runwayPerformance';
 
 const PHASE_DURATION: Record<FlightPhase, number> = {
   approach: 38,
@@ -409,21 +410,30 @@ export class AirportSimulation {
   private spawnFlight(): AircraftModel | null {
     const approachLimit = this.weatherApproachCapacity();
     if (this.state.flights.filter((flight) => flight.phase === 'approach' || flight.phase === 'landing').length >= approachLimit) return null;
-    const arrivalRunways = this.config.runways.filter((runway) => (runway.role === 'arrival' || runway.role === 'mixed') && runway.id !== this.closedRunway);
+    const id = this.nextId;
+    const airlineCode = this.airlineFor(id);
+    const aircraft = this.aircraftFor(airlineCode, id);
+    const arrivalRunways = this.config.runways.filter((runway) => (
+      (runway.role === 'arrival' || runway.role === 'mixed')
+      && runway.id !== this.closedRunway
+      && runwaySupportsAircraft(runway, aircraft, 'landing')
+    ));
     const unblocked = arrivalRunways.filter((runway) => !this.arrivalBlocked(runway.id));
     const usable = unblocked.filter((runway) => this.headwindComponent(runway.id) >= -5);
     const candidates = (usable.length ? usable : unblocked).sort((first, second) => this.headwindComponent(second.id) - this.headwindComponent(first.id));
     if (candidates.length === 0) return null;
 
-    const id = this.nextId++;
     const runway = candidates[0].id;
     const runwayConfig = this.config.runways[runway];
-    const departureRunways = this.config.runways.filter((item) => (item.role === 'departure' || item.role === 'mixed') && item.id !== this.closedRunway);
+    const departureRunways = this.config.runways.filter((item) => (
+      (item.role === 'departure' || item.role === 'mixed')
+      && item.id !== this.closedRunway
+      && runwaySupportsAircraft(item, aircraft, 'takeoff')
+    ));
+    if (departureRunways.length === 0) return null;
     const departureRunway = [...departureRunways].sort((first, second) => this.headwindComponent(second.id) - this.headwindComponent(first.id))[(id - 1) % departureRunways.length].id;
     const automatic = this.state.mode === 'auto';
-    const airlineCode = this.airlineFor(id);
     const airline = airlineProfile(airlineCode);
-    const aircraft = this.aircraftFor(airlineCode, id);
     const profile = aircraftProfile(aircraft);
     const flightNumber = 100 + ((id * 37 + Math.abs(this.config.seed)) % 890);
     const registration = this.registrationFor(airlineCode, id);
@@ -467,6 +477,7 @@ export class AirportSimulation {
 
     if (this.state.scenario === 'emergency' && id === 1) flight.emergency = 'medical';
 
+    this.nextId += 1;
     this.state.flights.push(flight);
     this.events.push({ type: 'spawn', flight });
     if (automatic) this.events.push({ type: 'auto-clear', flight });
@@ -669,7 +680,11 @@ export class AirportSimulation {
 
   private selectDepartureRunway(flight: Flight): number | null {
     const candidates = this.config.runways
-      .filter((runway) => (runway.role === 'departure' || runway.role === 'mixed') && runway.id !== this.closedRunway)
+      .filter((runway) => (
+        (runway.role === 'departure' || runway.role === 'mixed')
+        && runway.id !== this.closedRunway
+        && runwaySupportsAircraft(runway, flight.aircraft, 'takeoff')
+      ))
       .sort((first, second) => this.headwindComponent(second.id) - this.headwindComponent(first.id));
     if (candidates.length === 0) return null;
     const offset = flight.id % candidates.length;
@@ -717,9 +732,36 @@ export class AirportSimulation {
 
   private aircraftFor(airlineCode: AirlineCode, id: number): AircraftModel {
     const airline = airlineProfile(airlineCode);
-    if (airline.cargo) return id % 3 === 0 ? 'B738' : 'B77F';
-    const passengerRoster = AIRCRAFT_ROSTER.filter((model) => model !== 'B77F');
-    return passengerRoster[(id - 1 + Math.abs(this.config.seed)) % passengerRoster.length];
+    const requested = airline.cargo
+      ? ((id * 17 + Math.abs(this.config.seed)) % 5 === 0 ? 'B738' : 'B77F')
+      : AIRCRAFT_ROSTER.filter((model) => model !== 'B77F')[(id - 1 + Math.abs(this.config.seed)) % (AIRCRAFT_ROSTER.length - 1)];
+    if (this.hasUsableRunwayPair(requested)) return requested;
+
+    // Keep the requested traffic mix when the airport can support it, but
+    // substitute the largest compatible type instead of putting a heavy jet
+    // onto a runway that is too short for either half of its visit.
+    const alternatives = (airline.cargo
+      ? (['B738', 'E175', 'Q400'] as AircraftModel[])
+      : AIRCRAFT_ROSTER.filter((model) => model !== 'B77F'))
+      .filter((model) => this.hasUsableRunwayPair(model))
+      .sort((first, second) => aircraftProfile(second).maxTakeoffWeightT - aircraftProfile(first).maxTakeoffWeightT);
+    if (alternatives.length) return alternatives[0];
+
+    return 'Q400';
+  }
+
+  private hasUsableRunwayPair(aircraft: AircraftModel): boolean {
+    const hasArrival = this.config.runways.some((runway) => (
+      (runway.role === 'arrival' || runway.role === 'mixed')
+      && runway.id !== this.closedRunway
+      && runwaySupportsAircraft(runway, aircraft, 'landing')
+    ));
+    const hasDeparture = this.config.runways.some((runway) => (
+      (runway.role === 'departure' || runway.role === 'mixed')
+      && runway.id !== this.closedRunway
+      && runwaySupportsAircraft(runway, aircraft, 'takeoff')
+    ));
+    return hasArrival && hasDeparture;
   }
 
   private registrationFor(airlineCode: AirlineCode, id: number): string {

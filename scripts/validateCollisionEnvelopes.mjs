@@ -9,6 +9,7 @@ import {
 } from './src/simulation/collisionDetection.ts';
 import { validateAirportObstacleEnvelopes } from './src/simulation/airportObstacles.ts';
 import { FixedStepSimulationHarness } from './src/simulation/fixedStepHarness.ts';
+import { runwaySupportsAircraft } from './src/simulation/runwayPerformance.ts';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -31,6 +32,8 @@ const totals = {
   trafficRuns: 0,
   ticks: 0,
   aircraftEnvelopeTicks: 0,
+  runwayAssignmentTicks: 0,
+  ordB77fAssignmentTicks: 0,
   spawnedFlights: 0,
   simulatedHours: 0,
 };
@@ -114,6 +117,12 @@ for (const config of configs) {
   for (let tick = 0; tick < ticks; tick += 1) {
     harness.advanceTicks(1);
     totals.aircraftEnvelopeTicks += harness.simulation.state.flights.length;
+    for (const flight of harness.simulation.state.flights) {
+      const operation = flight.phase === 'taxi-out' || flight.phase === 'takeoff' ? 'takeoff' : 'landing';
+      assert(runwaySupportsAircraft(config.runways[flight.runway], flight.aircraft, operation), config.code + ' seed ' + config.seed + ' tick ' + tick + ': ' + flight.aircraft + ' assigned to undersized runway ' + flight.runway + ' for ' + operation);
+      totals.runwayAssignmentTicks += 1;
+      if (config.code === 'ORD' && flight.aircraft === 'B77F') totals.ordB77fAssignmentTicks += 1;
+    }
     const liveDiagnostics = harness.simulation.diagnostics();
     assert(liveDiagnostics.collisions.length === 0 && liveDiagnostics.obstacleCollisions.length === 0, config.code + ' seed ' + config.seed + ' tick ' + tick + ': transient collision ' + JSON.stringify({
       collisions: liveDiagnostics.collisions,
@@ -145,6 +154,7 @@ for (const config of configs) {
 }
 
 assert(totals.aircraftEnvelopeTicks >= 10_000, 'fewer than 10,000 active aircraft envelope ticks were checked');
+assert(totals.ordB77fAssignmentTicks > 0, 'O’Hare traffic never exercised a B77F runway assignment');
 console.log(JSON.stringify(totals));
 `;
 

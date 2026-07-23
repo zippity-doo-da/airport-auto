@@ -28,6 +28,9 @@ type FlightVisual = {
   active: boolean;
 };
 
+const APPROACH_PRESENTATION_PITCH = THREE.MathUtils.degToRad(10);
+const TOUCHDOWN_PRESENTATION_PITCH = THREE.MathUtils.degToRad(12);
+
 type RunwayLight = {
   mesh: THREE.Mesh;
   dayOpacity: number;
@@ -934,6 +937,7 @@ function positionFlight(
   const wheelOnSurfaceLift = Math.max(0.3, 1.29 * modelScale - 0.32);
   const isTaxiing = flight.phase === 'taxi-in' || flight.phase === 'resting' || flight.phase === 'taxi-out';
   const groundFactor = trajectory?.groundBlend ?? (isTaxiing ? 1 : 0);
+  const presentationPitch = flightPresentationPitch(flight, trajectory);
   if (isTaxiing) {
     // Taxi route points describe the pavement centerline, not aircraft altitude.
     // Clamp the lowest wheel to the taxi/apron surface so a taxiing plane can
@@ -945,6 +949,10 @@ function positionFlight(
     tangent.normalize();
   } else {
     visual.root.position.z += wheelOnSurfaceLift * groundFactor;
+    // Pitch the airframe around the main gear instead of its center. Without
+    // this contact correction, the main wheels sink into the runway during
+    // flare and the aircraft can read as if it is rotating nose-down.
+    visual.root.position.z += mainGearContactLift(flight, presentationPitch, modelScale) * groundFactor;
   }
   const targetHeading = trajectory?.heading ?? Math.atan2(tangent.y, tangent.x);
   if (!visual.poseInitialized) {
@@ -969,7 +977,7 @@ function positionFlight(
     ));
   const airMotion = airborne ? Math.sin(elapsed * 0.8 + flight.id) * 0.018 : 0;
   visual.root.rotation.x = (trajectory?.bank ?? 0) + airMotion;
-  visual.root.rotation.y = -(trajectory?.pitch ?? 0);
+  visual.root.rotation.y = -presentationPitch;
   const visualAltitude = visual.root.position.z;
   const shadowSurface = isTaxiing ? 1.64 : 1.82;
   const heightAboveSurface = Math.max(0, visualAltitude - shadowSurface);
@@ -981,6 +989,45 @@ function positionFlight(
   visual.shadow.scale.set(1.9 * shadowScale, 0.7 * shadowScale, 1);
   visual.shadow.visible = shadowOpacity > 0.002;
   (visual.shadow.material as THREE.MeshBasicMaterial).opacity = shadowOpacity;
+}
+
+function flightPresentationPitch(
+  flight: Flight,
+  trajectory: ReturnType<typeof sampleFlightTrajectory>,
+): number {
+  if (!trajectory) return 0;
+  if (flight.phase === 'approach') {
+    // Preserve the simulated flare curve, but give its six-degree endpoint a
+    // clearly readable ten-degree attitude in the distant ATC camera.
+    return trajectory.pitch * (APPROACH_PRESENTATION_PITCH / 0.105);
+  }
+  if (flight.phase !== 'landing') return trajectory.pitch;
+  if (trajectory.stage === 'flare') {
+    return THREE.MathUtils.lerp(
+      APPROACH_PRESENTATION_PITCH,
+      TOUCHDOWN_PRESENTATION_PITCH,
+      THREE.MathUtils.smootherstep(trajectory.stageProgress, 0, 1),
+    );
+  }
+  if (trajectory.stage === 'touchdown') return TOUCHDOWN_PRESENTATION_PITCH;
+  if (trajectory.stage === 'rollout') {
+    // Hold the nose off for a beat after the mains touch, then lower the nose
+    // wheel progressively as braking settles the aircraft onto the runway.
+    const noseGearContact = THREE.MathUtils.smootherstep(trajectory.stageProgress, 0.14, 0.56);
+    return TOUCHDOWN_PRESENTATION_PITCH * (1 - noseGearContact);
+  }
+  return 0;
+}
+
+function mainGearContactLift(flight: Flight, pitch: number, modelScale: number): number {
+  if (pitch <= 0) return 0;
+  const bodyLength = aircraftProfile(flight.aircraft).visual.bodyLength;
+  const mainGearX = -bodyLength * 0.18;
+  const wheelCenterZ = -1.08;
+  const wheelRadius = 0.24;
+  const levelContactDepth = -wheelCenterZ + wheelRadius;
+  const pitchedWheelBottom = Math.sin(pitch) * mainGearX + Math.cos(pitch) * wheelCenterZ - wheelRadius;
+  return Math.max(0, (-pitchedWheelBottom - levelContactDepth) * modelScale);
 }
 
 function updateContrail(visual: FlightVisual, flight: Flight, config: AirportConfig, elapsed: number): void {
