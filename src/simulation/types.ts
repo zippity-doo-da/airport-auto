@@ -4,7 +4,9 @@ import type { FlightColor } from './airportConfig';
 
 export type ControlMode = 'auto' | 'manual';
 export type WeatherCondition = 'clear' | 'rain' | 'fog';
+export type TrafficScenario = 'normal' | 'rush' | 'storm' | 'closure';
 export type FlightInstruction = 'slow' | 'normal' | 'expedite' | 'hold' | 'resume' | 'zigzag';
+export type AircraftCategory = 'regional' | 'narrowbody' | 'widebody' | 'cargo';
 
 export interface WeatherState {
   weatherEnabled: boolean;
@@ -39,6 +41,36 @@ export interface Flight {
   controlHold?: boolean;
   controlPattern?: 'zigzag';
   controlPatternStart?: number;
+  category: AircraftCategory;
+  wakeClass: 'light' | 'medium' | 'heavy';
+}
+
+export interface ConflictPrediction {
+  severity: 'caution' | 'warning';
+  type: 'runway' | 'crossing' | 'separation';
+  flights: number[];
+  runway?: number;
+  etaSeconds: number;
+  detail: string;
+}
+
+export interface ShiftMetrics {
+  safeArrivals: number;
+  safeDepartures: number;
+  preventedConflicts: number;
+  holdsIssued: number;
+  manualCommands: number;
+  maxConcurrent: number;
+  airborneSeconds: number;
+  taxiSeconds: number;
+  estimatedDelaySeconds: number;
+}
+
+export interface ReplayFrame {
+  clock: number;
+  score: { landed: number; departed: number };
+  flights: Array<{ id: number; callsign: string; phase: FlightPhase; runway: number; progress: number }>;
+  predictions: ConflictPrediction[];
 }
 
 export interface AirportEvent {
@@ -58,4 +90,5 @@ export interface AirportState {
   paused: boolean;
   mode: ControlMode;
   weather: WeatherState;
+  scenario: TrafficScenario;
 }

@@ -30,6 +30,12 @@
           <option value="auto">Full auto</option>
           <option value="manual">Full manual</option>
         </select></label>
+        <label><span>Scenario</span><select id="scenario-select">
+          <option value="normal">Normal flow</option>
+          <option value="rush">Rush hour</option>
+          <option value="storm">Storm front</option>
+          <option value="closure">Runway closure</option>
+        </select></label>
         <label class="speed-control"><span>Speed <output id="speed-output" for="speed-control">1×</output></span><input id="speed-control" type="range" min="0.5" max="3" step="0.25" value="1" aria-label="Simulation speed" /></label>
         <div class="weather-readout" aria-label="Current weather">
           <span id="weather-condition">Clear</span><b id="weather-wind">270° 10G14 kt</b><small id="weather-visibility">10 mi visibility</small>

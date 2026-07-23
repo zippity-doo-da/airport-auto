@@ -134,9 +134,12 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
       let visual = flightVisuals.get(flight.id);
       if (!visual) {
         visual = createPlane(flight);
+        const categoryScale = flight.category === 'regional' ? 0.84 : flight.category === 'widebody' ? 1.08 : flight.category === 'cargo' ? 1.12 : 1;
         if (config.scope === 'center') {
-          visual.root.scale.setScalar(0.72);
+          visual.root.scale.setScalar(0.72 * categoryScale);
           visual.beacon.visible = false;
+        } else {
+          visual.root.scale.setScalar(categoryScale);
         }
         flightVisuals.set(flight.id, visual);
         world.add(visual.root);

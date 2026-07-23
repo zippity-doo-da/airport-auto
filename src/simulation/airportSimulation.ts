@@ -1,5 +1,5 @@
 import type { AirportConfig } from './airportConfig';
-import type { AirportEvent, AirportState, ControlMode, Flight, FlightInstruction, FlightPhase, WeatherCondition } from './types';
+import type { AirportEvent, AirportState, AircraftCategory, ConflictPrediction, ControlMode, Flight, FlightInstruction, FlightPhase, ShiftMetrics, TrafficScenario, WeatherCondition } from './types';
 
 const PHASE_DURATION: Record<FlightPhase, number> = {
   approach: 12,
@@ -31,6 +31,7 @@ export class AirportSimulation {
     paused: false,
     mode: 'auto',
     weather: { weatherEnabled: true, windEnabled: true, condition: 'clear', windDirection: Math.PI, windSpeed: 10, gustSpeed: 14, visibility: 10 },
+    scenario: 'normal',
   };
 
   private nextId = 1;
@@ -43,6 +44,18 @@ export class AirportSimulation {
   private baseWindDirection = Math.PI;
   private baseWindSpeed = 10;
   private weatherOverrideUntil = 0;
+  private closedRunway: number | null = null;
+  private readonly metrics: ShiftMetrics = {
+    safeArrivals: 0,
+    safeDepartures: 0,
+    preventedConflicts: 0,
+    holdsIssued: 0,
+    manualCommands: 0,
+    maxConcurrent: 0,
+    airborneSeconds: 0,
+    taxiSeconds: 0,
+    estimatedDelaySeconds: 0,
+  };
 
   constructor(private readonly config: AirportConfig) {
     this.spawnIn = Math.min(3, this.arrivalSpacing() * 0.55);
@@ -72,6 +85,37 @@ export class AirportSimulation {
         }
       }
     }
+  }
+
+  setScenario(scenario: TrafficScenario): void {
+    this.state.scenario = scenario;
+    this.closedRunway = scenario === 'closure'
+      ? this.config.runways.find((runway) => runway.role === 'arrival' || runway.role === 'mixed')?.id ?? null
+      : null;
+    if (scenario === 'storm') this.setWeather('rain', this.state.weather.windDirection, Math.max(18, this.state.weather.windSpeed));
+    if (scenario === 'normal' || scenario === 'rush' || scenario === 'closure') this.weatherOverrideUntil = 0;
+  }
+
+  shiftMetrics(): ShiftMetrics { return { ...this.metrics }; }
+
+  conflictPredictions(): ConflictPrediction[] {
+    const predictions: ConflictPrediction[] = [];
+    const active = this.state.flights.filter((flight) => flight.phase !== 'resting');
+    for (let firstIndex = 0; firstIndex < active.length; firstIndex += 1) {
+      const first = active[firstIndex];
+      for (let secondIndex = firstIndex + 1; secondIndex < active.length; secondIndex += 1) {
+        const second = active[secondIndex];
+        if (!this.runwaysConflict(first.runway, second.runway)) continue;
+        const firstAirborne = first.phase === 'approach' || first.phase === 'landing';
+        const secondAirborne = second.phase === 'approach' || second.phase === 'landing';
+        if (firstAirborne && secondAirborne && Math.abs(first.progress - second.progress) < 0.24) {
+          predictions.push({ severity: 'warning', type: 'separation', flights: [first.id, second.id], runway: first.runway, etaSeconds: Math.max(1, Math.round((1 - Math.max(first.progress, second.progress)) * 18)), detail: `${first.callsign} and ${second.callsign} are compressing on the same runway` });
+        } else if (first.phase === 'taxi-out' && first.progress > 0.74 && secondAirborne) {
+          predictions.push({ severity: 'caution', type: 'runway', flights: [first.id, second.id], runway: first.runway, etaSeconds: Math.max(1, Math.round((1 - first.progress) * 20)), detail: `${first.callsign} is approaching the hold-short point while ${second.callsign} is active` });
+        }
+      }
+    }
+    return predictions.slice(0, 8);
   }
 
   setWeather(condition: WeatherCondition, windDirection: number, windSpeed: number): void {
@@ -143,6 +187,7 @@ export class AirportSimulation {
       if (instruction === 'hold') {
         if (flight.phase !== 'taxi-in' && flight.phase !== 'taxi-out') continue;
         flight.controlHold = true;
+        this.metrics.holdsIssued += 1;
       }
       if (instruction === 'resume') flight.controlHold = false;
       if (instruction === 'slow') flight.controlPace = 0.55;
@@ -153,6 +198,7 @@ export class AirportSimulation {
         flight.controlPattern = 'zigzag';
         flight.controlPatternStart = flight.progress;
       }
+      this.metrics.manualCommands += 1;
       controlled.push(flight.id);
     }
     return controlled;
@@ -170,6 +216,9 @@ export class AirportSimulation {
     this.events = [];
     this.runwayReservations.clear();
     this.taxiOutReleaseIn = 0;
+    this.closedRunway = null;
+    this.state.scenario = 'normal';
+    Object.assign(this.metrics, { safeArrivals: 0, safeDepartures: 0, preventedConflicts: 0, holdsIssued: 0, manualCommands: 0, maxConcurrent: 0, airborneSeconds: 0, taxiSeconds: 0, estimatedDelaySeconds: 0 });
   }
 
   update(realDelta: number): void {
@@ -179,6 +228,7 @@ export class AirportSimulation {
     this.state.elapsed += delta;
     this.state.breeze = Math.sin(this.state.elapsed * 0.07) * 0.5 + 0.5;
     this.updateWeather();
+    this.metrics.maxConcurrent = Math.max(this.metrics.maxConcurrent, this.state.flights.length);
     this.spawnIn -= delta;
     this.taxiOutReleaseIn = Math.max(0, this.taxiOutReleaseIn - delta);
 
@@ -196,6 +246,9 @@ export class AirportSimulation {
       const flightDelta = flight.controlHold && onSurface
         ? 0
         : (onSurface ? realStep : delta) * commandedPace;
+      if (flight.phase === 'approach' || flight.phase === 'landing' || flight.phase === 'takeoff') this.metrics.airborneSeconds += flightDelta;
+      if (onSurface) this.metrics.taxiSeconds += flightDelta;
+      if (flight.controlHold) this.metrics.estimatedDelaySeconds += realStep;
       if (flight.phase === 'approach' && !flight.cleared) {
         flight.clearanceLeft -= flightDelta;
         flight.phaseElapsed += flightDelta;
@@ -219,20 +272,24 @@ export class AirportSimulation {
     return result;
   }
 
-  diagnostics(): { flow: 'continuous'; approachCapacity: number; nextArrivalIn: number; activeFlights: number; runwayReservations: Array<{ runway: number; flight: number }> } {
+  diagnostics(): { flow: 'continuous'; approachCapacity: number; nextArrivalIn: number; activeFlights: number; runwayReservations: Array<{ runway: number; flight: number }>; scenario: TrafficScenario; closedRunway: number | null; predictions: ConflictPrediction[]; metrics: ShiftMetrics } {
     return {
       flow: 'continuous',
       approachCapacity: this.weatherApproachCapacity(),
       nextArrivalIn: Number(Math.max(0, this.spawnIn).toFixed(2)),
       activeFlights: this.state.flights.length,
       runwayReservations: [...this.runwayReservations].map(([runway, flight]) => ({ runway, flight })),
+      scenario: this.state.scenario,
+      closedRunway: this.closedRunway,
+      predictions: this.conflictPredictions(),
+      metrics: this.shiftMetrics(),
     };
   }
 
   private spawnFlight(): boolean {
     const approachLimit = this.weatherApproachCapacity();
     if (this.state.flights.filter((flight) => flight.phase === 'approach' || flight.phase === 'landing').length >= approachLimit) return false;
-    const arrivalRunways = this.config.runways.filter((runway) => runway.role === 'arrival' || runway.role === 'mixed');
+    const arrivalRunways = this.config.runways.filter((runway) => (runway.role === 'arrival' || runway.role === 'mixed') && runway.id !== this.closedRunway);
     const unblocked = arrivalRunways.filter((runway) => !this.arrivalBlocked(runway.id));
     const usable = unblocked.filter((runway) => this.headwindComponent(runway.id) >= -5);
     const candidates = (usable.length ? usable : unblocked).sort((first, second) => this.headwindComponent(second.id) - this.headwindComponent(first.id));
@@ -241,10 +298,12 @@ export class AirportSimulation {
     const id = this.nextId++;
     const runway = candidates[0].id;
     const runwayConfig = this.config.runways[runway];
-    const departureRunways = this.config.runways.filter((item) => item.role === 'departure' || item.role === 'mixed');
+    const departureRunways = this.config.runways.filter((item) => (item.role === 'departure' || item.role === 'mixed') && item.id !== this.closedRunway);
     const departureRunway = [...departureRunways].sort((first, second) => this.headwindComponent(second.id) - this.headwindComponent(first.id))[(id - 1) % departureRunways.length].id;
     const automatic = this.state.mode === 'auto';
     const approachDuration = (this.config.scope === 'center' ? 18 : PHASE_DURATION.approach) * this.weatherDurationMultiplier('approach');
+    const categories: AircraftCategory[] = ['narrowbody', 'regional', 'widebody', 'cargo'];
+    const category = categories[(id - 1) % categories.length];
     const flight: Flight = {
       id,
       callsign: `${NAMES[(id - 1) % NAMES.length]} ${String(id * 3 + 1).padStart(2, '0')}`,
@@ -258,6 +317,8 @@ export class AirportSimulation {
       duration: approachDuration,
       cleared: automatic,
       clearanceLeft: automatic ? 99 : approachDuration * 0.96,
+      category,
+      wakeClass: category === 'widebody' || category === 'cargo' ? 'heavy' : category === 'regional' ? 'light' : 'medium',
     };
 
     this.state.flights.push(flight);
@@ -272,6 +333,7 @@ export class AirportSimulation {
         if (owner === flight.id) this.runwayReservations.delete(runway);
       }
       this.state.departures += 1;
+      this.metrics.safeDepartures += 1;
       this.events.push({ type: 'depart', flight });
       this.state.flights = this.state.flights.filter((item) => item !== flight);
       return;
@@ -327,6 +389,7 @@ export class AirportSimulation {
     if (next === 'taxi-in') {
       flight.taxiway = this.taxiwayName(flight.runway);
       this.state.arrivals += 1;
+      this.metrics.safeArrivals += 1;
       this.events.push({ type: 'land', flight });
       this.events.push({ type: 'chime', flight });
     }
@@ -382,7 +445,7 @@ export class AirportSimulation {
 
   private selectDepartureRunway(flight: Flight): number | null {
     const candidates = this.config.runways
-      .filter((runway) => runway.role === 'departure' || runway.role === 'mixed')
+      .filter((runway) => (runway.role === 'departure' || runway.role === 'mixed') && runway.id !== this.closedRunway)
       .sort((first, second) => this.headwindComponent(second.id) - this.headwindComponent(first.id));
     if (candidates.length === 0) return null;
     const offset = flight.id % candidates.length;
@@ -402,6 +465,8 @@ export class AirportSimulation {
   }
 
   private weatherApproachCapacity(): number {
+    if (this.state.scenario === 'rush') return Math.min(this.approachCapacity + 1, this.state.weather.condition === 'clear' ? 5 : this.approachCapacity);
+    if (this.state.scenario === 'storm') return Math.min(2, this.approachCapacity);
     if (this.state.weather.condition === 'fog') return Math.min(2, this.approachCapacity);
     if (this.state.weather.condition === 'rain') return Math.min(3, this.approachCapacity);
     return this.approachCapacity;
@@ -411,9 +476,11 @@ export class AirportSimulation {
     const base = this.config.scope === 'center'
       ? Math.max(8, this.config.trafficInterval * 0.9)
       : Math.max(6.5, this.config.trafficInterval * 0.95);
-    if (this.state.weather.condition === 'fog') return base * 1.55;
-    if (this.state.weather.condition === 'rain') return base * 1.2;
-    return base;
+    const scenarioMultiplier = this.state.scenario === 'rush' ? 0.62 : this.state.scenario === 'storm' ? 1.55 : this.state.scenario === 'closure' ? 1.18 : 1;
+    const scenarioBase = base * scenarioMultiplier;
+    if (this.state.weather.condition === 'fog') return scenarioBase * 1.55;
+    if (this.state.weather.condition === 'rain') return scenarioBase * 1.2;
+    return scenarioBase;
   }
 
   private taxiwayName(runway: number): string {

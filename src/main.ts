@@ -1,7 +1,7 @@
 import './styles.css';
 import { AirportSimulation } from './simulation/airportSimulation';
 import { generateAirportConfig, generateHubConfig, HUB_AIRPORTS } from './simulation/airportConfig';
-import type { ControlMode, FlightInstruction, WeatherCondition } from './simulation/types';
+import type { ControlMode, FlightInstruction, ReplayFrame, TrafficScenario, WeatherCondition } from './simulation/types';
 import { AmbientAudio } from './audio/ambientAudio';
 import { createWorld } from './render/createWorld';
 
@@ -15,6 +15,7 @@ type AirportControlCommand =
   | { action: 'clearRunwayCrossing'; flightId: number; runway: number }
   | { action: 'controlFlights'; flightIds: number[]; instruction: FlightInstruction }
   | { action: 'focusFlight'; flightId: number | null }
+  | { action: 'setScenario'; scenario: TrafficScenario }
   | { action: 'setWeather'; condition: WeatherCondition; directionDegrees: number; windSpeed: number }
   | { action: 'setWeatherEnabled'; enabled: boolean }
   | { action: 'setWindEnabled'; enabled: boolean };
@@ -27,6 +28,7 @@ declare global {
       events(limit?: number): TelemetryEvent[];
       command(command: AirportControlCommand): ReturnType<typeof airportSnapshot>;
       help(): Record<string, string>;
+      replay(): ReplayFrame[];
     };
   }
 }
@@ -78,6 +80,7 @@ const airportMeta = $<HTMLElement>('#airport-meta');
 const instructionCopy = $<HTMLElement>('#instruction-copy');
 const airportSelect = $<HTMLSelectElement>('#airport-select');
 const controlSelect = $<HTMLSelectElement>('#control-select');
+const scenarioSelect = $<HTMLSelectElement>('#scenario-select');
 const introAirportSelect = $<HTMLSelectElement>('#intro-airport-select');
 const introControlSelect = $<HTMLSelectElement>('#intro-control-select');
 const speedControl = $<HTMLInputElement>('#speed-control');
@@ -110,6 +113,8 @@ let routePoints: Array<{ x: number; y: number }> = [];
 let simulationSpeed = 1;
 let telemetrySequence = 0;
 let lastWeatherCondition: WeatherCondition | null = null;
+let lastPredictionKey = '';
+const replayFrames: ReplayFrame[] = [];
 const telemetryEvents: TelemetryEvent[] = [];
 const launchOptions = new URLSearchParams(window.location.search);
 const telemetryEnabled = launchOptions.get('telemetry') === '1';
@@ -126,6 +131,7 @@ enterButton.addEventListener('click', startShift);
 airportSelect.addEventListener('change', () => selectAirport(airportSelect.value, false));
 introAirportSelect.addEventListener('change', () => selectAirport(introAirportSelect.value, true));
 controlSelect.addEventListener('change', () => selectControl(controlSelect.value as ControlMode));
+scenarioSelect.addEventListener('change', () => setScenario(scenarioSelect.value as TrafficScenario));
 introControlSelect.addEventListener('change', () => selectControl(introControlSelect.value as ControlMode));
 speedControl.addEventListener('input', () => setSimulationSpeed(Number(speedControl.value)));
 weatherToggle.addEventListener('click', () => {
@@ -255,6 +261,17 @@ function frame(now: number): void {
     shiftTime.textContent = formatTime(simulation.state.elapsed);
     updateWeatherUi();
     lastHudSecond = hudSecond;
+    const predictions = simulation.conflictPredictions();
+    const predictionKey = predictions.map((prediction) => `${prediction.type}:${prediction.flights.join('-')}`).join('|');
+    if (predictions.length && predictionKey !== lastPredictionKey) setStatus('Conflict forecast', predictions[0].detail);
+    lastPredictionKey = predictionKey;
+    replayFrames.push({
+      clock: Number(simulation.state.elapsed.toFixed(2)),
+      score: { landed: simulation.state.arrivals, departed: simulation.state.departures },
+      flights: simulation.state.flights.map((flight) => ({ id: flight.id, callsign: flight.callsign, phase: flight.phase, runway: flight.runway, progress: Number(flight.progress.toFixed(3)) })),
+      predictions,
+    });
+    if (replayFrames.length > 900) replayFrames.shift();
   }
   if (simulation.state.arrivals !== lastArrivals) {
     landedCount.textContent = two(simulation.state.arrivals);
@@ -381,11 +398,14 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   config = nextConfig;
   simulation = new AirportSimulation(config);
   simulation.setMode(mode);
+  simulation.setScenario(scenarioSelect.value as TrafficScenario);
   simulation.setPace(simulationSpeed);
   simulation.setPaused(paused);
   world = createWorld(canvas, config);
   updateAirportUi();
   clearRoute();
+  replayFrames.length = 0;
+  lastPredictionKey = '';
   updateModeControl();
 }
 
@@ -421,6 +441,13 @@ function selectControl(mode: ControlMode): void {
   simulation.setMode(mode);
   updateModeControl();
   setStatus(`${mode === 'auto' ? 'Full auto' : 'Full manual'} selected`, mode === 'auto' ? 'the tower routes all traffic' : 'you clear every arrival');
+}
+
+function setScenario(scenario: TrafficScenario): void {
+  simulation.setScenario(scenario);
+  scenarioSelect.value = scenario;
+  const labels: Record<TrafficScenario, string> = { normal: 'Normal flow', rush: 'Rush hour', storm: 'Storm front', closure: 'Runway closure' };
+  setStatus(`${labels[scenario]} scenario`, scenario === 'closure' ? 'one runway closed · arrivals re-sequencing' : scenario === 'storm' ? 'reduced visibility · wider spacing' : scenario === 'rush' ? 'compressed arrival stream · watch separation' : 'standard traffic picture');
 }
 
 function trafficDescription(): string {
@@ -487,6 +514,7 @@ function airportSnapshot() {
     clock: Number(simulation.state.elapsed.toFixed(2)),
     paused: simulation.state.paused,
     mode: simulation.state.mode,
+    scenario: simulation.state.scenario,
     speed: simulationSpeed,
     weather: {
       enabled: simulation.state.weather.weatherEnabled,
@@ -498,6 +526,10 @@ function airportSnapshot() {
       visibilityMiles: simulation.state.weather.visibility,
     },
     score: { landed: simulation.state.arrivals, departed: simulation.state.departures },
+    replay: {
+      frames: replayFrames.length,
+      durationSeconds: replayFrames.length ? replayFrames[replayFrames.length - 1].clock - replayFrames[0].clock : 0,
+    },
     traffic: diagnostics,
     runways: config.runways.map((runway) => ({
       id: runway.id,
@@ -527,6 +559,8 @@ function airportSnapshot() {
       phase: flight.phase,
       runway: flight.runway,
       departureRunway: flight.departureRunway,
+      category: flight.category,
+      wakeClass: flight.wakeClass,
       operatingEnd: flight.operatingEnd,
       activeRunwayEnd: config.runways[flight.runway]?.designation?.[flight.operatingEnd === 1 ? 1 : 0],
       progress: Number(flight.progress.toFixed(3)),
@@ -562,6 +596,7 @@ function executeAirportCommand(command: AirportControlCommand): ReturnType<typeo
     if (callsigns.length) setStatus(`${command.instruction.toUpperCase()} command`, callsigns.join(' · '));
   }
   if (command.action === 'focusFlight') world.selectFlight(command.flightId);
+  if (command.action === 'setScenario') setScenario(command.scenario);
   if (command.action === 'setWeather') simulation.setWeather(command.condition, aviationDegreesToMathAngle(command.directionDegrees), command.windSpeed);
   if (command.action === 'setWeatherEnabled') simulation.setWeatherEnabled(command.enabled);
   if (command.action === 'setWindEnabled') simulation.setWindEnabled(command.enabled);
@@ -574,6 +609,7 @@ window.airportControl = {
   version: '1.2.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
+  replay() { return replayFrames.slice(); },
   command: executeAirportCommand,
   help() {
     return {
@@ -590,6 +626,8 @@ window.airportControl = {
       controlMany: "airportControl.command({ action: 'controlFlights', flightIds: [1, 2, 3], instruction: 'expedite' })",
       surfaceHold: "airportControl.command({ action: 'controlFlights', flightIds: [3], instruction: 'hold' })",
       focus: "airportControl.command({ action: 'focusFlight', flightId: 1 })",
+      scenario: "airportControl.command({ action: 'setScenario', scenario: 'rush' })",
+      replay: 'airportControl.replay()',
       zigzag: "airportControl.command({ action: 'controlFlights', flightIds: [1], instruction: 'zigzag' })",
       weather: "airportControl.command({ action: 'setWeather', condition: 'rain', directionDegrees: 270, windSpeed: 18 })",
       weatherToggle: "airportControl.command({ action: 'setWeatherEnabled', enabled: false })",
@@ -617,6 +655,8 @@ const launchSpeed = Number(launchOptions.get('speed'));
 if (Number.isFinite(launchSpeed) && launchOptions.has('speed')) setSimulationSpeed(launchSpeed);
 const launchMode = launchOptions.get('mode');
 if (launchMode === 'auto' || launchMode === 'manual') selectControl(launchMode);
+const launchScenario = launchOptions.get('scenario') as TrafficScenario | null;
+if (launchScenario && ['normal', 'rush', 'storm', 'closure'].includes(launchScenario)) setScenario(launchScenario);
 const launchWeatherValue = launchOptions.get('weather');
 const launchWeather = launchWeatherValue as WeatherCondition | null;
 const launchWindDirection = Number(launchOptions.get('windDir') ?? 270);
