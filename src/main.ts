@@ -1,7 +1,7 @@
 import './styles.css';
 import { AirportSimulation } from './simulation/airportSimulation';
 import { generateAirportConfig, generateHubConfig, HUB_AIRPORTS } from './simulation/airportConfig';
-import type { ControlMode, ControllerStation, FlightInstruction, ReplayFrame, TrafficScenario, WeatherCondition } from './simulation/types';
+import type { ControlMode, ControllerStation, EmergencyType, FlightInstruction, ReplayFrame, TrafficScenario, WeatherCondition } from './simulation/types';
 import { AmbientAudio } from './audio/ambientAudio';
 import { createWorld } from './render/createWorld';
 
@@ -17,6 +17,7 @@ type AirportControlCommand =
   | { action: 'focusFlight'; flightId: number | null }
   | { action: 'setScenario'; scenario: TrafficScenario }
   | { action: 'setStation'; station: ControllerStation }
+  | { action: 'triggerEmergency'; flightId: number; type: EmergencyType }
   | { action: 'setWeather'; condition: WeatherCondition; directionDegrees: number; windSpeed: number }
   | { action: 'setWeatherEnabled'; enabled: boolean }
   | { action: 'setWindEnabled'; enabled: boolean };
@@ -332,6 +333,7 @@ function frame(now: number): void {
     if (event.type === 'runway-crossing') setStatus(`${event.flight.callsign} crossing clearance`, `cross runway ${runwayDesignation(event.runway ?? event.flight.runway)}`);
     if (event.type === 'depart') setStatus(`${event.flight.callsign} is away`, 'departure corridor is clear');
     if (event.type === 'conflict') showGameOver(event.flight.callsign);
+    if (event.type === 'emergency') setStatus(`${event.flight.callsign} emergency`, `${event.flight.emergency} · priority handling active`);
   }
 
   world.update(simulation.state, delta);
@@ -355,6 +357,9 @@ telemetryControls.addEventListener('click', (event) => {
     if (flight) executeAirportCommand({ action: 'clearFlight', flightId, runway: flight.runway });
   }
   if (button.dataset.action === 'focus') executeAirportCommand({ action: 'focusFlight', flightId });
+  if (button.dataset.action === 'go-around') executeAirportCommand({ action: 'triggerEmergency', flightId, type: 'go-around' });
+  if (button.dataset.action === 'emergency') executeAirportCommand({ action: 'triggerEmergency', flightId, type: 'medical' });
+  if (button.dataset.action === 'medical') executeAirportCommand({ action: 'triggerEmergency', flightId, type: 'disabled' });
   if (button.dataset.action === 'slow' || button.dataset.action === 'normal' || button.dataset.action === 'expedite' || button.dataset.action === 'hold' || button.dataset.action === 'resume' || button.dataset.action === 'zigzag') {
     executeAirportCommand({ action: 'controlFlights', flightIds: [flightId], instruction: button.dataset.action });
   }
@@ -373,6 +378,8 @@ function renderTelemetryControls(): void {
       ...(flight.phase === 'approach' && flight.controlPattern !== 'zigzag' ? [`<button data-action="zigzag" data-flight="${flight.id}">Zigzag</button>`] : []),
       ...(surface ? [`<button data-action="${flight.controlHold ? 'resume' : 'hold'}" data-flight="${flight.id}">${flight.controlHold ? 'Release' : 'Hold'}</button>`] : []),
       ...(flight.phase === 'approach' && !flight.cleared ? [`<button data-action="clear" data-flight="${flight.id}">Clear ${runwayDesignation(flight.runway)}</button>`] : []),
+      ...(flight.phase === 'approach' || flight.phase === 'landing' ? [`<button data-action="go-around" data-flight="${flight.id}">Go around</button>`] : []),
+      ...(flight.emergency ? [`<button data-action="medical" data-flight="${flight.id}">Medical</button>`] : [`<button data-action="emergency" data-flight="${flight.id}">Emergency</button>`]),
     ].join('');
     const crossings = (flight.requiredCrossings ?? [])
       .filter((runway) => flight.phase === 'taxi-out' && flight.progress >= 0.995 && !flight.crossingClearances?.includes(runway))
@@ -510,8 +517,8 @@ function selectControl(mode: ControlMode): void {
 function setScenario(scenario: TrafficScenario): void {
   simulation.setScenario(scenario);
   scenarioSelect.value = scenario;
-  const labels: Record<TrafficScenario, string> = { normal: 'Normal flow', rush: 'Rush hour', storm: 'Storm front', closure: 'Runway closure', training: 'Training pattern' };
-  setStatus(`${labels[scenario]} scenario`, scenario === 'closure' ? 'one runway closed · arrivals re-sequencing' : scenario === 'storm' ? 'reduced visibility · wider spacing' : scenario === 'rush' ? 'compressed arrival stream · watch separation' : scenario === 'training' ? 'one aircraft at a time · practice clearances' : 'standard traffic picture');
+  const labels: Record<TrafficScenario, string> = { normal: 'Normal flow', rush: 'Rush hour', storm: 'Storm front', closure: 'Runway closure', training: 'Training pattern', emergency: 'Emergency response' };
+  setStatus(`${labels[scenario]} scenario`, scenario === 'closure' ? 'one runway closed · arrivals re-sequencing' : scenario === 'storm' ? 'reduced visibility · wider spacing' : scenario === 'rush' ? 'compressed arrival stream · watch separation' : scenario === 'training' ? 'one aircraft at a time · practice clearances' : scenario === 'emergency' ? 'medical priority · keep a protected runway' : 'standard traffic picture');
 }
 
 function setStation(station: ControllerStation): void {
@@ -633,6 +640,11 @@ function airportSnapshot() {
       departureRunway: flight.departureRunway,
       category: flight.category,
       wakeClass: flight.wakeClass,
+      procedure: flight.procedure,
+      origin: flight.origin,
+      destination: flight.destination,
+      squawk: flight.squawk,
+      emergency: flight.emergency ?? null,
       operatingEnd: flight.operatingEnd,
       activeRunwayEnd: config.runways[flight.runway]?.designation?.[flight.operatingEnd === 1 ? 1 : 0],
       progress: Number(flight.progress.toFixed(3)),
@@ -670,6 +682,7 @@ function executeAirportCommand(command: AirportControlCommand): ReturnType<typeo
   if (command.action === 'focusFlight') world.selectFlight(command.flightId);
   if (command.action === 'setScenario') setScenario(command.scenario);
   if (command.action === 'setStation') setStation(command.station);
+  if (command.action === 'triggerEmergency') simulation.triggerEmergency(command.flightId, command.type);
   if (command.action === 'setWeather') simulation.setWeather(command.condition, aviationDegreesToMathAngle(command.directionDegrees), command.windSpeed);
   if (command.action === 'setWeatherEnabled') simulation.setWeatherEnabled(command.enabled);
   if (command.action === 'setWindEnabled') simulation.setWindEnabled(command.enabled);
@@ -701,6 +714,7 @@ window.airportControl = {
       focus: "airportControl.command({ action: 'focusFlight', flightId: 1 })",
       scenario: "airportControl.command({ action: 'setScenario', scenario: 'rush' })",
       station: "airportControl.command({ action: 'setStation', station: 'ground' })",
+      emergency: "airportControl.command({ action: 'triggerEmergency', flightId: 1, type: 'medical' })",
       replay: 'airportControl.replay()',
       zigzag: "airportControl.command({ action: 'controlFlights', flightIds: [1], instruction: 'zigzag' })",
       weather: "airportControl.command({ action: 'setWeather', condition: 'rain', directionDegrees: 270, windSpeed: 18 })",
@@ -730,7 +744,7 @@ if (Number.isFinite(launchSpeed) && launchOptions.has('speed')) setSimulationSpe
 const launchMode = launchOptions.get('mode');
 if (launchMode === 'auto' || launchMode === 'manual') selectControl(launchMode);
 const launchScenario = launchOptions.get('scenario') as TrafficScenario | null;
-if (launchScenario && ['normal', 'rush', 'storm', 'closure', 'training'].includes(launchScenario)) setScenario(launchScenario);
+if (launchScenario && ['normal', 'rush', 'storm', 'closure', 'training', 'emergency'].includes(launchScenario)) setScenario(launchScenario);
 const launchStation = launchOptions.get('station') as ControllerStation | null;
 if (launchStation && ['supervisor', 'approach', 'tower', 'ground'].includes(launchStation)) setStation(launchStation);
 const launchWeatherValue = launchOptions.get('weather');

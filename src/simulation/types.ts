@@ -4,10 +4,11 @@ import type { FlightColor } from './airportConfig';
 
 export type ControlMode = 'auto' | 'manual';
 export type WeatherCondition = 'clear' | 'rain' | 'fog';
-export type TrafficScenario = 'normal' | 'rush' | 'storm' | 'closure' | 'training';
+export type TrafficScenario = 'normal' | 'rush' | 'storm' | 'closure' | 'training' | 'emergency';
 export type ControllerStation = 'tower' | 'ground' | 'approach' | 'supervisor';
 export type FlightInstruction = 'slow' | 'normal' | 'expedite' | 'hold' | 'resume' | 'zigzag';
 export type AircraftCategory = 'regional' | 'narrowbody' | 'widebody' | 'cargo';
+export type EmergencyType = 'medical' | 'disabled' | 'birdstrike' | 'go-around';
 
 export interface WeatherState {
   weatherEnabled: boolean;
@@ -44,6 +45,11 @@ export interface Flight {
   controlPatternStart?: number;
   category: AircraftCategory;
   wakeClass: 'light' | 'medium' | 'heavy';
+  procedure: string;
+  origin: string;
+  destination: string;
+  squawk: string;
+  emergency?: EmergencyType;
 }
 
 export interface ConflictPrediction {
@@ -65,6 +71,7 @@ export interface ShiftMetrics {
   airborneSeconds: number;
   taxiSeconds: number;
   estimatedDelaySeconds: number;
+  emergencyResponses: number;
 }
 
 export interface ReplayFrame {
@@ -75,7 +82,7 @@ export interface ReplayFrame {
 }
 
 export interface AirportEvent {
-  type: 'spawn' | 'land' | 'chime' | 'depart' | 'clear' | 'auto-clear' | 'reject' | 'conflict' | 'hold-short' | 'runway-entry' | 'runway-crossing';
+  type: 'spawn' | 'land' | 'chime' | 'depart' | 'clear' | 'auto-clear' | 'reject' | 'conflict' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'emergency';
   flight: Flight;
   runway?: number;
   taxiway?: string;
