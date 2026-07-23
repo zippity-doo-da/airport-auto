@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.zip
+
+# Local design captures and research notes are not part of the source repo.
+design/
+docs/
+airport-game-teardown.md
+stillwater-airfield-readme.md
