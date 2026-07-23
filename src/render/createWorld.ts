@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { AirportConfig, FlightColor, RunwayConfig } from '../simulation/airportConfig';
+import { aircraftProfile } from '../simulation/aircraftProfiles';
 import type { AirportState, Flight, FlightPhase } from '../simulation/types';
 
 type FlightVisual = {
@@ -134,12 +135,11 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
       let visual = flightVisuals.get(flight.id);
       if (!visual) {
         visual = createPlane(flight);
-        const categoryScale = flight.category === 'regional' ? 0.84 : flight.category === 'widebody' ? 1.08 : flight.category === 'cargo' ? 1.12 : 1;
         if (config.scope === 'center') {
-          visual.root.scale.setScalar(0.72 * categoryScale);
+          visual.root.scale.setScalar(0.72);
           visual.beacon.visible = false;
         } else {
-          visual.root.scale.setScalar(categoryScale);
+          visual.root.scale.setScalar(0.92);
         }
         flightVisuals.set(flight.id, visual);
         world.add(visual.root);
@@ -620,6 +620,7 @@ function buildRipples(root: THREE.Group, config: AirportConfig): THREE.Mesh[] {
 }
 
 function createPlane(flight: Flight): FlightVisual {
+  const profile = aircraftProfile(flight.aircraft);
   const root = new THREE.Group();
   const body = new THREE.Group();
   root.add(body);
@@ -628,52 +629,88 @@ function createPlane(flight: Flight): FlightVisual {
   const cream = new THREE.MeshStandardMaterial({ color: 0xf1eadc, roughness: 0.5, metalness: 0.04 });
   const dark = new THREE.MeshStandardMaterial({ color: COLORS.ink, roughness: 0.42 });
 
-  const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(0.58, 0.9, 6.6, 14), paint);
+  const visual = profile.visual;
+  const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(visual.bodyRadius, visual.bodyRadius * 1.03, visual.bodyLength, 14), paint);
   fuselage.rotation.z = -Math.PI / 2;
   fuselage.castShadow = true;
   body.add(fuselage);
-  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.59, 1.85, 14), paint);
-  nose.rotation.z = -Math.PI / 2;
-  nose.position.x = 4.2;
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(visual.bodyRadius * 1.01, 14, 8), paint);
+  nose.scale.set(1.45, 0.96, 0.96);
+  nose.position.x = visual.bodyLength / 2 + visual.bodyRadius * 0.55;
   nose.castShadow = true;
   body.add(nose);
+  const tailCap = new THREE.Mesh(new THREE.SphereGeometry(visual.bodyRadius * 0.98, 14, 8), paint);
+  tailCap.scale.set(0.8, 0.92, 0.92);
+  tailCap.position.x = -visual.bodyLength / 2 - visual.bodyRadius * 0.2;
+  body.add(tailCap);
+
   const wingShape = new THREE.Shape();
-  wingShape.moveTo(1.45, 0);
-  wingShape.lineTo(-0.75, 4.75);
-  wingShape.lineTo(-1.55, 4.55);
-  wingShape.lineTo(-0.65, 0);
-  wingShape.lineTo(-1.55, -4.55);
-  wingShape.lineTo(-0.75, -4.75);
+  const wingRoot = visual.bodyLength * 0.08;
+  const wingTip = wingRoot - visual.wingSweep;
+  const wingEnd = visual.wingSpan / 2;
+  wingShape.moveTo(wingRoot + 1.1, 0);
+  wingShape.lineTo(wingTip, wingEnd);
+  wingShape.lineTo(wingTip - 0.72, wingEnd - 0.22);
+  wingShape.lineTo(wingRoot - 0.55, 0);
+  wingShape.lineTo(wingTip - 0.72, -wingEnd + 0.22);
+  wingShape.lineTo(wingTip, -wingEnd);
   wingShape.closePath();
   const wing = new THREE.Mesh(new THREE.ExtrudeGeometry(wingShape, { depth: 0.22, bevelEnabled: false }), cream);
   wing.position.z = -0.05;
   wing.castShadow = true;
   body.add(wing);
+
   const tailShape = new THREE.Shape();
-  tailShape.moveTo(-2.15, 0);
-  tailShape.lineTo(-3.55, 2.15);
-  tailShape.lineTo(-4.05, 2.05);
-  tailShape.lineTo(-3.45, 0);
-  tailShape.lineTo(-4.05, -2.05);
-  tailShape.lineTo(-3.55, -2.15);
+  const tailRoot = -visual.bodyLength * 0.31;
+  const tailTip = tailRoot - visual.wingSweep * 0.5;
+  const tailSpan = visual.wingSpan * 0.22;
+  tailShape.moveTo(tailRoot + 0.58, 0);
+  tailShape.lineTo(tailTip, tailSpan);
+  tailShape.lineTo(tailTip - 0.34, tailSpan - 0.12);
+  tailShape.lineTo(tailRoot - 0.28, 0);
+  tailShape.lineTo(tailTip - 0.34, -tailSpan + 0.12);
+  tailShape.lineTo(tailTip, -tailSpan);
   tailShape.closePath();
   const tail = new THREE.Mesh(new THREE.ExtrudeGeometry(tailShape, { depth: 0.18, bevelEnabled: false }), cream);
   tail.position.z = 0.08;
   tail.castShadow = true;
   body.add(tail);
-  const fin = new THREE.Mesh(new THREE.ConeGeometry(0.72, 1.8, 3), paint);
-  fin.position.set(-3.25, 0, 0.92);
-  fin.rotation.z = -0.28;
+
+  const fin = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.18, visual.tailHeight), paint);
+  fin.position.set(-visual.bodyLength * 0.37, 0, visual.tailHeight * 0.43);
+  fin.rotation.y = -0.16;
   body.add(fin);
-  const cockpit = new THREE.Mesh(new THREE.SphereGeometry(0.56, 12, 8), dark);
-  cockpit.scale.set(1.55, 0.78, 0.48);
-  cockpit.position.set(2.55, 0, 0.58);
+
+  const cockpit = new THREE.Mesh(new THREE.SphereGeometry(visual.bodyRadius * 0.82, 12, 8), dark);
+  cockpit.scale.set(1.25, 0.78, 0.43);
+  cockpit.position.set(visual.bodyLength * 0.33, 0, visual.bodyRadius * 0.92);
   body.add(cockpit);
 
-  const gear = new THREE.Group();
   const strutMaterial = new THREE.MeshStandardMaterial({ color: 0x707978, roughness: 0.6, metalness: 0.25 });
+  const engineMaterial = new THREE.MeshStandardMaterial({ color: 0x6d7774, roughness: 0.55, metalness: 0.22 });
+  const engineOffsets = profile.engines === 4
+    ? [-visual.engineOffset, -visual.engineOffset * 0.5, visual.engineOffset * 0.5, visual.engineOffset]
+    : [-visual.engineOffset, visual.engineOffset];
+  for (const offset of engineOffsets) {
+    const engine = new THREE.Mesh(new THREE.CylinderGeometry(visual.engineRadius, visual.engineRadius * 1.04, visual.engineLength, 12), engineMaterial);
+    engine.rotation.z = -Math.PI / 2;
+    engine.position.set(visual.bodyLength * 0.04, offset, -visual.bodyRadius * 0.85);
+    engine.castShadow = true;
+    body.add(engine);
+    const pylon = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.18, 0.42), strutMaterial);
+    pylon.position.set(visual.bodyLength * 0.04, offset, -visual.bodyRadius * 0.48);
+    body.add(pylon);
+    if (visual.propeller) {
+      const prop = new THREE.Mesh(new THREE.CircleGeometry(visual.engineRadius * 1.35, 16), new THREE.MeshBasicMaterial({ color: 0xddd6bd, transparent: true, opacity: 0.56, side: THREE.DoubleSide }));
+      prop.rotation.y = Math.PI / 2;
+      prop.position.set(visual.bodyLength * 0.04 + visual.engineLength * 0.53, offset, -visual.bodyRadius * 0.85);
+      body.add(prop);
+    }
+  }
+
+  const gear = new THREE.Group();
   const wheelMaterial = new THREE.MeshStandardMaterial({ color: 0x202a2b, roughness: 0.9 });
-  for (const [x, y] of [[2.15, 0], [-0.85, -0.72], [-0.85, 0.72]] as Array<[number, number]>) {
+  for (const [x, y] of [[visual.bodyLength * 0.29, 0], [-visual.bodyLength * 0.18, -visual.bodyRadius * 1.12], [-visual.bodyLength * 0.18, visual.bodyRadius * 1.12]] as Array<[number, number]>) {
     const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.72, 8), strutMaterial);
     strut.rotation.x = Math.PI / 2;
     strut.position.set(x, y, -0.66);
@@ -686,7 +723,7 @@ function createPlane(flight: Flight): FlightVisual {
   root.add(gear);
 
   const shadow = new THREE.Mesh(
-    new THREE.CircleGeometry(2.6, 24),
+    new THREE.CircleGeometry(Math.max(2.3, visual.bodyLength * 0.38), 24),
     new THREE.MeshBasicMaterial({ color: 0x304847, transparent: true, opacity: 0.14, depthWrite: false }),
   );
   shadow.scale.set(1.9, 0.7, 1);
@@ -694,7 +731,7 @@ function createPlane(flight: Flight): FlightVisual {
   root.add(shadow);
 
   const beacon = new THREE.PointLight(0xffa08d, 0.8, 12, 2);
-  beacon.position.set(-0.5, 0, 1.1);
+  beacon.position.set(-visual.bodyLength * 0.08, 0, visual.tailHeight * 0.7);
   body.add(beacon);
   const halo = new THREE.Mesh(
     new THREE.RingGeometry(4.4, 5.1, 40),

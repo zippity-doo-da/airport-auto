@@ -1,6 +1,7 @@
 export type FlightPhase = 'approach' | 'landing' | 'taxi-in' | 'resting' | 'taxi-out' | 'takeoff';
 
 import type { FlightColor } from './airportConfig';
+import type { AircraftModel } from './aircraftProfiles';
 
 export type ControlMode = 'auto' | 'manual';
 export type WeatherCondition = 'clear' | 'rain' | 'fog';
@@ -8,6 +9,7 @@ export type TrafficScenario = 'normal' | 'rush' | 'storm' | 'closure' | 'trainin
 export type ControllerStation = 'tower' | 'ground' | 'approach' | 'supervisor';
 export type FlightInstruction = 'slow' | 'normal' | 'expedite' | 'hold' | 'resume' | 'zigzag';
 export type AircraftCategory = 'regional' | 'narrowbody' | 'widebody' | 'cargo';
+export type WakeClass = 'light' | 'medium' | 'heavy';
 export type EmergencyType = 'medical' | 'disabled' | 'birdstrike' | 'go-around';
 
 export interface WeatherState {
@@ -43,8 +45,9 @@ export interface Flight {
   controlHold?: boolean;
   controlPattern?: 'zigzag';
   controlPatternStart?: number;
+  aircraft: AircraftModel;
   category: AircraftCategory;
-  wakeClass: 'light' | 'medium' | 'heavy';
+  wakeClass: WakeClass;
   procedure: string;
   origin: string;
   destination: string;

@@ -1,6 +1,7 @@
 import './styles.css';
 import { AirportSimulation } from './simulation/airportSimulation';
 import { generateAirportConfig, generateHubConfig, HUB_AIRPORTS } from './simulation/airportConfig';
+import { aircraftProfile } from './simulation/aircraftProfiles';
 import type { ControlMode, ControllerStation, EmergencyType, FlightInstruction, ReplayFrame, TrafficScenario, WeatherCondition } from './simulation/types';
 import { AmbientAudio } from './audio/ambientAudio';
 import { createWorld } from './render/createWorld';
@@ -389,7 +390,8 @@ function renderTelemetryControls(): void {
       ? ''
       : `<button data-action="entry" data-flight="${flight.id}">Clear enter ${runwayDesignation(flight.runway)}</button>`;
     const directive = flight.controlHold ? ' · HELD' : flight.controlPattern === 'zigzag' ? ' · ZIGZAG' : flight.controlPace && flight.controlPace !== 1 ? ` · ${flight.controlPace < 1 ? 'SLOW' : 'EXPEDITE'}` : '';
-    return `<div class="telemetry__flight"><strong>${flight.callsign} · ${flight.phase.toUpperCase()}${flight.taxiway ? ` · ${flight.taxiway}` : ''}${directive}</strong>${flightControls}${crossings}${entry}</div>`;
+    const profile = aircraftProfile(flight.aircraft);
+    return `<div class="telemetry__flight"><strong>${flight.callsign} · ${flight.aircraft} · ${flight.phase.toUpperCase()}${flight.taxiway ? ` · ${flight.taxiway}` : ''}${directive}</strong><small>${profile.name} · ${profile.wakeClass} wake · ${profile.approachKts} kt approach</small>${flightControls}${crossings}${entry}</div>`;
   }).join('');
 }
 
@@ -638,6 +640,22 @@ function airportSnapshot() {
       phase: flight.phase,
       runway: flight.runway,
       departureRunway: flight.departureRunway,
+      aircraft: {
+        model: flight.aircraft,
+        name: aircraftProfile(flight.aircraft).name,
+        manufacturer: aircraftProfile(flight.aircraft).manufacturer,
+        category: flight.category,
+        wakeClass: flight.wakeClass,
+        lengthM: aircraftProfile(flight.aircraft).lengthM,
+        wingspanM: aircraftProfile(flight.aircraft).wingspanM,
+        maxTakeoffWeightT: aircraftProfile(flight.aircraft).maxTakeoffWeightT,
+        cruiseKts: aircraftProfile(flight.aircraft).cruiseKts,
+        approachKts: aircraftProfile(flight.aircraft).approachKts,
+        taxiKts: aircraftProfile(flight.aircraft).taxiKts,
+        takeoffRollM: aircraftProfile(flight.aircraft).takeoffRollM,
+        landingRollM: aircraftProfile(flight.aircraft).landingRollM,
+        climbFpm: aircraftProfile(flight.aircraft).climbFpm,
+      },
       category: flight.category,
       wakeClass: flight.wakeClass,
       procedure: flight.procedure,
@@ -692,7 +710,7 @@ function executeAirportCommand(command: AirportControlCommand): ReturnType<typeo
 }
 
 window.airportControl = {
-  version: '1.3.0',
+  version: '1.4.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },
@@ -715,6 +733,7 @@ window.airportControl = {
       scenario: "airportControl.command({ action: 'setScenario', scenario: 'rush' })",
       station: "airportControl.command({ action: 'setStation', station: 'ground' })",
       emergency: "airportControl.command({ action: 'triggerEmergency', flightId: 1, type: 'medical' })",
+      aircraft: 'airportControl.snapshot().flights[0].aircraft',
       replay: 'airportControl.replay()',
       zigzag: "airportControl.command({ action: 'controlFlights', flightIds: [1], instruction: 'zigzag' })",
       weather: "airportControl.command({ action: 'setWeather', condition: 'rain', directionDegrees: 270, windSpeed: 18 })",

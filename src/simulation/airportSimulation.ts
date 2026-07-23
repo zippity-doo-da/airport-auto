@@ -1,5 +1,6 @@
 import type { AirportConfig } from './airportConfig';
-import type { AirportEvent, AirportState, AircraftCategory, ConflictPrediction, ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, ShiftMetrics, TrafficScenario, WeatherCondition } from './types';
+import type { AirportEvent, AirportState, ConflictPrediction, ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, ShiftMetrics, TrafficScenario, WeatherCondition } from './types';
+import { AIRCRAFT_ROSTER, aircraftProfile, type AircraftModel } from './aircraftProfiles';
 
 const PHASE_DURATION: Record<FlightPhase, number> = {
   approach: 12,
@@ -102,7 +103,7 @@ export class AirportSimulation {
       flight.phase = 'approach';
       flight.progress = 0;
       flight.phaseElapsed = 0;
-      flight.duration = (this.config.scope === 'center' ? 18 : PHASE_DURATION.approach) * this.weatherDurationMultiplier('approach');
+      flight.duration = this.phaseDuration(flight.aircraft, 'approach');
       flight.cleared = true;
       flight.clearanceLeft = 99;
     }
@@ -326,9 +327,8 @@ export class AirportSimulation {
     const departureRunways = this.config.runways.filter((item) => (item.role === 'departure' || item.role === 'mixed') && item.id !== this.closedRunway);
     const departureRunway = [...departureRunways].sort((first, second) => this.headwindComponent(second.id) - this.headwindComponent(first.id))[(id - 1) % departureRunways.length].id;
     const automatic = this.state.mode === 'auto';
-    const approachDuration = (this.config.scope === 'center' ? 18 : PHASE_DURATION.approach) * this.weatherDurationMultiplier('approach');
-    const categories: AircraftCategory[] = ['narrowbody', 'regional', 'widebody', 'cargo'];
-    const category = categories[(id - 1) % categories.length];
+    const aircraft = AIRCRAFT_ROSTER[(id - 1 + Math.abs(this.config.seed)) % AIRCRAFT_ROSTER.length];
+    const profile = aircraftProfile(aircraft);
     const flight: Flight = {
       id,
       callsign: `${NAMES[(id - 1) % NAMES.length]} ${String(id * 3 + 1).padStart(2, '0')}`,
@@ -339,11 +339,12 @@ export class AirportSimulation {
       phase: 'approach',
       progress: 0,
       phaseElapsed: 0,
-      duration: approachDuration,
+      duration: this.phaseDuration(aircraft, 'approach'),
       cleared: automatic,
-      clearanceLeft: automatic ? 99 : approachDuration * 0.96,
-      category,
-      wakeClass: category === 'widebody' || category === 'cargo' ? 'heavy' : category === 'regional' ? 'light' : 'medium',
+      clearanceLeft: automatic ? 99 : this.phaseDuration(aircraft, 'approach') * 0.96,
+      aircraft,
+      category: profile.category,
+      wakeClass: profile.wakeClass,
       procedure: this.arrivalProcedure(runway),
       origin: this.originFor(id),
       destination: this.config.code === 'LOCAL' ? 'LOCAL' : this.config.code,
@@ -416,7 +417,7 @@ export class AirportSimulation {
     flight.controlHold = false;
     flight.controlPattern = undefined;
     flight.controlPatternStart = undefined;
-    flight.duration = PHASE_DURATION[next] * this.weatherDurationMultiplier(next);
+    flight.duration = this.phaseDuration(flight.aircraft, next);
 
     if (next === 'taxi-in') {
       flight.taxiway = this.taxiwayName(flight.runway);
@@ -520,6 +521,19 @@ export class AirportSimulation {
   private arrivalProcedure(runway: number): string {
     const designation = this.config.runways[runway]?.designation?.[0] ?? String(runway + 1);
     return `${this.config.code === 'LOCAL' ? 'LOCAL' : this.config.code} ARRIVAL ${designation}`;
+  }
+
+  private phaseDuration(aircraft: AircraftModel, phase: FlightPhase): number {
+    const profile = aircraftProfile(aircraft);
+    if (phase === 'resting') return PHASE_DURATION.resting;
+    if (phase === 'approach') {
+      const base = this.config.scope === 'center' ? 18 : PHASE_DURATION.approach;
+      return base * (145 / profile.approachKts) * this.weatherDurationMultiplier(phase);
+    }
+    if (phase === 'landing') return PHASE_DURATION.landing * (profile.landingRollM / 1_650) * this.weatherDurationMultiplier(phase);
+    if (phase === 'taxi-in' || phase === 'taxi-out') return 19 * (18 / profile.taxiKts) * this.weatherDurationMultiplier(phase);
+    if (phase === 'takeoff') return PHASE_DURATION.takeoff * (profile.takeoffRollM / 2_250) * this.weatherDurationMultiplier(phase);
+    return PHASE_DURATION[phase] * this.weatherDurationMultiplier(phase);
   }
 
   private originFor(id: number): string {
