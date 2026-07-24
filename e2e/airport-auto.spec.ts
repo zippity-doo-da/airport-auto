@@ -338,6 +338,9 @@ test('ORD snow exposes the deicing route and holdover model in the normal UI', a
 });
 
 test('Mobile Watch mode keeps controls readable and uses low-detail rendering', async ({ page }, testInfo) => {
+  // Hosted software WebGL needs more than Playwright's 30-second default to
+  // load the full ORD context and capture the final frame on both projects.
+  test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=watch&autostart=1&detail=low');
   await page.waitForFunction(() => window.airportControl?.version === '2.9.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
