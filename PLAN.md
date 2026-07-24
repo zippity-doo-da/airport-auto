@@ -171,6 +171,21 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] API 2.9 / snapshot schema 11 exposes temperature, surface condition, deicing facilities/policy, per-flight treatment state, and diagnostic counts; recordings and replay preserve the same state.
 - [x] A dedicated deterministic gate verifies published facility metadata, authoritative queue/treatment stops, holdover expiry rejection, the return route, and zero aircraft/obstacle conflicts.
 
+## Airport Auto 2.9.1 — seamless map exploration
+
+- [x] Expand hub terrain to 16,000 × 12,000 world units and local-airfield terrain to 9,600 × 7,200 while keeping sourced and generated detail at its original scale.
+- [x] Expand camera travel to leave at least 2,100 world units of plain terrain between every maximum pan position and the nearest ground edge; wide zoom smoothly becomes an overhead map view so the ground fills the viewport instead of exposing the orthographic camera boundary.
+- [x] Allow left-drag and one-finger pan gestures to begin over ordinary aircraft; only an uncleared arrival retains its route-drawing gesture, while middle-drag remains an unconditional pan.
+- [x] Require a short movement threshold before taking camera control so a tap does not cancel a selected-flight follow.
+- [x] API 2.9.1 reports pan limits, detailed-map footprint, and full ground dimensions; browser coverage verifies exploration beyond the former map clamp without leaving the terrain plane.
+- [x] Add WASD/arrow-key map movement, click-again and empty-ground deselection, and preserve free-camera control until the player deliberately selects another aircraft.
+- [x] Replace the full-screen radar rings with a compact optional terminal-radar inset driven by authoritative aircraft poses, runway geometry, heading vectors, and selection state.
+- [x] Add optional upright compass points, responsive scale, and a main-map wind direction/speed indicator; keep taxiway labels and service vehicles independently visible or hidden.
+- [x] Separate water polygons in depth and render order so overlapping OSM land-use geometry cannot make lakes flicker.
+- [x] Make go-around an authoritative climb, circuit, and continuous approach re-entry rather than a phase reset/teleport; deterministic and browser tests verify the live-pose handoff and nose-up climb.
+- [x] Keep imported ORD terminals and buildings sourced, retain collision-safe schematics elsewhere, and place ATL's terminal complex in its real-world-style parallel-runway infield without weakening pavement/obstacle validation.
+- [x] Verify the seamless terrain and camera contract on ORD, ATL, a generated local airfield, desktop, and mobile viewports.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.

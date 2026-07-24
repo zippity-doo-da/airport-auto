@@ -1,12 +1,15 @@
 import type { AirportConfig, RunwayConfig } from './airportConfig';
 import { aircraftProfile, type AircraftModel } from './aircraftProfiles';
 import { WORLD_METERS_PER_UNIT } from './runwayPerformance';
-import type { Flight, FlightPhase } from './types';
+import type { Flight, FlightGoAroundState, FlightPhase } from './types';
 
 export type FlightTrajectoryStage =
   | 'edge-entry'
   | 'arrival-turn'
   | 'final'
+  | 'go-around-climb'
+  | 'go-around-turn'
+  | 'go-around-reentry'
   | 'flare'
   | 'touchdown'
   | 'rollout'
@@ -68,6 +71,7 @@ const MINIMUM_CLIMB_PITCH = 10 * DEGREES_TO_RADIANS;
 const MAXIMUM_CLIMB_PITCH = 13.5 * DEGREES_TO_RADIANS;
 const ROTATION_LIFTOFF_HEIGHT = 0.12;
 const APPROACH_PATH_CACHE = new WeakMap<AirportConfig, Map<string, PreparedSmoothPath>>();
+const GO_AROUND_PATH_CACHE = new WeakMap<FlightGoAroundState, PreparedSmoothPath>();
 
 export function phaseUsesFlightTrajectory(phase: FlightPhase): phase is 'approach' | 'landing' | 'takeoff' {
   return phase === 'approach' || phase === 'landing' || phase === 'takeoff';
@@ -79,6 +83,7 @@ export function sampleFlightTrajectory(
   progress = flight.progress,
 ): FlightTrajectorySample | null {
   const amount = clamp(progress, 0, 1);
+  if (flight.phase === 'approach' && flight.goAround) return sampleGoAround(config, flight, amount);
   if (flight.phase === 'approach') return sampleApproach(config, flight, amount);
   if (flight.phase === 'landing') return sampleLanding(config, flight, amount);
   if (flight.phase === 'takeoff') return sampleDeparture(config, flight, amount);
@@ -348,6 +353,101 @@ function sampleLanding(config: AirportConfig, flight: Flight, progress: number):
     stageProgress,
     distanceAlong,
     totalDistance: rolloutEnd + exitPathDistance,
+  };
+}
+
+function sampleGoAround(config: AirportConfig, flight: Flight, progress: number): FlightTrajectorySample {
+  const state = flight.goAround!;
+  let path = GO_AROUND_PATH_CACHE.get(state);
+  if (!path) {
+    const runway = config.runways[flight.runway] ?? config.runways[0];
+    const travel = runwayTravelDirection(runway, flight.operatingEnd);
+    const side = { x: -travel.y, y: travel.x };
+    const circuitSide = flight.id % 2 ? 1 : -1;
+    const threshold = runwayEnd(runway, flight.operatingEnd, 0, THRESHOLD_CROSSING_ALTITUDE);
+    const entry = sampleApproachPath(config, flight, 0);
+    const entryNext = sampleApproachPath(config, flight, 0.035);
+    const entryLength = Math.hypot(entryNext.point.x - entry.point.x, entryNext.point.y - entry.point.y) || 1;
+    const entryDirection = {
+      x: (entryNext.point.x - entry.point.x) / entryLength,
+      y: (entryNext.point.y - entry.point.y) / entryLength,
+    };
+    const startDistance = config.scope === 'center' ? 265 : 175;
+    const circuitWidth = config.scope === 'center' ? 94 : 68;
+    const start = { x: state.start.x, y: state.start.y, z: state.start.z };
+    const initialHeading = { x: Math.cos(state.start.heading), y: Math.sin(state.start.heading) };
+    const climbHeight = Math.max(22, entry.point.z + 5);
+    const farEnd = {
+      x: threshold.x + travel.x * (runway.length + (config.scope === 'center' ? 76 : 52)),
+      y: threshold.y + travel.y * (runway.length + (config.scope === 'center' ? 76 : 52)),
+      z: climbHeight,
+    };
+    const downwind = {
+      x: threshold.x - travel.x * startDistance * 0.34 + side.x * circuitSide * circuitWidth,
+      y: threshold.y - travel.y * startDistance * 0.34 + side.y * circuitSide * circuitWidth,
+      z: Math.max(climbHeight, entry.point.z + 8),
+    };
+    const beforeEntry = {
+      x: entry.point.x - entryDirection.x * (config.scope === 'center' ? 42 : 28),
+      y: entry.point.y - entryDirection.y * (config.scope === 'center' ? 42 : 28),
+      z: entry.point.z + 3,
+    };
+    path = prepareSmoothPath([
+      start,
+      {
+        x: start.x + initialHeading.x * (config.scope === 'center' ? 48 : 34),
+        y: start.y + initialHeading.y * (config.scope === 'center' ? 48 : 34),
+        z: Math.max(start.z + 8, 12),
+      },
+      farEnd,
+      {
+        x: farEnd.x + travel.x * 34 + side.x * circuitSide * circuitWidth,
+        y: farEnd.y + travel.y * 34 + side.y * circuitSide * circuitWidth,
+        z: climbHeight + 5,
+      },
+      downwind,
+      beforeEntry,
+      entry.point,
+    ]);
+    GO_AROUND_PATH_CACHE.set(state, path);
+  }
+  const base = samplePreparedSmoothPath(path, progress);
+  const before = samplePreparedSmoothPath(path, clamp(progress - 0.004, 0, 1));
+  const after = samplePreparedSmoothPath(path, clamp(progress + 0.004, 0, 1));
+  const turn = shortestAngle(
+    Math.atan2(before.tangent.y, before.tangent.x),
+    Math.atan2(after.tangent.y, after.tangent.x),
+  );
+  const stage: FlightTrajectoryStage = progress < 0.24
+    ? 'go-around-climb'
+    : progress < 0.74
+      ? 'go-around-turn'
+      : 'go-around-reentry';
+  const stageProgress = stage === 'go-around-climb'
+    ? progress / 0.24
+    : stage === 'go-around-turn'
+      ? (progress - 0.24) / 0.5
+      : (progress - 0.74) / 0.26;
+  const climbPitch = 12 * DEGREES_TO_RADIANS;
+  const initialPitch = lerp(state.start.pitch, climbPitch, smoothRange(progress, 0, 0.14));
+  const pitch = stage === 'go-around-reentry'
+    ? lerp(climbPitch, 0, smoothRange(progress, 0.74, 1))
+    : initialPitch;
+  const computedBank = clamp(turn * 2.7, -0.18, 0.18);
+  return {
+    x: base.point.x,
+    y: base.point.y,
+    z: progress <= 0 ? state.start.z : Math.max(2.05, base.point.z),
+    heading: Math.atan2(base.tangent.y, base.tangent.x),
+    pitch,
+    bank: lerp(state.start.bank, computedBank, smoothRange(progress, 0, 0.08)),
+    onGround: state.start.onGround && progress < 0.012,
+    groundBlend: state.start.groundBlend * (1 - smoothRange(progress, 0, 0.06)),
+    protectedRunway: state.start.protectedRunway && progress < 0.16,
+    stage,
+    stageProgress: clamp(stageProgress, 0, 1),
+    distanceAlong: base.distanceAlong,
+    totalDistance: base.totalDistance,
   };
 }
 

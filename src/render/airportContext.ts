@@ -134,11 +134,20 @@ function buildContextGeometry(
   let drawGroups = 0;
 
   for (const [areaClass, color] of Object.entries(AREA_COLORS)) {
-    const geometry = polygonBatchGeometry(asset.areas.filter((area) => area.class === areaClass), scale, 1.29);
+    const isWater = areaClass === 'water';
+    const geometry = polygonBatchGeometry(asset.areas.filter((area) => area.class === areaClass), scale, isWater ? 1.33 : 1.29);
     if (!geometry) continue;
-    const material = new THREE.MeshStandardMaterial({ color, roughness: 1, side: THREE.DoubleSide });
+    const material = new THREE.MeshStandardMaterial({
+      color,
+      roughness: 1,
+      side: THREE.DoubleSide,
+      polygonOffset: isWater,
+      polygonOffsetFactor: isWater ? -2 : 0,
+      polygonOffsetUnits: isWater ? -2 : 0,
+    });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = `context-area-${areaClass}`;
+    mesh.renderOrder = isWater ? 2 : 0;
     mesh.receiveShadow = true;
     contextGroup.add(mesh);
     drawGroups += 1;

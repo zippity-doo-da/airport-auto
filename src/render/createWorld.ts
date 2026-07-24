@@ -79,6 +79,7 @@ export type WorldDiagnostics = {
   activeServiceVehicles: number;
   heldServiceVehicles: number;
   pooledServiceVehicles: number;
+  serviceVehiclesVisible: boolean;
   attachedTugs: number;
   startingEngines: number;
   passengerFacilities: number;
@@ -89,6 +90,12 @@ export type WorldDiagnostics = {
     panningEnabled: true;
     groundWidth: number;
     groundHeight: number;
+    detailedWidth: number;
+    detailedHeight: number;
+    panLimitX: number;
+    panLimitY: number;
+    groundFillsViewport: boolean;
+    minimumGroundMargin: number;
   };
   surfaceLayers: Record<SurfaceLayer, boolean>;
   runways: Array<{
@@ -112,8 +119,10 @@ export interface AirportWorld {
   mapMetrics(): { northDegrees: number; scaleMeters: number; scalePixels: number };
   zoomIn(): void;
   zoomOut(): void;
+  panByScreen(horizontal: number, vertical: number): void;
   resetCamera(): void;
   setRunwayLabelsVisible(visible: boolean): void;
+  setServiceVehiclesVisible(visible: boolean): void;
   setSurfaceLayerVisible(layer: SurfaceLayer, visible: boolean): void;
   diagnostics(): WorldDiagnostics;
   resize(): void;
@@ -161,7 +170,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   const fog = new THREE.FogExp2(COLORS.haze, 0.0032);
   scene.fog = fog;
 
-  const camera = new THREE.OrthographicCamera(-80, 80, 45, -45, 0.1, 500);
+  const camera = new THREE.OrthographicCamera(-80, 80, 45, -45, 0.1, 2500);
   camera.up.set(0, 0, 1);
   camera.position.set(112, -128, 108);
   camera.lookAt(0, 0, 0);
@@ -224,6 +233,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   let nightMix = 0;
   let currentState: AirportState | null = null;
   let runwayLabelsVisible = false;
+  let serviceVehiclesVisible = true;
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const touchPoints = new Map<number, { x: number; y: number }>();
   const attitudeNose = new THREE.Vector3();
@@ -231,6 +241,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   let previousPinchGround: THREE.Vector3 | null = null;
   let dragPointerId: number | null = null;
   let previousDragPoint: { x: number; y: number } | null = null;
+  let dragHasMoved = false;
   let manualCameraActive = false;
 
   function updateProjection(): void {
@@ -247,7 +258,8 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   function update(state: AirportState, delta: number): void {
     currentState = state;
     cameraTime += delta;
-    const weatherFog = state.weather.condition === 'fog' ? 0.0074 : state.weather.condition === 'snow' ? 0.0064 : state.weather.condition === 'rain' ? 0.0052 : 0.0032;
+    const baseWeatherFog = state.weather.condition === 'fog' ? 0.0074 : state.weather.condition === 'snow' ? 0.0064 : state.weather.condition === 'rain' ? 0.0052 : 0.0032;
+    const weatherFog = baseWeatherFog / Math.sqrt(Math.max(1, manualZoom));
     fog.density = THREE.MathUtils.lerp(fog.density, weatherFog, Math.min(1, delta * 0.9));
     nightMix = THREE.MathUtils.lerp(nightMix, state.nightMode ? 1 : 0, Math.min(1, delta * 2.2));
     const skyTarget = new THREE.Color(state.weather.condition === 'snow' ? 0x96a4a1 : state.weather.condition === 'rain' ? 0x627675 : state.weather.condition === 'fog' ? 0x89938c : COLORS.sky);
@@ -374,12 +386,13 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
       let visual = serviceVehicleVisuals.get(vehicle.id);
       if (!visual) {
         visual = serviceVehiclePool.get(vehicle.type)?.pop() ?? createServiceVehicle(vehicle.type);
-        visual.root.visible = true;
+        visual.root.visible = serviceVehiclesVisible;
         visual.root.scale.setScalar(config.scope === 'center' ? 0.17 : 0.92);
         serviceVehicleVisuals.set(vehicle.id, visual);
         world.add(visual.root);
       }
       visual.active = true;
+      visual.root.visible = serviceVehiclesVisible;
       visual.root.position.set(vehicle.x, vehicle.y, 1.64);
       visual.root.rotation.z = vehicle.heading;
       visual.root.userData.status = vehicle.status;
@@ -426,24 +439,33 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
       (ripple.material as THREE.MeshBasicMaterial).opacity = (1 - cycle) * 0.16;
     }
 
-    const view = views[viewIndex];
     const selected = selectedFlightId === null ? null : flightVisuals.get(selectedFlightId);
     if (selected && !manualCameraActive) {
       const follow = 1 - Math.exp(-delta * 2.8);
       cameraFocus.lerp(new THREE.Vector2(selected.root.position.x, selected.root.position.y), follow);
     }
     const drift = reducedMotion || manualCameraActive ? 0 : 1;
+    applyCameraPose(drift);
+    renderer.render(scene, camera);
+  }
+
+  function applyCameraPose(drift: number): void {
+    const view = views[viewIndex];
+    const overviewMix = THREE.MathUtils.smoothstep(manualZoom, 1.15, 2.6);
+    const overviewRadius = Math.min(view.radius, camera.top * 0.12);
+    const overviewHeight = Math.max(view.height, camera.top * 1.2 + 24);
+    const cameraRadius = THREE.MathUtils.lerp(view.radius, overviewRadius, overviewMix);
+    const cameraHeight = THREE.MathUtils.lerp(view.height, overviewHeight, overviewMix);
     const orbit = view.phase + Math.sin(cameraTime * 0.035) * 0.13 * drift;
     const targetX = cameraFocus.x + Math.sin(cameraTime * 0.021) * 5 * drift;
     const targetY = cameraFocus.y + Math.cos(cameraTime * 0.017) * 3 * drift;
     camera.position.set(
-      cameraFocus.x + Math.cos(orbit) * view.radius,
-      cameraFocus.y + Math.sin(orbit) * view.radius,
-      view.height,
+      cameraFocus.x + Math.cos(orbit) * cameraRadius,
+      cameraFocus.y + Math.sin(orbit) * cameraRadius,
+      cameraHeight,
     );
     camera.lookAt(targetX, targetY, 0);
     camera.updateMatrixWorld();
-    renderer.render(scene, camera);
   }
 
   function isNearViewportEdge(position: THREE.Vector3): boolean {
@@ -520,6 +542,20 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     camera.updateMatrixWorld();
   }
 
+  function panCameraByScreen(horizontal: number, vertical: number): void {
+    if (!horizontal && !vertical) return;
+    manualCameraActive = true;
+    selectedFlightId = null;
+    applyCameraPose(0);
+    const rect = canvas.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const distance = Math.min(110, Math.max(54, Math.min(rect.width, rect.height) * 0.11));
+    const center = groundPointAt(centerX, centerY);
+    const destination = groundPointAt(centerX + horizontal * distance, centerY + vertical * distance);
+    if (center && destination) moveCameraFocus(destination.x - center.x, destination.y - center.y);
+  }
+
   const onWheel = (event: WheelEvent): void => {
     event.preventDefault();
     manualCameraActive = true;
@@ -527,6 +563,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     const minimumZoom = config.scope === 'center' ? 0.08 : 0.12;
     manualZoom = THREE.MathUtils.clamp(manualZoom * Math.exp(event.deltaY * 0.0014), minimumZoom, 3);
     updateProjection();
+    applyCameraPose(0);
     const after = groundPointAt(event.clientX, event.clientY);
     if (before && after) moveCameraFocus(before.x - after.x, before.y - after.y);
   };
@@ -541,16 +578,19 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
       previousPinchGround = groundPointAt((first.x + second.x) / 2, (first.y + second.y) / 2);
       dragPointerId = null;
       previousDragPoint = null;
+      dragHasMoved = false;
       manualCameraActive = true;
       canvas.classList.add('scene--panning');
       return;
     }
     const forcePan = event.pointerType !== 'touch' && event.button === 1;
-    if (!forcePan && pickFlight(event.clientX, event.clientY) !== null) return;
+    const pickedFlightId = pickFlight(event.clientX, event.clientY);
+    const pickedFlight = pickedFlightId === null ? null : currentState?.flights.find((flight) => flight.id === pickedFlightId);
+    const beginsManualArrivalRoute = pickedFlight?.phase === 'approach' && !pickedFlight.cleared;
+    if (!forcePan && beginsManualArrivalRoute) return;
     dragPointerId = event.pointerId;
     previousDragPoint = { x: event.clientX, y: event.clientY };
-    manualCameraActive = true;
-    canvas.classList.add('scene--panning');
+    dragHasMoved = false;
     try {
       canvas.setPointerCapture(event.pointerId);
     } catch {
@@ -569,6 +609,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
         const minimumZoom = config.scope === 'center' ? 0.08 : 0.12;
         manualZoom = THREE.MathUtils.clamp(manualZoom * previousPinchDistance / distance, minimumZoom, 3);
         updateProjection();
+        applyCameraPose(0);
         const nextGround = groundPointAt(midpoint.x, midpoint.y);
         if (previousPinchGround && nextGround) moveCameraFocus(previousPinchGround.x - nextGround.x, previousPinchGround.y - nextGround.y);
         previousPinchDistance = distance;
@@ -577,6 +618,12 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
       }
     }
     if (dragPointerId !== event.pointerId || !previousDragPoint) return;
+    if (!dragHasMoved) {
+      if (Math.hypot(event.clientX - previousDragPoint.x, event.clientY - previousDragPoint.y) < 3) return;
+      dragHasMoved = true;
+      manualCameraActive = true;
+      canvas.classList.add('scene--panning');
+    }
     event.preventDefault();
     const before = groundPointAt(previousDragPoint.x, previousDragPoint.y);
     const after = groundPointAt(event.clientX, event.clientY);
@@ -589,6 +636,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     if (dragPointerId === event.pointerId) {
       dragPointerId = null;
       previousDragPoint = null;
+      dragHasMoved = false;
     }
     if (touchPoints.size < 2) {
       previousPinchDistance = 0;
@@ -602,6 +650,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     const minimumZoom = config.scope === 'center' ? 0.08 : 0.12;
     manualZoom = THREE.MathUtils.clamp(manualZoom * factor, minimumZoom, 3);
     updateProjection();
+    applyCameraPose(0);
   }
 
   function resetCamera(): void {
@@ -646,6 +695,27 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     };
   }
 
+  function viewportGroundCoverage(): { fillsViewport: boolean; minimumMargin: number } {
+    const rect = canvas.getBoundingClientRect();
+    const corners = [
+      groundPointAt(rect.left, rect.top),
+      groundPointAt(rect.right, rect.top),
+      groundPointAt(rect.right, rect.bottom),
+      groundPointAt(rect.left, rect.bottom),
+    ];
+    if (corners.some((point) => point === null)) return { fillsViewport: false, minimumMargin: 0 };
+    const minimumMargin = Math.min(
+      ...corners.flatMap((point) => [
+        landscape.width / 2 - Math.abs(point!.x),
+        landscape.height / 2 - Math.abs(point!.y),
+      ]),
+    );
+    return {
+      fillsViewport: minimumMargin >= 0,
+      minimumMargin: Math.max(0, Number(minimumMargin.toFixed(3))),
+    };
+  }
+
   const onContextLost = (event: Event): void => {
     event.preventDefault();
     canvas.dataset.rendererState = 'lost';
@@ -676,15 +746,21 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     mapMetrics,
     zoomIn() { changeZoom(0.78); },
     zoomOut() { changeZoom(1.28); },
+    panByScreen(horizontal, vertical) { panCameraByScreen(horizontal, vertical); },
     resetCamera,
     setRunwayLabelsVisible(visible) {
       runwayLabelsVisible = visible;
       for (const runway of airportBuild.runwayVisuals) for (const label of runway.labels) label.visible = visible;
     },
+    setServiceVehiclesVisible(visible) {
+      serviceVehiclesVisible = visible;
+      for (const visual of serviceVehicleVisuals.values()) visual.root.visible = visible;
+    },
     setSurfaceLayerVisible(layer, visible) {
       airportBuild.surfaceLayers[layer].visible = visible;
     },
     diagnostics() {
+      const groundCoverage = viewportGroundCoverage();
       return {
         drawCalls: renderer.info.render.calls,
         triangles: renderer.info.render.triangles,
@@ -695,6 +771,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
         activeServiceVehicles: serviceVehicleVisuals.size,
         heldServiceVehicles: [...serviceVehicleVisuals.values()].filter((visual) => Boolean(visual.root.userData.held)).length,
         pooledServiceVehicles: [...serviceVehiclePool.values()].reduce((sum, pool) => sum + pool.length, 0),
+        serviceVehiclesVisible,
         attachedTugs: [...flightVisuals.values()].filter((visual) => visual.tug.visible).length,
         startingEngines: [...flightVisuals.values()].filter((visual) => visual.root.userData.engineState === 'starting').length,
         passengerFacilities: config.surfaceGraph.passengerFacilities.length,
@@ -705,6 +782,12 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
           panningEnabled: true,
           groundWidth: landscape.width,
           groundHeight: landscape.height,
+          detailedWidth: landscape.detailedWidth,
+          detailedHeight: landscape.detailedHeight,
+          panLimitX: landscape.panX,
+          panLimitY: landscape.panY,
+          groundFillsViewport: groundCoverage.fillsViewport,
+          minimumGroundMargin: groundCoverage.minimumMargin,
         },
         surfaceLayers: {
           'taxiway-labels': airportBuild.surfaceLayers['taxiway-labels'].visible,
@@ -743,12 +826,19 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   };
 }
 
-type LandscapeDimensions = { width: number; height: number; panX: number; panY: number };
+type LandscapeDimensions = {
+  width: number;
+  height: number;
+  detailedWidth: number;
+  detailedHeight: number;
+  panX: number;
+  panY: number;
+};
 
 function landscapeDimensions(config: Pick<AirportConfig, 'scope'>): LandscapeDimensions {
   return config.scope === 'center'
-    ? { width: 4000, height: 3000, panX: 1200, panY: 850 }
-    : { width: 2400, height: 1800, panX: 650, panY: 480 };
+    ? { width: 16000, height: 12000, detailedWidth: 4000, detailedHeight: 3000, panX: 5200, panY: 3900 }
+    : { width: 9600, height: 7200, detailedWidth: 2400, detailedHeight: 1800, panX: 3000, panY: 2200 };
 }
 
 function buildLandscape(root: THREE.Group, config: AirportConfig, dimensions: LandscapeDimensions): void {

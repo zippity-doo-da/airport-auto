@@ -39,8 +39,8 @@ export interface AirportObstacleValidation {
   };
 }
 
-type ObstacleConfig = Pick<AirportConfig, 'scope' | 'terminal' | 'runways' | 'vectorData'>;
-type TerminalConfig = Pick<AirportConfig, 'scope' | 'terminal' | 'runways' | 'vectorData'>;
+type ObstacleConfig = Pick<AirportConfig, 'code' | 'scope' | 'terminal' | 'runways' | 'vectorData'>;
+type TerminalConfig = Pick<AirportConfig, 'code' | 'scope' | 'terminal' | 'runways' | 'vectorData'>;
 type Point = [number, number];
 
 const TERMINAL_HALF_EXTENTS: Point = [14.75, 5.1];
@@ -249,7 +249,11 @@ function pointInPolygon([x, y]: Point, points: Point[]): boolean {
 }
 
 function infrastructureRunwayGap(config: ObstacleConfig): number {
-  return config.vectorData ? 1.05 : INFRASTRUCTURE_RUNWAY_GAP;
+  if (config.vectorData) return 1.05;
+  // ATL's terminal complex belongs in the broad infield between its runway
+  // pairs. Even this tighter schematic buffer represents about 120 metres.
+  if (config.code === 'ATL') return 3.25;
+  return INFRASTRUCTURE_RUNWAY_GAP;
 }
 function pointSegmentDistance(point: Point, start: Point, end: Point): number {
   const x = end[0] - start[0];

@@ -19,6 +19,8 @@ type AirportControlCommand =
   | { action: 'setRunwayLabelsVisible'; enabled: boolean }
   | { action: 'setSurfaceLayerVisible'; layer: SurfaceLayer; enabled: boolean }
   | { action: 'setMapOrientationVisible'; enabled: boolean }
+  | { action: 'setWindOverlayVisible'; enabled: boolean }
+  | { action: 'setServiceVehiclesVisible'; enabled: boolean }
   | { action: 'selectAirport'; code: string }
   | { action: 'clearFlight'; flightId: number; runway: number }
   | { action: 'clearPushback'; flightId: number }
@@ -122,6 +124,11 @@ const nightIcon = $<HTMLElement>('#night-icon');
 const nightLabel = $<HTMLElement>('#night-label');
 const radarButton = $<HTMLButtonElement>('#radar-toggle');
 const radarLabel = $<HTMLElement>('#radar-label');
+const radarPanel = $<HTMLElement>('#radar-panel');
+const radarScope = $<HTMLCanvasElement>('#radar-scope');
+const radarAirport = $<HTMLElement>('#radar-airport');
+const radarClose = $<HTMLButtonElement>('#radar-close');
+const radarRange = $<HTMLElement>('#radar-range');
 const scopeButton = $<HTMLButtonElement>('#scope-toggle');
 const scopeLabel = $<HTMLElement>('#scope-label');
 const brandMark = $<HTMLElement>('#brand-mark');
@@ -192,6 +199,12 @@ const mapOrientation = $<HTMLElement>('#map-orientation');
 const mapNorthArrow = $<HTMLElement>('#map-north-arrow');
 const mapScaleLabel = $<HTMLElement>('#map-scale-label');
 const mapScaleBar = $<HTMLElement>('#map-scale-bar');
+const windOverlayToggle = $<HTMLInputElement>('#wind-overlay-toggle');
+const windOverlay = $<HTMLElement>('#wind-overlay');
+const windOverlayArrow = $<HTMLElement>('#wind-overlay-arrow');
+const windOverlayHeading = $<HTMLElement>('#wind-overlay-heading');
+const windOverlaySpeed = $<HTMLElement>('#wind-overlay-speed');
+const serviceVehiclesToggle = $<HTMLInputElement>('#service-vehicles-toggle');
 const operationsHealth = $<HTMLElement>('#operations-health');
 const healthState = $<HTMLElement>('#health-state');
 const healthThroughput = $<HTMLElement>('#health-throughput');
@@ -217,6 +230,8 @@ let activeFlightId: number | null = null;
 let routePoints: Array<{ x: number; y: number }> = [];
 let simulationSpeed = 1;
 let radarVisible = false;
+let windOverlayVisible = false;
+let serviceVehiclesVisible = true;
 let telemetrySequence = 0;
 let lastWeatherCondition: WeatherCondition | null = null;
 let weatherSelection: 'auto' | WeatherCondition = 'auto';
@@ -236,6 +251,8 @@ const surfaceLayerVisibility: Record<SurfaceLayer, boolean> = {
 };
 let mapOrientationVisible = false;
 let lastOrientationUpdate = -Infinity;
+let lastRadarUpdate = -Infinity;
+let canvasTap: { pointerId: number; x: number; y: number; moved: boolean } | null = null;
 let previousPresentation = capturePresentation(simulation.state);
 let lastFlightStripRender = -Infinity;
 let renderedFrames = 0;
@@ -280,6 +297,10 @@ flightChips.addEventListener('click', (event) => {
   const flightId = Number(chip.dataset.flightChip);
   const flight = displayState().flights.find((item) => item.id === flightId);
   if (!flight) return;
+  if (focusedFlightId === flightId) {
+    clearFlightFocus('Camera released', 'free map view restored');
+    return;
+  }
   focusedFlightId = flightId;
   world.selectFlight(flightId);
   renderFlightStrip();
@@ -301,10 +322,8 @@ clearanceAdvisor.addEventListener('click', (event) => {
 zoomInButton.addEventListener('click', () => world.zoomIn());
 zoomOutButton.addEventListener('click', () => world.zoomOut());
 cameraResetButton.addEventListener('click', () => {
-  focusedFlightId = null;
+  clearFlightFocus();
   world.resetCamera();
-  renderFlightStrip();
-  renderFlightActions();
 });
 runwayLabelButton.addEventListener('click', () => setRunwayLabelsVisible(!runwayLabelsVisible));
 for (const control of surfaceLayerControls) {
@@ -313,6 +332,8 @@ for (const control of surfaceLayerControls) {
   });
 }
 mapOrientationToggle.addEventListener('change', () => setMapOrientationVisible(mapOrientationToggle.checked));
+windOverlayToggle.addEventListener('change', () => setWindOverlayVisible(windOverlayToggle.checked));
+serviceVehiclesToggle.addEventListener('change', () => setServiceVehiclesVisible(serviceVehiclesToggle.checked));
 menuButton.addEventListener('click', (event) => {
   event.stopPropagation();
   setControlPanelOpen(!controlPanel.classList.contains('control-panel--open'));
@@ -325,16 +346,24 @@ document.addEventListener('pointerdown', (event) => {
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {
     setControlPanelOpen(false);
-    if (focusedFlightId !== null) {
-      focusedFlightId = null;
-      world.selectFlight(null);
-      renderFlightStrip();
-      renderFlightActions();
-    }
+    if (focusedFlightId !== null) clearFlightFocus('Camera released', 'free map view restored');
     return;
   }
   const target = event.target;
   if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement) return;
+  const panDirection: Record<string, [number, number]> = {
+    w: [0, -1], arrowup: [0, -1],
+    a: [-1, 0], arrowleft: [-1, 0],
+    s: [0, 1], arrowdown: [0, 1],
+    d: [1, 0], arrowright: [1, 0],
+  };
+  const pan = panDirection[event.key.toLowerCase()];
+  if (pan && intro.classList.contains('modal--hidden') && gameOver.hidden) {
+    event.preventDefault();
+    clearFlightFocus();
+    world.panByScreen(pan[0], pan[1]);
+    return;
+  }
   if (event.key === '+' || event.key === '=') world.zoomIn();
   if (event.key === '-') world.zoomOut();
   if (event.key === '0') world.resetCamera();
@@ -486,7 +515,13 @@ nightButton.addEventListener('click', () => {
 radarButton.addEventListener('click', () => {
   radarVisible = !radarVisible;
   updateRadarControl();
-  setStatus(radarVisible ? 'Radar circles visible' : 'Radar circles hidden', radarVisible ? 'range rings enabled for center view' : 'unobstructed map view restored');
+  setStatus(radarVisible ? 'Terminal radar open' : 'Terminal radar closed', radarVisible ? 'live aircraft and runway plot enabled' : 'unobstructed map view restored');
+});
+
+radarClose.addEventListener('click', () => {
+  radarVisible = false;
+  updateRadarControl();
+  setStatus('Terminal radar closed', 'unobstructed map view restored');
 });
 
 restartButton.addEventListener('click', () => {
@@ -504,10 +539,12 @@ restartButton.addEventListener('click', () => {
 canvas.addEventListener('pointerdown', (event) => {
   if (event.pointerType !== 'touch' && event.button !== 0) return;
   if (event.pointerType === 'touch' && !event.isPrimary) {
+    canvasTap = null;
     activeFlightId = null;
     clearRoute();
     return;
   }
+  canvasTap = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
   if (simulation.state.paused || simulation.state.gameOver) return;
   const id = world.pickFlight(event.clientX, event.clientY);
   const flight = simulation.state.flights.find((item) => item.id === id);
@@ -526,6 +563,7 @@ canvas.addEventListener('pointerdown', (event) => {
 });
 
 canvas.addEventListener('pointermove', (event) => {
+  if (canvasTap?.pointerId === event.pointerId && Math.hypot(event.clientX - canvasTap.x, event.clientY - canvasTap.y) > 5) canvasTap.moved = true;
   if (activeFlightId === null) return;
   const last = routePoints[routePoints.length - 1];
   if (Math.hypot(last.x - event.clientX, last.y - event.clientY) > 7) routePoints.push({ x: event.clientX, y: event.clientY });
@@ -546,8 +584,16 @@ function finishRoute(event: PointerEvent): void {
   window.setTimeout(clearRoute, accepted ? 650 : 420);
 }
 
-canvas.addEventListener('pointerup', finishRoute);
-canvas.addEventListener('pointercancel', finishRoute);
+canvas.addEventListener('pointerup', (event) => {
+  const routed = activeFlightId !== null;
+  finishRoute(event);
+  if (canvasTap?.pointerId === event.pointerId && !canvasTap.moved && !routed) selectFlightFromMap(event.clientX, event.clientY);
+  if (canvasTap?.pointerId === event.pointerId) canvasTap = null;
+});
+canvas.addEventListener('pointercancel', (event) => {
+  finishRoute(event);
+  if (canvasTap?.pointerId === event.pointerId) canvasTap = null;
+});
 
 function drawRoute(): void {
   const d = routePoints.map((point, index) => `${index ? 'L' : 'M'} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(' ');
@@ -708,6 +754,10 @@ function frame(now: number): void {
   }
 
   world.update(replayMode ? displayedState : presentationState(), delta);
+  if (radarVisible && now - lastRadarUpdate >= 80) {
+    drawRadar(displayedState);
+    lastRadarUpdate = now;
+  }
   if (mapOrientationVisible && now - lastOrientationUpdate >= 100) {
     updateMapOrientation();
     lastOrientationUpdate = now;
@@ -843,6 +893,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
       requiredCrossings: flight.requiredCrossings ? [...flight.requiredCrossings] : undefined,
       crossingClearances: flight.crossingClearances ? [...flight.crossingClearances] : undefined,
       crossingClearanceIds: flight.crossingClearanceIds ? [...flight.crossingClearanceIds] : undefined,
+      goAround: flight.goAround ? { ...flight.goAround, start: { ...flight.goAround.start } } : undefined,
       kinematics: { ...flight.kinematics },
       motion: { ...flight.motion },
     })),
@@ -852,7 +903,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
 function replayRecording(): ReplayRecording {
   return {
     schemaVersion: 1,
-    simulationVersion: window.airportControl?.version ?? '2.9.0',
+    simulationVersion: window.airportControl?.version ?? '2.9.1',
     recordedAt: new Date().toISOString(),
     seed: config.seed,
     airport: { code: config.code, name: config.name, scope: config.scope },
@@ -971,6 +1022,7 @@ function formatPhase(phase: FlightPhase): string {
 }
 
 function flightOperationLabel(flight: Flight): string {
+  if (flight.goAround) return flight.motion.stage === 'go-around-reentry' ? 'Rejoining arrival' : 'Go around';
   if (flight.phase === 'resting') {
     if (flight.turnaround.status !== 'ready') return `Turnaround ${Math.round(flight.turnaround.progress * 100)}%`;
     if (flight.deicing.status === 'unavailable') return 'Winter route unavailable';
@@ -1049,6 +1101,29 @@ function turnaroundLongSummary(flight: Flight): string {
   return required.map((task) => `${task.label}: ${task.status}`).join(' · ');
 }
 
+function clearFlightFocus(statusText?: string, detail?: string): void {
+  focusedFlightId = null;
+  world.selectFlight(null);
+  renderFlightStrip();
+  renderFlightActions();
+  if (statusText && detail) setStatus(statusText, detail);
+}
+
+function selectFlightFromMap(clientX: number, clientY: number): void {
+  const flightId = world.pickFlight(clientX, clientY);
+  if (flightId === null || focusedFlightId === flightId) {
+    clearFlightFocus('Camera released', 'free map view restored');
+    return;
+  }
+  const flight = displayState().flights.find((item) => item.id === flightId);
+  if (!flight) return;
+  focusedFlightId = flightId;
+  world.selectFlight(flightId);
+  renderFlightStrip();
+  renderFlightActions();
+  setStatus(`${flight.callsign} tracked`, `${flight.aircraft} · ${formatPhase(flight.phase)} · runway ${runwayDesignation(flight.runway)}`);
+}
+
 function setFlightStripCollapsed(collapsed: boolean): void {
   flightStrip.classList.toggle('flight-strip--collapsed', collapsed);
   flightStripToggle.setAttribute('aria-expanded', String(!collapsed));
@@ -1077,13 +1152,124 @@ function setMapOrientationVisible(visible: boolean): void {
   if (visible) updateMapOrientation();
 }
 
+function setWindOverlayVisible(visible: boolean): void {
+  windOverlayVisible = visible;
+  windOverlayToggle.checked = visible;
+  windOverlay.hidden = !visible;
+  if (visible) updateWeatherUi();
+}
+
+function setServiceVehiclesVisible(visible: boolean): void {
+  serviceVehiclesVisible = visible;
+  serviceVehiclesToggle.checked = visible;
+  world.setServiceVehiclesVisible(visible);
+}
+
 function updateMapOrientation(): void {
   const metrics = world.mapMetrics();
   mapNorthArrow.style.transform = `rotate(${metrics.northDegrees.toFixed(2)}deg)`;
+  for (const point of mapOrientation.querySelectorAll<HTMLElement>('[data-bearing]')) {
+    const angle = ((Number(point.dataset.bearing) + metrics.northDegrees - 90) * Math.PI) / 180;
+    point.style.left = `${29 + Math.cos(angle) * 22}px`;
+    point.style.top = `${29 + Math.sin(angle) * 22}px`;
+    point.style.right = 'auto';
+    point.style.bottom = 'auto';
+    point.style.transform = 'translate(-50%, -50%)';
+  }
   mapScaleBar.style.width = `${metrics.scalePixels.toFixed(1)}px`;
   mapScaleLabel.textContent = metrics.scaleMeters >= 1_000
     ? `${Number((metrics.scaleMeters / 1_000).toFixed(1))} km`
     : `${metrics.scaleMeters} m`;
+}
+
+function drawRadar(state: typeof simulation.state): void {
+  const context = radarScope.getContext('2d');
+  if (!context) return;
+  const width = radarScope.width;
+  const height = radarScope.height;
+  const centerX = width / 2;
+  const centerY = height / 2;
+  const range = config.scope === 'center' ? 360 : 215;
+  const scale = Math.min(width, height) * 0.44 / range;
+  context.clearRect(0, 0, width, height);
+  context.fillStyle = state.nightMode ? '#031210' : '#061b19';
+  context.fillRect(0, 0, width, height);
+
+  context.strokeStyle = 'rgba(121, 200, 176, 0.18)';
+  context.lineWidth = 1.5;
+  for (const amount of [0.25, 0.5, 0.75, 1]) {
+    context.beginPath();
+    context.arc(centerX, centerY, range * scale * amount, 0, Math.PI * 2);
+    context.stroke();
+  }
+  context.beginPath();
+  context.moveTo(centerX, centerY - range * scale);
+  context.lineTo(centerX, centerY + range * scale);
+  context.moveTo(centerX - range * scale, centerY);
+  context.lineTo(centerX + range * scale, centerY);
+  context.stroke();
+
+  context.save();
+  context.translate(centerX, centerY);
+  for (const runway of config.runways) {
+    const directionX = Math.cos(runway.heading);
+    const directionY = Math.sin(runway.heading);
+    const half = runway.length / 2;
+    context.beginPath();
+    context.moveTo((runway.center[0] - directionX * half) * scale, -(runway.center[1] - directionY * half) * scale);
+    context.lineTo((runway.center[0] + directionX * half) * scale, -(runway.center[1] + directionY * half) * scale);
+    context.strokeStyle = state.closedRunway === runway.id ? 'rgba(239, 147, 127, 0.55)' : 'rgba(244, 232, 206, 0.68)';
+    context.lineWidth = Math.max(2, runway.width * scale * 0.28);
+    context.stroke();
+  }
+  context.restore();
+
+  context.font = '800 15px "Segoe UI", sans-serif';
+  context.textBaseline = 'middle';
+  const labelRows: number[] = [];
+  for (const flight of state.flights) {
+    const x = centerX + flight.motion.x * scale;
+    const y = centerY - flight.motion.y * scale;
+    if (x < 5 || y < 5 || x > width - 5 || y > height - 5) continue;
+    const arrival = flight.phase === 'approach' || flight.phase === 'landing';
+    const departure = flight.phase === 'takeoff';
+    const color = arrival ? '#80ddc7' : departure ? '#efc775' : 'rgba(188, 232, 216, 0.58)';
+    const headingX = Math.cos(flight.motion.heading);
+    const headingY = -Math.sin(flight.motion.heading);
+    context.strokeStyle = color;
+    context.fillStyle = color;
+    context.lineWidth = 2;
+    context.beginPath();
+    context.moveTo(x, y);
+    context.lineTo(x + headingX * 16, y + headingY * 16);
+    context.stroke();
+    context.beginPath();
+    if (departure) {
+      context.moveTo(x, y - 5);
+      context.lineTo(x + 5, y);
+      context.lineTo(x, y + 5);
+      context.lineTo(x - 5, y);
+      context.closePath();
+    } else context.arc(x, y, arrival ? 4.5 : 3.2, 0, Math.PI * 2);
+    context.fill();
+    if (flight.id === focusedFlightId) {
+      context.strokeStyle = '#ffffff';
+      context.lineWidth = 2;
+      context.beginPath();
+      context.arc(x, y, 10, 0, Math.PI * 2);
+      context.stroke();
+    }
+    if (arrival || departure || flight.id === focusedFlightId) {
+      let labelY = y - 8;
+      while (labelRows.some((row) => Math.abs(row - labelY) < 17)) labelY += 17;
+      labelY = Math.max(10, Math.min(height - 10, labelY));
+      labelRows.push(labelY);
+      context.fillStyle = color;
+      context.fillText(flight.callsign.replace(/\s+/g, ''), x + 10, labelY);
+    }
+  }
+  const metersPerUnit = config.vectorData?.runtimeReference.worldMetersPerUnit ?? 38;
+  radarRange.textContent = `${Math.max(1, Math.round(range * metersPerUnit / 1_852))} NM`;
 }
 
 function renderFlightActions(): void {
@@ -1094,6 +1280,7 @@ function renderFlightActions(): void {
         flight.callsign,
         flight.phase,
         flight.cleared,
+        flight.goAround ? flight.motion.stage : 'normal-approach',
         flight.progress >= 0.999,
         flight.progress >= 0.985,
         flight.pushbackCleared,
@@ -1146,8 +1333,8 @@ function renderFlightActions(): void {
     controls.append(button);
   };
   const ground = flight.phase === 'taxi-in' || flight.phase === 'taxi-out';
-  if (flight.phase === 'approach' && !flight.cleared) add('clear', `Land ${runwayDesignation(flight.runway)}`, !simulation.canIssue('approach'));
-  if (flight.phase === 'approach' || flight.phase === 'landing') add('go-around', 'Go around', !simulation.canIssue('approach'));
+  if (flight.phase === 'approach' && !flight.cleared && !flight.goAround) add('clear', `Land ${runwayDesignation(flight.runway)}`, !simulation.canIssue('approach'));
+  if ((flight.phase === 'approach' || flight.phase === 'landing') && !flight.goAround) add('go-around', 'Go around', !simulation.canIssue('approach'));
   if (flight.phase === 'resting' && flight.turnaround.status === 'ready' && !flight.pushbackCleared && !serviceVehiclesBlockingPush(flight.id).length) add('pushback', `Push ${flight.pushbackDirection}`, !simulation.canIssue('ground') || flight.deicing.status === 'unavailable');
   if (ground) add('hold-toggle', flight.controlHold ? 'Resume taxi' : 'Hold position', !simulation.canIssue('ground'));
   for (const runway of flight.crossingHoldRunway === undefined ? [] : [flight.crossingHoldRunway]) {
@@ -1479,7 +1666,7 @@ function updateModeControl(): void {
   modeButton.classList.toggle('control--active', automatic);
   modeIcon.textContent = mode === 'auto' ? 'A' : mode === 'assisted' ? '✓' : mode === 'manual' ? 'M' : '◌';
   modeLabel.textContent = mode === 'auto' ? 'Auto' : mode === 'assisted' ? 'Assist' : mode === 'manual' ? 'Manual' : 'Watch';
-  const zoomHint = ' · drag to pan · scroll or pinch to zoom';
+  const zoomHint = ' · drag or WASD to pan · scroll or pinch to zoom';
   instructionCopy.innerHTML = mode === 'watch'
     ? `Watch mode · calm continuous traffic${zoomHint} · <b>select a flight to follow</b>`
     : mode === 'assisted'
@@ -1488,8 +1675,8 @@ function updateModeControl(): void {
         ? `Full Manual ATC${zoomHint} · <b>select a flight for live clearances</b>`
         : `Continuous Auto tower${zoomHint} · <b>select a flight to follow</b>`;
   canvas.setAttribute('aria-label', mode === 'manual' || mode === 'assisted'
-    ? `${mode === 'assisted' ? 'Assisted' : 'Manual'} air traffic control at ${config.name}. Drag empty ground to pan, scroll or pinch to zoom, and select a flight card for clearances.`
-    : `${mode === 'watch' ? 'Watch-only' : 'Automatic'} live traffic at ${config.name}. Drag empty ground to pan, scroll or pinch to zoom, and select a flight card to follow it.`);
+    ? `${mode === 'assisted' ? 'Assisted' : 'Manual'} air traffic control at ${config.name}. Drag or use WASD to pan, scroll or pinch to zoom, and select a flight card for clearances. Select it again or choose empty ground to release the camera.`
+    : `${mode === 'watch' ? 'Watch-only' : 'Automatic'} live traffic at ${config.name}. Drag or use WASD to pan, scroll or pinch to zoom, and select a flight card to follow it. Select it again or choose empty ground to release the camera.`);
   controlSelect.value = mode;
   introControlSelect.value = mode;
   document.body.classList.toggle('watch-mode', mode === 'watch');
@@ -1516,10 +1703,13 @@ function updateNightControl(): void {
 
 function updateRadarControl(): void {
   radarButton.setAttribute('aria-pressed', String(radarVisible));
-  radarButton.setAttribute('aria-label', radarVisible ? 'Hide radar circles' : 'Show radar circles');
+  radarButton.setAttribute('aria-label', radarVisible ? 'Hide radar inset' : 'Show radar inset');
   radarButton.classList.toggle('control--active', radarVisible);
   radarLabel.textContent = radarVisible ? 'Radar on' : 'Radar off';
   document.body.classList.toggle('radar-visible', radarVisible);
+  radarPanel.hidden = !radarVisible;
+  radarAirport.textContent = config.code;
+  lastRadarUpdate = -Infinity;
 }
 
 function newSession(paused: boolean, nextConfig = generateAirportConfig()): void {
@@ -1538,6 +1728,7 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   simulation.setPaused(paused);
   world = createWorld(canvas, config);
   world.setRunwayLabelsVisible(runwayLabelsVisible);
+  world.setServiceVehiclesVisible(serviceVehiclesVisible);
   for (const [layer, visible] of Object.entries(surfaceLayerVisibility) as Array<[SurfaceLayer, boolean]>) {
     world.setSurfaceLayerVisible(layer, visible);
   }
@@ -1637,6 +1828,11 @@ function updateAirportUi(): void {
   document.body.classList.toggle('center-scope', center);
   mapOrientationToggle.checked = mapOrientationVisible;
   mapOrientation.hidden = !mapOrientationVisible;
+  windOverlayToggle.checked = windOverlayVisible;
+  windOverlay.hidden = !windOverlayVisible;
+  serviceVehiclesToggle.checked = serviceVehiclesVisible;
+  world.setServiceVehiclesVisible(serviceVehiclesVisible);
+  radarAirport.textContent = config.code;
   runwayConfigurationOptionsKey = '';
   updateRunwayConfigurationOptions();
   for (const control of surfaceLayerControls) {
@@ -1765,6 +1961,10 @@ function updateWeatherUi(): void {
   const gust = Math.round(weather.gustSpeed);
   weatherCondition.textContent = weather.weatherEnabled ? `${weather.condition} · ${Math.round(weather.temperatureC)}°C` : 'wx off';
   weatherWind.textContent = weather.windEnabled ? `${String(direction || 360).padStart(3, '0')}° ${speed}G${gust} kt` : 'calm · wind off';
+  windOverlayHeading.textContent = weather.windEnabled ? `WIND ${String(direction || 360).padStart(3, '0')}°` : 'WIND OFF';
+  windOverlaySpeed.textContent = weather.windEnabled ? `${speed}G${gust} kt` : 'calm';
+  windOverlayArrow.style.transform = `rotate(${direction + 90}deg)`;
+  windOverlayArrow.style.opacity = weather.windEnabled ? '1' : '0.35';
   weatherVisibility.textContent = `${weather.visibility.toFixed(weather.visibility % 1 ? 1 : 0)} mi visibility · ${weather.surfaceCondition} surface`;
   const activeConfiguration = config.runwayConfigurations.find(
     (configuration) => configuration.id === simulation.state.runwayConfigurationId,
@@ -1903,6 +2103,8 @@ function airportSnapshot() {
     mode: simulation.state.mode,
     nightMode: simulation.state.nightMode,
     radarVisible,
+    windOverlayVisible,
+    serviceVehiclesVisible,
     station: simulation.state.station,
     scenario: simulation.state.scenario,
     speed: simulationSpeed,
@@ -2163,6 +2365,18 @@ function airportSnapshot() {
       destination: flight.destination,
       squawk: flight.squawk,
       emergency: flight.emergency ?? null,
+      goAround: flight.goAround ? {
+        startedAt: Number(flight.goAround.startedAt.toFixed(2)),
+        detail: flight.goAround.detail,
+        stage: flight.motion.stage,
+        stageProgress: Number(flight.motion.stageProgress.toFixed(3)),
+        start: {
+          x: Number(flight.goAround.start.x.toFixed(3)),
+          y: Number(flight.goAround.start.y.toFixed(3)),
+          z: Number(flight.goAround.start.z.toFixed(3)),
+          headingDegrees: Number((flight.goAround.start.heading * 180 / Math.PI).toFixed(2)),
+        },
+      } : null,
       operatingEnd: flight.operatingEnd,
       activeRunwayEnd: config.runways[flight.runway]?.designation?.[flight.operatingEnd === 1 ? 1 : 0],
       progress: Number(flight.progress.toFixed(3)),
@@ -2382,6 +2596,8 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
     else reason = 'surface layer must be taxiway-labels, operational-zones, hotspots, or airport-boundary';
   }
   if (command.action === 'setMapOrientationVisible') setMapOrientationVisible(command.enabled);
+  if (command.action === 'setWindOverlayVisible') setWindOverlayVisible(command.enabled);
+  if (command.action === 'setServiceVehiclesVisible') setServiceVehiclesVisible(command.enabled);
   if (command.action === 'selectAirport') {
     const code = command.code.toUpperCase();
     accepted = code === 'LOCAL' || HUB_AIRPORTS.some((airport) => airport.code === code);
@@ -2465,7 +2681,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
 }
 
 window.airportControl = {
-  version: '2.9.0',
+  version: '2.9.1',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },
@@ -2485,6 +2701,8 @@ window.airportControl = {
       radar: "airportControl.command({ action: 'setRadarVisible', enabled: true })",
       mapLayer: "airportControl.command({ action: 'setSurfaceLayerVisible', layer: 'hotspots', enabled: true })",
       mapOrientation: "airportControl.command({ action: 'setMapOrientationVisible', enabled: true })",
+      windOverlay: "airportControl.command({ action: 'setWindOverlayVisible', enabled: true })",
+      serviceVehicles: "airportControl.command({ action: 'setServiceVehiclesVisible', enabled: false })",
       clearance: "airportControl.command({ action: 'clearFlight', flightId: 1, runway: 0 })",
       pushback: "airportControl.request({ action: 'clearPushback', flightId: 1 }) // Ground or Supervisor",
       runwayEntry: "airportControl.command({ action: 'clearRunwayEntry', flightId: 1 })",

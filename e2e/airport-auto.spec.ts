@@ -8,14 +8,24 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await page.goto('/?airport=ORD&mode=assisted&station=supervisor&autostart=1&detail=low');
   await expect(page.locator('#airport-name')).toContainText('O’Hare');
   await expect(page.locator('#flight-strip-count')).toContainText('aircraft');
-  await page.waitForFunction(() => window.airportControl?.version === '2.9.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.9.1');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
   expect(initial.schemaVersion).toBe(11);
   expect(initial.mode).toBe('assisted');
   expect(initial.airport.code).toBe('ORD');
-  expect(initial.renderer.camera).toMatchObject({ panningEnabled: true, groundWidth: 4000, groundHeight: 3000 });
+  expect(initial.renderer.camera).toMatchObject({
+    panningEnabled: true,
+    groundWidth: 16_000,
+    groundHeight: 12_000,
+    detailedWidth: 4_000,
+    detailedHeight: 3_000,
+    panLimitX: 5_200,
+    panLimitY: 3_900,
+  });
+  expect(initial.renderer.camera.groundWidth / 2 - initial.renderer.camera.panLimitX).toBeGreaterThanOrEqual(2_800);
+  expect(initial.renderer.camera.groundHeight / 2 - initial.renderer.camera.panLimitY).toBeGreaterThanOrEqual(2_100);
   expect(initial.airport.vectorData?.layerCounts.runways).toBe(8);
   expect(initial.airport.vectorData?.layerCounts.taxiways).toBe(743);
   expect(initial.airport.vectorData?.attribution).toContain('Federal Aviation Administration');
@@ -31,6 +41,7 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   expect(initial.surfaceGraph.passengerFacilities).toHaveLength(13);
   expect(initial.surfaceGraph.passengerFacilities.filter((facility) => facility.kind === 'terminal').map((facility) => facility.terminalId).sort()).toEqual(['T1', 'T2', 'T3', 'T5']);
   expect(initial.renderer.passengerFacilities).toBe(13);
+  expect(initial.renderer.serviceVehiclesVisible).toBeTruthy();
   for (const concourse of ['B', 'C', 'E', 'F', 'G', 'H', 'K', 'L', 'M']) {
     expect(initial.surfaceGraph.stands.filter((stand) => stand.concourse === concourse).length).toBeGreaterThanOrEqual(2);
   }
@@ -149,6 +160,19 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   expect(initial.traffic.obstacleCollisions).toHaveLength(0);
   expect(initial.traffic.serviceVehicleConflicts).toHaveLength(0);
   expect(initial.traffic.serviceVehicleRouteViolations).toHaveLength(0);
+  const focusCandidate = initial.flights[0];
+  await page.evaluate((flightId) => window.airportControl.request({ action: 'focusFlight', flightId }), focusCandidate.id);
+  await expect(page.locator('#flight-actions')).toBeVisible();
+  await page.locator(`button[data-flight-chip="${focusCandidate.id}"]`).click();
+  await expect(page.locator('#flight-actions')).toBeHidden();
+  const radarResult = await page.evaluate(() => window.airportControl.request({ action: 'setRadarVisible', enabled: true }));
+  expect(radarResult.accepted).toBeTruthy();
+  await expect(page.locator('#radar-panel')).toBeVisible();
+  await expect(page.locator('#radar-airport')).toHaveText('ORD');
+  await expect(page.locator('#radar-range')).toHaveText(/NM/);
+  await page.screenshot({ path: testInfo.outputPath('terminal-radar.png') });
+  await page.locator('#radar-close').click();
+  await expect(page.locator('#radar-panel')).toBeHidden();
   const initialCamera = initial.renderer.camera;
   await page.locator('#scene').evaluate((canvas) => {
     const rect = canvas.getBoundingClientRect();
@@ -162,6 +186,34 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
     const camera = window.airportControl.snapshot().renderer.camera;
     return Math.hypot(camera.focusX - x, camera.focusY - y) > 1;
   }, { x: initialCamera.focusX, y: initialCamera.focusY });
+  const beforeKeyboardPan = await page.evaluate(() => window.airportControl.snapshot().renderer.camera);
+  await page.locator('#scene').focus();
+  await page.keyboard.press('d');
+  await page.keyboard.press('w');
+  await page.waitForFunction(({ x, y }) => {
+    const camera = window.airportControl.snapshot().renderer.camera;
+    return Math.hypot(camera.focusX - x, camera.focusY - y) > 1;
+  }, { x: beforeKeyboardPan.focusX, y: beforeKeyboardPan.focusY });
+  await page.evaluate(() => {
+    for (let index = 0; index < 8; index += 1) window.airportControl.command({ action: 'zoomOut' });
+    const canvas = document.querySelector<HTMLCanvasElement>('#scene')!;
+    const rect = canvas.getBoundingClientRect();
+    const start = { x: rect.left + rect.width * 0.24, y: rect.top + rect.height * 0.56 };
+    const end = { x: rect.left + rect.width * 0.76, y: rect.top + rect.height * 0.56 };
+    for (let index = 0; index < 10; index += 1) {
+      const pointer = { bubbles: true, pointerId: 80 + index, pointerType: 'mouse', isPrimary: true };
+      canvas.dispatchEvent(new PointerEvent('pointerdown', { ...pointer, clientX: start.x, clientY: start.y, button: 1, buttons: 4 }));
+      canvas.dispatchEvent(new PointerEvent('pointermove', { ...pointer, clientX: end.x, clientY: end.y, button: -1, buttons: 4 }));
+      canvas.dispatchEvent(new PointerEvent('pointerup', { ...pointer, clientX: end.x, clientY: end.y, button: 1, buttons: 0 }));
+    }
+  });
+  const exploredCamera = await page.evaluate(() => window.airportControl.snapshot().renderer.camera);
+  expect(Math.hypot(exploredCamera.focusX, exploredCamera.focusY)).toBeGreaterThan(1_400);
+  expect(Math.abs(exploredCamera.focusX)).toBeLessThanOrEqual(exploredCamera.panLimitX);
+  expect(Math.abs(exploredCamera.focusY)).toBeLessThanOrEqual(exploredCamera.panLimitY);
+  expect(exploredCamera.groundFillsViewport).toBeTruthy();
+  expect(exploredCamera.minimumGroundMargin).toBeGreaterThan(1_000);
+  await page.screenshot({ path: testInfo.outputPath('map-exploration.png') });
   await page.evaluate(() => window.airportControl.request({ action: 'setStation', station: 'ground' }));
   await page.evaluate((flightId) => window.airportControl.request({ action: 'focusFlight', flightId }), pushReady!.id);
   await expect(page.locator('.turnaround-panel')).toBeVisible();
@@ -276,7 +328,21 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   expect((await page.evaluate(() => window.airportControl.snapshot())).renderer.surfaceLayers['airport-boundary']).toBeTruthy();
   await page.locator('#map-orientation-toggle').check();
   await expect(page.locator('#map-orientation')).toBeVisible();
+  await expect(page.locator('.map-orientation__compass')).toContainText('N');
+  await expect(page.locator('.map-orientation__compass')).toContainText('E');
+  await expect(page.locator('.map-orientation__compass')).toContainText('S');
+  await expect(page.locator('.map-orientation__compass')).toContainText('W');
   await expect(page.locator('#map-scale-label')).toHaveText(/m|km/);
+  await page.locator('#wind-overlay-toggle').check();
+  await expect(page.locator('#wind-overlay')).toBeVisible();
+  await expect(page.locator('#wind-overlay-heading')).toHaveText(/WIND/);
+  await page.locator('#service-vehicles-toggle').uncheck();
+  expect((await page.evaluate(() => window.airportControl.snapshot())).renderer.serviceVehiclesVisible).toBeFalsy();
+  await page.locator('#service-vehicles-toggle').check();
+  expect((await page.evaluate(() => window.airportControl.snapshot())).renderer.serviceVehiclesVisible).toBeTruthy();
+  await page.locator('#menu-toggle').click();
+  await page.screenshot({ path: testInfo.outputPath('map-overlays.png') });
+  await page.locator('#menu-toggle').click();
   const orientationResult = await page.evaluate(() => window.airportControl.request({ action: 'setMapOrientationVisible', enabled: false }));
   expect(orientationResult.accepted).toBeTruthy();
   await expect(page.locator('#map-orientation')).toBeHidden();
@@ -290,7 +356,7 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
 test('ORD snow exposes the deicing route and holdover model in the normal UI', async ({ page }, testInfo) => {
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=auto&autostart=1&detail=low&weather=snow&windDir=270&wind=12');
-  await page.waitForFunction(() => window.airportControl?.version === '2.9.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.9.1');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
   await page.locator('#menu-toggle').click();
@@ -337,19 +403,61 @@ test('ORD snow exposes the deicing route and holdover model in the normal UI', a
   await page.screenshot({ path: testInfo.outputPath('ord-winter-deicing.png') });
 });
 
-test('Mobile Watch mode keeps controls readable and uses low-detail rendering', async ({ page }, testInfo) => {
-  // Hosted software WebGL needs more than Playwright's 30-second default to
-  // load the full ORD context and capture the final frame on both projects.
+test('Go-around climbs from the live pose and flies a visible missed-approach path', async ({ page }, testInfo) => {
   test.setTimeout(120_000);
-  await page.goto('/?airport=ORD&mode=watch&autostart=1&detail=low');
-  await page.waitForFunction(() => window.airportControl?.version === '2.9.0');
-  await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
+  await page.goto('/?airport=ATL&mode=auto&autostart=1&detail=low&speed=3');
+  await page.waitForFunction(() => window.airportControl?.version === '2.9.1');
+  await page.waitForFunction(() => {
+    const flight = window.airportControl.snapshot().flights.find((candidate) => candidate.phase === 'approach');
+    return Boolean(flight && flight.progress > 0.18);
+  });
+  const before = await page.evaluate(() => window.airportControl.snapshot().flights.find((flight) => flight.phase === 'approach')!);
+  const result = await page.evaluate((flightId) => window.airportControl.request({ action: 'triggerEmergency', flightId, type: 'go-around' }), before.id);
+  expect(result.accepted).toBeTruthy();
+  const instructed = result.resultingState.flights.find((flight) => flight.id === before.id)!;
+  expect(instructed.goAround).toMatchObject({ detail: 'controller instruction', stage: 'go-around-climb' });
+  expect(Math.hypot(
+    instructed.motion.x - instructed.goAround!.start.x,
+    instructed.motion.y - instructed.goAround!.start.y,
+    instructed.motion.z - instructed.goAround!.start.z,
+  )).toBeLessThan(0.05);
+  expect(Math.hypot(
+    instructed.goAround!.start.x - before.motion.x,
+    instructed.goAround!.start.y - before.motion.y,
+    instructed.goAround!.start.z - before.motion.z,
+  )).toBeLessThan(2.5);
+  await page.waitForFunction(({ flightId, altitude }) => {
+    const flight = window.airportControl.snapshot().flights.find((candidate) => candidate.id === flightId);
+    return Boolean(flight?.goAround && flight.goAround.stage === 'go-around-climb' && flight.kinematics.altitudeFt > altitude + 100 && flight.motion.pitch > 0.18);
+  }, { flightId: before.id, altitude: before.kinematics.altitudeFt });
+  await page.evaluate((flightId) => window.airportControl.request({ action: 'focusFlight', flightId }), before.id);
+  await page.waitForTimeout(900);
+  await page.evaluate(() => {
+    for (let index = 0; index < 5; index += 1) window.airportControl.command({ action: 'zoomIn' });
+  });
+  await page.waitForTimeout(300);
+  const climbing = await page.evaluate((flightId) => window.airportControl.snapshot().flights.find((flight) => flight.id === flightId)!, before.id);
+  expect(climbing.renderedAttitude?.noseUpDegrees).toBeGreaterThan(9);
+  await page.screenshot({ path: testInfo.outputPath('go-around-climb.png') });
+});
+
+test('Mobile Watch mode keeps non-ORD and procedural maps navigable in low detail', async ({ page }, testInfo) => {
+  test.setTimeout(120_000);
+  await page.goto('/?airport=ATL&mode=watch&autostart=1&detail=low');
+  await page.waitForFunction(() => window.airportControl?.version === '2.9.1');
   await expect(page.locator('body')).toHaveClass(/watch-mode/);
   await expect(page.locator('#menu-toggle')).toBeVisible();
   await expect(page.locator('#zoom-in')).toBeVisible();
   const snapshot = await page.evaluate(() => window.airportControl.snapshot());
   expect(snapshot.mode).toBe('watch');
+  expect(snapshot.airport.code).toBe('ATL');
   expect(snapshot.renderer.detail).toBe('low');
+  expect(snapshot.renderer.camera).toMatchObject({
+    groundWidth: 16_000,
+    groundHeight: 12_000,
+    detailedWidth: 4_000,
+    detailedHeight: 3_000,
+  });
   const initialCamera = snapshot.renderer.camera;
   await page.locator('#scene').evaluate((canvas) => {
     const rect = canvas.getBoundingClientRect();
@@ -366,4 +474,17 @@ test('Mobile Watch mode keeps controls readable and uses low-detail rendering', 
   const safetyFont = await page.locator('.scoreboard span').nth(2).evaluate((element) => parseFloat(getComputedStyle(element).fontSize));
   expect(safetyFont).toBeGreaterThanOrEqual(7);
   await page.screenshot({ path: testInfo.outputPath('mobile-watch.png') });
+
+  await page.evaluate(() => window.airportControl.request({ action: 'selectAirport', code: 'LOCAL' }));
+  await page.waitForFunction(() => window.airportControl.snapshot().airport.code === 'LOCAL');
+  const local = await page.evaluate(() => window.airportControl.snapshot());
+  expect(local.renderer.camera).toMatchObject({
+    groundWidth: 9_600,
+    groundHeight: 7_200,
+    detailedWidth: 2_400,
+    detailedHeight: 1_800,
+    panLimitX: 3_000,
+    panLimitY: 2_200,
+    groundFillsViewport: true,
+  });
 });

@@ -149,7 +149,7 @@ export class AirportSimulation {
         flight.controlPace = 1;
         flight.controlPattern = undefined;
         flight.controlPatternStart = undefined;
-        if (flight.phase === 'approach' && !flight.cleared) {
+        if (flight.phase === 'approach' && !flight.cleared && !flight.goAround) {
           flight.cleared = true;
           flight.clearanceLeft = 99;
           this.events.push({ type: 'auto-clear', flight });
@@ -253,7 +253,7 @@ export class AirportSimulation {
     if (this.state.mode !== 'assisted') return [];
     const proposals: ClearanceProposal[] = [];
     for (const flight of this.state.flights) {
-      if (flight.phase === 'approach' && !flight.cleared) {
+      if (flight.phase === 'approach' && !flight.cleared && !flight.goAround) {
         proposals.push({
           id: `${flight.id}:land:${flight.runway}`,
           flightId: flight.id,
@@ -380,6 +380,7 @@ export class AirportSimulation {
     if (!this.canIssue('approach')) return this.rejectDecision(`${this.state.station} station has no approach authority`);
     const flight = this.state.flights.find((item) => item.id === id && item.phase === 'approach');
     if (!flight) return this.rejectDecision('flight is not awaiting an approach clearance');
+    if (flight.goAround) return this.rejectDecision('flight is flying the missed-approach circuit before re-entering the arrival sequence', flight);
     if (flight.runway !== runway) return this.rejectDecision(`flight is assigned to runway ${this.activeRunwayDesignation(flight.runway)}`, flight);
     if (runway === this.closedRunway) return this.rejectDecision(`runway ${this.activeRunwayDesignation(runway)} is closed`, flight);
     const blocker = flight.progress > 0.68 ? this.runwayBlocker(runway, flight.id) : null;
@@ -488,7 +489,7 @@ export class AirportSimulation {
       if (instruction === 'normal') flight.controlPace = 1;
       if (instruction === 'expedite') flight.controlPace = 1.4;
       if (instruction === 'zigzag') {
-        if (flight.phase !== 'approach') continue;
+        if (flight.phase !== 'approach' || flight.goAround) continue;
         if (!this.canIssue('approach')) continue;
         flight.controlPattern = 'zigzag';
         flight.controlPatternStart = flight.progress;
@@ -501,13 +502,30 @@ export class AirportSimulation {
   }
 
   private goAround(flight: Flight, detail: string): void {
+    if (flight.goAround) return;
+    const start = flight.motion;
+    flight.goAround = {
+      startedAt: this.state.elapsed,
+      detail,
+      cycle: 1,
+      start: {
+        x: start.x,
+        y: start.y,
+        z: start.z,
+        heading: start.heading,
+        pitch: start.pitch,
+        bank: start.bank,
+        onGround: start.onGround,
+        groundBlend: start.groundBlend,
+        protectedRunway: start.protectedRunway,
+      },
+    };
     flight.phase = 'approach';
     flight.progress = 0;
     flight.phaseElapsed = 0;
-    flight.operatingEnd = this.preferredOperatingEnd(flight.runway);
-    flight.duration = this.phaseDuration(flight.aircraft, 'approach', flight.runway);
-    flight.cleared = this.isAutomaticMode();
-    flight.clearanceLeft = flight.cleared ? 99 : flight.duration * 0.96;
+    flight.duration = this.phaseDuration(flight.aircraft, 'approach', flight.runway) * 2.4;
+    flight.cleared = false;
+    flight.clearanceLeft = flight.duration;
     flight.controlPattern = undefined;
     flight.controlPatternStart = undefined;
     flight.safetyHold = false;
@@ -516,7 +534,6 @@ export class AirportSimulation {
     flight.kinematics.altitudeFt = this.motionAltitudeFt(flight);
     this.metrics.estimatedDelaySeconds += 90;
     this.events.push({ type: 'go-around', flight, runway: flight.runway, detail });
-    if (flight.cleared) this.events.push({ type: 'auto-clear', flight });
   }
 
   reset(): void {
@@ -663,7 +680,7 @@ export class AirportSimulation {
       if (flight.phase === 'approach' || flight.phase === 'landing' || flight.phase === 'takeoff') this.metrics.airborneSeconds += delta;
       if (onSurface) this.metrics.taxiSeconds += delta;
       if (flight.safetyHold || (onSurface && (flight.controlHold || flight.automaticHold))) this.metrics.estimatedDelaySeconds += delta;
-      if (flight.phase === 'approach' && !flight.cleared) {
+      if (flight.phase === 'approach' && !flight.cleared && !flight.goAround) {
         flight.clearanceLeft -= delta;
         flight.phaseElapsed += delta;
         if (flight.clearanceLeft <= 0 || flight.phaseElapsed >= flight.duration * 0.96) {
@@ -995,6 +1012,18 @@ export class AirportSimulation {
   }
 
   private advance(flight: Flight): void {
+    if (flight.phase === 'approach' && flight.goAround) {
+      flight.goAround = undefined;
+      flight.progress = 0;
+      flight.phaseElapsed = 0;
+      flight.duration = this.phaseDuration(flight.aircraft, 'approach', flight.runway);
+      flight.cleared = this.isAutomaticMode();
+      flight.clearanceLeft = flight.cleared ? 99 : flight.duration * 0.96;
+      syncFlightMotion(this.config, flight);
+      flight.kinematics.altitudeFt = this.motionAltitudeFt(flight);
+      if (flight.cleared) this.events.push({ type: 'auto-clear', flight });
+      return;
+    }
     if (flight.phase === 'takeoff') {
       for (const [runway, owner] of this.runwayReservations) {
         if (owner === flight.id) this.runwayReservations.delete(runway);
@@ -1684,7 +1713,9 @@ export class AirportSimulation {
       target = (flight.wakeClass === 'heavy' ? 2.6 : flight.category === 'regional' ? 3.6 : 3.2) * surfaceWeather;
       return target * pace;
     }
-    if (flight.phase === 'approach') target = profile.approachKts + this.lerp(18, 2, flight.progress);
+    if (flight.phase === 'approach') target = flight.goAround
+      ? profile.approachKts + 22
+      : profile.approachKts + this.lerp(18, 2, flight.progress);
     if (flight.phase === 'landing') {
       if (flight.motion.stage === 'flare') target = profile.approachKts;
       else if (flight.motion.stage === 'touchdown' || flight.motion.stage === 'rollout') {

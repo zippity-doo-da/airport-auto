@@ -192,6 +192,23 @@ export interface FlightMotionState {
   stageProgress: number;
 }
 
+export interface FlightGoAroundState {
+  startedAt: number;
+  detail: string;
+  cycle: number;
+  start: {
+    x: number;
+    y: number;
+    z: number;
+    heading: number;
+    pitch: number;
+    bank: number;
+    onGround: boolean;
+    groundBlend: number;
+    protectedRunway: boolean;
+  };
+}
+
 export type ClearanceProposalAction = 'land' | 'go-around' | 'pushback' | 'cross' | 'line-up' | 'takeoff' | 'resume';
 
 export interface ClearanceProposal {
@@ -272,6 +289,7 @@ export interface Flight {
   destination: string;
   squawk: string;
   emergency?: EmergencyType;
+  goAround?: FlightGoAroundState;
   kinematics: FlightKinematics;
   motion: FlightMotionState;
 }

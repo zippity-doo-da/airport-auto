@@ -14,12 +14,12 @@ The airport layouts are readable operational schematics inspired by real runway 
 - Scheduled gate assignment scores airline/terminal affinity, aircraft size, passenger or cargo service, arrival time, the next destination/runway, taxi distance, and non-overlapping stand reservations; changed arrival times are rechecked before taxi-in.
 - Fixed-step turnarounds run fueling, baggage or cargo, catering, cleaning, boarding, and optional maintenance as explicit parallel/dependent tasks. Pooled fuel trucks, baggage trains, cargo loaders, catering trucks, cleaning/maintenance vans, and remote-stand passenger coaches travel reserved ramp routes, stage beside the assigned stand, and must clear before pushback.
 - Snow activates contaminated-surface performance and a complete ORD winter departure loop: graph-routed deicing-pad assignment, four treatment lanes, an ordered queue, stopped treatment, visible holdover time, protected runway entry, and return-to-pad routing after expiry.
-- Auto, Assisted, Manual, and Watch modes; four controller stations; six scenarios; weather and wind controls; a five-channel sound mixer; replay; four camera views; drag/touch panning; and cursor-centered wheel or pinch zoom.
+- Auto, Assisted, Manual, and Watch modes; four controller stations; six scenarios; weather and wind controls; a five-channel sound mixer; replay; four camera views; drag/touch/WASD panning; and cursor-centered wheel or pinch zoom.
 - Six sourced O’Hare runway plans with dynamic arrival/departure roles, visual and instrument restrictions, strong-southerly contingency operations, and safe drain-then-switch transitions.
 - A procedural aircraft fleet with model-specific size, runway performance, straight/turn taxi speeds, ground acceleration, stopping distance, turn radius, wingtip margin, approach speed, wake class, airline, callsign, registration, and fuel telemetry.
 - A local, versioned browser API and `BroadcastChannel` bridge for playtests and controller agents.
 - A fully offline ORD data foundation: FAA runway/apron/building/hot-spot geometry, a normalized OpenStreetMap surface graph with 40 compatible stands, 219 sourced gates, 364 parking positions, 35 operational zones and 248 control points, plus Chicago Department of Aviation terminal/concourse inventory and coherent east/west runway flows.
-- Optional muted taxiway-ID, operational-area, hot-spot, and runway-label layers that all begin hidden, preserving a clean ASMR view.
+- Optional muted taxiway-label, operational-area, hot-spot, runway-label, compass/scale, wind, service-vehicle, and compact terminal-radar layers preserve a clean ASMR view while exposing controller detail on demand.
 
 ## Run locally
 
@@ -42,10 +42,10 @@ npm run preview
 
 ## Controls
 
-- Click a flight strip to select and follow an aircraft.
-- Drag empty ground with a mouse or one finger to pan; use the middle mouse button to pan from anywhere; scroll or pinch to zoom.
+- Click a flight strip or aircraft to select and follow it; click the same aircraft again, click empty ground, or press `Escape` to return to the free camera.
+- Drag with a mouse or one finger to pan; use the middle mouse button from anywhere; use `WASD` or the arrow keys for stepped movement; scroll or pinch to zoom.
 - `L`: clear selected arrival to land.
-- `G`: send selected arrival around.
+- `G`: send the selected arrival into a climbing missed-approach circuit and back into the arrival sequence.
 - `H`: hold or resume selected surface aircraft.
 - `E`: line up / clear runway entry.
 - `T`: clear takeoff after line-up.

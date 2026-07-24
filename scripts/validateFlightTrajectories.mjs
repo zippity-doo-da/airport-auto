@@ -81,6 +81,7 @@ const totals = {
   touchdownChecks: 0,
   rotationChecks: 0,
   orientationChecks: 0,
+  goAroundChecks: 0,
   liveMotionTicks: 0,
   approachSpeedChecks: 0,
   liveArrivals: 0,
@@ -238,6 +239,38 @@ for (const config of configs) {
 }
 
 const ordConfig = generateHubConfig(HUB_AIRPORTS.findIndex((airport) => airport.code === 'ORD'));
+const goAroundRunway = ordConfig.runways.find((runway) => runway.role === 'arrival' || runway.role === 'mixed');
+assert(goAroundRunway, 'ORD go-around validation requires an arrival runway');
+const goAroundFlight = makeFlight(ordConfig, goAroundRunway, 'A320', 'approach', 701);
+const goAroundStart = sampleFlightTrajectory(ordConfig, goAroundFlight, 0.88);
+assert(goAroundStart, 'ORD go-around validation requires an established approach sample');
+goAroundFlight.goAround = {
+  startedAt: 120,
+  detail: 'trajectory validation',
+  cycle: 1,
+  start: {
+    x: goAroundStart.x,
+    y: goAroundStart.y,
+    z: goAroundStart.z,
+    heading: goAroundStart.heading,
+    pitch: goAroundStart.pitch,
+    bank: goAroundStart.bank,
+    onGround: goAroundStart.onGround,
+    groundBlend: goAroundStart.groundBlend,
+    protectedRunway: goAroundStart.protectedRunway,
+  },
+};
+const goAroundSamples = sampleSeries(ordConfig, goAroundFlight, 900);
+assert(distance(goAroundStart, goAroundSamples[0]) < 1e-8, 'ORD go-around jumped when the instruction was issued');
+assert(new Set(goAroundSamples.map((sample) => sample.stage)).has('go-around-climb'), 'ORD go-around omitted the initial climb');
+assert(new Set(goAroundSamples.map((sample) => sample.stage)).has('go-around-turn'), 'ORD go-around omitted the circuit turn');
+assert(new Set(goAroundSamples.map((sample) => sample.stage)).has('go-around-reentry'), 'ORD go-around omitted arrival re-entry');
+assert(Math.max(...goAroundSamples.map((sample) => sample.z)) >= goAroundStart.z + 12, 'ORD go-around did not climb');
+assert(Math.max(...goAroundSamples.map((sample) => sample.pitch)) >= THREE.MathUtils.degToRad(10), 'ORD go-around never established a nose-up climb attitude');
+delete goAroundFlight.goAround;
+const normalReentry = sampleFlightTrajectory(ordConfig, goAroundFlight, 0);
+assert(normalReentry && distance(normalReentry, goAroundSamples.at(-1)) < 1e-8, 'ORD go-around did not rejoin the normal approach continuously');
+totals.goAroundChecks += 7;
 const liveHarness = new FixedStepSimulationHarness(ordConfig, { stepSeconds: 0.05, pace: 3, scenario: 'rush' });
 const previousMotion = new Map();
 const seenStages = new Set();
