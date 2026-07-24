@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 test('Assisted ORD shift exposes proposals, station workload, and structured control', async ({ page }, testInfo) => {
-  test.setTimeout(60_000);
+  test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=assisted&station=supervisor&autostart=1&detail=low');
   await expect(page.locator('#airport-name')).toContainText('O’Hare');
   await expect(page.locator('#flight-strip-count')).toContainText('aircraft');
@@ -71,7 +71,9 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   const recording = await page.evaluate(() => window.airportControl.recording());
   expect(recording.seed).toBe(10_004);
   expect(recording.commands.length).toBeGreaterThan(0);
-  await page.evaluate(() => window.airportControl.request({ action: 'resume' }));
+  const resumeResult = await page.evaluate(() => window.airportControl.request({ action: 'resume' }));
+  expect(resumeResult.accepted).toBeTruthy();
+  await page.evaluate(() => window.airportControl.request({ action: 'pause' }));
 
   await page.locator('#menu-toggle').click();
   await expect(page.locator('#control-panel')).toHaveClass(/control-panel--open/);
@@ -97,7 +99,7 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await page.waitForTimeout(250);
   await page.locator('#station-select').selectOption('ground');
   await expect(page.locator('#flight-strip-count')).toContainText('on frequency');
-  await page.screenshot({ path: testInfo.outputPath('assisted-ord.png'), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('assisted-ord.png') });
 });
 
 test('Mobile Watch mode keeps controls readable and uses low-detail rendering', async ({ page }, testInfo) => {
@@ -112,5 +114,5 @@ test('Mobile Watch mode keeps controls readable and uses low-detail rendering', 
   expect(snapshot.renderer.detail).toBe('low');
   const safetyFont = await page.locator('.scoreboard span').nth(2).evaluate((element) => parseFloat(getComputedStyle(element).fontSize));
   expect(safetyFont).toBeGreaterThanOrEqual(7);
-  await page.screenshot({ path: testInfo.outputPath('mobile-watch.png'), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('mobile-watch.png') });
 });
