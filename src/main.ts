@@ -675,9 +675,14 @@ function frame(now: number): void {
     const turnaroundEvent = event.type === 'turnaround-start' || event.type === 'service-start' || event.type === 'service-complete' || event.type === 'turnaround-ready';
     const serviceVehicleEvent = event.type.startsWith('service-vehicle-');
     const deicingEvent = event.type.startsWith('deicing-');
+    const runwayExitEvent = event.type === 'runway-exit-plan';
     recordTelemetry(event.type, event.flight, event.runway, event.taxiway, {
       detail: event.detail ?? (event.type === 'safety-hold' ? event.flight.safetyHoldReason : undefined),
-      payload: gateEvent && event.flight.gateAssignment ? {
+      payload: runwayExitEvent && event.flight.runwayExit ? {
+        ...event.flight.runwayExit,
+        taxiRouteEdgeIds: [...event.flight.runwayExit.taxiRouteEdgeIds],
+        rationale: [...event.flight.runwayExit.rationale],
+      } : gateEvent && event.flight.gateAssignment ? {
         standId: event.flight.gateAssignment.standId,
         gateRef: event.flight.gateAssignment.gateRef ?? null,
         zoneName: event.flight.gateAssignment.zoneName,
@@ -881,6 +886,11 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
       surfaceRoute: flight.surfaceRoute ? [...flight.surfaceRoute] : undefined,
       surfaceRouteEdges: flight.surfaceRouteEdges ? [...flight.surfaceRouteEdges] : undefined,
       surfaceCongestedEdgeIds: flight.surfaceCongestedEdgeIds ? [...flight.surfaceCongestedEdgeIds] : undefined,
+      runwayExit: flight.runwayExit ? {
+        ...flight.runwayExit,
+        taxiRouteEdgeIds: [...flight.runwayExit.taxiRouteEdgeIds],
+        rationale: [...flight.runwayExit.rationale],
+      } : undefined,
       gateAssignment: flight.gateAssignment ? {
         ...flight.gateAssignment,
         rationale: [...flight.gateAssignment.rationale],
@@ -903,7 +913,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
 function replayRecording(): ReplayRecording {
   return {
     schemaVersion: 1,
-    simulationVersion: window.airportControl?.version ?? '2.9.1',
+    simulationVersion: window.airportControl?.version ?? '2.10.0',
     recordedAt: new Date().toISOString(),
     seed: config.seed,
     airport: { code: config.code, name: config.name, scope: config.scope },
@@ -992,6 +1002,9 @@ function updateFlightChip(item: HTMLElement, flight: Flight): void {
         ? `ETA ${formatTime(assignment.scheduledGateInSeconds)}`
         : null
     : null;
+  const runwayExitDisplay = flight.runwayExit && (flight.phase === 'approach' || flight.phase === 'landing' || flight.phase === 'taxi-in')
+    ? `RWY ${runwayDesignation(flight.runway)} · EXIT ${flight.runwayExit.taxiwayName}`
+    : null;
   button.dataset.flightChip = String(flight.id);
   button.className = ['flight-chip', focusedFlightId === flight.id ? 'flight-chip--selected' : '', held ? 'flight-chip--hold' : '', flight.emergency ? 'flight-chip--emergency' : '', fuel < 15 ? 'flight-chip--low-fuel' : ''].filter(Boolean).join(' ');
   button.style.setProperty('--flight-accent', flight.palette === 'rose' ? 'var(--rose)' : flight.palette === 'sage' ? '#9bc8a0' : 'var(--blue)');
@@ -1008,7 +1021,7 @@ function updateFlightChip(item: HTMLElement, flight: Flight): void {
   metrics[1].querySelector('b')!.innerHTML = `${Math.round(speed)}<em>KT</em>`;
   metrics[2].querySelector('b')!.innerHTML = `${altitude.toLocaleString()}<em>FT</em>`;
   const detail = button.querySelector('.flight-chip__detail')!;
-  detail.children[0].textContent = `${flight.aircraft} · ${operation} · ${gateDisplay ?? `RWY ${runwayDesignation(flight.runway)}`}${gateTime ? ` · ${gateTime}` : ''}`;
+  detail.children[0].textContent = `${flight.aircraft} · ${operation} · ${runwayExitDisplay ?? gateDisplay ?? `RWY ${runwayDesignation(flight.runway)}`}${runwayExitDisplay && gateDisplay ? ` · ${gateDisplay}` : ''}${gateTime ? ` · ${gateTime}` : ''}`;
   detail.children[1].textContent = held && holdDetail
     ? `HOLD · ${holdDetail.toUpperCase()}`
     : deicingChipSummary(flight)
@@ -1298,6 +1311,10 @@ function renderFlightActions(): void {
         flight.crossingHoldRunway ?? 'none',
         flight.runwayEntryCleared,
         flight.takeoffCleared,
+        flight.runwayExit?.nodeId ?? 'no-exit',
+        flight.runwayExit?.brakingAction ?? 'no-braking-plan',
+        flight.runwayExit?.stoppingMarginM ?? 0,
+        flight.runwayExit?.routeDistanceM ?? 0,
         simulation.state.station,
         replayMode,
       ].join('|')
@@ -1319,6 +1336,9 @@ function renderFlightActions(): void {
   heading.querySelector('small')!.textContent = `${flight.aircraft} · ${flight.origin} → ${flight.destination}${standLabel ? ` · ${standLabel}` : ''}`;
   heading.querySelector('span')!.textContent = simulation.state.station.toUpperCase();
   flightActions.append(heading);
+  if (flight.runwayExit && (flight.phase === 'approach' || flight.phase === 'landing' || flight.phase === 'taxi-in')) {
+    flightActions.append(createRunwayExitPanel(flight));
+  }
   if (flight.phase === 'resting') flightActions.append(createTurnaroundPanel(flight));
   if (flight.deicing.required) flightActions.append(createDeicingPanel(flight));
   const controls = document.createElement('div');
@@ -1363,6 +1383,26 @@ function renderFlightActions(): void {
         : flight.phase === 'resting' && rampBlockers.length ? `Pushback waits for ${rampBlockers.join(', ')} to clear the stand.` : 'No clearance required at this point.';
     flightActions.append(note);
   }
+}
+
+function createRunwayExitPanel(flight: Flight): HTMLElement {
+  const exit = flight.runwayExit!;
+  const panel = document.createElement('section');
+  panel.className = 'runway-exit-panel';
+  panel.setAttribute('aria-label', `Runway ${runwayDesignation(flight.runway)} exit ${exit.taxiwayName}, ${Math.round(exit.stoppingMarginM)} meter stopping margin`);
+  const heading = document.createElement('div');
+  heading.className = 'runway-exit-panel__heading';
+  const title = document.createElement('b');
+  title.textContent = `RWY ${runwayDesignation(flight.runway)} → ${exit.taxiwayName}`;
+  const badge = document.createElement('span');
+  badge.textContent = `${exit.highSpeed ? 'Rapid' : 'Standard'} · ${exit.brakingAction}`;
+  heading.append(title, badge);
+  const metrics = document.createElement('p');
+  metrics.textContent = `${Math.round(exit.targetExitSpeedKts)} KT EXIT · ${Math.round(exit.stoppingMarginM)} M MARGIN · ${(exit.routeDistanceM / 1_000).toFixed(1)} KM TO STAND`;
+  const rationale = document.createElement('small');
+  rationale.textContent = exit.rationale[0] ?? 'Pavement-connected arrival route';
+  panel.append(heading, metrics, rationale);
+  return panel;
 }
 
 function createTurnaroundPanel(flight: Flight): HTMLElement {
@@ -2035,7 +2075,7 @@ function airportSnapshot() {
   const diagnostics = simulation.diagnostics();
   const movingPhases = new Set(['approach', 'landing', 'taxi-in', 'taxi-out', 'takeoff']);
   return {
-    schemaVersion: 11,
+    schemaVersion: 12,
     airport: {
       code: config.code,
       name: config.name,
@@ -2377,6 +2417,11 @@ function airportSnapshot() {
           headingDegrees: Number((flight.goAround.start.heading * 180 / Math.PI).toFixed(2)),
         },
       } : null,
+      runwayExit: flight.runwayExit ? {
+        ...flight.runwayExit,
+        taxiRouteEdgeIds: [...flight.runwayExit.taxiRouteEdgeIds],
+        rationale: [...flight.runwayExit.rationale],
+      } : null,
       operatingEnd: flight.operatingEnd,
       activeRunwayEnd: config.runways[flight.runway]?.designation?.[flight.operatingEnd === 1 ? 1 : 0],
       progress: Number(flight.progress.toFixed(3)),
@@ -2681,7 +2726,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
 }
 
 window.airportControl = {
-  version: '2.9.1',
+  version: '2.10.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },

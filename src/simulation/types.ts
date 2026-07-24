@@ -148,6 +148,41 @@ export interface FlightGateAssignment {
   revision: number;
   previousStandId?: string;
 }
+
+export type RunwayBrakingAction = 'good' | 'medium' | 'poor';
+
+/**
+ * Authoritative arrival-exit decision. The landing trajectory terminates at
+ * nodeId and the taxi-in route begins at the same node, so the rendered turn
+ * and the protected surface route cannot disagree.
+ */
+export interface FlightRunwayExitState {
+  runwayId: number;
+  operatingEnd: -1 | 1;
+  nodeId: string;
+  taxiwayId: string;
+  taxiwayName: string;
+  source: 'surface-graph' | 'runway-end';
+  selectedAtSeconds: number;
+  candidateCount: number;
+  distanceFromThresholdM: number;
+  touchdownDistanceM: number;
+  requiredRolloutM: number;
+  availableRolloutM: number;
+  stoppingMarginM: number;
+  brakingAction: RunwayBrakingAction;
+  brakingMultiplier: number;
+  targetExitSpeedKts: number;
+  exitAngleDegrees: number;
+  highSpeed: boolean;
+  routeDistanceM: number;
+  congestionPenaltyM: number;
+  trafficPenaltyM: number;
+  score: number;
+  safe: boolean;
+  taxiRouteEdgeIds: string[];
+  rationale: string[];
+}
 export type PushbackDirection = 'left' | 'right' | 'straight';
 
 export interface WeatherState {
@@ -243,6 +278,7 @@ export interface Flight {
   pushbackReleaseProgress: number;
   tugAttached: boolean;
   engineState: EngineState;
+  runwayExit?: FlightRunwayExitState;
   surfaceRoute?: string[];
   surfaceRouteEdges?: string[];
   surfaceRoutingCost?: number;
@@ -331,7 +367,7 @@ export interface ReplayFrame {
 }
 
 export interface AirportEvent {
-  type: 'spawn' | 'gate-assignment' | 'gate-reassignment' | 'gate-release' | 'turnaround-start' | 'service-start' | 'service-complete' | 'turnaround-ready' | 'service-vehicle-dispatch' | 'service-vehicle-arrive' | 'service-vehicle-hold' | 'service-vehicle-release' | 'service-vehicle-return' | 'service-vehicle-clear' | 'deicing-planned' | 'deicing-queue' | 'deicing-pad-entry' | 'deicing-start' | 'deicing-complete' | 'deicing-expired' | 'deicing-return' | 'land' | 'chime' | 'depart' | 'clear' | 'auto-clear' | 'pushback-clearance' | 'pushback-start' | 'engine-start' | 'tug-release' | 'reject' | 'conflict' | 'safety-hold' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'takeoff-clearance' | 'go-around' | 'emergency';
+  type: 'spawn' | 'gate-assignment' | 'gate-reassignment' | 'gate-release' | 'runway-exit-plan' | 'turnaround-start' | 'service-start' | 'service-complete' | 'turnaround-ready' | 'service-vehicle-dispatch' | 'service-vehicle-arrive' | 'service-vehicle-hold' | 'service-vehicle-release' | 'service-vehicle-return' | 'service-vehicle-clear' | 'deicing-planned' | 'deicing-queue' | 'deicing-pad-entry' | 'deicing-start' | 'deicing-complete' | 'deicing-expired' | 'deicing-return' | 'land' | 'chime' | 'depart' | 'clear' | 'auto-clear' | 'pushback-clearance' | 'pushback-start' | 'engine-start' | 'tug-release' | 'reject' | 'conflict' | 'safety-hold' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'takeoff-clearance' | 'go-around' | 'emergency';
   flight: Flight;
   runway?: number;
   taxiway?: string;

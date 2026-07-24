@@ -9,11 +9,11 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await page.goto('/?airport=ORD&mode=assisted&station=supervisor&autostart=1&detail=low');
   await expect(page.locator('#airport-name')).toContainText('O’Hare');
   await expect(page.locator('#flight-strip-count')).toContainText('aircraft');
-  await page.waitForFunction(() => window.airportControl?.version === '2.9.1');
+  await page.waitForFunction(() => window.airportControl?.version === '2.10.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
-  expect(initial.schemaVersion).toBe(11);
+  expect(initial.schemaVersion).toBe(12);
   expect(initial.mode).toBe('assisted');
   expect(initial.airport.code).toBe('ORD');
   expect(initial.renderer.camera).toMatchObject({
@@ -120,6 +120,13 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
     && flight.turnaround.targetFuelPercent >= flight.turnaround.initialFuelPercent
   ))).toBeTruthy();
   expect(initial.flights.filter((flight) => flight.phase === 'approach').every((flight) => flight.turnaround.status === 'planned')).toBeTruthy();
+  expect(initial.flights.filter((flight) => flight.phase === 'approach').every((flight) => (
+    flight.runwayExit?.safe
+    && flight.runwayExit.candidateCount >= 1
+    && flight.runwayExit.stoppingMarginM >= 85
+    && flight.runwayExit.taxiRouteEdgeIds.length > 0
+    && flight.runwayExit.rationale.length >= 3
+  ))).toBeTruthy();
   expect(initial.flights.every((flight) => flight.deicing.status === 'not-required')).toBeTruthy();
   expect(initial.serviceVehicles.length).toBeGreaterThanOrEqual(2);
   expect(initial.serviceVehicles.every((vehicle) => !vehicle.protectedMovementAuthorized && !vehicle.protectedMovementArea && vehicle.outboundRoute.length > 0 && vehicle.returnRoute.length > 0)).toBeTruthy();
@@ -161,9 +168,13 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   expect(initial.traffic.obstacleCollisions).toHaveLength(0);
   expect(initial.traffic.serviceVehicleConflicts).toHaveLength(0);
   expect(initial.traffic.serviceVehicleRouteViolations).toHaveLength(0);
-  const focusCandidate = initial.flights[0];
+  const focusCandidate = initial.flights.find((flight) => flight.phase === 'approach')!;
   await page.evaluate((flightId) => window.airportControl.request({ action: 'focusFlight', flightId }), focusCandidate.id);
   await expect(page.locator('#flight-actions')).toBeVisible();
+  await expect(page.locator('.runway-exit-panel')).toBeVisible();
+  await expect(page.locator('.runway-exit-panel')).toContainText(/RWY .* →/);
+  await expect(page.locator('.runway-exit-panel')).toContainText(/M MARGIN/);
+  await page.screenshot({ path: testInfo.outputPath('runway-exit-plan.png') });
   await page.locator(`button[data-flight-chip="${focusCandidate.id}"]`).click();
   await expect(page.locator('#flight-actions')).toBeHidden();
   const radarResult = await page.evaluate(() => window.airportControl.request({ action: 'setRadarVisible', enabled: true }));
@@ -358,7 +369,7 @@ test('ORD snow exposes the deicing route and holdover model in the normal UI', a
   test.skip(testInfo.project.name !== 'desktop-chromium', 'Winter operations are viewport-independent and covered once in Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=auto&autostart=1&detail=low&weather=snow&windDir=270&wind=12');
-  await page.waitForFunction(() => window.airportControl?.version === '2.9.1');
+  await page.waitForFunction(() => window.airportControl?.version === '2.10.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
   await page.locator('#menu-toggle').click();
@@ -409,7 +420,7 @@ test('Go-around climbs from the live pose and flies a visible missed-approach pa
   test.skip(testInfo.project.name !== 'desktop-chromium', 'The authoritative go-around is viewport-independent and covered once in Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ATL&mode=auto&autostart=1&detail=low&speed=3');
-  await page.waitForFunction(() => window.airportControl?.version === '2.9.1');
+  await page.waitForFunction(() => window.airportControl?.version === '2.10.0');
   await page.waitForFunction(() => {
     const flight = window.airportControl.snapshot().flights.find((candidate) => candidate.phase === 'approach');
     return Boolean(flight && flight.progress > 0.18);
@@ -443,7 +454,7 @@ test('Mobile Watch mode keeps non-ORD and procedural maps navigable in low detai
   test.skip(testInfo.project.name !== 'mobile-chromium', 'This test is the dedicated responsive/mobile browser gate.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ATL&mode=watch&autostart=1&detail=low');
-  await page.waitForFunction(() => window.airportControl?.version === '2.9.1');
+  await page.waitForFunction(() => window.airportControl?.version === '2.10.0');
   await expect(page.locator('body')).toHaveClass(/watch-mode/);
   await expect(page.locator('#menu-toggle')).toBeVisible();
   await expect(page.locator('#zoom-in')).toBeVisible();
@@ -492,4 +503,5 @@ test('Mobile Watch mode keeps non-ORD and procedural maps navigable in low detai
     panLimitY: 2_200,
     groundFillsViewport: true,
   });
+  await page.screenshot({ path: testInfo.outputPath('procedural-local.png') });
 });

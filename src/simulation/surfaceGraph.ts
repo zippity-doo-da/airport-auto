@@ -507,6 +507,64 @@ export function buildAirportSurfaceGraph(config: SurfaceGraphConfig): AirportSur
       }
     }
 
+    // Give every procedural field a useful set of rollout choices. These
+    // nodes sit beyond the runway edge and join an apron route behind a runway
+    // end through a parallel taxiway. The runway-access stubs are presentation
+    // and protection geometry; taxi-in starts off the runway.
+    const runwayDirection: Point = [Math.cos(runway.heading), Math.sin(runway.heading)];
+    let exitSide: Point = [-runwayDirection[1], runwayDirection[0]];
+    // Keep the parallel exit lane on the structure-free side of the runway.
+    // The connection loops behind the threshold before heading to the apron.
+    if (dot(subtract(config.terminal, runway.center), exitSide) > 0) exitSide = scale(exitSide, -1);
+    const proceduralExitNodes = [0.3, 0.48, 0.66, 0.84].map((fraction, index) => {
+      const centerline: Point = [
+        runway.center[0] + runwayDirection[0] * runway.length * (fraction - 0.5),
+        runway.center[1] + runwayDirection[1] * runway.length * (fraction - 0.5),
+      ];
+      const centerNode = addNode(`RWY-${runway.id}-EXIT-CENTER-${index + 1}`, 'runway-exit', centerline, { runwayId: runway.id });
+      const exitNode = addNode(
+        `RWY-${runway.id}-EXIT-${index + 1}`,
+        'runway-exit',
+        add(centerline, scale(exitSide, runway.width / 2 + 1.4)),
+        { runwayId: runway.id },
+      );
+      addEdge(centerNode, exitNode, {
+        kind: 'runway-access',
+        name: `${taxiway.name} runway exit`,
+        width: 8,
+        taxiwayId: taxiway.id,
+        runwayId: runway.id,
+      });
+      return exitNode;
+    });
+    for (let index = 0; index < proceduralExitNodes.length - 1; index += 1) {
+      addEdge(proceduralExitNodes[index], proceduralExitNodes[index + 1], {
+        kind: 'taxiway',
+        name: taxiway.name,
+        width: 8,
+        taxiwayId: taxiway.id,
+      });
+    }
+    const firstExit = proceduralExitNodes[0];
+    if (firstExit) {
+      const outerAnchor = add(runwayEnd(runway, -1, 12), scale(exitSide, runway.width / 2 + 1.4));
+      const outerNode = addWaypoint(outerAnchor);
+      addEdge(firstExit, outerNode, { kind: 'taxiway', name: taxiway.name, width: 8, taxiwayId: taxiway.id });
+      for (const apronSide of [-1, 1] as const) {
+        const apronEntry = apronEntries.get(apronSide);
+        if (!apronEntry) continue;
+        registerPolyline(taxiRoutePoints(config, runway, outerAnchor, apronEntry.position), {
+          start: outerNode,
+          end: apronEntry,
+        }, {
+          taxiwayId: taxiway.id,
+          name: taxiway.name,
+          width: 8,
+          runwayId: runway.id,
+        });
+      }
+    }
+
     const negative = endNodes.get(-1);
     const positive = endNodes.get(1);
     if (negative && positive) {
@@ -577,6 +635,7 @@ export function surfaceRouteForFlight(
   gateSlot: number,
   requirements?: SurfaceRouteRequirements,
   planning?: SurfaceRoutePlanning,
+  taxiInStartNodeId?: string,
 ): SurfaceRoute | null {
   const stand = graph.stands.find((item) => item.slot === gateSlot) ?? graph.stands[gateSlot % Math.max(1, graph.stands.length)];
   if (!stand) return null;
@@ -592,7 +651,7 @@ export function surfaceRouteForFlight(
   const end = phase === 'taxi-in' ? -operatingEnd as -1 | 1 : operatingEnd;
   const access = graph.runwayAccess.find((item) => item.runwayId === runwayId && item.end === end);
   if (!access) return null;
-  const from = phase === 'taxi-in' ? access.exitNodeId : stand.nodeId;
+  const from = phase === 'taxi-in' ? taxiInStartNodeId ?? access.exitNodeId : stand.nodeId;
   const to = phase === 'taxi-in' ? stand.nodeId : access.holdShortNodeId;
   return findSurfaceRoute(graph, from, to, requirements, planning);
 }

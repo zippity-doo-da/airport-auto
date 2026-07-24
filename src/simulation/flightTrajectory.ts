@@ -1,7 +1,7 @@
 import type { AirportConfig, RunwayConfig } from './airportConfig';
 import { aircraftProfile, type AircraftModel } from './aircraftProfiles';
 import { WORLD_METERS_PER_UNIT } from './runwayPerformance';
-import type { Flight, FlightGoAroundState, FlightPhase } from './types';
+import type { Flight, FlightGoAroundState, FlightPhase, FlightRunwayExitState } from './types';
 
 export type FlightTrajectoryStage =
   | 'edge-entry'
@@ -94,22 +94,33 @@ export function landingTrajectoryTiming(
   config: AirportConfig,
   runwayId: number,
   aircraft: AircraftModel,
+  runwayExit?: FlightRunwayExitState,
 ): LandingTrajectoryTiming {
   const profile = aircraftProfile(aircraft);
   const touchdownMps = profile.approachKts * KNOT_TO_MPS;
-  const taxiMps = (profile.taxiKts + 3) * KNOT_TO_MPS;
+  const exitSpeedKts = runwayExit?.targetExitSpeedKts ?? profile.taxiKts + 3;
+  const taxiMps = exitSpeedKts * KNOT_TO_MPS;
   const runway = config.runways[runwayId] ?? config.runways[0];
-  const exitDistance = Math.max(1, runway.length - 5);
+  const exitDistance = runwayExit
+    ? runwayExit.distanceFromThresholdM / WORLD_METERS_PER_UNIT
+    : Math.max(1, runway.length - 5);
   const touchdownDistance = Math.min(4.5, runway.length * 0.075);
   // Preserve approach speed across the threshold while still touching down
   // near the runway end. A fixed flare duration made short touchdown targets
   // look like an abrupt midair slowdown.
   const flareSeconds = clamp(touchdownDistance * WORLD_METERS_PER_UNIT / touchdownMps, 2.2, 3.4);
-  const runwayLimitedBraking = (touchdownMps * touchdownMps - taxiMps * taxiMps) / (2 * profile.landingRollM);
-  const braking = Math.max(0.65, Math.min(profile.brakingMps2, runwayLimitedBraking));
+  const rolloutMeters = runwayExit?.requiredRolloutM ?? profile.landingRollM;
+  const runwayLimitedBraking = (touchdownMps * touchdownMps - taxiMps * taxiMps) / (2 * Math.max(1, rolloutMeters));
+  const braking = Math.max(0.42, Math.min(profile.brakingMps2, runwayLimitedBraking));
   const brakingSeconds = Math.max(8, (touchdownMps - taxiMps) / braking);
-  const rolloutEnd = Math.min(exitDistance - 2, touchdownDistance + landingRollDistance(runway, aircraft));
-  const remainingMeters = Math.max(1, exitDistance - rolloutEnd) * WORLD_METERS_PER_UNIT;
+  const rolloutEnd = Math.min(exitDistance - 2, touchdownDistance + landingRollDistance(runway, aircraft, runwayExit));
+  const exitNode = runwayExit ? config.surfaceGraph.nodes.find((node) => node.id === runwayExit.nodeId) : undefined;
+  const travel = runwayExit ? runwayTravelDirection(runway, runwayExit.operatingEnd) : { x: Math.cos(runway.heading), y: Math.sin(runway.heading) };
+  const threshold = runwayExit ? runwayEnd(runway, runwayExit.operatingEnd, 0, RUNWAY_TRACK_ALTITUDE) : { x: runway.center[0], y: runway.center[1], z: RUNWAY_TRACK_ALTITUDE };
+  const rolloutPoint = { x: threshold.x + travel.x * rolloutEnd, y: threshold.y + travel.y * rolloutEnd, z: RUNWAY_TRACK_ALTITUDE };
+  const remainingMeters = exitNode
+    ? Math.max(1, Math.hypot(exitNode.position[0] - rolloutPoint.x, exitNode.position[1] - rolloutPoint.y) * WORLD_METERS_PER_UNIT)
+    : Math.max(1, exitDistance - rolloutEnd) * WORLD_METERS_PER_UNIT;
   const exitSeconds = Math.max(config.scope === 'center' ? 7 : 6, remainingMeters / Math.max(1, taxiMps));
   return {
     flareSeconds,
@@ -256,22 +267,33 @@ function applyControlPattern(
 
 function sampleLanding(config: AirportConfig, flight: Flight, progress: number): FlightTrajectorySample {
   const runway = config.runways[flight.runway] ?? config.runways[0];
-  const timing = landingTrajectoryTiming(config, flight.runway, flight.aircraft);
+  const timing = landingTrajectoryTiming(config, flight.runway, flight.aircraft, flight.runwayExit);
   const elapsed = progress * timing.totalSeconds;
   const travel = runwayTravelDirection(runway, flight.operatingEnd);
   const threshold = runwayEnd(runway, flight.operatingEnd, 0, THRESHOLD_CROSSING_ALTITUDE);
   const fallbackExitDistance = Math.max(1, runway.length - 5);
-  const exitPoint = runwaySurfacePoint(config, flight.runway, -flight.operatingEnd as -1 | 1, 'exit') ?? {
+  const plannedExitNode = flight.runwayExit
+    ? config.surfaceGraph.nodes.find((node) => node.id === flight.runwayExit?.nodeId)
+    : undefined;
+  const exitPoint = plannedExitNode ? {
+    x: plannedExitNode.position[0],
+    y: plannedExitNode.position[1],
+    z: 2,
+  } : runwaySurfacePoint(config, flight.runway, -flight.operatingEnd as -1 | 1, 'exit') ?? {
     x: threshold.x + travel.x * fallbackExitDistance,
     y: threshold.y + travel.y * fallbackExitDistance,
     z: 2,
   };
   const projectedExitDistance = (exitPoint.x - threshold.x) * travel.x + (exitPoint.y - threshold.y) * travel.y;
-  const centerlineExitDistance = clamp(projectedExitDistance, runway.length * 0.55, runway.length - 1);
+  const centerlineExitDistance = clamp(
+    flight.runwayExit ? flight.runwayExit.distanceFromThresholdM / WORLD_METERS_PER_UNIT : projectedExitDistance,
+    runway.length * (flight.runwayExit ? 0.14 : 0.55),
+    runway.length - 1,
+  );
   // Put the mains down close to the threshold so the stopping calculation can
   // use nearly all of the available pavement, especially on shorter runways.
   const touchdownDistance = Math.min(4.5, runway.length * 0.075);
-  const rolloutDistance = landingRollDistance(runway, flight.aircraft);
+  const rolloutDistance = landingRollDistance(runway, flight.aircraft, flight.runwayExit);
   const rolloutEnd = Math.min(centerlineExitDistance - 2, touchdownDistance + rolloutDistance);
   const rolloutTravel = Math.max(1, rolloutEnd - touchdownDistance);
   const exitStart = {
@@ -308,7 +330,7 @@ function sampleLanding(config: AirportConfig, flight: Flight, progress: number):
     stageProgress = clamp((elapsed - timing.flareSeconds) / timing.brakingSeconds, 0, 1);
     const profile = aircraftProfile(flight.aircraft);
     const initialSpeed = profile.approachKts;
-    const finalSpeed = profile.taxiKts + 3;
+    const finalSpeed = flight.runwayExit?.targetExitSpeedKts ?? profile.taxiKts + 3;
     const distanceProgress = (
       initialSpeed * stageProgress + 0.5 * (finalSpeed - initialSpeed) * stageProgress * stageProgress
     ) / Math.max(1, 0.5 * (initialSpeed + finalSpeed));
@@ -550,7 +572,12 @@ function sampleDeparture(config: AirportConfig, flight: Flight, progress: number
   };
 }
 
-function landingRollDistance(runway: RunwayConfig, aircraft: AircraftModel): number {
+function landingRollDistance(
+  runway: RunwayConfig,
+  aircraft: AircraftModel,
+  runwayExit?: FlightRunwayExitState,
+): number {
+  if (runwayExit) return Math.max(1, runwayExit.requiredRolloutM / WORLD_METERS_PER_UNIT);
   const desired = aircraftProfile(aircraft).landingRollM / WORLD_METERS_PER_UNIT;
   return clamp(desired, runway.length * 0.34, runway.length * 0.66);
 }

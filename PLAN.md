@@ -186,6 +186,17 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Keep imported ORD terminals and buildings sourced, retain collision-safe schematics elsewhere, and place ATL's terminal complex in its real-world-style parallel-runway infield without weakening pavement/obstacle validation.
 - [x] Verify the seamless terrain and camera contract on ORD, ATL, a generated local airfield, desktop, and mobile viewports.
 
+## Airport Auto 2.10 — authoritative runway-exit planning
+
+- [x] Derive multiple arrival exits from imported runway-access topology and add four visible, pavement-connected exit choices plus a parallel taxiway to every procedural runway.
+- [x] Select exits deterministically from touchdown position, aircraft landing performance, dry/wet/contaminated braking action, exit geometry and speed, live congestion, competing arrival plans, and the destination stand.
+- [x] Require the modeled rollout plus an 85 m turn margin; skip an unsuitable initial arrival and command a go-around when the final-approach refresh cannot find a stopping-safe exit.
+- [x] Make the chosen surface-graph node authoritative: the landing trajectory ends there, taxi-in begins there, and its planned route blocks an immediate crossing back over the landing runway.
+- [x] Re-plan approaches when braking action or the assigned stand changes, refresh once at the landing handoff, and freeze the choice during rollout so no weather/traffic update can make the aircraft jump.
+- [x] Show `RWY → EXIT`, rapid/standard type, braking action, target exit speed, stopping margin, and stand-route distance in the normal flight UI.
+- [x] API 2.10 / snapshot schema 12 exposes the complete exit decision and emits structured `runway-exit-plan` events; replay clones the same authoritative state.
+- [x] Add a dedicated deterministic gate for imported/procedural candidates, aircraft and weather ordering, stand-route influence, traffic avoidance, pavement protection, and phase continuity; retain the full trajectory, fixed-step, collision, and desktop/mobile browser gates.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.

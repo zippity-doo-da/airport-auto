@@ -328,7 +328,8 @@ for (let tick = 0; tick < 7_000; tick += 1) {
     }
     if (flight.phase === 'landing' && motion.stage === 'runway-exit' && motion.stageProgress > 0.8) {
       const profile = aircraftProfile(flight.aircraft);
-      assert(flight.kinematics.airspeedKts <= profile.taxiKts + 8, 'ORD live motion: ' + flight.callsign + ' reached the runway exit too fast');
+      const plannedExitSpeed = flight.runwayExit?.targetExitSpeedKts ?? profile.taxiKts + 3;
+      assert(flight.kinematics.airspeedKts <= plannedExitSpeed + 5, 'ORD live motion: ' + flight.callsign + ' reached the runway exit above its planned speed');
       completedRollouts.add(flight.id);
     }
     previousMotion.set(flight.id, { phase: flight.phase, motion });

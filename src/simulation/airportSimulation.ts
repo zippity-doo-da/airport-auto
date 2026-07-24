@@ -1,5 +1,5 @@
 import type { AirportConfig, AirportRunwayConfiguration, RunwayOperationalRole } from './airportConfig';
-import type { AirportEvent, AirportState, ClearanceProposal, ConflictPrediction, ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, ServiceVehicleState, ShiftMetrics, TrafficScenario, WeatherCondition } from './types';
+import type { AirportEvent, AirportState, ClearanceProposal, ConflictPrediction, ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, FlightRunwayExitState, ServiceVehicleState, ShiftMetrics, TrafficScenario, WeatherCondition } from './types';
 import { AIRCRAFT_ROSTER, aircraftProfile, type AircraftModel } from './aircraftProfiles';
 import { AIRPORT_AIRLINES, airlineProfile, type AirlineCode } from './airlineProfiles';
 import { aircraftCollisionEnvelope, findFlightConflicts, findObstacleConflicts, findProposedConflict } from './collisionDetection';
@@ -15,6 +15,7 @@ import { GATE_TURN_BUFFER_SECONDS, gateReservationsOverlap, planGateAssignment, 
 import { advanceTurnaround, completeTurnaround, createTurnaroundPlan, releaseTurnaround, scheduleTurnaround, startTurnaround, turnaroundBlockingServices, turnaroundFuelPercent, type TurnaroundTransition } from './turnaroundOperations';
 import { advanceServiceVehicleMotion, availableVehicleServices, createServiceVehiclePlans, findServiceVehicleConflicts, serviceVehicleOwnerId, serviceVehicleReservationClaims, serviceVehicleRouteViolations, serviceVehiclesBlockingPushback, setServiceVehicleStatus, syncServiceVehiclePose } from './serviceVehicleOperations';
 import { applyDeicingRoutePlan, createDeicingState, deicingFacilities, deicingMovementLimit, deicingReleaseValid, markDeicingNotRequired, markStartupPretreated, planDeicingTaxiRoute, winterDeicingRequired } from './deicingOperations';
+import { selectRunwayExit } from './runwayExitSelection';
 
 const PHASE_DURATION: Record<FlightPhase, number> = {
   approach: 38,
@@ -801,6 +802,7 @@ export class AirportSimulation {
       flight.runway = runway.id;
       flight.departureRunway = runway.id;
       flight.operatingEnd = this.preferredOperatingEnd(runway.id);
+      flight.runwayExit = undefined;
       flight.palette = runway.color;
       flight.phase = taxiing ? 'taxi-out' : 'resting';
       flight.progress = 0;
@@ -993,6 +995,12 @@ export class AirportSimulation {
       },
     };
     flight.standId = gateAssignment.standId;
+    if (!this.planRunwayExit(flight, 'initial arrival plan', false)) {
+      // Do not let one performance/weather mismatch become a permanent
+      // head-of-line blocker for the continuous arrival stream.
+      this.nextId += 1;
+      return null;
+    }
     syncFlightMotion(this.config, flight);
     flight.kinematics.altitudeFt = this.motionAltitudeFt(flight);
 
@@ -1005,6 +1013,13 @@ export class AirportSimulation {
       type: 'gate-assignment',
       flight,
       detail: `${gateAssignment.gateRef ?? gateAssignment.zoneName ?? gateAssignment.standId} planned · ${gateAssignment.rationale.slice(0, 2).join(' · ')}`,
+    });
+    this.events.push({
+      type: 'runway-exit-plan',
+      flight,
+      runway: flight.runway,
+      taxiway: flight.runwayExit?.taxiwayName,
+      detail: this.runwayExitDetail(flight.runwayExit, 'initial arrival plan'),
     });
     if (automatic) this.events.push({ type: 'auto-clear', flight });
     if (flight.emergency) this.events.push({ type: 'emergency', flight });
@@ -1046,6 +1061,10 @@ export class AirportSimulation {
 
     const next = NEXT_PHASE[flight.phase];
     if (!next) return;
+    if (next === 'landing' && !this.planRunwayExit(flight, 'final approach refresh')) {
+      this.goAround(flight, 'no safe runway exit is available for the current braking action');
+      return;
+    }
     if (next === 'taxi-out') {
       if (this.state.runwayConfigurationTransition) return;
       if (this.taxiOutReleaseIn > 0) return;
@@ -1054,6 +1073,7 @@ export class AirportSimulation {
       flight.departureRunway = departureRunway;
       flight.runway = departureRunway;
       flight.operatingEnd = this.preferredOperatingEnd(flight.runway);
+      flight.runwayExit = undefined;
       flight.palette = this.config.runways[flight.runway].color;
       flight.holdShortRunway = flight.runway;
       flight.holdNotified = false;
@@ -1110,7 +1130,7 @@ export class AirportSimulation {
     flight.automaticHoldReason = undefined;
     flight.controlPattern = undefined;
     flight.controlPatternStart = undefined;
-    flight.duration = this.phaseDuration(flight.aircraft, next, flight.runway);
+    flight.duration = this.phaseDuration(flight.aircraft, next, flight.runway, flight.runwayExit);
     if (next === 'taxi-in' || next === 'resting' || next === 'taxi-out') {
       this.assignSurfaceRoute(flight, next);
       if (next === 'taxi-out') flight.requiredCrossings = surfaceRouteRunwayCrossings(this.config.surfaceGraph, flight.surfaceRouteEdges, flight.runway);
@@ -1375,6 +1395,7 @@ export class AirportSimulation {
       flight,
       detail: `${reason} · ${previous?.gateRef ?? previous?.zoneName ?? previous?.standId ?? 'unassigned'} → ${decision.gateRef ?? decision.zoneName ?? decision.standId}`,
     });
+    if (flight.phase === 'approach') this.planRunwayExit(flight, 'destination stand changed');
     return true;
   }
 
@@ -1382,7 +1403,7 @@ export class AirportSimulation {
     if (flight.phase === 'approach') {
       return this.state.elapsed
         + Math.max(0, flight.duration - flight.phaseElapsed)
-        + this.phaseDuration(flight.aircraft, 'landing', flight.runway);
+        + this.phaseDuration(flight.aircraft, 'landing', flight.runway, flight.runwayExit);
     }
     if (flight.phase === 'landing') return this.state.elapsed + Math.max(0, flight.duration - flight.phaseElapsed);
     return this.state.elapsed;
@@ -1446,7 +1467,7 @@ export class AirportSimulation {
       phase: next,
       progress: 0,
       phaseElapsed: 0,
-      duration: this.phaseDuration(flight.aircraft, next, flight.runway),
+      duration: this.phaseDuration(flight.aircraft, next, flight.runway, flight.runwayExit),
       surfaceRoute: flight.surfaceRoute ? [...flight.surfaceRoute] : undefined,
       surfaceRouteEdges: flight.surfaceRouteEdges ? [...flight.surfaceRouteEdges] : undefined,
       surfaceCongestedEdgeIds: flight.surfaceCongestedEdgeIds ? [...flight.surfaceCongestedEdgeIds] : undefined,
@@ -1631,7 +1652,12 @@ export class AirportSimulation {
     return runway?.designation?.[end === 1 ? 1 : 0] ?? String(runwayId + 1);
   }
 
-  private phaseDuration(aircraft: AircraftModel, phase: FlightPhase, runwayId = 0): number {
+  private phaseDuration(
+    aircraft: AircraftModel,
+    phase: FlightPhase,
+    runwayId = 0,
+    runwayExit?: FlightRunwayExitState,
+  ): number {
     const profile = aircraftProfile(aircraft);
     if (phase === 'resting') return PHASE_DURATION.resting;
     if (phase === 'approach') {
@@ -1642,7 +1668,8 @@ export class AirportSimulation {
       return base * turnFactor * (1_800 / profile.descentFpm) ** 0.08 * this.weatherDurationMultiplier(phase);
     }
     if (phase === 'landing') {
-      return landingTrajectoryTiming(this.config, runwayId, aircraft).totalSeconds * this.weatherDurationMultiplier(phase);
+      return landingTrajectoryTiming(this.config, runwayId, aircraft, runwayExit).totalSeconds
+        * (runwayExit ? 1 : this.weatherDurationMultiplier(phase));
     }
     if (phase === 'taxi-in' || phase === 'taxi-out') return 60 * (18 / profile.taxiKts) * this.weatherDurationMultiplier(phase);
     if (phase === 'takeoff') {
@@ -1719,8 +1746,8 @@ export class AirportSimulation {
     if (flight.phase === 'landing') {
       if (flight.motion.stage === 'flare') target = profile.approachKts;
       else if (flight.motion.stage === 'touchdown' || flight.motion.stage === 'rollout') {
-        target = this.lerp(profile.approachKts, profile.taxiKts + 3, flight.motion.stageProgress);
-      } else target = profile.taxiKts + 3;
+        target = this.lerp(profile.approachKts, flight.runwayExit?.targetExitSpeedKts ?? profile.taxiKts + 3, flight.motion.stageProgress);
+      } else target = flight.runwayExit?.targetExitSpeedKts ?? profile.taxiKts + 3;
     }
     if (flight.phase === 'takeoff') {
       if (flight.motion.stage === 'lineup') target = profile.taxiKts;
@@ -1977,6 +2004,59 @@ export class AirportSimulation {
     });
   }
 
+  private planRunwayExit(flight: Flight, reason: string, emit = true): boolean {
+    const congestionPlanning = surfaceCongestionPlanning(
+      this.config.surfaceGraph,
+      this.surfaceTrafficMovements(),
+      flight.id,
+    );
+    const selection = selectRunwayExit({
+      config: this.config,
+      runwayId: flight.runway,
+      operatingEnd: flight.operatingEnd,
+      aircraft: flight.aircraft,
+      gateSlot: flight.gateSlot,
+      weather: this.state.weather,
+      selectedAtSeconds: this.state.elapsed,
+      planning: congestionPlanning,
+      flightId: flight.id,
+      competingPlans: this.state.flights.flatMap((other) => other.id === flight.id || !other.runwayExit ? [] : [{
+        flightId: other.id,
+        runwayId: other.runwayExit.runwayId,
+        operatingEnd: other.runwayExit.operatingEnd,
+        nodeId: other.runwayExit.nodeId,
+        distanceFromThresholdM: other.runwayExit.distanceFromThresholdM,
+        taxiRouteEdgeIds: other.runwayExit.taxiRouteEdgeIds,
+      }]),
+    });
+    const previous = flight.runwayExit;
+    flight.runwayExit = selection?.state;
+    const changed = Boolean(selection && (
+      previous?.nodeId !== selection.state.nodeId
+      || previous.brakingAction !== selection.state.brakingAction
+      || previous.routeDistanceM !== selection.state.routeDistanceM
+      || previous.safe !== selection.state.safe
+    ));
+    if (emit && changed) {
+      this.events.push({
+        type: 'runway-exit-plan',
+        flight,
+        runway: flight.runway,
+        taxiway: selection?.state.taxiwayName,
+        detail: this.runwayExitDetail(selection?.state, reason),
+      });
+    }
+    return Boolean(selection?.state.safe);
+  }
+
+  private runwayExitDetail(exit: FlightRunwayExitState | undefined, reason: string): string {
+    if (!exit) return `${reason} · no pavement-connected exit route available`;
+    const margin = exit.stoppingMarginM >= 0
+      ? `${Math.round(exit.stoppingMarginM)} m margin`
+      : `${Math.round(Math.abs(exit.stoppingMarginM))} m shortfall`;
+    return `${reason} · ${exit.taxiwayName} · ${exit.brakingAction} braking · ${Math.round(exit.targetExitSpeedKts)} kt · ${margin}`;
+  }
+
   private assignSurfaceRoute(flight: Flight, phase: 'taxi-in' | 'resting' | 'taxi-out'): void {
     const stand = this.config.surfaceGraph.stands.find((item) => item.slot === flight.gateSlot);
     const profile = aircraftProfile(flight.aircraft);
@@ -1997,6 +2077,7 @@ export class AirportSimulation {
       flight.gateSlot,
       routeRequirements,
       congestionPlanning,
+      phase === 'taxi-in' ? flight.runwayExit?.nodeId : undefined,
     );
     if (phase === 'taxi-out' && winterDeicingRequired(this.state.weather)) {
       const deicingPlan = planDeicingTaxiRoute(this.config, flight, congestionPlanning);
@@ -2325,6 +2406,7 @@ export class AirportSimulation {
 
   private updateWeather(): void {
     const previousCondition = this.state.weather.condition;
+    const previousSurfaceCondition = this.state.weather.surfaceCondition;
     const overridden = this.state.elapsed < this.weatherOverrideUntil;
     if (!this.state.weather.weatherEnabled) {
       this.state.weather.condition = 'clear';
@@ -2358,6 +2440,11 @@ export class AirportSimulation {
           : 18;
     this.state.weather.surfaceCondition = condition === 'snow' ? 'contaminated' : condition === 'rain' || condition === 'fog' ? 'wet' : 'dry';
     if (condition !== previousCondition) this.refreshDeicingPlansForWeather();
+    if (this.state.weather.surfaceCondition !== previousSurfaceCondition) {
+      for (const flight of this.state.flights) {
+        if (flight.phase === 'approach' && !flight.goAround) this.planRunwayExit(flight, 'braking action changed');
+      }
+    }
     this.updateActiveRunwayConfiguration();
   }
 
