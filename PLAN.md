@@ -88,6 +88,8 @@ Current focus remains O’Hare. Its release graph includes the recognizable eigh
 
 These are expansions, not unfinished 2.1 defect fixes:
 
+The prioritized implementation order, acceptance gates, and reconciled pre-2.1 backlog now live in [ROADMAP.md](ROADMAP.md).
+
 - A licensed OSM/FAA vector-import pipeline and full surveyed taxiway topology for each hub.
 - Real recorded engine/ramp/radio libraries after licensing, normalization, and long-loop repetition review.
 - Authenticated remote WebSocket control; static GitHub Pages intentionally exposes local-only control today.
