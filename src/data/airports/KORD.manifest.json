@@ -1,0 +1,167 @@
+{
+  "schemaVersion": 1,
+  "airport": {
+    "faaId": "ORD",
+    "icaoId": "KORD",
+    "name": "Chicago O'Hare International",
+    "fidelity": "faa-airport-mapping",
+    "navigationUse": false
+  },
+  "assetPath": "data/airports/KORD.vector.json",
+  "assetSha256": "cab0ea3bd875215c9e85726a2c337293d6196fc7f25f15a8fdc1fa2d0e0ffd58",
+  "retrievedOn": "2026-07-23",
+  "effective": {
+    "from": "0901Z 09 Jul 2026",
+    "to": "0901Z 03 Sep 2026"
+  },
+  "coordinateSystem": {
+    "source": "EPSG:4326",
+    "local": "local-tangent-plane",
+    "originWgs84": [
+      -87.9055658,
+      41.9781154
+    ],
+    "axes": {
+      "x": "east",
+      "y": "north"
+    },
+    "unit": "meter",
+    "earthRadiusMeters": 6378137,
+    "coordinatePrecisionMeters": 0.1
+  },
+  "boundsMeters": {
+    "min": [
+      -2273.9,
+      -2969.3
+    ],
+    "max": [
+      2275.5,
+      3327.3
+    ]
+  },
+  "attribution": "Federal Aviation Administration, Air Traffic Organization, Mission Support Services, Aeronautical Information Services.",
+  "layerCounts": {
+    "runways": 8,
+    "taxiways": 743,
+    "aprons": 30,
+    "buildings": 32,
+    "hotspots": 2,
+    "stopways": 18,
+    "beacons": 2,
+    "windIndicators": 23
+  },
+  "sources": [
+    {
+      "layer": "runways",
+      "itemId": "bc80e5ca97804c2fbc0c10482377adf5",
+      "title": "AM_Runway",
+      "owner": "AeronauticalInformationServices_FAA",
+      "modifiedAt": "2026-07-09T11:52:29.000Z",
+      "effective": {
+        "from": "0901Z 09 Jul 2026",
+        "to": "0901Z 03 Sep 2026"
+      },
+      "sourceUrl": "https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/arcgis/rest/services/AM_Runway/FeatureServer/0",
+      "license": "The data provided is for public use. Reference and Sample purpose only.",
+      "attribution": "Federal Aviation Administration, Air Traffic Organization, Mission Support Services, Aeronautical Information Services."
+    },
+    {
+      "layer": "taxiways",
+      "itemId": "d1c02f9f3f7144af8ead3aca44961c59",
+      "title": "AM_Taxiway",
+      "owner": "AeronauticalInformationServices_FAA",
+      "modifiedAt": "2026-07-09T11:54:41.000Z",
+      "effective": {
+        "from": "0901Z 09 Jul 2026",
+        "to": "0901Z 03 Sep 2026"
+      },
+      "sourceUrl": "https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/arcgis/rest/services/AM_Taxiway/FeatureServer/0",
+      "license": "The data provided is for public use. Reference and Sample purpose only.",
+      "attribution": "Federal Aviation Administration, Air Traffic Organization, Mission Support Services, Aeronautical Information Services."
+    },
+    {
+      "layer": "aprons",
+      "itemId": "e74412cf6a2345eb9974fa21b6faa225",
+      "title": "AM_Apron",
+      "owner": "AeronauticalInformationServices_FAA",
+      "modifiedAt": "2026-07-09T11:49:31.000Z",
+      "effective": {
+        "from": "0901Z 09 Jul 2026",
+        "to": "0901Z 03 Sep 2026"
+      },
+      "sourceUrl": "https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/arcgis/rest/services/AM_Apron/FeatureServer/0",
+      "license": "The data provided is for public use. Reference and Sample purpose only.",
+      "attribution": "Federal Aviation Administration, Air Traffic Organization, Mission Support Services, Aeronautical Information Services."
+    },
+    {
+      "layer": "buildings",
+      "itemId": "7bca2c0cf31f43b89601433eda009312",
+      "title": "AM_Building",
+      "owner": "AeronauticalInformationServices_FAA",
+      "modifiedAt": "2026-07-09T11:51:11.000Z",
+      "effective": {
+        "from": "0901Z 09 Jul 2026",
+        "to": "0901Z 03 Sep 2026"
+      },
+      "sourceUrl": "https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/arcgis/rest/services/AM_Building/FeatureServer/0",
+      "license": "The data provided is for public use. Reference and Sample purpose only.",
+      "attribution": "Federal Aviation Administration, Air Traffic Organization, Mission Support Services, Aeronautical Information Services."
+    },
+    {
+      "layer": "hotspots",
+      "itemId": "d1474c9456b9485f94cecce10a47944c",
+      "title": "AM_Hotspot",
+      "owner": "AeronauticalInformationServices_FAA",
+      "modifiedAt": "2026-07-09T11:51:49.000Z",
+      "effective": {
+        "from": "0901Z 09 Jul 2026",
+        "to": "0901Z 03 Sep 2026"
+      },
+      "sourceUrl": "https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/arcgis/rest/services/AM_Hotspot/FeatureServer/0",
+      "license": "The data provided is for public use. Reference and Sample purpose only.",
+      "attribution": "Federal Aviation Administration, Air Traffic Organization, Mission Support Services, Aeronautical Information Services."
+    },
+    {
+      "layer": "stopways",
+      "itemId": "b18e9298866749f4878ea1f42e5be98d",
+      "title": "AM_Stopway",
+      "owner": "AeronauticalInformationServices_FAA",
+      "modifiedAt": "2026-07-09T11:53:45.000Z",
+      "effective": {
+        "from": "0901Z 09 Jul 2026",
+        "to": "0901Z 03 Sep 2026"
+      },
+      "sourceUrl": "https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/arcgis/rest/services/AM_Stopway/FeatureServer/0",
+      "license": "The data provided is for public use. Reference and Sample purpose only.",
+      "attribution": "Federal Aviation Administration, Air Traffic Organization, Mission Support Services, Aeronautical Information Services."
+    },
+    {
+      "layer": "beacons",
+      "itemId": "4b277ecb5aed4bcd808c95c67dc1a423",
+      "title": "AM_Beacon",
+      "owner": "AeronauticalInformationServices_FAA",
+      "modifiedAt": "2026-07-09T11:50:22.000Z",
+      "effective": {
+        "from": "0901Z 09 Jul 2026",
+        "to": "0901Z 03 Sep 2026"
+      },
+      "sourceUrl": "https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/arcgis/rest/services/AM_Beacon/FeatureServer/0",
+      "license": "The data provided is for public use. Reference and Sample purpose only.",
+      "attribution": "Federal Aviation Administration, Air Traffic Organization, Mission Support Services, Aeronautical Information Services."
+    },
+    {
+      "layer": "windIndicators",
+      "itemId": "faf33e0cb5ed46fdafe09bdf455c48f2",
+      "title": "AM_Wind_Indicator",
+      "owner": "AeronauticalInformationServices_FAA",
+      "modifiedAt": "2026-07-09T11:55:28.000Z",
+      "effective": {
+        "from": "0901Z 09 Jul 2026",
+        "to": "0901Z 03 Sep 2026"
+      },
+      "sourceUrl": "https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/arcgis/rest/services/AM_Wind_Indicator/FeatureServer/0",
+      "license": "The data provided is for public use. Reference and Sample purpose only.",
+      "attribution": "Federal Aviation Administration, Air Traffic Organization, Mission Support Services, Aeronautical Information Services."
+    }
+  ]
+}

@@ -57,7 +57,7 @@ http://127.0.0.1:5173/?airport=ORD&mode=auto&scenario=rush&speed=3&autostart=1&t
 
 Useful parameters include `airport`, `mode`, `scenario`, `station`, `speed`, `weather`, `wind`, `windDir`, `night=1`, `radar=1`, `telemetry=1`, `debug=1`, `detail=low`, `soak=1`, and `autostart=1`. Modes are `auto`, `assisted`, `manual`, and `watch`.
 
-See [docs/airport-control.md](docs/airport-control.md) for the live-control interface and [docs/airport-operations-review.md](docs/airport-operations-review.md) for modeled rules and deliberate simplifications. The longer-term product backlog is in [PLAN.md](PLAN.md).
+See [docs/airport-control.md](docs/airport-control.md) for the live-control interface, [docs/airport-operations-review.md](docs/airport-operations-review.md) for modeled rules and deliberate simplifications, and [docs/airport-data-sources.md](docs/airport-data-sources.md) for airport-map provenance and import policy. Completed releases are recorded in [PLAN.md](PLAN.md); unfinished work is tracked in [ROADMAP.md](ROADMAP.md).
 
 ## Architecture
 

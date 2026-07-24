@@ -120,6 +120,9 @@ const scopeLabel = $<HTMLElement>('#scope-label');
 const brandMark = $<HTMLElement>('#brand-mark');
 const airportName = $<HTMLElement>('#airport-name');
 const airportMeta = $<HTMLElement>('#airport-meta');
+const mapDataVersion = $<HTMLElement>('#map-data-version');
+const mapDataAttribution = $<HTMLElement>('#map-data-attribution');
+const mapDataSource = $<HTMLAnchorElement>('#map-data-source');
 const instructionCopy = $<HTMLElement>('#instruction-copy');
 const airportSelect = $<HTMLSelectElement>('#airport-select');
 const controlSelect = $<HTMLSelectElement>('#control-select');
@@ -1149,6 +1152,18 @@ function updateAirportUi(): void {
   airportMeta.textContent = center
     ? `${config.code} · ATC schematic · ${Math.round((config.annualOperations ?? 0) / 1000)}k ops/year`
     : 'Local · airfield control';
+  if (config.vectorData) {
+    const effective = config.vectorData.effective
+      ? `${config.vectorData.effective.from.replace(/^\d{4}Z\s+/, '')}–${config.vectorData.effective.to.replace(/^\d{4}Z\s+/, '')}`
+      : 'effective window unavailable';
+    mapDataVersion.textContent = `FAA vector foundation · ${effective}`;
+    mapDataAttribution.textContent = `${config.vectorData.attribution} Retrieved ${config.vectorData.retrievedOn} · imported geometry staged · not for navigation.`;
+    mapDataSource.hidden = false;
+  } else {
+    mapDataVersion.textContent = center ? 'Purpose-built ATC schematic' : 'Procedural airfield';
+    mapDataAttribution.textContent = 'Original generated scenery · not for navigation';
+    mapDataSource.hidden = true;
+  }
   document.title = `${config.code === 'LOCAL' ? config.name : config.code} · Airport Auto`;
   scopeButton.setAttribute('aria-pressed', String(center));
   scopeButton.classList.toggle('control--active', center);
@@ -1282,6 +1297,18 @@ function airportSnapshot() {
       fidelity: config.code === 'LOCAL' ? 'procedural' : 'schematic',
       navigationUse: false,
       operationsPerYear: config.annualOperations,
+      vectorData: config.vectorData ? {
+        schemaVersion: config.vectorData.schemaVersion,
+        assetPath: config.vectorData.assetPath,
+        assetSha256: config.vectorData.assetSha256,
+        retrievedOn: config.vectorData.retrievedOn,
+        effective: config.vectorData.effective,
+        coordinateSystem: config.vectorData.coordinateSystem,
+        boundsMeters: config.vectorData.boundsMeters,
+        layerCounts: config.vectorData.layerCounts,
+        attribution: config.vectorData.attribution,
+        sources: config.vectorData.sources,
+      } : null,
     },
     clock: Number(simulation.state.elapsed.toFixed(2)),
     paused: simulation.state.paused,

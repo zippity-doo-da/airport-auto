@@ -9,10 +9,20 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   const initial = await page.evaluate(() => window.airportControl.snapshot());
   expect(initial.mode).toBe('assisted');
   expect(initial.airport.code).toBe('ORD');
+  expect(initial.airport.vectorData?.layerCounts.runways).toBe(8);
+  expect(initial.airport.vectorData?.layerCounts.taxiways).toBe(743);
+  expect(initial.airport.vectorData?.attribution).toContain('Federal Aviation Administration');
   expect(initial.flights.some((flight) => flight.phase === 'approach')).toBeTruthy();
   expect(initial.flights.some((flight) => flight.phase === 'taxi-out' || flight.phase === 'resting')).toBeTruthy();
   expect(initial.traffic.collisions).toHaveLength(0);
   expect(initial.traffic.obstacleCollisions).toHaveLength(0);
+  const importedVectorCounts = await page.evaluate(async () => {
+    const response = await fetch('./data/airports/KORD.vector.json');
+    if (!response.ok) throw new Error(`airport vector request failed: ${response.status}`);
+    const asset = await response.json();
+    return { runways: asset.layers.runways.length, taxiways: asset.layers.taxiways.length };
+  });
+  expect(importedVectorCounts).toEqual({ runways: 8, taxiways: 743 });
 
   const proposalButton = page.locator('#clearance-advisor button[data-proposal-id]');
   await expect(proposalButton).toBeVisible();
@@ -35,6 +45,9 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await page.evaluate(() => window.airportControl.request({ action: 'resume' }));
 
   await page.locator('#menu-toggle').click();
+  await page.locator('.advanced-tools summary').click();
+  await expect(page.locator('#map-data-version')).toContainText('FAA vector foundation');
+  await expect(page.locator('#map-data-attribution')).toContainText('not for navigation');
   await page.locator('#station-select').selectOption('ground');
   await expect(page.locator('#flight-strip-count')).toContainText('on frequency');
   await page.screenshot({ path: testInfo.outputPath('assisted-ord.png'), fullPage: true });

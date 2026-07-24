@@ -23,12 +23,12 @@ This document contains only unfinished, still-valid work. Shipped behavior belon
 
 ### Source and import pipeline
 
-- [ ] Select documented, license-compatible sources for airport geometry, surrounding roads, land use, rail, and water.
-- [ ] Record source, license, retrieval date, coordinate system, and data version in each generated airport asset.
-- [ ] Build an offline importer that converts source coordinates into the simulation’s local coordinate system.
-- [ ] Normalize imported features into a compact, versioned airport vector format rather than loading raw OSM or diagram data at runtime.
+- [x] Select documented, license-compatible sources for airport geometry, surrounding roads, land use, rail, and water.
+- [x] Record source, license, retrieval date, coordinate system, and data version in each generated airport asset.
+- [x] Build an offline importer that converts source coordinates into the simulation’s local coordinate system.
+- [x] Normalize imported features into a compact, versioned airport vector format rather than loading raw OSM or diagram data at runtime.
 - [ ] Add deterministic import validation for disconnected edges, duplicate nodes, impossible turns, undersized clearances, and unreferenced features.
-- [ ] Show attribution and map-version metadata in About/settings and `airportControl.snapshot()`.
+- [x] Show attribution and map-version metadata in About/settings and `airportControl.snapshot()`.
 
 ### Airfield topology
 
