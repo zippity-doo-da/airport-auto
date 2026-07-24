@@ -50,7 +50,7 @@ const COLORS: FlightColor[] = ['rose', 'mist', 'sage'];
 
 export const HUB_AIRPORTS: HubProfile[] = [
   {
-    code: 'ATL', name: 'Hartsfield–Jackson Atlanta', operations: 807_625, interval: 11.5, terrain: 'woodland', terminal: [0, 7],
+    code: 'ATL', name: 'Hartsfield–Jackson Atlanta', operations: 807_625, interval: 9.5, terrain: 'woodland', terminal: [0, 7],
     runways: [
       { center: [-4, 32], heading: 0, length: 63, role: 'arrival', designation: ['08L', '26R'] },
       { center: [2, 21], heading: 0, length: 70, role: 'departure', designation: ['08R', '26L'] },
@@ -88,7 +88,7 @@ export const HUB_AIRPORTS: HubProfile[] = [
     ],
   },
   {
-    code: 'ORD', name: "Chicago O’Hare", operations: 857_392, interval: 11.5, terrain: 'woodland', terminal: [72, 0],
+    code: 'ORD', name: "Chicago O’Hare", operations: 857_392, interval: 8.5, terrain: 'woodland', terminal: [72, 0],
     runways: [
       { center: [-8, 34], heading: 0, length: 53, role: 'arrival', designation: ['09L', '27R'] },
       { center: [2, 23], heading: 0, length: 79, role: 'arrival', designation: ['09C', '27C'] },
@@ -97,7 +97,7 @@ export const HUB_AIRPORTS: HubProfile[] = [
       { center: [3, -22], heading: 0, length: 76, role: 'arrival', designation: ['10C', '28C'] },
       { center: [-6, -34], heading: 0, length: 53, role: 'arrival', designation: ['10R', '28L'] },
       { center: [1, 4], heading: Math.PI * 0.28, length: 53, role: 'inactive', designation: ['04L', '22R'] },
-      { center: [27, -19], heading: Math.PI * 0.28, length: 57, role: 'mixed', designation: ['04R', '22L'] },
+      { center: [27, -19], heading: Math.PI * 0.28, length: 57, role: 'inactive', designation: ['04R', '22L'] },
     ],
   },
   {
@@ -216,7 +216,7 @@ export function generateHubConfig(index = 0): AirportConfig {
     treeCount: 26,
     annualOperations: profile.operations,
     trafficInterval: profile.interval,
-    trafficCap: Math.max(8, Math.round(8 + (profile.operations - 450_000) / 90_000)),
+    trafficCap: Math.max(14, Math.round(14 + (profile.operations - 450_000) / 45_000)),
   });
 }
 

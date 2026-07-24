@@ -4,15 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#183638" />
-    <meta name="description" content="Guide arriving aircraft safely into Stillwater Airfield." />
-    <title>Stillwater Airfield Control</title>
+    <meta name="description" content="Airport Auto is a calm, live air-traffic simulation with automatic and hands-on ATC modes." />
+    <title>Airport Auto — Live Air Traffic</title>
   </head>
   <body>
     <main id="app">
-      <canvas id="scene" aria-label="Interactive isometric airfield. Drag arriving aircraft to their matching runway."></canvas>
+      <canvas id="scene" tabindex="0" aria-label="Live three-dimensional airport traffic simulation.">Airport Auto requires a browser with WebGL support.</canvas>
       <svg id="route-layer" aria-hidden="true"><path id="route-shadow"/><path id="route-path"/></svg>
 
-      <header class="brand" aria-label="Stillwater Airfield Control">
+      <header class="brand" aria-label="Airport Auto">
         <span id="brand-mark" class="brand__mark" aria-hidden="true">S</span>
         <div><p id="airport-name">Stillwater</p><span id="airport-meta">Local · airfield control</span></div>
       </header>
@@ -60,6 +60,7 @@
           <span id="weather-condition">WX off</span><b id="weather-wind">calm · wind off</b><small id="weather-visibility">10 mi visibility</small>
           <div class="weather-readout__switches"><button id="weather-toggle" type="button" aria-pressed="false">WX OFF</button><button id="wind-toggle" type="button" aria-pressed="false">WIND OFF</button></div>
         </div>
+        <label class="audio-preset"><span>Soundscape</span><select id="audio-preset"><option value="full">Full field</option><option value="calm">Calm</option><option value="radio">Radio focus</option></select></label>
         </section>
 
         <nav class="controls" aria-label="Game controls">
@@ -70,8 +71,19 @@
           <button id="pause-toggle" class="control" type="button" aria-label="Pause shift" aria-pressed="false"><span id="pause-icon" aria-hidden="true">Ⅱ</span><small id="pause-label">Pause</small></button>
           <button id="view-toggle" class="control" type="button" aria-label="Change camera view"><span aria-hidden="true">◇</span><small>New view</small></button>
           <button id="radar-toggle" class="control" type="button" aria-label="Show radar circles" aria-pressed="false"><span aria-hidden="true">◎</span><small id="radar-label">Radar off</small></button>
+          <button id="runway-label-toggle" class="control" type="button" aria-label="Show runway labels" aria-pressed="false"><span aria-hidden="true">09</span><small id="runway-label-label">Labels off</small></button>
           <button id="field-toggle" class="control" type="button" aria-label="Generate a new airfield"><span aria-hidden="true">↻</span><small id="field-label">New field</small></button>
         </nav>
+        <details class="advanced-tools">
+          <summary>Replay & agent tools</summary>
+          <div class="replay-tools" aria-label="Replay controls">
+            <button id="replay-toggle" type="button">Replay</button>
+            <input id="replay-slider" type="range" min="0" max="0" value="0" step="1" aria-label="Replay position" disabled />
+            <output id="replay-time">LIVE</output>
+            <button id="replay-export" type="button">Export</button>
+          </div>
+          <p class="agent-note"><b>Live agent channel ready</b><span>window.airportControl · BroadcastChannel “airport-auto”</span></p>
+        </details>
       </aside>
 
       <aside id="flight-strip" class="flight-strip" aria-label="Live flight information">
@@ -79,8 +91,15 @@
           <span><b>Live traffic</b><small id="flight-strip-count">0 aircraft</small></span>
           <i aria-hidden="true">−</i>
         </button>
+        <section id="flight-actions" class="flight-actions" aria-live="polite" hidden></section>
         <div id="flight-chips" class="flight-chips" role="list"></div>
       </aside>
+
+      <nav class="camera-tools" aria-label="Camera controls">
+        <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
+        <button id="zoom-out" type="button" aria-label="Zoom out">−</button>
+        <button id="camera-reset" type="button" aria-label="Reset camera">⌂</button>
+      </nav>
 
       <section class="scoreboard" aria-label="Shift score">
         <div><strong id="landed-count">00</strong><span>Landed</span></div>
@@ -100,12 +119,6 @@
       <p class="instruction"><span class="instruction__menu-icon" aria-hidden="true"><i></i><i></i><i></i></span><span id="instruction-copy">The tower routes automatically · <b>open Controls to adjust</b></span></p>
 
       <aside id="telemetry-panel" class="telemetry" aria-label="Airport telemetry" hidden>
-        <div class="replay-tools" aria-label="Replay controls">
-          <button id="replay-toggle" type="button">Replay</button>
-          <input id="replay-slider" type="range" min="0" max="0" value="0" step="1" aria-label="Replay position" disabled />
-          <output id="replay-time">LIVE</output>
-          <button id="replay-export" type="button">Export</button>
-        </div>
         <div id="telemetry-controls" class="telemetry__controls" aria-label="Manual surface clearances"></div>
         <pre id="telemetry-output"></pre>
       </aside>
@@ -113,8 +126,8 @@
       <div id="intro" class="modal modal--intro" role="dialog" aria-labelledby="intro-title" aria-modal="true">
         <div class="modal__panel intro__panel">
           <span class="intro__rule" aria-hidden="true"></span>
-          <h1 id="intro-title">A quiet window<br />onto the sky.</h1>
-          <p>Run a quiet generated airfield, or switch to Center for famous hubs, a wider scope, and traffic intensity based on real aircraft operations. Auto runs the system; Manual gives you every arrival.</p>
+          <h1 id="intro-title">Airport Auto.<br />The whole field, alive.</h1>
+          <p>Watch a continuous living airport in Full Auto, or take the frequency in Full Manual. Major hubs use schematic real-world runway patterns, traffic scale, weather, and named ground routes.</p>
           <div class="intro-setup" aria-label="Choose your airport and mode">
             <label><span>Airport</span><select id="intro-airport-select">
               <option value="LOCAL">Random local airfield</option>
@@ -136,7 +149,7 @@
           </div>
           <div class="runway-key"><span><i class="key key--rose"></i>Landing threshold</span><span><i class="key key--blue"></i>Departure chevrons</span></div>
           <button id="enter" class="primary" type="button">Watch the airfield <span aria-hidden="true">→</span></button>
-          <small>Mouse, touch, or trackpad · Sound is optional</small>
+          <small>Mouse, touch, keyboard, or trackpad · Sound is optional</small>
         </div>
       </div>
 
@@ -144,7 +157,7 @@
         <div class="modal__panel gameover__panel">
           <span>Airspace conflict</span>
           <h2 id="game-over-title">Shift over</h2>
-          <p>You kept Stillwater moving for <b id="final-time">00:00</b>.</p>
+          <p>You kept <b id="final-airport">the airport</b> moving for <b id="final-time">00:00</b>.</p>
           <div class="final-score"><span><b id="final-landed">00</b> landed</span><span><b id="final-departed">00</b> departed</span></div>
           <button id="restart" class="primary" type="button">Restart shift <span aria-hidden="true">↻</span></button>
         </div>

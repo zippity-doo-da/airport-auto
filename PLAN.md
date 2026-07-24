@@ -7,6 +7,23 @@ Airport Auto should serve two audiences at once:
 
 The simulation is the source of truth. Three.js renders it, DOM controls expose it, and the telemetry interface makes it inspectable and controllable by tools or agents.
 
+## Release status — Airport Auto 2.0
+
+The July 2026 reliability and experience pass completed the current foundation:
+
+- One fixed 60 Hz simulation clock with high-refresh render interpolation; speed changes no longer create separate taxi timing or repeated-frame stutter.
+- Shared trajectory and surface-graph truth for simulation, collision checks, telemetry, tests, and Three.js presentation.
+- Edge-to-threshold arrivals with curved turns, flare, early touchdown, rollout, and continuous runway exit.
+- Hold-short, runway-crossing, line-up, takeoff-clearance, full-roll rotation, climb-out, and aircraft/runway compatibility.
+- Continuous hub traffic, independent parallel-runway operations, unique gates, concurrent non-conflicting taxi movement, and collision-safe reservations.
+- O'Hare's recognizable eight-runway schematic, separated terminal/apron/perimeter geometry, six active parallel runways, partial named taxiways, and busy initial traffic.
+- A readable, responsive HUD with selected-flight commands, keyboard control, four cameras, zoom/follow/reset, replay, accessibility semantics, and optional labels/overlays.
+- Weather/wind independence, wind-driven runway ends, night/radar presentation, and Full/Calm/Radio audio presets.
+- Versioned `airportControl` 2.0 requests, rejection reasons, event details, renderer diagnostics, true replay frames, and a local `BroadcastChannel` command bridge.
+- Deterministic graph, fixed-step, full-trajectory, pavement, obstacle, and multi-hour collision test suites plus GitHub CI.
+
+The remaining checkboxes below are the longer-term product backlog, not defects claimed to be present in 2.0. Where a feature has a first implementation but still deserves deeper realism, it remains open.
+
 ## Current baseline
 
 The current TypeScript/Vite/Three.js build already includes, or has a first pass of:
@@ -398,12 +415,12 @@ Every command should be validated by the same safety layer used by the UI. An ag
 3. [x] Add collision envelopes and assert no aircraft-aircraft or aircraft-building overlap.
 4. [x] Implement continuous arrival splines from edge entry through touchdown and rollout.
 5. [x] Implement continuous departure roll, rotation, and climb-out.
-6. Make taxi routing graph-based and prohibit grass positions.
-7. Add runway crossing reservations and explicit hold-short clearance UI.
-8. Replace batch spawning with a rolling traffic scheduler and hub-specific peak curves.
-9. Add ORD’s first-pass real surface graph and validate it against a reference diagram.
+6. [x] Make taxi routing graph-based and prohibit grass positions.
+7. [x] Add runway crossing reservations and explicit hold-short clearance UI.
+8. [x] Replace batch spawning with a rolling traffic scheduler and hub-specific traffic levels.
+9. [x] Add ORD’s first-pass schematic surface graph and validate the runway pattern against a reference diagram.
 10. Add Assisted mode with proposed clearances and rejection explanations.
-11. Add versioned telemetry snapshots/events plus a replay export test.
+11. [x] Add versioned telemetry snapshots/events plus deterministic full-state replay.
 12. Add an autoplay soak-test dashboard that reports collisions, incursions, stalls, pauses, delay, and throughput.
 
 ## Acceptance test matrix
@@ -450,7 +467,7 @@ Every command should be validated by the same safety layer used by the UI. An ag
 
 ## Product decisions to make later
 
-- Is the primary title “Airport Auto” or “Stillwater Airfield”?
+- The primary title is **Airport Auto**; Stillwater remains historical project material only.
 - How exact should each real airport be before the schematic label is required?
 - Should ATC voice use generated speech, prerecorded clips, or captions only?
 - Should agent control remain local-only or support a remote authenticated service?

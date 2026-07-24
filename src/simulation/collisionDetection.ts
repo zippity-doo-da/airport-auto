@@ -99,10 +99,14 @@ export function aircraftCollisionEnvelope(config: AirportConfig, flight: Flight,
 
   const trajectory = sampleFlightTrajectory(config, flight, p);
   if (trajectory) {
+    // The orthographic renderer compresses altitude for readability. Expand
+    // airborne Z for safety math so an aircraft hundreds of feet above an
+    // apron is not treated as physically touching ground traffic below it.
+    const safetyAltitude = trajectory.onGround ? trajectory.z : 2 + (trajectory.z - 2) * 3;
     return envelope({
       x: trajectory.x,
       y: trajectory.y,
-      altitude: trajectory.z,
+      altitude: safetyAltitude,
       heading: trajectory.heading,
       airborne: !trajectory.onGround,
       surface: trajectory.onGround,

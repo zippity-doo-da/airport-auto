@@ -45,6 +45,8 @@ const totals = {
   events: 0,
   hubArrivals: 0,
   hubDepartures: 0,
+  concurrentSurfaceMovers: 0,
+  manualDepartureCleared: false,
 };
 
 const seeds = [1, 17, 991, 42_424];
@@ -95,7 +97,7 @@ advanceInPattern(ordTwin, 300, partitionPattern);
 assert(canonicalSnapshot(ord) === canonicalSnapshot(ordTwin), 'ORD: seeded hub run was not deterministic');
 const ordSnapshot = ord.snapshot();
 assert(ordSnapshot.state.arrivals > 0, 'ORD: fixed-step run produced no arrivals');
-assert(ordSnapshot.state.departures > 0, 'ORD: fixed-step run produced no departures');
+assert(ordSnapshot.state.departures > 0, 'ORD: fixed-step run produced no departures ' + JSON.stringify(ordSnapshot.flights.map((flight) => ({ id: flight.id, phase: flight.phase, progress: flight.progress, duration: flight.duration, elapsed: flight.phaseElapsed, runway: flight.runway, automaticHold: flight.automaticHold, hold: flight.safetyHoldReason, routeNode: flight.surfaceNode, routeEdge: flight.surfaceEdge }))));
 assert(ordSnapshot.diagnostics.collisionPairs.length === 0, 'ORD: collision in fixed-step run');
 assert(ordSnapshot.diagnostics.obstacleCollisions.length === 0, 'ORD: aircraft-building collision in fixed-step run');
 assert(ordSnapshot.diagnostics.metrics.collisionAlerts === 0, 'ORD: collision alert in fixed-step run');
@@ -105,6 +107,33 @@ totals.simulatedMinutes += ordSnapshot.simulationTimeSeconds / 60 * 2;
 totals.events += ordSnapshot.events.length * 2;
 totals.hubArrivals = ordSnapshot.state.arrivals;
 totals.hubDepartures = ordSnapshot.state.departures;
+
+const concurrent = createHubSimulationHarness('ORD', { stepSeconds: 0.05 });
+const initialGates = concurrent.simulation.state.flights.map((flight) => flight.gateSlot);
+assert(new Set(initialGates).size === initialGates.length, 'ORD: startup reused an occupied gate');
+let concurrentMovers = 0;
+for (let tick = 0; tick < 40; tick += 1) {
+  const before = new Map(concurrent.simulation.state.flights.map((flight) => [flight.id, flight.progress]));
+  concurrent.advanceTicks(1);
+  const moved = concurrent.simulation.state.flights.filter((flight) => (
+    (flight.phase === 'taxi-in' || flight.phase === 'taxi-out')
+    && flight.progress > (before.get(flight.id) ?? flight.progress)
+  )).length;
+  concurrentMovers = Math.max(concurrentMovers, moved);
+}
+assert(concurrentMovers >= 2, 'ORD: independent surface routes did not move concurrently');
+totals.concurrentSurfaceMovers = concurrentMovers;
+
+const manual = createHubSimulationHarness('ORD', { stepSeconds: 0.05 });
+manual.simulation.setMode('manual');
+manual.simulation.setStation('supervisor');
+assert(manual.runUntil(() => manual.simulation.state.flights.some((flight) => flight.phase === 'taxi-out' && flight.progress >= 0.985), 1_500), 'ORD manual: no departure reached hold short');
+const manualFlight = manual.simulation.state.flights.find((flight) => flight.phase === 'taxi-out' && flight.progress >= 0.985);
+assert(manualFlight && manual.simulation.clearRunwayEntry(manualFlight.id), 'ORD manual: line-up clearance was rejected');
+assert(manual.runUntil(() => manual.simulation.state.flights.some((flight) => flight.id === manualFlight.id && flight.phase === 'takeoff'), 500), 'ORD manual: cleared aircraft never lined up');
+assert(manual.simulation.clearTakeoff(manualFlight.id), 'ORD manual: takeoff clearance was rejected');
+assert(manual.runUntil(() => manual.simulation.state.departures > 0, 300), 'ORD manual: cleared aircraft never departed');
+totals.manualDepartureCleared = true;
 
 const firstSeedGraph = JSON.stringify(generateAirportConfig(101).surfaceGraph);
 const secondSeedGraph = JSON.stringify(generateAirportConfig(102).surfaceGraph);

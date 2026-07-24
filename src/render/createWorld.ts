@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import type { AirportConfig, FlightColor, RunwayConfig } from '../simulation/airportConfig';
 import { aircraftProfile } from '../simulation/aircraftProfiles';
 import { airlineProfile } from '../simulation/airlineProfiles';
-import type { AirportState, Flight, FlightPhase } from '../simulation/types';
-import { phaseUsesFlightTrajectory, sampleFlightTrajectory } from '../simulation/flightTrajectory';
+import type { AirportState, Flight } from '../simulation/types';
+import { sampleFlightTrajectory } from '../simulation/flightTrajectory';
+import { sampleSurfaceRoute } from '../simulation/surfaceGraph';
 
 type FlightVisual = {
   root: THREE.Group;
@@ -19,10 +20,7 @@ type FlightVisual = {
   beacon: THREE.PointLight;
   halo: THREE.Mesh;
   routePoint: THREE.Vector3;
-  routeSample: THREE.Vector3;
   routeTangent: THREE.Vector3;
-  routePhase: FlightPhase | null;
-  route: THREE.CatmullRomCurve3 | null;
   renderedHeading: number;
   poseInitialized: boolean;
   active: boolean;
@@ -36,6 +34,20 @@ type RunwayLight = {
   dayOpacity: number;
   nightOpacity: number;
   phase: number;
+  runwayId: number;
+  end?: -1 | 1;
+  activeOnly?: boolean;
+};
+
+type RunwayVisual = {
+  marker: THREE.Group;
+  closure: THREE.Group;
+  labels: THREE.Sprite[];
+};
+
+type AirportBuild = {
+  runwayLights: RunwayLight[];
+  runwayVisuals: RunwayVisual[];
 };
 
 export interface AirportWorld {
@@ -45,6 +57,11 @@ export interface AirportWorld {
   pickRunway(clientX: number, clientY: number): number | null;
   selectFlight(id: number | null): void;
   flightScreenPosition(id: number): { x: number; y: number } | null;
+  zoomIn(): void;
+  zoomOut(): void;
+  resetCamera(): void;
+  setRunwayLabelsVisible(visible: boolean): void;
+  diagnostics(): { drawCalls: number; triangles: number; geometries: number; textures: number };
   resize(): void;
   dispose(): void;
 }
@@ -111,22 +128,22 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   scene.add(sun);
 
   buildLandscape(world, config);
-  const runwayLights = buildAirport(world, config);
+  const airportBuild = buildAirport(world, config);
+  const runwayLights = airportBuild.runwayLights;
   const swayingObjects = buildDetails(world, config);
   const clouds = buildClouds(scene);
   const rain = buildRain(scene, config.seed);
   const ripples = buildRipples(world, config);
 
   const flightVisuals = new Map<number, FlightVisual>();
-  const flightRoutes = new Map<string, THREE.CatmullRomCurve3>();
   let selectedFlightId: number | null = null;
   let viewIndex = 0;
   let cameraTime = 0;
   const views = [
     { radius: 190, height: 122, phase: 0, zoom: 1 },
-    { radius: 174, height: 96, phase: 1.75, zoom: 0.92 },
-    { radius: 210, height: 142, phase: 3.4, zoom: 1.18 },
-    { radius: 242, height: 176, phase: 4.9, zoom: 1.55 },
+    { radius: 118, height: 72, phase: 1.75, zoom: 0.7 },
+    { radius: 255, height: 158, phase: 3.4, zoom: 1.35 },
+    { radius: 1, height: 250, phase: 0, zoom: 1.42 },
   ];
   let viewportWidth = canvas.clientWidth;
   let viewportHeight = canvas.clientHeight;
@@ -137,6 +154,9 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   const zoomNdc = new THREE.Vector2();
   const zoomGroundPoint = new THREE.Vector3();
   let nightMix = 0;
+  let currentState: AirportState | null = null;
+  let runwayLabelsVisible = false;
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   function updateProjection(): void {
     const aspect = viewportWidth / Math.max(1, viewportHeight);
@@ -150,6 +170,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   }
 
   function update(state: AirportState, delta: number): void {
+    currentState = state;
     cameraTime += delta;
     const weatherFog = state.weather.condition === 'fog' ? 0.0074 : state.weather.condition === 'rain' ? 0.0052 : 0.0032;
     fog.density = THREE.MathUtils.lerp(fog.density, weatherFog, Math.min(1, delta * 0.9));
@@ -164,10 +185,23 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     renderer.toneMappingExposure = THREE.MathUtils.lerp(0.94, 0.86, nightMix);
     for (let index = 0; index < runwayLights.length; index += 1) {
       const light = runwayLights[index];
+      const activeEnd = state.activeRunwayEnds[light.runwayId] ?? config.runways[light.runwayId]?.landingEnd;
+      light.mesh.visible = !light.activeOnly || light.end === activeEnd;
+      if (!light.mesh.visible) continue;
       const material = light.mesh.material as THREE.MeshBasicMaterial;
       const shimmer = Math.sin(state.elapsed * 2.4 + light.phase) * 0.035;
       material.opacity = THREE.MathUtils.clamp(THREE.MathUtils.lerp(light.dayOpacity, light.nightOpacity, nightMix) + shimmer * nightMix, 0.08, 1);
       light.mesh.scale.setScalar(THREE.MathUtils.lerp(0.82, 1.18, nightMix));
+    }
+    for (let index = 0; index < airportBuild.runwayVisuals.length; index += 1) {
+      const runway = config.runways[index];
+      const visual = airportBuild.runwayVisuals[index];
+      const activeEnd = state.activeRunwayEnds[index] ?? runway.landingEnd;
+      visual.marker.position.x = activeEnd * (runway.length / 2 - 3.1);
+      visual.marker.scale.x = activeEnd;
+      visual.marker.visible = state.closedRunway !== index && runway.role !== 'inactive';
+      visual.closure.visible = state.closedRunway === index;
+      for (const label of visual.labels) label.visible = runwayLabelsVisible;
     }
     updateRain(rain, state, delta);
     for (const visual of flightVisuals.values()) visual.active = false;
@@ -186,20 +220,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
         world.add(visual.root);
       }
       visual.active = true;
-      if (phaseUsesFlightTrajectory(flight.phase)) {
-        visual.route = null;
-        visual.routePhase = flight.phase;
-      } else if (visual.routePhase !== flight.phase || !visual.route) {
-        const key = `${flight.runway}:${flight.operatingEnd}:${flight.phase}:${flight.id % 2}:${flight.gateSlot}:${flight.aircraft}:${flight.surfaceRoute?.join('>') ?? ''}`;
-        let route = flightRoutes.get(key);
-        if (!route) {
-          route = routeFor(config, flight);
-          flightRoutes.set(key, route);
-        }
-        visual.route = route;
-        visual.routePhase = flight.phase;
-      }
-      positionFlight(visual, flight, config, state.elapsed, delta, visual.route, nightMix);
+      positionFlight(visual, flight, config, state.elapsed, delta, nightMix);
       visual.root.visible = flight.phase !== 'approach' || isNearViewportEdge(visual.root.position);
       const spool = flight.phase === 'takeoff' ? 28 : flight.phase === 'approach' || flight.phase === 'landing' ? 16 : 8;
       for (const propeller of visual.propellers) propeller.rotation.z += delta * spool;
@@ -251,9 +272,15 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     }
 
     const view = views[viewIndex];
-    const orbit = view.phase + Math.sin(cameraTime * 0.035) * 0.13;
-    const targetX = cameraFocus.x + Math.sin(cameraTime * 0.021) * 5;
-    const targetY = cameraFocus.y + Math.cos(cameraTime * 0.017) * 3;
+    const selected = selectedFlightId === null ? null : flightVisuals.get(selectedFlightId);
+    if (selected) {
+      const follow = 1 - Math.exp(-delta * 2.8);
+      cameraFocus.lerp(new THREE.Vector2(selected.root.position.x, selected.root.position.y), follow);
+    }
+    const drift = reducedMotion ? 0 : 1;
+    const orbit = view.phase + Math.sin(cameraTime * 0.035) * 0.13 * drift;
+    const targetX = cameraFocus.x + Math.sin(cameraTime * 0.021) * 5 * drift;
+    const targetY = cameraFocus.y + Math.cos(cameraTime * 0.017) * 3 * drift;
     camera.position.set(
       cameraFocus.x + Math.cos(orbit) * view.radius,
       cameraFocus.y + Math.sin(orbit) * view.radius,
@@ -298,7 +325,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   }
 
   function pickRunway(clientX: number, clientY: number): number | null {
-    const thresholds = config.runways.map((runway) => runwayEnd(runway, runway.landingEnd, 0, 2.2));
+    const thresholds = config.runways.map((runway) => runwayEnd(runway, currentState?.activeRunwayEnds[runway.id] ?? runway.landingEnd, 0, 2.2));
     let best: { runway: number; distance: number } | null = null;
     for (let index = 0; index < thresholds.length; index += 1) {
       const threshold = thresholds[index];
@@ -342,9 +369,30 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     }
   };
 
+  function changeZoom(factor: number): void {
+    const minimumZoom = config.scope === 'center' ? 0.08 : 0.12;
+    manualZoom = THREE.MathUtils.clamp(manualZoom * factor, minimumZoom, 3);
+    updateProjection();
+  }
+
+  function resetCamera(): void {
+    manualZoom = 1;
+    cameraFocus.set(0, 0);
+    selectedFlightId = null;
+    updateProjection();
+  }
+
+  const onContextLost = (event: Event): void => {
+    event.preventDefault();
+    canvas.dataset.rendererState = 'lost';
+  };
+  const onContextRestored = (): void => { canvas.dataset.rendererState = 'ready'; };
+
   resize();
   window.addEventListener('resize', resize);
   canvas.addEventListener('wheel', onWheel, { passive: false });
+  canvas.addEventListener('webglcontextlost', onContextLost);
+  canvas.addEventListener('webglcontextrestored', onContextRestored);
 
   return {
     update,
@@ -353,10 +401,27 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     pickRunway,
     selectFlight(id) { selectedFlightId = id; },
     flightScreenPosition,
+    zoomIn() { changeZoom(0.78); },
+    zoomOut() { changeZoom(1.28); },
+    resetCamera,
+    setRunwayLabelsVisible(visible) {
+      runwayLabelsVisible = visible;
+      for (const runway of airportBuild.runwayVisuals) for (const label of runway.labels) label.visible = visible;
+    },
+    diagnostics() {
+      return {
+        drawCalls: renderer.info.render.calls,
+        triangles: renderer.info.render.triangles,
+        geometries: renderer.info.memory.geometries,
+        textures: renderer.info.memory.textures,
+      };
+    },
     resize,
     dispose() {
       window.removeEventListener('resize', resize);
       canvas.removeEventListener('wheel', onWheel);
+      canvas.removeEventListener('webglcontextlost', onContextLost);
+      canvas.removeEventListener('webglcontextrestored', onContextRestored);
       disposeObject(scene);
       renderer.dispose();
     },
@@ -418,10 +483,11 @@ function addHighway(root: THREE.Group, start: THREE.Vector3, end: THREE.Vector3,
   }
 }
 
-function buildAirport(root: THREE.Group, config: AirportConfig): RunwayLight[] {
+function buildAirport(root: THREE.Group, config: AirportConfig): AirportBuild {
   const asphalt = new THREE.MeshStandardMaterial({ color: COLORS.runway, roughness: 0.88 });
   const stripe = new THREE.MeshBasicMaterial({ color: COLORS.runwayLine });
   const runwayLights: RunwayLight[] = [];
+  const runwayVisuals: RunwayVisual[] = [];
   config.runways.forEach((data, runwayIndex) => {
     const runway = new THREE.Group();
     runway.position.set(data.center[0], data.center[1], 1.7);
@@ -439,37 +505,61 @@ function buildAirport(root: THREE.Group, config: AirportConfig): RunwayLight[] {
       edge.position.set(0, side * (data.width / 2 - 0.7), 0.22);
       runway.add(edge);
     }
-    const landingX = data.landingEnd * (data.length / 2 - 3.1);
-    for (let bar = -3; bar <= 3; bar += 1) {
-      const thresholdBar = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.62, 0.06), stripe);
-      thresholdBar.position.set(landingX, bar * 0.92, 0.25);
-      runway.add(thresholdBar);
+    const marker = new THREE.Group();
+    marker.position.set(data.landingEnd * (data.length / 2 - 3.1), 0, 0.25);
+    marker.scale.x = data.landingEnd;
+    if (data.role === 'arrival' || data.role === 'mixed') {
+      for (let bar = -3; bar <= 3; bar += 1) {
+        const thresholdBar = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.62, 0.06), stripe);
+        thresholdBar.position.set(0, bar * 0.92, 0);
+        marker.add(thresholdBar);
+      }
     }
+    if (data.role === 'departure' || data.role === 'mixed') {
+      const departureMaterial = new THREE.MeshBasicMaterial({ color: 0x79c8e8 });
+      for (const side of [-1, 1]) {
+        const chevron = new THREE.Mesh(new THREE.BoxGeometry(3.7, 0.38, 0.07), departureMaterial);
+        chevron.position.set(-0.7, side * 1.5, 0.02);
+        chevron.rotation.z = side * 0.38;
+        marker.add(chevron);
+      }
+    }
+    runway.add(marker);
+    const labels: THREE.Sprite[] = [];
     if (data.designation) {
       const negativeLabel = createRunwayLabel(data.designation[0]);
       negativeLabel.position.set(-data.length / 2 + 5.6, 0, 0.48);
+      negativeLabel.visible = false;
       runway.add(negativeLabel);
+      labels.push(negativeLabel);
       const positiveLabel = createRunwayLabel(data.designation[1]);
       positiveLabel.position.set(data.length / 2 - 5.6, 0, 0.48);
+      positiveLabel.visible = false;
       runway.add(positiveLabel);
+      labels.push(positiveLabel);
     }
-    const takeoffX = -data.landingEnd * (data.length / 2 - 4.8);
-    for (const side of [-1, 1]) {
-      const chevron = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.42, 0.06), stripe);
-      chevron.position.set(takeoffX, side * 1.45, 0.25);
-      chevron.rotation.z = side * data.landingEnd * 0.38;
-      runway.add(chevron);
+    const closure = new THREE.Group();
+    closure.position.z = 0.29;
+    const closureMaterial = new THREE.MeshBasicMaterial({ color: 0xef6f62 });
+    for (const rotation of [-0.72, 0.72]) {
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(Math.min(12, data.length * 0.3), 0.65, 0.08), closureMaterial);
+      bar.rotation.z = rotation;
+      closure.add(bar);
     }
-    const addLight = (x: number, y: number, color: number, dayOpacity: number, nightOpacity: number, radius = 0.27): void => {
+    closure.visible = false;
+    runway.add(closure);
+    const addLight = (x: number, y: number, color: number, dayOpacity: number, nightOpacity: number, radius = 0.27, end?: -1 | 1, activeOnly = false): void => {
       const material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: dayOpacity, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
       const light = new THREE.Mesh(new THREE.SphereGeometry(radius, 10, 6), material);
       light.position.set(x, y, 0.45);
       runway.add(light);
-      runwayLights.push({ mesh: light, dayOpacity, nightOpacity, phase: runwayIndex * 1.7 + runwayLights.length * 0.31 });
+      runwayLights.push({ mesh: light, dayOpacity, nightOpacity, phase: runwayIndex * 1.7 + runwayLights.length * 0.31, runwayId: runwayIndex, end, activeOnly });
     };
     const thresholdColor = PALETTE_COLOR[data.color];
-    for (let lightIndex = 1; lightIndex <= 6; lightIndex += 1) {
-      addLight(data.landingEnd * (data.length / 2 + lightIndex * 3.1), 0, thresholdColor, 0.36, 1, 0.38);
+    for (const end of [-1, 1] as const) {
+      for (let lightIndex = 1; lightIndex <= 6; lightIndex += 1) {
+        addLight(end * (data.length / 2 + lightIndex * 3.1), 0, thresholdColor, 0.36, 1, 0.38, end, true);
+      }
     }
     const edgeLightCount = Math.max(8, Math.round(data.length / 6));
     for (let lightIndex = 0; lightIndex <= edgeLightCount; lightIndex += 1) {
@@ -480,6 +570,7 @@ function buildAirport(root: THREE.Group, config: AirportConfig): RunwayLight[] {
     for (const side of [-1, 1]) {
       addLight(-data.landingEnd * (data.length / 2 - 0.8), side * (data.width / 2 - 1.2), 0xff6d61, 0.18, 1, 0.32);
     }
+    runwayVisuals.push({ marker, closure, labels });
     root.add(runway);
   });
 
@@ -504,13 +595,21 @@ function buildAirport(root: THREE.Group, config: AirportConfig): RunwayLight[] {
   const terminalCenter = terminalEnvelope?.center ?? config.terminal;
   const terminal = new THREE.Group();
   terminal.position.set(terminalCenter[0], terminalCenter[1], 1.7);
-  const building = new THREE.Mesh(
-    new THREE.BoxGeometry(28, 9, 5.5),
-    new THREE.MeshStandardMaterial({ color: COLORS.terminal, roughness: 0.78 }),
-  );
-  building.position.z = 2.8;
-  building.castShadow = true;
-  terminal.add(building);
+  const terminalMaterial = new THREE.MeshStandardMaterial({ color: COLORS.terminal, roughness: 0.78 });
+  const buildingParts = config.code === 'ORD'
+    ? [
+      { size: [28, 3.2, 5.5] as const, position: [0, 0] as const },
+      { size: [5.2, 9, 4.4] as const, position: [-9, 0] as const },
+      { size: [5.2, 9, 4.4] as const, position: [0, 0] as const },
+      { size: [5.2, 9, 4.4] as const, position: [9, 0] as const },
+    ]
+    : [{ size: [28, 9, 5.5] as const, position: [0, 0] as const }];
+  for (const part of buildingParts) {
+    const building = new THREE.Mesh(new THREE.BoxGeometry(...part.size), terminalMaterial);
+    building.position.set(part.position[0], part.position[1], part.size[2] / 2);
+    building.castShadow = true;
+    terminal.add(building);
+  }
 
   const roof = new THREE.Mesh(
     new THREE.BoxGeometry(29.5, 10.2, 0.55),
@@ -545,7 +644,7 @@ function buildAirport(root: THREE.Group, config: AirportConfig): RunwayLight[] {
   top.castShadow = true;
   tower.add(top);
   root.add(tower);
-  return runwayLights;
+  return { runwayLights, runwayVisuals };
 }
 
 function createRunwayLabel(label: string): THREE.Sprite {
@@ -878,10 +977,7 @@ function createPlane(flight: Flight): FlightVisual {
     beacon,
     halo,
     routePoint: new THREE.Vector3(),
-    routeSample: new THREE.Vector3(),
     routeTangent: new THREE.Vector3(),
-    routePhase: null,
-    route: null,
     renderedHeading: 0,
     poseInitialized: false,
     active: true,
@@ -894,7 +990,6 @@ function positionFlight(
   config: AirportConfig,
   elapsed: number,
   delta: number,
-  curve: THREE.CatmullRomCurve3 | null,
   nightMix: number,
 ): void {
   // The orthographic camera has no natural perspective scaling. Gently scale
@@ -917,20 +1012,11 @@ function positionFlight(
   if (trajectory) {
     point.set(trajectory.x, trajectory.y, trajectory.z);
     tangent.set(Math.cos(trajectory.heading), Math.sin(trajectory.heading), 0);
-  } else if (curve) {
-    curve.getPointAt(flight.progress, point);
-    const forwardSample = flight.progress < 0.998;
-    const sampleProgress = forwardSample ? flight.progress + 0.002 : flight.progress - 0.002;
-    curve.getPointAt(sampleProgress, visual.routeSample);
-    tangent.copy(visual.routeSample);
-    if (forwardSample) {
-      tangent.sub(point);
-    } else {
-      tangent.set(point.x - tangent.x, point.y - tangent.y, point.z - tangent.z);
-    }
-    tangent.normalize();
   } else {
-    return;
+    const surface = sampleSurfaceRoute(config.surfaceGraph, flight.surfaceRoute, flight.progress);
+    if (!surface) return;
+    point.set(surface.x, surface.y, 2);
+    tangent.set(Math.cos(surface.heading), Math.sin(surface.heading), 0);
   }
   visual.root.position.copy(point);
   const modelScale = visual.root.scale.x;
@@ -1040,41 +1126,6 @@ function updateContrail(visual: FlightVisual, flight: Flight, config: AirportCon
   if (!visual.contrail.visible) return;
   const material = visual.contrail.material as THREE.LineBasicMaterial;
   material.opacity = 0.08 + Math.sin(elapsed * 0.8 + flight.id) * 0.025;
-}
-
-function routeFor(config: AirportConfig, flight: Flight): THREE.CatmullRomCurve3 {
-  const runway = config.runways[flight.runway];
-  const phase = flight.phase;
-  const takeoffSign = -flight.operatingEnd as -1 | 1;
-  const rolloutEnd = runwayEnd(runway, takeoffSign, -5, 2);
-  const holdShort = runwayEnd(runway, flight.operatingEnd, 8, 2);
-  const surfacePoints = surfaceRoutePoints(config, flight);
-  const stand = config.surfaceGraph.stands.find((item) => item.slot === flight.gateSlot);
-  const standNode = stand ? config.surfaceGraph.nodes.find((node) => node.id === stand.nodeId) : undefined;
-  const standPoint = standNode
-    ? new THREE.Vector3(standNode.position[0], standNode.position[1], 2)
-    : new THREE.Vector3(config.terminal[0], config.terminal[1], 2);
-  const standHeading = stand?.heading ?? 0;
-  const standAlignmentPoint = standPoint.clone().add(new THREE.Vector3(
-    -Math.cos(standHeading) * 0.001,
-    -Math.sin(standHeading) * 0.001,
-    0,
-  ));
-  const points = phase === 'taxi-in'
-    ? (surfacePoints.length >= 2 ? surfacePoints : [rolloutEnd, standPoint])
-    : phase === 'taxi-out'
-      ? (surfacePoints.length >= 2 ? surfacePoints : [standPoint, holdShort])
-      : [standAlignmentPoint, standPoint];
-  return new THREE.CatmullRomCurve3(points, false, 'centripetal');
-}
-
-function surfaceRoutePoints(config: AirportConfig, flight: Flight): THREE.Vector3[] {
-  if (!flight.surfaceRoute?.length) return [];
-  const nodes = new Map(config.surfaceGraph.nodes.map((node) => [node.id, node]));
-  return flight.surfaceRoute
-    .map((id) => nodes.get(id))
-    .filter((node): node is NonNullable<typeof node> => Boolean(node))
-    .map((node) => new THREE.Vector3(node.position[0], node.position[1], 2));
 }
 
 function addHoldShortMarking(root: THREE.Group, runway: RunwayConfig, point: THREE.Vector3): void {

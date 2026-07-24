@@ -79,6 +79,7 @@ const totals = {
   touchdownChecks: 0,
   rotationChecks: 0,
   liveMotionTicks: 0,
+  approachSpeedChecks: 0,
   liveArrivals: 0,
   liveDepartures: 0,
 };
@@ -202,7 +203,16 @@ for (let tick = 0; tick < 7_000; tick += 1) {
       continue;
     }
     seenStages.add(motion.stage);
-    assert(!flight.safetyHold, 'ORD live motion: ' + flight.callsign + ' paused during ' + motion.stage + ' because ' + flight.safetyHoldReason);
+    assert(!flight.safetyHold, 'ORD live motion: ' + flight.callsign + ' paused during ' + motion.stage + ' because ' + flight.safetyHoldReason + ' ' + JSON.stringify(liveHarness.simulation.state.flights.map((item) => ({ id: item.id, callsign: item.callsign, phase: item.phase, progress: item.progress, runway: item.runway, hold: item.safetyHoldReason }))));
+    if (flight.phase === 'approach' && flight.progress > 0.02) {
+      const profile = aircraftProfile(flight.aircraft);
+      assert(
+        flight.kinematics.airspeedKts >= profile.approachKts * 0.98 && flight.kinematics.airspeedKts <= profile.approachKts + 30,
+        'ORD live motion: ' + flight.callsign + ' approach airspeed departed the model envelope: ' + flight.kinematics.airspeedKts,
+      );
+      assert(Math.abs(flight.kinematics.accelerationMps2) < 0.1, 'ORD live motion: ' + flight.callsign + ' approach speed stuttered: ' + flight.kinematics.accelerationMps2 + ' m/s²');
+      totals.approachSpeedChecks += 1;
+    }
     const previous = previousMotion.get(flight.id);
     if (previous) {
       const moved = horizontalDistance(previous.motion, motion);
@@ -215,6 +225,13 @@ for (let tick = 0; tick < 7_000; tick += 1) {
       const profile = aircraftProfile(flight.aircraft);
       assert(flight.kinematics.airspeedKts >= profile.approachKts * 1.04, 'ORD live motion: ' + flight.callsign + ' lifted off below a credible rotation speed');
       airborneTakeoffs.add(flight.id);
+    }
+    if (flight.phase === 'landing' && motion.stage === 'flare' && motion.stageProgress > 0.05) {
+      const profile = aircraftProfile(flight.aircraft);
+      assert(
+        flight.kinematics.airspeedKts >= profile.approachKts * 0.9 && flight.kinematics.airspeedKts <= profile.approachKts * 1.08,
+        'ORD live motion: ' + flight.callsign + ' lost approach speed before touchdown: ' + flight.kinematics.airspeedKts,
+      );
     }
     if (flight.phase === 'landing' && motion.stage === 'runway-exit' && motion.stageProgress > 0.8) {
       const profile = aircraftProfile(flight.aircraft);
@@ -230,7 +247,7 @@ totals.liveDepartures = liveHarness.simulation.state.departures;
 for (const requiredStage of ['edge-entry', 'arrival-turn', 'final', 'flare', 'touchdown', 'rollout', 'runway-exit', 'lineup', 'takeoff-roll', 'rotation', 'climbout']) {
   assert(seenStages.has(requiredStage), 'ORD live motion never reached ' + requiredStage);
 }
-assert(airborneTakeoffs.size >= 2, 'ORD live motion did not verify two liftoffs');
+assert(airborneTakeoffs.size >= 2, 'ORD live motion did not verify two liftoffs ' + JSON.stringify({ departures: liveHarness.simulation.state.departures, airborne: [...airborneTakeoffs], flights: liveHarness.simulation.state.flights.map((flight) => ({ id: flight.id, phase: flight.phase, progress: flight.progress, runway: flight.runway, gate: flight.gateSlot, route: flight.surfaceRoute, entry: flight.runwayEntryCleared, takeoff: flight.takeoffCleared, hold: flight.safetyHoldReason })), envelopes: liveHarness.simulation.diagnostics().collisionEnvelopes.aircraft }));
 assert(completedRollouts.size >= 4, 'ORD live motion did not verify four complete landing rollouts');
 
 console.log(JSON.stringify(totals));

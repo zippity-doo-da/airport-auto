@@ -31,6 +31,7 @@ export interface FixedStepHarnessEvent {
   progress: number;
   runway: number;
   taxiway?: string;
+  detail?: string;
 }
 
 export interface FixedStepFlightSnapshot {
@@ -53,7 +54,9 @@ export interface FixedStepFlightSnapshot {
   held: boolean;
   automaticHold: boolean;
   safetyHold: boolean;
+  safetyHoldReason?: string;
   runwayEntryCleared: boolean;
+  takeoffCleared: boolean;
   crossingClearances: number[];
   airspeedKts: number;
   groundSpeedKts: number;
@@ -290,6 +293,7 @@ export class FixedStepSimulationHarness {
         progress: round(event.flight.progress),
         runway: event.runway ?? event.flight.runway,
         taxiway: event.taxiway ?? event.flight.taxiway,
+        detail: event.detail,
       });
     }
   }
@@ -332,7 +336,9 @@ function snapshotFlight(config: AirportConfig, flight: Flight): FixedStepFlightS
     held: Boolean(flight.controlHold),
     automaticHold: Boolean(flight.automaticHold),
     safetyHold: Boolean(flight.safetyHold),
+    safetyHoldReason: flight.safetyHoldReason,
     runwayEntryCleared: Boolean(flight.runwayEntryCleared),
+    takeoffCleared: Boolean(flight.takeoffCleared),
     crossingClearances: [...(flight.crossingClearances ?? [])].sort((first, second) => first - second),
     airspeedKts: round(flight.kinematics.airspeedKts),
     groundSpeedKts: round(flight.kinematics.groundSpeedKts),

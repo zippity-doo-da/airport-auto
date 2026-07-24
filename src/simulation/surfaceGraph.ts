@@ -79,6 +79,11 @@ export interface SurfaceRoute {
 export interface SurfaceRouteSample {
   x: number;
   y: number;
+  heading: number;
+  distanceAlong: number;
+  totalDistance: number;
+  edgeIndex: number;
+  edgeProgress: number;
   fromNodeId: string;
   toNodeId: string;
   nearestNodeId: string;
@@ -201,7 +206,7 @@ export function buildAirportSurfaceGraph(config: SurfaceGraphConfig): AirportSur
     }
   };
 
-  const gateLayout = surfaceGateLayout(config.scope);
+  const gateLayout = surfaceGateLayout(config.scope, config.code);
   const apronEntries = new Map<-1 | 1, SurfaceNode>();
   for (const side of [-1, 1] as const) {
     const apronId = side === -1 ? 'APRON-SOUTH' : 'APRON-NORTH';
@@ -214,7 +219,7 @@ export function buildAirportSurfaceGraph(config: SurfaceGraphConfig): AirportSur
     for (let column = 0; column < gateLayout.columns; column += 1) {
       const slot = side === -1 ? column : gateLayout.columns + column;
       const standId = `G${String(slot + 1).padStart(2, '0')}`;
-      const x = config.terminal[0] + (column - (gateLayout.columns - 1) / 2) * gateLayout.spacing;
+      const x = config.terminal[0] + gateLayout.centerOffset + (column - (gateLayout.columns - 1) / 2) * gateLayout.spacing;
       const standNode = addNode(`STAND-${standId}`, 'stand', [x, gateY], { standId });
       const laneNode = addWaypoint([x, laneY]);
       laneNodes.push(laneNode);
@@ -401,7 +406,7 @@ export function sampleSurfaceRoute(graph: AirportSurfaceGraph, nodeIds: string[]
   if (!routeNodes.length) return null;
   if (routeNodes.length === 1) {
     const node = routeNodes[0];
-    return { x: node.position[0], y: node.position[1], fromNodeId: node.id, toNodeId: node.id, nearestNodeId: node.id };
+    return { x: node.position[0], y: node.position[1], heading: 0, distanceAlong: 0, totalDistance: 0, edgeIndex: -1, edgeProgress: 1, fromNodeId: node.id, toNodeId: node.id, nearestNodeId: node.id };
   }
 
   const segments = routeNodes.slice(0, -1).map((from, index) => {
@@ -411,14 +416,19 @@ export function sampleSurfaceRoute(graph: AirportSurfaceGraph, nodeIds: string[]
   const total = segments.reduce((sum, segment) => sum + segment.length, 0);
   let remaining = clamp(progress, 0, 1) * total;
   let selected = segments[segments.length - 1];
+  let selectedIndex = segments.length - 1;
   let local = 1;
-  for (const segment of segments) {
+  let traversed = 0;
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
     if (remaining <= segment.length || segment === selected) {
       selected = segment;
+      selectedIndex = index;
       local = segment.length > 0 ? clamp(remaining / segment.length, 0, 1) : 1;
       break;
     }
     remaining -= segment.length;
+    traversed += segment.length;
   }
   const edge = graph.edges.find((item) => (
     (item.from === selected.from.id && item.to === selected.to.id)
@@ -427,11 +437,56 @@ export function sampleSurfaceRoute(graph: AirportSurfaceGraph, nodeIds: string[]
   return {
     x: lerp(selected.from.position[0], selected.to.position[0], local),
     y: lerp(selected.from.position[1], selected.to.position[1], local),
+    heading: Math.atan2(selected.to.position[1] - selected.from.position[1], selected.to.position[0] - selected.from.position[0]),
+    distanceAlong: traversed + selected.length * local,
+    totalDistance: total,
+    edgeIndex: selectedIndex,
+    edgeProgress: local,
     fromNodeId: selected.from.id,
     toNodeId: selected.to.id,
     nearestNodeId: local < 0.5 ? selected.from.id : selected.to.id,
     edge,
   };
+}
+
+/**
+ * Returns the route resources a surface aircraft needs now and immediately
+ * ahead. Automatic ground control uses these tokens to permit simultaneous
+ * movements on independent taxiways while keeping converging aircraft apart.
+ */
+export function surfaceRouteReservationKeys(
+  graph: AirportSurfaceGraph,
+  nodeIds: string[] | undefined,
+  progress: number,
+  lookaheadEdges = 1,
+): string[] {
+  const sample = sampleSurfaceRoute(graph, nodeIds, progress);
+  if (!sample || !nodeIds?.length || sample.edgeIndex < 0) return [];
+  const keys = new Set<string>();
+  for (let index = sample.edgeIndex; index <= Math.min(nodeIds.length - 2, sample.edgeIndex + lookaheadEdges); index += 1) {
+    const from = nodeIds[index];
+    const to = nodeIds[index + 1];
+    const edge = graph.edges.find((item) => (
+      (item.from === from && item.to === to)
+      || (item.direction === 'both' && item.from === to && item.to === from)
+    ));
+    if (edge) keys.add(`edge:${edge.id}:${from}>${to}`);
+    if (index > sample.edgeIndex || sample.edgeProgress > 0.64) keys.add(`node:${to}`);
+  }
+  return [...keys];
+}
+
+export function surfaceRouteRunwayCrossings(
+  graph: AirportSurfaceGraph,
+  edgeIds: string[] | undefined,
+  assignedRunway: number,
+): number[] {
+  if (!edgeIds?.length) return [];
+  const edgeMap = new Map(graph.edges.map((edge) => [edge.id, edge]));
+  return [...new Set(edgeIds
+    .map((id) => edgeMap.get(id))
+    .filter((edge) => edge?.kind === 'runway-access' && edge.runwayId !== undefined && edge.runwayId !== assignedRunway)
+    .map((edge) => edge!.runwayId!))];
 }
 
 export function validateAirportSurfaceGraph(config: SurfaceGraphConfig & { surfaceGraph: AirportSurfaceGraph }): SurfaceGraphValidation {
@@ -491,17 +546,32 @@ export function validateAirportSurfaceGraph(config: SurfaceGraphConfig & { surfa
   };
 }
 
-export function surfaceGateLayout(scope: AirportConfig['scope']): { columns: number; spacing: number; sideOffset: number; laneOffset: number } {
+export function surfaceGateLayout(scope: AirportConfig['scope'], airportCode = 'LOCAL'): { columns: number; spacing: number; sideOffset: number; laneOffset: number; centerOffset: number } {
+  // O'Hare's compact schematic places the terminal east of the runway bank.
+  // Bias its stands farther east so runway-access spurs cannot run through the
+  // apron. Other airports retain a centered concourse layout.
+  if (scope === 'center' && airportCode === 'ORD') {
+    return { columns: 6, spacing: 12.5, sideOffset: 13, laneOffset: 12, centerOffset: 28 };
+  }
   return scope === 'center'
-    ? { columns: 6, spacing: 12.5, sideOffset: 13, laneOffset: 7 }
-    : { columns: 3, spacing: 12.5, sideOffset: 13, laneOffset: 7 };
+    ? { columns: 6, spacing: 12.5, sideOffset: 13, laneOffset: 12, centerOffset: 0 }
+    : { columns: 3, spacing: 12.5, sideOffset: 13, laneOffset: 12, centerOffset: 0 };
 }
 
 function taxiwayForRunway(config: SurfaceGraphConfig, runway: RunwayConfig): { id: string; name: string } {
   if (config.code === 'ORD') {
-    if (runway.center[1] >= 8) return { id: 'TWY-NORTH-PERIMETER', name: 'North Perimeter' };
-    if (runway.center[1] <= -8) return { id: 'TWY-SOUTH-PERIMETER', name: 'South Perimeter' };
-    return { id: 'TWY-EAST-PERIMETER', name: 'East Perimeter' };
+    const names = [
+      ['A', 'Taxiway Alpha'],
+      ['B', 'Taxiway Bravo'],
+      ['D', 'Taxiway Delta'],
+      ['K', 'Taxiway Kilo'],
+      ['M', 'Taxiway Mike'],
+      ['N', 'Taxiway November'],
+      ['Y', 'Taxiway Yankee'],
+      ['Z', 'Taxiway Zulu'],
+    ] as const;
+    const [id, name] = names[runway.id] ?? ['E', 'Taxiway Echo'];
+    return { id: `TWY-${id}`, name };
   }
   const letter = String.fromCharCode(65 + runway.id % 20);
   return { id: `TWY-${letter}`, name: `Taxiway ${letter}` };
@@ -523,8 +593,8 @@ function taxiRoutePoints(config: SurfaceGraphConfig, runway: RunwayConfig, ancho
     turnoff[1] = center[1] + (relativeTurnoffY === 0 ? fallbackSide : Math.sign(relativeTurnoffY)) * terminalClearY;
   }
   const detourSign = turnoff[0] >= center[0] ? 1 : -1;
-  const layout = surfaceGateLayout(config.scope);
-  const perimeterX = center[0] + detourSign * ((layout.columns - 1) * layout.spacing / 2 + 10);
+  const layout = surfaceGateLayout(config.scope, config.code);
+  const perimeterX = center[0] + layout.centerOffset + detourSign * ((layout.columns - 1) * layout.spacing / 2 + 10);
   return [anchor, turnoff, [perimeterX, turnoff[1]], [perimeterX, apronEntry[1]], apronEntry];
 }
 
@@ -542,7 +612,9 @@ function oharePerimeterTaxiRoute(config: SurfaceGraphConfig, runway: RunwayConfi
     bottom = Math.min(bottom, item.center[1] - extentY - padding);
     top = Math.max(top, item.center[1] + extentY + padding);
   }
-  right = Math.max(right, config.terminal[0] + 28);
+  const gateLayout = surfaceGateLayout(config.scope, config.code);
+  const gateHalfWidth = (gateLayout.columns - 1) * gateLayout.spacing / 2;
+  right = Math.max(right, config.terminal[0] + gateLayout.centerOffset + gateHalfWidth + 16);
   const direction: Point = [Math.cos(runway.heading), Math.sin(runway.heading)];
   const sign = dot(subtract(anchor, runway.center), direction) >= 0 ? 1 : -1;
   const exit = runwayEnd(runway, sign, 12);
@@ -552,8 +624,9 @@ function oharePerimeterTaxiRoute(config: SurfaceGraphConfig, runway: RunwayConfi
     if (outward[0] > 0) {
       const terminalRelativeY = exit[1] - config.terminal[1];
       const apronSide = apronEntry[1] >= config.terminal[1] ? 1 : -1;
-      const corridorY = Math.abs(terminalRelativeY) < 13
-        ? config.terminal[1] + (terminalRelativeY === 0 ? apronSide : Math.sign(terminalRelativeY)) * 13
+      const terminalClear = gateLayout.sideOffset + gateLayout.laneOffset + 13;
+      const corridorY = Math.abs(terminalRelativeY) < terminalClear
+        ? config.terminal[1] + (terminalRelativeY === 0 ? apronSide : Math.sign(terminalRelativeY)) * terminalClear
         : exit[1];
       points.push([exit[0], corridorY], [right, corridorY], [right, apronEntry[1]]);
     }

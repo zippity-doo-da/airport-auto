@@ -228,3 +228,77 @@ body.center-scope .brand__mark { font-size: 11px; letter-spacing: -0.04em; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
+
+/* Airport Auto 2.0: readable, low-chrome ATC surfaces. */
+button, select, input { min-height: 44px; }
+button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.flight-strip { display: flex; width: min(304px, calc(100vw - 44px)); flex-direction: column; }
+.flight-strip__toggle { min-height: 44px; padding: 9px 12px; }
+.flight-strip__toggle b { font-size: 14px; }
+.flight-strip__toggle small { font-size: 10px; letter-spacing: 0.1em; }
+.flight-strip--collapsed { width: 190px; }
+.flight-strip--collapsed .flight-actions { display: none; }
+.flight-chips { min-height: 0; max-height: none; flex: 1 1 auto; }
+.flight-chip { gap: 8px; padding: 11px 12px 10px 14px; }
+.flight-chip__identity strong { font-size: 14px; }
+.flight-chip__identity span, .flight-chip__metric small { font-size: 9px; }
+.flight-chip__metric b { font-size: 14px; }
+.flight-chip__metric b em { font-size: 9px; }
+.flight-chip__detail { font-size: 9px; letter-spacing: 0.055em; }
+.flight-chips__empty { font-size: 11px; }
+
+.flight-actions { margin-top: 6px; border: 1px solid rgba(239, 199, 117, 0.42); padding: 10px; background: rgba(8, 29, 31, 0.92); box-shadow: 0 16px 44px rgba(4, 18, 20, 0.26); backdrop-filter: blur(18px); }
+.flight-actions header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
+.flight-actions header div { min-width: 0; }
+.flight-actions header b, .flight-actions header small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flight-actions header b { font: 400 14px/1.2 Georgia, serif; }
+.flight-actions header small { margin-top: 3px; color: rgba(244, 232, 206, 0.6); font-size: 10px; }
+.flight-actions header > span { color: var(--amber); font-size: 9px; font-weight: 900; letter-spacing: 0.12em; }
+.flight-actions__buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
+.flight-actions button { border: 1px solid rgba(244, 232, 206, 0.3); padding: 7px 8px; color: var(--ivory); background: rgba(121, 200, 232, 0.1); font-size: 10px; font-weight: 800; letter-spacing: 0.04em; cursor: pointer; }
+.flight-actions button:hover { border-color: var(--amber); background: rgba(239, 199, 117, 0.17); }
+.flight-actions button:disabled { opacity: 0.38; cursor: not-allowed; }
+.flight-actions p { margin: 4px 0 0; color: rgba(244, 232, 206, 0.58); font-size: 10px; }
+
+.camera-tools { position: absolute; right: max(18px, env(safe-area-inset-right)); bottom: max(24px, env(safe-area-inset-bottom)); z-index: 5; display: flex; gap: 5px; }
+.camera-tools button { display: grid; width: 44px; height: 44px; place-items: center; border: 1px solid rgba(244, 232, 206, 0.32); color: var(--ivory); background: rgba(9, 33, 36, 0.72); font: 18px/1 Georgia, serif; cursor: pointer; backdrop-filter: blur(14px); }
+.camera-tools button:hover { color: var(--ink); background: var(--amber); }
+
+.advanced-tools { margin-top: 12px; border-top: 1px solid rgba(244, 232, 206, 0.2); padding-top: 10px; }
+.advanced-tools summary { min-height: 44px; padding: 13px 4px; color: rgba(244, 232, 206, 0.78); font-size: 10px; font-weight: 900; letter-spacing: 0.11em; text-transform: uppercase; cursor: pointer; }
+.advanced-tools .replay-tools { margin: 0 0 8px; padding: 0 0 8px; }
+.agent-note { display: grid; gap: 2px; margin: 0; border-left: 2px solid var(--blue); padding-left: 8px; }
+.agent-note b { color: #d9f4f4; font-size: 10px; }
+.agent-note span { color: rgba(217, 244, 244, 0.58); font: 9px/1.4 Consolas, monospace; }
+.audio-preset { grid-column: 1 / -1; }
+
+.quick-setup label > span, .intro-setup label > span, .menu-toggle small, .control small, .weather-readout span, .weather-readout small { font-size: 10px; }
+.quick-setup select, .intro-setup select { font-size: 11px; }
+.weather-readout__switches button { min-height: 36px; padding: 6px 9px; font-size: 9px; }
+.scoreboard span { font-size: 8px; }
+.status small { font-size: 10px; letter-spacing: 0.08em; }
+.controls { grid-template-columns: repeat(3, 1fr); }
+.control { height: 58px; }
+.modal--intro h1 { font-size: clamp(40px, 6vw, 68px); }
+
+@media (max-width: 760px) {
+  .flight-strip { top: 164px; width: min(286px, calc(100vw - 32px)); }
+  .flight-strip--collapsed { width: 184px; }
+  .scoreboard span { font-size: 7px; }
+  .camera-tools { right: 12px; bottom: 76px; flex-direction: column; }
+  .instruction { justify-content: flex-start; padding-right: 48px; font-size: 10px; }
+  .flight-chip__detail { display: grid; }
+}
+
+@media (max-width: 520px) {
+  .scoreboard > div:nth-of-type(3), .scoreboard i:nth-of-type(3) { display: block; }
+  .scoreboard { top: 58px; right: 12px; }
+  .status { top: 96px; }
+  .menu-toggle { top: 150px; }
+  .control-panel, .flight-strip { top: 198px; }
+  .flight-strip { width: min(274px, calc(100vw - 32px)); }
+  .modal { padding: 12px; }
+  .intro__panel { max-height: calc(100vh - 24px); overflow: auto; padding: 28px 22px; }
+  .modal--intro h1 { margin: 16px 0; font-size: 38px; }
+  .modal--intro p { font-size: 13px; line-height: 1.45; }
+}

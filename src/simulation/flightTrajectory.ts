@@ -52,8 +52,11 @@ export interface DepartureTrajectoryTiming {
 
 type Point3 = { x: number; y: number; z: number };
 type PathSample = { point: Point3; tangent: Point3; distanceAlong: number; totalDistance: number };
+type ArcLengthSample = { parameter: number; distance: number };
+type PreparedSmoothPath = { points: Point3[]; samples: ArcLengthSample[]; totalDistance: number };
 
 const KNOT_TO_MPS = 0.514444;
+const APPROACH_PATH_CACHE = new WeakMap<AirportConfig, Map<string, PreparedSmoothPath>>();
 
 export function phaseUsesFlightTrajectory(phase: FlightPhase): phase is 'approach' | 'landing' | 'takeoff' {
   return phase === 'approach' || phase === 'landing' || phase === 'takeoff';
@@ -79,11 +82,19 @@ export function landingTrajectoryTiming(
   const profile = aircraftProfile(aircraft);
   const touchdownMps = profile.approachKts * KNOT_TO_MPS;
   const taxiMps = (profile.taxiKts + 3) * KNOT_TO_MPS;
+  const runway = config.runways[runwayId] ?? config.runways[0];
+  const exitDistance = Math.max(1, runway.length - 5);
+  const touchdownDistance = Math.min(4.5, runway.length * 0.075);
+  // Preserve approach speed across the threshold while still touching down
+  // near the runway end. A fixed flare duration made short touchdown targets
+  // look like an abrupt midair slowdown.
+  const flareSeconds = clamp(touchdownDistance * WORLD_METERS_PER_UNIT / touchdownMps, 2.2, 3.4);
   const runwayLimitedBraking = (touchdownMps * touchdownMps - taxiMps * taxiMps) / (2 * profile.landingRollM);
   const braking = Math.max(0.65, Math.min(profile.brakingMps2, runwayLimitedBraking));
   const brakingSeconds = Math.max(8, (touchdownMps - taxiMps) / braking);
-  const flareSeconds = 4;
-  const exitSeconds = config.scope === 'center' ? 7 : 6;
+  const rolloutEnd = Math.min(exitDistance - 2, touchdownDistance + landingRollDistance(runway, aircraft));
+  const remainingMeters = Math.max(1, exitDistance - rolloutEnd) * WORLD_METERS_PER_UNIT;
+  const exitSeconds = Math.max(config.scope === 'center' ? 7 : 6, remainingMeters / Math.max(1, taxiMps));
   return {
     flareSeconds,
     brakingSeconds,
@@ -155,21 +166,31 @@ function sampleApproachPath(config: AirportConfig, flight: Flight, progress: num
   const side = { x: -direction.y, y: direction.x };
   const landingSign = flight.operatingEnd;
   const lateralSign = flight.id % 2 ? 1 : -1;
-  const startDistance = config.scope === 'center' ? 265 : 175;
-  const lateral = config.scope === 'center' ? 12 : 38;
-  const threshold = runwayEnd(runway, landingSign, 0, 4.2);
-  const points = [
-    offset(runwayEnd(runway, landingSign, startDistance, config.scope === 'center' ? 32 : 30), side, lateralSign * lateral),
-    offset(runwayEnd(runway, landingSign, startDistance * 0.82, config.scope === 'center' ? 28 : 25), side, lateralSign * lateral * 0.94),
-    offset(runwayEnd(runway, landingSign, startDistance * 0.62, config.scope === 'center' ? 22 : 20), side, lateralSign * lateral * 0.68),
-    offset(runwayEnd(runway, landingSign, startDistance * 0.43, config.scope === 'center' ? 16 : 15), side, lateralSign * lateral * 0.34),
-    offset(runwayEnd(runway, landingSign, startDistance * 0.31, 10.5), side, lateralSign * lateral * 0.06),
-    runwayEnd(runway, landingSign, 44, 8.2),
-    runwayEnd(runway, landingSign, 21, 6.1),
-    runwayEnd(runway, landingSign, 8, 4.9),
-    threshold,
-  ];
-  return sampleSmoothPath(points, progress);
+  let airportPaths = APPROACH_PATH_CACHE.get(config);
+  if (!airportPaths) {
+    airportPaths = new Map();
+    APPROACH_PATH_CACHE.set(config, airportPaths);
+  }
+  const cacheKey = `${runway.id}:${landingSign}:${lateralSign}`;
+  let path = airportPaths.get(cacheKey);
+  if (!path) {
+    const startDistance = config.scope === 'center' ? 265 : 175;
+    const lateral = config.scope === 'center' ? 12 : 38;
+    const threshold = runwayEnd(runway, landingSign, 0, 4.2);
+    path = prepareSmoothPath([
+      offset(runwayEnd(runway, landingSign, startDistance, config.scope === 'center' ? 32 : 30), side, lateralSign * lateral),
+      offset(runwayEnd(runway, landingSign, startDistance * 0.82, config.scope === 'center' ? 28 : 25), side, lateralSign * lateral * 0.94),
+      offset(runwayEnd(runway, landingSign, startDistance * 0.62, config.scope === 'center' ? 22 : 20), side, lateralSign * lateral * 0.68),
+      offset(runwayEnd(runway, landingSign, startDistance * 0.43, config.scope === 'center' ? 16 : 15), side, lateralSign * lateral * 0.34),
+      offset(runwayEnd(runway, landingSign, startDistance * 0.31, 10.5), side, lateralSign * lateral * 0.06),
+      runwayEnd(runway, landingSign, 44, 8.2),
+      runwayEnd(runway, landingSign, 21, 6.1),
+      runwayEnd(runway, landingSign, 8, 4.9),
+      threshold,
+    ]);
+    airportPaths.set(cacheKey, path);
+  }
+  return samplePreparedSmoothPath(path, progress);
 }
 
 function applyControlPattern(
@@ -225,7 +246,7 @@ function sampleLanding(config: AirportConfig, flight: Flight, progress: number):
   const exitDistance = Math.max(1, runway.length - 5);
   // Put the mains down close to the threshold so the stopping calculation can
   // use nearly all of the available pavement, especially on shorter runways.
-  const touchdownDistance = Math.min(5.5, runway.length * 0.09);
+  const touchdownDistance = Math.min(4.5, runway.length * 0.075);
   const rolloutDistance = landingRollDistance(runway, flight.aircraft);
   const rolloutEnd = Math.min(exitDistance - 2, touchdownDistance + rolloutDistance);
   const rolloutTravel = Math.max(1, rolloutEnd - touchdownDistance);
@@ -360,34 +381,68 @@ function takeoffRollDistance(runway: RunwayConfig, aircraft: AircraftModel): num
   return clamp(desired, runway.length * 0.46, runway.length * 0.8);
 }
 
-function sampleSmoothPath(points: Point3[], progress: number): PathSample {
+function prepareSmoothPath(points: Point3[]): PreparedSmoothPath {
   if (points.length < 2) {
-    const point = points[0] ?? { x: 0, y: 0, z: 0 };
-    return { point, tangent: { x: 1, y: 0, z: 0 }, distanceAlong: 0, totalDistance: 0 };
+    return { points, samples: [{ parameter: 0, distance: 0 }], totalDistance: 0 };
   }
-  const lengths = points.slice(0, -1).map((point, index) => distance(point, points[index + 1]));
-  const totalDistance = lengths.reduce((sum, length) => sum + length, 0);
-  const target = clamp(progress, 0, 1) * totalDistance;
-  let traversed = 0;
-  let segment = lengths.length - 1;
-  for (let index = 0; index < lengths.length; index += 1) {
-    if (target <= traversed + lengths[index] || index === lengths.length - 1) {
-      segment = index;
-      break;
+  const samples: ArcLengthSample[] = [{ parameter: 0, distance: 0 }];
+  const subdivisions = 16;
+  let previous = points[0];
+  let totalDistance = 0;
+  for (let segment = 0; segment < points.length - 1; segment += 1) {
+    for (let step = 1; step <= subdivisions; step += 1) {
+      const amount = step / subdivisions;
+      const point = smoothPathPoint(points, segment, amount);
+      totalDistance += distance(previous, point);
+      samples.push({ parameter: segment + amount, distance: totalDistance });
+      previous = point;
     }
-    traversed += lengths[index];
   }
-  const segmentLength = Math.max(0.0001, lengths[segment]);
-  const amount = clamp((target - traversed) / segmentLength, 0, 1);
+  return { points, samples, totalDistance };
+}
+
+function samplePreparedSmoothPath(path: PreparedSmoothPath, progress: number): PathSample {
+  const { points, samples, totalDistance } = path;
+  if (points.length < 2 || totalDistance <= 0) {
+    return { point: points[0] ?? { x: 0, y: 0, z: 0 }, tangent: { x: 1, y: 0, z: 0 }, distanceAlong: 0, totalDistance: 0 };
+  }
+  const normalized = clamp(progress, 0, 1);
+  const target = normalized * totalDistance;
+  let low = 0;
+  let high = samples.length - 1;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (samples[middle].distance < target) low = middle + 1;
+    else high = middle;
+  }
+  const after = samples[low];
+  const before = samples[Math.max(0, low - 1)];
+  const span = Math.max(0.000001, after.distance - before.distance);
+  const mix = clamp((target - before.distance) / span, 0, 1);
+  const parameter = before.parameter + (after.parameter - before.parameter) * mix;
+  const segment = Math.min(points.length - 2, Math.floor(parameter));
+  const amount = segment === points.length - 2 && parameter >= points.length - 1 ? 1 : parameter - segment;
+  const point = smoothPathPoint(points, segment, amount);
+  const tangent = smoothPathTangent(points, segment, amount);
+  if (normalized <= 0) Object.assign(point, points[0]);
+  if (normalized >= 1) Object.assign(point, points[points.length - 1]);
+  return { point, tangent, distanceAlong: target, totalDistance };
+}
+
+function smoothPathPoint(points: Point3[], segment: number, amount: number): Point3 {
   const p0 = points[Math.max(0, segment - 1)];
   const p1 = points[segment];
   const p2 = points[segment + 1];
   const p3 = points[Math.min(points.length - 1, segment + 2)];
-  const point = catmullRom(p0, p1, p2, p3, amount);
-  const tangent = catmullRomTangent(p0, p1, p2, p3, amount);
-  if (progress <= 0) Object.assign(point, points[0]);
-  if (progress >= 1) Object.assign(point, points[points.length - 1]);
-  return { point, tangent, distanceAlong: target, totalDistance };
+  return catmullRom(p0, p1, p2, p3, amount);
+}
+
+function smoothPathTangent(points: Point3[], segment: number, amount: number): Point3 {
+  const p0 = points[Math.max(0, segment - 1)];
+  const p1 = points[segment];
+  const p2 = points[segment + 1];
+  const p3 = points[Math.min(points.length - 1, segment + 2)];
+  return catmullRomTangent(p0, p1, p2, p3, amount);
 }
 
 function catmullRom(p0: Point3, p1: Point3, p2: Point3, p3: Point3, amount: number): Point3 {

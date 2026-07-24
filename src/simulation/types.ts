@@ -55,6 +55,7 @@ export interface Flight {
   holdShortRunway?: number;
   holdNotified?: boolean;
   runwayEntryCleared?: boolean;
+  takeoffCleared?: boolean;
   requiredCrossings?: number[];
   crossingClearances?: number[];
   controlPace?: number;
@@ -109,13 +110,16 @@ export interface ReplayFrame {
   score: { landed: number; departed: number };
   flights: Array<{ id: number; callsign: string; phase: FlightPhase; runway: number; progress: number }>;
   predictions: ConflictPrediction[];
+  /** Complete immutable render state so the replay scrubber drives the world, not only the label. */
+  state: AirportState;
 }
 
 export interface AirportEvent {
-  type: 'spawn' | 'land' | 'chime' | 'depart' | 'clear' | 'auto-clear' | 'reject' | 'conflict' | 'safety-hold' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'emergency';
+  type: 'spawn' | 'land' | 'chime' | 'depart' | 'clear' | 'auto-clear' | 'reject' | 'conflict' | 'safety-hold' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'takeoff-clearance' | 'go-around' | 'emergency';
   flight: Flight;
   runway?: number;
   taxiway?: string;
+  detail?: string;
 }
 
 export interface AirportState {
@@ -131,4 +135,6 @@ export interface AirportState {
   station: ControllerStation;
   weather: WeatherState;
   scenario: TrafficScenario;
+  activeRunwayEnds: Record<number, -1 | 1>;
+  closedRunway: number | null;
 }
