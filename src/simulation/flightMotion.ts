@@ -1,7 +1,9 @@
 import type { AirportConfig } from './airportConfig';
+import { aircraftProfile } from './aircraftProfiles';
 import { sampleFlightTrajectory } from './flightTrajectory';
 import { WORLD_METERS_PER_UNIT } from './runwayPerformance';
-import { sampleSurfaceRouteWithEdges, surfacePushbackPlan } from './surfaceGraph';
+import { surfacePushbackPlan } from './surfaceGraph';
+import { sampleAircraftSurfaceMotion } from './surfaceMotion';
 import type { Flight, FlightMotionState } from './types';
 
 /** Convert the shared path definition into the simulation-owned world pose. */
@@ -31,7 +33,13 @@ export function sampleFlightMotion(
   }
 
   const stand = config.surfaceGraph.stands.find((item) => item.slot === flight.gateSlot);
-  const surface = sampleSurfaceRouteWithEdges(config.surfaceGraph, flight.surfaceRoute, flight.surfaceRouteEdges, amount);
+  const surface = sampleAircraftSurfaceMotion(
+    config.surfaceGraph,
+    flight.surfaceRoute,
+    flight.surfaceRouteEdges,
+    amount,
+    aircraftProfile(flight.aircraft),
+  );
   if (surface) {
     let heading = flight.phase === 'resting' ? stand?.heading ?? surface.heading : surface.heading;
     let stage: string = flight.phase;

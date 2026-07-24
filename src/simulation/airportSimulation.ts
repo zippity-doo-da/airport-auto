@@ -7,6 +7,7 @@ import { sampleSurfaceRouteWithEdges, surfacePushbackPlan, surfaceRouteCrossingW
 import { validateAirportObstacleEnvelopes, type AirportObstacleValidation } from './airportObstacles';
 import { departureTrajectoryTiming, landingTrajectoryTiming } from './flightTrajectory';
 import { runwaySupportsAircraft, WORLD_METERS_PER_UNIT } from './runwayPerformance';
+import { sampleAircraftSurfaceMotion } from './surfaceMotion';
 import { progressAfterDistance, syncFlightMotion } from './flightMotion';
 import { intersectingRunways, runwaysConflict } from './runwayConflict';
 
@@ -528,10 +529,12 @@ export class AirportSimulation {
       const awaitingTakeoffClearance = flight.phase === 'takeoff'
         && !flight.takeoffCleared
         && motion.stage !== 'lineup';
-      const hardHold = (onSurface && flight.automaticHold) || crossingHold || awaitingTakeoffClearance;
-      let targetSpeed = hardHold ? 0 : this.targetGroundSpeedKts(flight, Boolean(onSurface && flight.controlHold));
+      const disabledOnSurface = onSurface && flight.emergency === 'disabled';
+      const hardHold = crossingHold || awaitingTakeoffClearance || disabledOnSurface;
+      const commandedStop = onSurface && Boolean(flight.automaticHold || flight.controlHold);
+      let targetSpeed = hardHold || commandedStop ? 0 : this.targetGroundSpeedKts(flight);
       if (crossing && Number.isFinite(crossingDistanceM)) {
-        const braking = aircraftProfile(flight.aircraft).brakingMps2
+        const braking = aircraftProfile(flight.aircraft).taxiBrakingMps2
           * (this.state.weather.condition === 'rain' ? 0.76 : this.state.weather.condition === 'fog' ? 0.9 : 1);
         const maximumStoppingSpeedKts = Math.sqrt(Math.max(0, 2 * braking * crossingDistanceM)) / KNOT_TO_MPS;
         targetSpeed = Math.min(targetSpeed, maximumStoppingSpeedKts);
@@ -1302,12 +1305,21 @@ export class AirportSimulation {
     return 0;
   }
 
-  private targetGroundSpeedKts(flight: Flight, controllerHold: boolean): number {
-    if (controllerHold || flight.phase === 'resting') return 0;
+  private targetGroundSpeedKts(flight: Flight): number {
+    if (flight.phase === 'resting') return 0;
     const profile = aircraftProfile(flight.aircraft);
     const pace = Math.max(0.55, Math.min(flight.phase === 'taxi-in' || flight.phase === 'taxi-out' ? 1 : 1.28, flight.controlPace ?? 1));
     const surfaceWeather = this.state.weather.condition === 'fog' ? 0.78 : this.state.weather.condition === 'rain' ? 0.88 : 1;
     let target = profile.taxiKts;
+    const surfaceMotion = flight.phase === 'taxi-in' || flight.phase === 'taxi-out'
+      ? sampleAircraftSurfaceMotion(
+          this.config.surfaceGraph,
+          flight.surfaceRoute,
+          flight.surfaceRouteEdges,
+          flight.progress,
+          profile,
+        )
+      : null;
     if (flight.phase === 'taxi-out' && flight.motion.stage === 'pushback') {
       target = (flight.wakeClass === 'heavy' ? 2.6 : flight.category === 'regional' ? 3.6 : 3.2) * surfaceWeather;
       return target * pace;
@@ -1324,7 +1336,11 @@ export class AirportSimulation {
       else if (flight.motion.stage === 'takeoff-roll' || flight.motion.stage === 'rotation') target = profile.approachKts * 1.12;
       else target = profile.approachKts * 1.34;
     }
-    if (flight.phase === 'taxi-in' || flight.phase === 'taxi-out') target *= surfaceWeather;
+    if (flight.phase === 'taxi-in' || flight.phase === 'taxi-out') {
+      target = Math.min(target, surfaceMotion?.speedLimitKts ?? target);
+      if (surfaceMotion && !surfaceMotion.routeClearanceOk) target = 0;
+      target *= surfaceWeather;
+    }
     return target * pace;
   }
 
@@ -1332,7 +1348,10 @@ export class AirportSimulation {
     const profile = aircraftProfile(flight.aircraft);
     const current = Math.max(0, flight.kinematics.groundSpeedKts);
     const brakingWeather = this.state.weather.condition === 'rain' ? 0.76 : this.state.weather.condition === 'fog' ? 0.9 : 1;
-    const acceleration = targetSpeedKts >= current ? profile.accelerationMps2 : profile.brakingMps2 * brakingWeather;
+    const onTaxiway = flight.phase === 'taxi-in' || flight.phase === 'taxi-out';
+    const acceleration = targetSpeedKts >= current
+      ? onTaxiway ? profile.taxiAccelerationMps2 : profile.accelerationMps2
+      : (onTaxiway ? profile.taxiBrakingMps2 : profile.brakingMps2) * brakingWeather;
     const changeKts = acceleration * delta / KNOT_TO_MPS;
     if (targetSpeedKts > current) return Math.min(targetSpeedKts, current + changeKts);
     return Math.max(targetSpeedKts, current - changeKts);
@@ -1392,7 +1411,19 @@ export class AirportSimulation {
 
   private assignSurfaceRoute(flight: Flight, phase: 'taxi-in' | 'resting' | 'taxi-out'): void {
     const stand = this.config.surfaceGraph.stands.find((item) => item.slot === flight.gateSlot);
-    const route = surfaceRouteForFlight(this.config.surfaceGraph, flight.runway, flight.operatingEnd, phase, flight.gateSlot);
+    const profile = aircraftProfile(flight.aircraft);
+    const routeRequirements = {
+      wingspanM: profile.wingspanM,
+      minimumWingtipClearanceM: profile.minimumWingtipClearanceM,
+    };
+    const route = surfaceRouteForFlight(
+      this.config.surfaceGraph,
+      flight.runway,
+      flight.operatingEnd,
+      phase,
+      flight.gateSlot,
+      routeRequirements,
+    );
     flight.surfaceRoute = route?.nodeIds;
     flight.surfaceRouteEdges = route?.edgeIds;
     flight.standId = stand?.id;
@@ -1405,6 +1436,7 @@ export class AirportSimulation {
           this.preferredOperatingEnd(flight.departureRunway),
           'taxi-out',
           flight.gateSlot,
+          routeRequirements,
         )
       : phase === 'taxi-out'
         ? route
@@ -1450,9 +1482,18 @@ export class AirportSimulation {
   }
 
   private surfaceRouteDuration(flight: Flight, route: SurfaceRoute): number {
-    const taxiMps = aircraftProfile(flight.aircraft).taxiKts * KNOT_TO_MPS;
+    const profile = aircraftProfile(flight.aircraft);
+    const taxiMps = profile.taxiKts * KNOT_TO_MPS;
+    const motion = sampleAircraftSurfaceMotion(
+      this.config.surfaceGraph,
+      route.nodeIds,
+      route.edgeIds,
+      1,
+      profile,
+    );
+    const distance = motion?.totalDistance ?? route.distance;
     const weatherFactor = this.weatherDurationMultiplier(flight.phase);
-    return Math.max(18, route.distance * WORLD_METERS_PER_UNIT / Math.max(1, taxiMps) * weatherFactor);
+    return Math.max(18, distance * WORLD_METERS_PER_UNIT / Math.max(1, taxiMps) * weatherFactor);
   }
 
   private turnaroundDuration(flight: Flight): number {

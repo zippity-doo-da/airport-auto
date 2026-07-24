@@ -10,10 +10,10 @@ The airport layouts are readable operational schematics inspired by real runway 
 
 - Ten named hubs: ATL, ORD, DXB, HND, DFW, LHR, IST, DEN, LAX, and JFK, plus a newly generated local airport each session.
 - Continuous arrivals from the map boundary, curved approaches, flare, touchdown, rollout, taxi, full takeoff roll, rotation, and climb-out.
-- Graph-routed pushback and taxi movement on visible pavement, with Ground clearance, animated tug attachment/release, engine-start state, named taxiways, hold-short points, crossing clearances, runway reservations, and collision prevention.
+- Graph-routed pushback and taxi movement on visible pavement, with Ground clearance, animated tug attachment/release, engine-start state, aircraft-specific circular turns and braking, wingtip-aware routing, named taxiways, hold-short points, crossing clearances, runway reservations, and collision prevention.
 - Auto, Assisted, Manual, and Watch modes; four controller stations; six scenarios; weather and wind controls; a five-channel sound mixer; replay; and four camera views.
 - Six sourced O’Hare runway plans with dynamic arrival/departure roles, visual and instrument restrictions, strong-southerly contingency operations, and safe drain-then-switch transitions.
-- A procedural aircraft fleet with model-specific size, runway performance, taxi/approach speeds, acceleration, braking, wake class, airline, callsign, registration, and fuel telemetry.
+- A procedural aircraft fleet with model-specific size, runway performance, straight/turn taxi speeds, ground acceleration, stopping distance, turn radius, wingtip margin, approach speed, wake class, airline, callsign, registration, and fuel telemetry.
 - A local, versioned browser API and `BroadcastChannel` bridge for playtests and controller agents.
 - A fully offline ORD data foundation: FAA runway/apron/building/hot-spot geometry, a normalized OpenStreetMap surface graph with 40 compatible stands, 219 sourced gates, 364 parking positions, 35 operational zones and 248 control points, plus Chicago Department of Aviation terminal/concourse inventory and coherent east/west runway flows.
 - Optional muted taxiway-ID, operational-area, hot-spot, and runway-label layers that all begin hidden, preserving a clean ASMR view.

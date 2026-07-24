@@ -109,6 +109,17 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] The selected-flight action panel is keyed by actionable state, so HUD refreshes no longer detach a pushback or clearance button while a player is pressing it.
 - [x] Deterministic Manual and Assisted tests prove authority, backward on-ground motion, lifecycle events, smooth release into taxi, and zero aircraft/obstacle conflicts; desktop and mobile browser tests cover the normal flight-strip command and rendered tug state.
 
+## Airport Auto 2.4 — aircraft-specific ground handling and attitude clarity
+
+- [x] Every aircraft profile separates straight taxi speed, turn speed, ground acceleration/braking, taxi turn radius, and minimum wingtip margin from runway/airborne performance.
+- [x] The authoritative surface sampler replaces eligible imported graph corners with tangent circular arcs; renderer, collision envelopes, telemetry, and speed integration all consume that same pose.
+- [x] Taxi speed is limited by the active curve and by advance stopping-distance calculations, while controller and automatic holds decelerate instead of dropping immediately to zero.
+- [x] Aircraft-aware routing rejects graph edges below the modeled wingtip corridor; stand lead-ins use the stand-spacing envelope already encoded by the imported data.
+- [x] API 2.4 / snapshot schema 6 exposes target and turn speeds, acceleration, braking, stopping distance, design/current turn radius, next turn, current/minimum wingtip clearance, limiting edge, and route compatibility.
+- [x] Takeoff rotation reaches and visibly holds 12° nose-up before liftoff; landing flare remains about 10° nose-up at main-gear contact in either runway direction.
+- [x] A dedicated surface-motion gate verifies continuous position/heading, pre-turn braking, model-specific stopping distance, narrow-route rejection, seven compatible ORD aircraft routes, and at least 1.8 m modeled wingtip margin.
+- [x] The complete deterministic, trajectory, collision, lint, build, and desktop/mobile browser suites pass with the aircraft-specific curves enabled.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.
@@ -135,7 +146,7 @@ The prioritized implementation order, acceptance gates, and reconciled pre-2.1 b
 - Real recorded engine/ramp/radio libraries after licensing, normalization, and long-loop repetition review.
 - Authenticated remote WebSocket control; static GitHub Pages intentionally exposes local-only control today.
 - Live METAR, NOTAM, schedule, and traffic feeds with caching and offline fallback.
-- Service vehicles, tug animation, deicing queues, maintenance, diversions, and gate-service choreography.
+- Service vehicles, detailed tug types, deicing queues, maintenance, diversions, and gate-service choreography.
 - Server-validated leaderboards, shared replay URLs, daily challenges, and classroom accounts.
 - Optional generated or recorded ATC voice; captions and event telemetry remain the accessible source of truth.
 

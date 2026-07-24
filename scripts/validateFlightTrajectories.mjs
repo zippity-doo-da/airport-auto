@@ -176,6 +176,7 @@ for (const config of configs) {
       const touchdown = landingSamples.find((sample) => sample.onGround);
       assert(touchdown && touchdown.distanceAlong <= 5.6, config.code + ' runway ' + runway.id + ': touchdown is too far beyond the threshold');
       assert(touchdown.pitch >= 0.17, config.code + ' runway ' + runway.id + ': touchdown attitude was not visibly nose-up');
+      assert(touchdown.pitch <= THREE.MathUtils.degToRad(11), config.code + ' runway ' + runway.id + ': touchdown attitude is excessively nose-high');
       assert(Math.max(...landingSamples.map((sample) => sample.pitch)) >= 0.17, config.code + ' runway ' + runway.id + ': landing did not flare to a 10-degree nose-up attitude');
       assert(Math.abs(landingEnd.pitch) < 1e-8 && landingEnd.onGround, config.code + ' runway ' + runway.id + ': landing did not lower the nose for runway exit');
       const taxiInRoute = surfaceRouteForFlight(config.surfaceGraph, runway.id, runway.landingEnd, 'taxi-in', landing.gateSlot);
@@ -218,6 +219,8 @@ for (const config of configs) {
         }
       }
       assert(sawRoll && sawRotation && sawClimb, config.code + ' runway ' + runway.id + ': departure sequence omitted roll, rotation, or climb');
+      const midRotation = departureSamples.find((sample) => sample.stage === 'rotation' && sample.stageProgress >= 0.5);
+      assert(midRotation?.pitch >= THREE.MathUtils.degToRad(9), config.code + ' runway ' + runway.id + ': rotation attitude develops too late to read nose-up');
       assert(liftoffIndex > departureSamples.length * 0.4, config.code + ' runway ' + runway.id + ': aircraft lifted off without a full runway roll');
       assert(departureSamples[liftoffIndex].distanceAlong >= runway.length * 0.42, config.code + ' runway ' + runway.id + ': aircraft lifted off too early on the runway');
       assert(departureSamples[liftoffIndex].pitch >= THREE.MathUtils.degToRad(10), config.code + ' runway ' + runway.id + ': aircraft lifted off without a nose-up rotation');

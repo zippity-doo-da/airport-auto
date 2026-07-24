@@ -400,7 +400,10 @@ function sampleDeparture(config: AirportConfig, flight: Flight, progress: number
   } else if (elapsed < timing.lineupSeconds + timing.rollSeconds + timing.rotationSeconds) {
     stageProgress = clamp((elapsed - timing.lineupSeconds - timing.rollSeconds) / timing.rotationSeconds, 0, 1);
     distanceAlong = lerp(rollDistance, liftoffDistance, stageProgress);
-    pitch = TAKEOFF_ROTATION_PITCH * smooth01(stageProgress);
+    // Establish the visible 12° rotation before the wheels leave the runway,
+    // then hold it through liftoff. Spreading the same curve over the entire
+    // stage made most of the takeoff read as level or nose-down at game scale.
+    pitch = TAKEOFF_ROTATION_PITCH * smoothRange(stageProgress, 0, 0.72);
     const liftoff = smoothRange(stageProgress, 0.78, 1);
     z = lerp(RUNWAY_TRACK_ALTITUDE, RUNWAY_TRACK_ALTITUDE + ROTATION_LIFTOFF_HEIGHT, liftoff);
     groundBlend = 1 - liftoff;

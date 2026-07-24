@@ -26,6 +26,9 @@ Useful real-world references for future fidelity work:
 - FAA digital terminal procedures and current airport diagrams: https://www.faa.gov/air_traffic/flight_info/aeronav/digital_products/dtpp/
 - FAA airport traffic control, taxi and ground movement: https://www.faa.gov/air_traffic/publications/atpubs/atc_html/chap3_section_7.html
 - FAA landing procedures: https://www.faa.gov/air_traffic/publications/atpubs/atc_html/chap3_section_10.html
+- FAA AC 150/5300-13B airport and taxiway design: https://www.faa.gov/airports/resources/advisory_circulars/index.cfm/go/document.current/documentNumber/150_5300-13B
+- Airbus aircraft characteristics and airport-planning manuals: https://www.aircraft.airbus.com/en/customer-care/fleet-wide-care/airport-operations-and-aircraft-characteristics/aircraft-characteristics
+- Boeing airplane characteristics for airport planning: https://www.boeing.com/commercial/airports/plan-manuals
 - Chicago Department of Aviation airport operations: https://www.flychicago.com/community/ORDnoise/AirportOperations/Pages/default.aspx
 - FAA O'Hare Terminal Area Plan Final Environmental Assessment, Chapter 4: https://www.faa.gov/sites/faa.gov/files/TAP_Final_EA_Chapter_4.pdf
 - FAA O'Hare runway utilization: https://www.faa.gov/airports/airport_development/omp/faq/runway_utilization
@@ -35,6 +38,7 @@ Useful real-world references for future fidelity work:
 - Arrivals enter at the map boundary and use a continuous approach, flare, threshold touchdown zone, rollout, and runway exit.
 - Departures receive an explicit Ground pushback clearance, move backward from the stand with a connected tug while engines start, release the tug at the graph's ramp node, taxi to a hold-short point, line up, accelerate down a model-appropriate runway distance, rotate, and climb out.
 - Physical speed and acceleration advance path distance; the fixed-step simulation owns the resulting pose consumed by both the renderer and collision system.
+- Each aircraft type has separate straight-taxi speed, turn-speed, ground acceleration, braking, design turn radius, and wingspan. The simulation replaces eligible graph corners with tangent circular arcs, brakes before them, and rejects routes below the modeled wingtip margin.
 - Ground aircraft remain on modeled runway, taxiway, apron, or stand pavement.
 - Active-runway plans follow eligible wind/weather/procedure conditions when automatic selection is enabled, but never change underneath protected traffic.
 - Runway entry, crossing, and takeoff are distinct clearances.
@@ -51,6 +55,7 @@ Useful real-world references for future fidelity work:
 - Approach and departure procedure names are descriptive placeholders, not published SID/STAR data.
 - Wake class affects spacing, but the game does not reproduce every FAA separation category or local waiver. The E175 and Q400 use the medium game category, not the former misleading light label.
 - Pushback uses a compact procedural tug and graph-derived ramp release; detailed tug types, service vehicles, deicing queues, NOTAM ingestion, and live METAR/traffic feeds are not yet modeled.
+- Manufacturer airport-planning manuals and FAA taxiway-design guidance bound the ground model, but its speeds, radii, and imported edge-clearance corridors remain entertainment-scale parameters—not dispatch or airport-engineering data.
 - O'Hare ships versioned offline OSM surface and surrounding-context assets; other hubs retain procedural surroundings.
 
 The deterministic test harness validates every airport surface graph, samples complete arrival/departure trajectories, checks pavement and building clearance, runs seeded fixed-step flow, and soaks collision envelopes for multiple simulated hours.

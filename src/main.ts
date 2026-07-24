@@ -3,6 +3,7 @@ import { AirportSimulation } from './simulation/airportSimulation';
 import { generateAirportConfig, generateHubConfig, HUB_AIRPORTS } from './simulation/airportConfig';
 import { aircraftProfile } from './simulation/aircraftProfiles';
 import { airlineProfile } from './simulation/airlineProfiles';
+import { sampleAircraftSurfaceMotion, surfaceStoppingDistanceM } from './simulation/surfaceMotion';
 import type { ClearanceProposal, ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, ReplayFrame, TrafficScenario, WeatherCondition } from './simulation/types';
 import { AmbientAudio, type AudioChannel, type AudioPreset } from './audio/ambientAudio';
 import { createWorld, type SurfaceLayer } from './render/createWorld';
@@ -737,7 +738,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
 function replayRecording(): ReplayRecording {
   return {
     schemaVersion: 1,
-    simulationVersion: window.airportControl?.version ?? '2.3.0',
+    simulationVersion: window.airportControl?.version ?? '2.4.0',
     recordedAt: new Date().toISOString(),
     seed: config.seed,
     airport: { code: config.code, name: config.name, scope: config.scope },
@@ -1519,7 +1520,7 @@ function airportSnapshot() {
   const diagnostics = simulation.diagnostics();
   const movingPhases = new Set(['approach', 'landing', 'taxi-in', 'taxi-out', 'takeoff']);
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     airport: {
       code: config.code,
       name: config.name,
@@ -1747,6 +1748,11 @@ function airportSnapshot() {
         cruiseKts: aircraftProfile(flight.aircraft).cruiseKts,
         approachKts: aircraftProfile(flight.aircraft).approachKts,
         taxiKts: aircraftProfile(flight.aircraft).taxiKts,
+        taxiTurnKts: aircraftProfile(flight.aircraft).taxiTurnKts,
+        taxiAccelerationMps2: aircraftProfile(flight.aircraft).taxiAccelerationMps2,
+        taxiBrakingMps2: aircraftProfile(flight.aircraft).taxiBrakingMps2,
+        taxiTurnRadiusM: aircraftProfile(flight.aircraft).taxiTurnRadiusM,
+        minimumWingtipClearanceM: aircraftProfile(flight.aircraft).minimumWingtipClearanceM,
         takeoffRollM: aircraftProfile(flight.aircraft).takeoffRollM,
         landingRollM: aircraftProfile(flight.aircraft).landingRollM,
         climbFpm: aircraftProfile(flight.aircraft).climbFpm,
@@ -1801,6 +1807,47 @@ function airportSnapshot() {
         tugAttached: flight.tugAttached,
         engineState: flight.engineState,
       },
+      taxiPerformance: (() => {
+        const profile = aircraftProfile(flight.aircraft);
+        const surface = sampleAircraftSurfaceMotion(
+          config.surfaceGraph,
+          flight.surfaceRoute,
+          flight.surfaceRouteEdges,
+          flight.progress,
+          profile,
+        );
+        const brakingMultiplier = simulation.state.weather.condition === 'rain'
+          ? 0.76
+          : simulation.state.weather.condition === 'fog'
+            ? 0.9
+            : 1;
+        const finite = (value: number | undefined): number | null => (
+          value !== undefined && Number.isFinite(value) ? Number(value.toFixed(2)) : null
+        );
+        return {
+          targetTaxiKts: profile.taxiKts,
+          turnLimitKts: profile.taxiTurnKts,
+          speedLimitKts: finite(surface?.speedLimitKts),
+          taxiAccelerationMps2: profile.taxiAccelerationMps2,
+          taxiBrakingMps2: Number((profile.taxiBrakingMps2 * brakingMultiplier).toFixed(2)),
+          stoppingDistanceM: Number(surfaceStoppingDistanceM(
+            profile,
+            flight.kinematics.groundSpeedKts,
+            0,
+            brakingMultiplier,
+          ).toFixed(1)),
+          designTurnRadiusM: profile.taxiTurnRadiusM,
+          currentTurnRadiusM: finite(surface?.turnRadiusM),
+          turnConstrained: surface?.turnConstrained ?? false,
+          nextTurnDistanceM: finite(surface?.nextTurnDistanceM),
+          nextTurnSpeedKts: finite(surface?.nextTurnSpeedKts),
+          wingtipClearanceM: finite(surface?.wingtipClearanceM),
+          minimumRouteWingtipClearanceM: finite(surface?.minimumRouteWingtipClearanceM),
+          requiredWingtipClearanceM: profile.minimumWingtipClearanceM,
+          routeClearanceOk: surface?.routeClearanceOk ?? true,
+          limitingEdgeId: surface?.limitingEdgeId ?? null,
+        };
+      })(),
       surfaceRoute: flight.surfaceRoute ?? [],
       surfaceRouteEdges: flight.surfaceRouteEdges ?? [],
       surfaceNode: flight.surfaceNode,
@@ -1942,7 +1989,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
 }
 
 window.airportControl = {
-  version: '2.3.0',
+  version: '2.4.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },

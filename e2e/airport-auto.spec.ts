@@ -5,11 +5,11 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await page.goto('/?airport=ORD&mode=assisted&station=supervisor&autostart=1&detail=low');
   await expect(page.locator('#airport-name')).toContainText('O’Hare');
   await expect(page.locator('#flight-strip-count')).toContainText('aircraft');
-  await page.waitForFunction(() => window.airportControl?.version === '2.3.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.4.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
-  expect(initial.schemaVersion).toBe(5);
+  expect(initial.schemaVersion).toBe(6);
   expect(initial.mode).toBe('assisted');
   expect(initial.airport.code).toBe('ORD');
   expect(initial.airport.vectorData?.layerCounts.runways).toBe(8);
@@ -61,6 +61,18 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   expect(initial.flights.some((flight) => flight.phase === 'approach')).toBeTruthy();
   expect(initial.flights.some((flight) => flight.phase === 'taxi-out' || flight.phase === 'resting')).toBeTruthy();
   expect(initial.flights.some((flight) => flight.gate?.ref)).toBeTruthy();
+  const taxiingFlight = initial.flights.find((flight) => flight.phase === 'taxi-in' || flight.phase === 'taxi-out');
+  expect(taxiingFlight?.aircraft).toMatchObject({
+    taxiAccelerationMps2: expect.any(Number),
+    taxiBrakingMps2: expect.any(Number),
+    taxiTurnRadiusM: expect.any(Number),
+    minimumWingtipClearanceM: expect.any(Number),
+  });
+  expect(taxiingFlight?.taxiPerformance.routeClearanceOk).toBeTruthy();
+  expect(taxiingFlight?.taxiPerformance.minimumRouteWingtipClearanceM).toBeGreaterThanOrEqual(
+    taxiingFlight?.taxiPerformance.requiredWingtipClearanceM ?? Infinity,
+  );
+  expect(taxiingFlight?.taxiPerformance.stoppingDistanceM).toBeGreaterThanOrEqual(0);
   const pushReady = initial.flights.find((flight) => flight.phase === 'resting' && flight.groundOperation.label === 'Ready push');
   expect(pushReady?.groundOperation).toMatchObject({
     pushbackCleared: false,
@@ -194,7 +206,7 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
 
 test('Mobile Watch mode keeps controls readable and uses low-detail rendering', async ({ page }, testInfo) => {
   await page.goto('/?airport=ORD&mode=watch&autostart=1&detail=low');
-  await page.waitForFunction(() => window.airportControl?.version === '2.3.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.4.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
   await expect(page.locator('body')).toHaveClass(/watch-mode/);
   await expect(page.locator('#menu-toggle')).toBeVisible();

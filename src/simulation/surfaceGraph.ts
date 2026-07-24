@@ -1,4 +1,5 @@
 import type { AirportConfig, RunwayConfig } from './airportConfig';
+import { WORLD_METERS_PER_UNIT } from './runwayPerformance';
 import type { AircraftCategory, PushbackDirection } from './types';
 
 export type SurfaceNodeKind =
@@ -216,6 +217,11 @@ export interface SurfaceGraphValidation {
     hotspots: number;
     gradeSeparatedEdges: number;
   };
+}
+
+export interface SurfaceRouteRequirements {
+  wingspanM: number;
+  minimumWingtipClearanceM: number;
 }
 
 type SurfaceGraphConfig = Pick<AirportConfig, 'code' | 'seed' | 'scope' | 'terminal' | 'runways'>;
@@ -556,6 +562,7 @@ export function surfaceRouteForFlight(
   operatingEnd: -1 | 1,
   phase: 'taxi-in' | 'resting' | 'taxi-out',
   gateSlot: number,
+  requirements?: SurfaceRouteRequirements,
 ): SurfaceRoute | null {
   const stand = graph.stands.find((item) => item.slot === gateSlot) ?? graph.stands[gateSlot % Math.max(1, graph.stands.length)];
   if (!stand) return null;
@@ -565,7 +572,7 @@ export function surfaceRouteForFlight(
   if (!access) return null;
   const from = phase === 'taxi-in' ? access.exitNodeId : stand.nodeId;
   const to = phase === 'taxi-in' ? stand.nodeId : access.holdShortNodeId;
-  return findSurfaceRoute(graph, from, to);
+  return findSurfaceRoute(graph, from, to, requirements);
 }
 
 /**
@@ -614,7 +621,12 @@ export function surfaceStandSupportsAircraft(
   return stand.supportedCategories.includes(category) && stand.maximumWingspanM + 1e-6 >= wingspanM;
 }
 
-export function findSurfaceRoute(graph: AirportSurfaceGraph, fromNodeId: string, toNodeId: string): SurfaceRoute | null {
+export function findSurfaceRoute(
+  graph: AirportSurfaceGraph,
+  fromNodeId: string,
+  toNodeId: string,
+  requirements?: SurfaceRouteRequirements,
+): SurfaceRoute | null {
   if (fromNodeId === toNodeId) return { nodeIds: [fromNodeId], edgeIds: [], distance: 0, taxiwayIds: [] };
   const { nodeById, edgeById, adjacency } = surfaceGraphIndex(graph);
   if (!nodeById.has(fromNodeId) || !nodeById.has(toNodeId)) return null;
@@ -630,6 +642,7 @@ export function findSurfaceRoute(graph: AirportSurfaceGraph, fromNodeId: string,
     if (currentDistance !== distanceByNode.get(current)) continue;
     if (current === toNodeId) break;
     for (const next of adjacency.get(current) ?? []) {
+      if (requirements && !surfaceEdgeSupportsAircraft(next.edge, requirements)) continue;
       const nextDistance = currentDistance + next.cost;
       if (nextDistance >= (distanceByNode.get(next.nodeId) ?? Infinity)) continue;
       distanceByNode.set(next.nodeId, nextDistance);
@@ -653,6 +666,15 @@ export function findSurfaceRoute(graph: AirportSurfaceGraph, fromNodeId: string,
   edgeIds.reverse();
   const taxiwayIds = [...new Set(edgeIds.map((id) => edgeById.get(id)?.taxiwayId).filter((id): id is string => Boolean(id)))];
   return { nodeIds, edgeIds, distance: distanceByNode.get(toNodeId) ?? 0, taxiwayIds };
+}
+
+export function surfaceEdgeWingtipClearanceM(edge: SurfaceEdge, wingspanM: number): number {
+  if (edge.kind === 'stand-lead-in') return Infinity;
+  return (edge.width * WORLD_METERS_PER_UNIT - wingspanM) / 2;
+}
+
+export function surfaceEdgeSupportsAircraft(edge: SurfaceEdge, requirements: SurfaceRouteRequirements): boolean {
+  return surfaceEdgeWingtipClearanceM(edge, requirements.wingspanM) + 1e-6 >= requirements.minimumWingtipClearanceM;
 }
 
 export function sampleSurfaceRoute(graph: AirportSurfaceGraph, nodeIds: string[] | undefined, progress: number): SurfaceRouteSample | null {

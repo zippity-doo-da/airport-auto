@@ -1,7 +1,7 @@
 # Airport Auto — Forward Roadmap
 
 Last reconciled: July 24, 2026
-Baseline: Airport Auto 2.3
+Baseline: Airport Auto 2.4
 
 Airport Auto is an **ASMR-first web airport simulation with an optional serious ATC layer**. The simulation should remain enjoyable as a calm, hands-off miniature world while also supporting increasingly authentic controller work when the player asks for it.
 
@@ -65,10 +65,10 @@ This document contains only unfinished, still-valid work. Shipped behavior belon
 
 Turn the safe surface graph into a believable airport lifecycle.
 
-**Status: in progress.** The first lifecycle slice shipped in 2.3.
+**Status: in progress.** Pushback shipped in 2.3; aircraft-specific ground handling shipped in 2.4.
 
 - [x] Add explicit pushback clearance, tug attachment, push direction, engine-start state, and tug release.
-- [ ] Add aircraft-specific taxi speed, turn-radius, stopping-distance, and wingtip-clearance behavior on the imported graph.
+- [x] Add aircraft-specific taxi speed, turn-radius, stopping-distance, and wingtip-clearance behavior on the imported graph.
 - [ ] Add ramp-control zones, alley conflicts, one-way restrictions, stand lead-in/lead-out paths, and congestion-aware routing.
 - [ ] Add gate assignment by airline, terminal, aircraft size, service type, arrival time, and next departure.
 - [ ] Replace the simple turnaround timer with optional fueling, baggage, cargo, catering, cleaning, boarding, and maintenance states.
