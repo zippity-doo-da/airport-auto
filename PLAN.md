@@ -85,12 +85,18 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Taxiway IDs, operational areas, and FAA hot spots are optional muted map layers; all start hidden and can be changed through the normal UI or typed control API.
 - [x] Imported stands maintain safe visual separation, reject incompatible aircraft, never reuse an occupied slot, and collectively pass 800 compatible stand-to-runway route checks.
 - [x] Deterministic import, topology, route-connectivity, fixed-step, trajectory, Auto/Watch Rush, collision, obstacle, desktop, and mobile browser gates cover the sourced layout.
+- [x] A versioned OpenStreetMap surroundings asset replaces ORD’s repeated district tiles with 6,016 road segments, 1,127 rail segments, 35 waterways, 1,568 land-use/water areas, and the sourced KORD aerodrome boundary.
+- [x] The surroundings importer preserves exact Overpass queries, endpoint, OSM base timestamp, retrieval date, local east/north coordinate system, SHA-256, ODbL license, and OpenStreetMap attribution without a live runtime dependency.
+- [x] Roads, rail, water, and land use render in at most 18 batched context groups; an opaque sourced airport cover keeps contextual roads beneath all authoritative runway, taxiway, apron, and building geometry.
+- [x] Optional airport-boundary, north-arrow, and responsive map-scale controls start hidden, work through the normal UI, and expose their state through the typed local-control interface.
+- [x] Import validation proves every FAA runway and all authoritative pavement remain within the airport cover by at least 128.7 m; collision validation checks 137,436 high/low-detail ORD scenery clearances against the largest rendered aircraft envelope.
+- [x] Desktop and mobile browser tests verify context loading, attribution, bounded context draw groups, boundary/orientation controls, and the clean Watch presentation.
 
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.
 
-Current focus remains O’Hare. Its release graph combines FAA runway/apron/building/hot-spot geometry with a normalized OSM surface graph, real source taxiway names, operational zones, stand compatibility, and east/west flow configurations. It remains schematic because passenger concourses and sourced gate positions, full surrounding Chicago context, airport-boundary presentation, less-common runway configurations, and complete procedures are still roadmap work.
+Current focus remains O’Hare. Its release graph combines FAA runway/apron/building/hot-spot geometry with a normalized OSM surface graph, real source taxiway names, operational zones, stand compatibility, east/west flow configurations, sourced surrounding Chicago context, and an optional airport-boundary presentation. It remains schematic because passenger concourses and sourced gate positions, less-common runway configurations, and complete procedures are still roadmap work.
 
 ## Acceptance gates
 

@@ -97,6 +97,8 @@
             <label><input data-surface-layer="taxiway-labels" type="checkbox" />Taxiway IDs</label>
             <label><input data-surface-layer="operational-zones" type="checkbox" />Operational areas</label>
             <label><input data-surface-layer="hotspots" type="checkbox" />FAA hot spots</label>
+            <label><input data-surface-layer="airport-boundary" type="checkbox" />Airport boundary</label>
+            <label><input id="map-orientation-toggle" type="checkbox" />North &amp; scale</label>
             <small>All overlays start hidden to preserve the clean field view.</small>
           </fieldset>
           <section id="operations-health" class="operations-health" aria-label="Live simulation health">
@@ -129,6 +131,11 @@
         <button id="zoom-out" type="button" aria-label="Zoom out">−</button>
         <button id="camera-reset" type="button" aria-label="Reset camera">⌂</button>
       </nav>
+
+      <aside id="map-orientation" class="map-orientation" aria-label="Map north and scale" hidden>
+        <div class="map-orientation__north"><b>N</b><span id="map-north-arrow" aria-hidden="true">↑</span></div>
+        <div class="map-orientation__scale"><span id="map-scale-label">1 km</span><i id="map-scale-bar" aria-hidden="true"></i></div>
+      </aside>
 
       <section class="scoreboard" aria-label="Shift score">
         <div><strong id="landed-count">00</strong><span>Landed</span></div>

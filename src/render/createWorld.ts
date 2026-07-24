@@ -4,6 +4,8 @@ import { aircraftProfile } from '../simulation/aircraftProfiles';
 import { airlineProfile } from '../simulation/airlineProfiles';
 import type { AirportState, Flight, FlightMotionState } from '../simulation/types';
 import { applyAircraftOrientation } from './aircraftOrientation';
+import { createAirportContext, type AirportContextDiagnostics } from './airportContext';
+import { treePlacement } from './sceneryPlacement';
 
 type FlightVisual = {
   poolKey: string;
@@ -51,7 +53,7 @@ type AirportBuild = {
   surfaceLayers: Record<SurfaceLayer, THREE.Group>;
 };
 
-export type SurfaceLayer = 'taxiway-labels' | 'operational-zones' | 'hotspots';
+export type SurfaceLayer = 'taxiway-labels' | 'operational-zones' | 'hotspots' | 'airport-boundary';
 
 export type WorldDiagnostics = {
   drawCalls: number;
@@ -61,6 +63,7 @@ export type WorldDiagnostics = {
   detail: 'low' | 'high';
   pooledAircraft: number;
   surfaceLayers: Record<SurfaceLayer, boolean>;
+  context: AirportContextDiagnostics | { status: 'procedural' };
 };
 
 export interface AirportWorld {
@@ -71,6 +74,7 @@ export interface AirportWorld {
   selectFlight(id: number | null): void;
   flightScreenPosition(id: number): { x: number; y: number } | null;
   flightAttitude(id: number): { headingDegrees: number; noseUpDegrees: number } | null;
+  mapMetrics(): { northDegrees: number; scaleMeters: number; scalePixels: number };
   zoomIn(): void;
   zoomOut(): void;
   resetCamera(): void;
@@ -146,7 +150,14 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   scene.add(sun);
 
   buildLandscape(world, config);
+  const contextRuntime = config.contextData
+    ? createAirportContext(world, config.contextData, config.vectorData?.runtimeReference.worldMetersPerUnit ?? 38)
+    : null;
   const airportBuild = buildAirport(world, config);
+  if (contextRuntime) {
+    world.remove(airportBuild.surfaceLayers['airport-boundary']);
+    airportBuild.surfaceLayers['airport-boundary'] = contextRuntime.boundaryLayer;
+  }
   const runwayLights = airportBuild.runwayLights;
   const swayingObjects = buildDetails(world, config, lowDetail);
   const clouds = buildClouds(scene, lowDetail);
@@ -463,6 +474,30 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     };
   }
 
+  function mapMetrics(): { northDegrees: number; scaleMeters: number; scalePixels: number } {
+    const origin = project(new THREE.Vector3(0, 0, 1.5));
+    const north = project(new THREE.Vector3(0, 10, 1.5));
+    const northDegrees = THREE.MathUtils.radToDeg(Math.atan2(north.x - origin.x, -(north.y - origin.y)));
+    const rect = canvas.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const first = groundPointAt(centerX - 50, centerY);
+    const second = groundPointAt(centerX + 50, centerY);
+    const metersPerPixel = first && second
+      ? first.distanceTo(second) * (config.vectorData?.runtimeReference.worldMetersPerUnit ?? 38) / 100
+      : 10;
+    const targetMeters = metersPerPixel * 96;
+    const scales = [100, 200, 500, 1_000, 2_000, 5_000, 10_000, 20_000];
+    const scaleMeters = scales.reduce((best, candidate) => (
+      Math.abs(Math.log(candidate / targetMeters)) < Math.abs(Math.log(best / targetMeters)) ? candidate : best
+    ));
+    return {
+      northDegrees,
+      scaleMeters,
+      scalePixels: THREE.MathUtils.clamp(scaleMeters / Math.max(0.001, metersPerPixel), 42, 180),
+    };
+  }
+
   const onContextLost = (event: Event): void => {
     event.preventDefault();
     canvas.dataset.rendererState = 'lost';
@@ -487,6 +522,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     selectFlight(id) { selectedFlightId = id; },
     flightScreenPosition,
     flightAttitude,
+    mapMetrics,
     zoomIn() { changeZoom(0.78); },
     zoomOut() { changeZoom(1.28); },
     resetCamera,
@@ -509,7 +545,9 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
           'taxiway-labels': airportBuild.surfaceLayers['taxiway-labels'].visible,
           'operational-zones': airportBuild.surfaceLayers['operational-zones'].visible,
           hotspots: airportBuild.surfaceLayers.hotspots.visible,
+          'airport-boundary': airportBuild.surfaceLayers['airport-boundary'].visible,
         },
+        context: contextRuntime?.diagnostics() ?? { status: 'procedural' },
       };
     },
     resize,
@@ -522,6 +560,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
       canvas.removeEventListener('pointercancel', onPointerUp);
       canvas.removeEventListener('webglcontextlost', onContextLost);
       canvas.removeEventListener('webglcontextrestored', onContextRestored);
+      contextRuntime?.dispose();
       for (const pool of flightPool.values()) for (const visual of pool) disposeObject(visual.root);
       flightPool.clear();
       disposeObject(scene);
@@ -543,6 +582,8 @@ function buildLandscape(root: THREE.Group, config: AirportConfig): void {
   ground.position.z = 1.24;
   ground.receiveShadow = true;
   root.add(ground);
+
+  if (config.contextData) return;
 
   const districtMaterial = new THREE.MeshStandardMaterial({ color: terrainColors.district, roughness: 1 });
   for (let row = -3; row <= 3; row += 1) {
@@ -820,17 +861,14 @@ function buildDetails(root: THREE.Group, config: AirportConfig, lowDetail: boole
   let lightIndex = 0;
 
   for (let index = 0; index < treeCount; index += 1) {
-    const angle = (index / treeCount) * Math.PI * 2 + Math.sin(index * 4.7 + config.seed) * 0.13;
-    const radiusX = (config.code === 'ORD' ? 142 : 70) + (index % 5) * 3.5;
-    const radiusY = (config.code === 'ORD' ? 112 : 50) + (index % 4) * 3.5;
-    const x = Math.cos(angle) * radiusX;
-    const y = Math.sin(angle) * radiusY;
+    const placement = treePlacement(config, index, treeCount);
+    const { x, y } = placement;
     dummy.position.set(x, y, 2.95);
     dummy.rotation.set(Math.PI / 2, 0, 0);
     dummy.scale.set(1, 1, 1);
     dummy.updateMatrix();
     trunkInstances.setMatrixAt(index, dummy.matrix);
-    const crownScale = 2.4 + (index % 3) * 0.35;
+    const crownScale = placement.crownScale;
     dummy.position.set(x, y, 5.6);
     dummy.rotation.set(0, 0, 0);
     dummy.scale.set(crownScale, crownScale, crownScale * 1.22);
@@ -1397,6 +1435,8 @@ function addSurfaceMapLayers(root: THREE.Group, config: AirportConfig): Record<S
   operationalZones.name = 'surface-layer-operational-zones';
   const hotspots = new THREE.Group();
   hotspots.name = 'surface-layer-hotspots';
+  const airportBoundary = new THREE.Group();
+  airportBoundary.name = 'surface-layer-airport-boundary';
 
   const taxiwaysByReference = new Map<string, typeof graph.taxiways>();
   for (const taxiway of graph.taxiways) {
@@ -1472,8 +1512,9 @@ function addSurfaceMapLayers(root: THREE.Group, config: AirportConfig): Record<S
   taxiwayLabels.visible = false;
   operationalZones.visible = false;
   hotspots.visible = false;
-  root.add(operationalZones, hotspots, taxiwayLabels);
-  return { 'taxiway-labels': taxiwayLabels, 'operational-zones': operationalZones, hotspots };
+  airportBoundary.visible = false;
+  root.add(operationalZones, hotspots, taxiwayLabels, airportBoundary);
+  return { 'taxiway-labels': taxiwayLabels, 'operational-zones': operationalZones, hotspots, 'airport-boundary': airportBoundary };
 }
 
 function ringCenter(ring: Array<[number, number]>): [number, number] {

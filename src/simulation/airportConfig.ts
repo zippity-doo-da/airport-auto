@@ -2,6 +2,7 @@ import { buildAirportSurfaceGraph, type AirportSurfaceGraph } from './surfaceGra
 import { buildAirportObstacleEnvelopes, resolveAirportTerminal, type AirportObstacleEnvelope } from './airportObstacles';
 import { airportVectorManifest, type AirportVectorManifest } from './airportVectorMetadata';
 import { airportSurfaceDataManifest, importedAirportSurfaceGraph, type AirportSurfaceDataManifest } from './importedAirportData';
+import { airportContextDataManifest, type AirportContextDataManifest } from './airportContextData';
 
 export type FlightColor = 'rose' | 'mist' | 'sage';
 export type TerrainTheme = 'coast' | 'highland' | 'woodland';
@@ -42,6 +43,7 @@ export interface AirportConfig {
   trafficCap: number;
   vectorData?: AirportVectorManifest;
   surfaceData?: AirportSurfaceDataManifest;
+  contextData?: AirportContextDataManifest;
   runwayConfigurations: AirportRunwayConfiguration[];
   defaultRunwayConfigurationId: string;
   obstacles: AirportObstacleEnvelope[];
@@ -236,6 +238,7 @@ export function generateHubConfig(index = 0): AirportConfig {
     trafficCap: Math.max(14, Math.round(14 + (profile.operations - 450_000) / 45_000)),
     vectorData,
     surfaceData: airportSurfaceDataManifest(profile.code),
+    contextData: airportContextDataManifest(profile.code),
   });
 }
 

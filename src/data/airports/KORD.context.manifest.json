@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "airport": {
+    "faaId": "ORD",
+    "icaoId": "KORD",
+    "name": "Chicago O'Hare International",
+    "fidelity": "faa-airport-mapping",
+    "navigationUse": false
+  },
+  "assetPath": "data/airports/KORD.context.json",
+  "assetSha256": "f46f8b1de52ad59d648956b048ce3910c2b881c40d95e6d3a075d9f53b52ecb6",
+  "retrievedOn": "2026-07-24",
+  "coordinateSystem": {
+    "source": "EPSG:4326",
+    "local": "local-tangent-plane",
+    "originWgs84": [
+      -87.9055658,
+      41.9781154
+    ],
+    "axes": {
+      "x": "east",
+      "y": "north"
+    },
+    "unit": "meter",
+    "earthRadiusMeters": 6378137,
+    "coordinatePrecisionMeters": 0.1
+  },
+  "boundsMeters": {
+    "min": [
+      -12000.000000000175,
+      -9999.99999999966
+    ],
+    "max": [
+      12000.000000000175,
+      9999.99999999966
+    ]
+  },
+  "source": {
+    "provider": "OpenStreetMap",
+    "endpoint": "https://overpass.kumi.systems/api/interpreter",
+    "queries": {
+      "roads": "[out:json][timeout:180];(way(41.8882839,-88.0505722,42.0679469,-87.7605594)[\"highway\"~\"^(motorway|motorway_link|trunk|trunk_link|primary|primary_link)$\"];way(41.8882839,-88.0505722,42.0679469,-87.7605594)[\"highway\"=\"secondary\"][\"name\"];way(41.8882839,-88.0505722,42.0679469,-87.7605594)[\"highway\"=\"secondary\"][\"ref\"];);out tags geom;",
+      "transport": "[out:json][timeout:180];(way(41.8882839,-88.0505722,42.0679469,-87.7605594)[\"railway\"~\"^(rail|light_rail)$\"];way(41.8882839,-88.0505722,42.0679469,-87.7605594)[\"waterway\"~\"^(river|canal)$\"];nwr(41.8882839,-88.0505722,42.0679469,-87.7605594)[\"aeroway\"=\"aerodrome\"][\"icao\"=\"KORD\"];);out body geom;",
+      "areas": "[out:json][timeout:180];(nwr(41.8882839,-88.0505722,42.0679469,-87.7605594)[\"landuse\"~\"^(industrial|commercial|retail|railway|cemetery)$\"];nwr(41.8882839,-88.0505722,42.0679469,-87.7605594)[\"leisure\"~\"^(park|golf_course)$\"];nwr(41.8882839,-88.0505722,42.0679469,-87.7605594)[\"natural\"=\"water\"];);out body geom;"
+    },
+    "osmBaseTimestamp": "2026-06-12T12:14:17Z",
+    "license": "Open Data Commons Open Database License 1.0",
+    "attribution": "© OpenStreetMap contributors",
+    "copyrightUrl": "https://www.openstreetmap.org/copyright"
+  },
+  "counts": {
+    "roads": 6016,
+    "roadPoints": 13094,
+    "rails": 1127,
+    "railPoints": 2940,
+    "waterways": 35,
+    "waterwayPoints": 503,
+    "areas": 1568,
+    "areaPoints": 14563,
+    "boundaryRings": 1,
+    "boundaryPoints": 126
+  },
+  "license": "Open Data Commons Open Database License 1.0",
+  "attribution": "© OpenStreetMap contributors",
+  "copyrightUrl": "https://www.openstreetmap.org/copyright"
+}

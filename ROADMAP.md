@@ -44,11 +44,11 @@ This document contains only unfinished, still-valid work. Shipped behavior belon
 
 ### Chicago context and presentation
 
-- [ ] Replace repeated district tiles with recognizable airport-adjacent ground, highways, major roads, rail corridors, and development patterns.
+- [x] Replace repeated district tiles with recognizable airport-adjacent ground, highways, major roads, rail corridors, and development patterns.
 - [x] Keep the airport on continuous land and show a credible airport boundary; do not present O’Hare as an island.
 - [x] Add optional taxiway IDs, runway labels, operational areas, FAA hot spots, and clean-map layer controls that default off.
-- [ ] Add an optional north arrow, map scale, and sourced airport-boundary layer.
-- [ ] Keep terminals, scenery, roads, and props outside every protected movement-surface envelope.
+- [x] Add an optional north arrow, map scale, and sourced airport-boundary layer.
+- [x] Keep terminals, scenery, roads, and props outside every protected movement-surface envelope.
 - [x] Preserve the original muted miniature visual language instead of copying chart or satellite aesthetics.
 
 ### ORD v1 acceptance gate
@@ -56,7 +56,7 @@ This document contains only unfinished, still-valid work. Shipped behavior belon
 - [x] Every active stand can reach at least one compatible departure runway using pavement-only routes.
 - [x] Every landing runway can reach a compatible free stand without an unexplained teleport, grass segment, or unmodeled crossing.
 - [x] Every runway crossing on a route maps to a specific hold-short point and explicit clearance.
-- [ ] No building, scenery object, or road overlaps a protected runway or taxiway envelope.
+- [x] No building, scenery object, or road overlaps a protected runway or taxiway envelope.
 - [x] Rush Auto and Watch soaks sustain concurrent arrivals, departures, and multiple nonconflicting surface movements with zero collisions or incursions.
 - [x] The renderer pose and simulation pose remain identical at imported curves and tight intersections.
 - [x] ORD remains labeled “schematic” until source review and all acceptance checks are complete.

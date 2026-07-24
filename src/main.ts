@@ -15,6 +15,7 @@ type AirportControlCommand =
   | { action: 'setRadarVisible'; enabled: boolean }
   | { action: 'setRunwayLabelsVisible'; enabled: boolean }
   | { action: 'setSurfaceLayerVisible'; layer: SurfaceLayer; enabled: boolean }
+  | { action: 'setMapOrientationVisible'; enabled: boolean }
   | { action: 'selectAirport'; code: string }
   | { action: 'clearFlight'; flightId: number; runway: number }
   | { action: 'clearRunwayEntry'; flightId: number }
@@ -178,6 +179,11 @@ const zoomOutButton = $<HTMLButtonElement>('#zoom-out');
 const cameraResetButton = $<HTMLButtonElement>('#camera-reset');
 const runwayLabelButton = $<HTMLButtonElement>('#runway-label-toggle');
 const runwayLabelLabel = $<HTMLElement>('#runway-label-label');
+const mapOrientationToggle = $<HTMLInputElement>('#map-orientation-toggle');
+const mapOrientation = $<HTMLElement>('#map-orientation');
+const mapNorthArrow = $<HTMLElement>('#map-north-arrow');
+const mapScaleLabel = $<HTMLElement>('#map-scale-label');
+const mapScaleBar = $<HTMLElement>('#map-scale-bar');
 const operationsHealth = $<HTMLElement>('#operations-health');
 const healthState = $<HTMLElement>('#health-state');
 const healthThroughput = $<HTMLElement>('#health-throughput');
@@ -215,7 +221,10 @@ const surfaceLayerVisibility: Record<SurfaceLayer, boolean> = {
   'taxiway-labels': false,
   'operational-zones': false,
   hotspots: false,
+  'airport-boundary': false,
 };
+let mapOrientationVisible = false;
+let lastOrientationUpdate = -Infinity;
 let previousPresentation = capturePresentation(simulation.state);
 let lastFlightStripRender = -Infinity;
 let renderedFrames = 0;
@@ -292,6 +301,7 @@ for (const control of surfaceLayerControls) {
     setSurfaceLayerVisible(control.dataset.surfaceLayer as SurfaceLayer, control.checked);
   });
 }
+mapOrientationToggle.addEventListener('change', () => setMapOrientationVisible(mapOrientationToggle.checked));
 menuButton.addEventListener('click', (event) => {
   event.stopPropagation();
   setControlPanelOpen(!controlPanel.classList.contains('control-panel--open'));
@@ -607,6 +617,10 @@ function frame(now: number): void {
   }
 
   world.update(replayMode ? displayedState : presentationState(), delta);
+  if (mapOrientationVisible && now - lastOrientationUpdate >= 100) {
+    updateMapOrientation();
+    lastOrientationUpdate = now;
+  }
   if (!debugPanel.hidden && hudSecond !== lastDebugSecond) {
     renderDebugPanel();
     lastDebugSecond = hudSecond;
@@ -802,6 +816,22 @@ function setSurfaceLayerVisible(layer: SurfaceLayer, visible: boolean): void {
   const control = surfaceLayerControls.find((item) => item.dataset.surfaceLayer === layer);
   if (control) control.checked = visible;
   world.setSurfaceLayerVisible(layer, visible);
+}
+
+function setMapOrientationVisible(visible: boolean): void {
+  mapOrientationVisible = visible;
+  mapOrientationToggle.checked = visible;
+  mapOrientation.hidden = !visible;
+  if (visible) updateMapOrientation();
+}
+
+function updateMapOrientation(): void {
+  const metrics = world.mapMetrics();
+  mapNorthArrow.style.transform = `rotate(${metrics.northDegrees.toFixed(2)}deg)`;
+  mapScaleBar.style.width = `${metrics.scalePixels.toFixed(1)}px`;
+  mapScaleLabel.textContent = metrics.scaleMeters >= 1_000
+    ? `${Number((metrics.scaleMeters / 1_000).toFixed(1))} km`
+    : `${metrics.scaleMeters} m`;
 }
 
 function renderFlightActions(): void {
@@ -1129,6 +1159,7 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   for (const [layer, visible] of Object.entries(surfaceLayerVisibility) as Array<[SurfaceLayer, boolean]>) {
     world.setSurfaceLayerVisible(layer, visible);
   }
+  lastOrientationUpdate = -Infinity;
   simulationAccumulator = 0;
   previousPresentation = capturePresentation(simulation.state);
   updateAirportUi();
@@ -1190,12 +1221,16 @@ function updateAirportUi(): void {
     const effective = config.vectorData.effective
       ? `${config.vectorData.effective.from.replace(/^\d{4}Z\s+/, '')}–${config.vectorData.effective.to.replace(/^\d{4}Z\s+/, '')}`
       : 'effective window unavailable';
-    mapDataVersion.textContent = config.surfaceData
-      ? `FAA geometry + OSM surface graph · ${effective}`
-      : `FAA vector foundation · ${effective}`;
-    mapDataAttribution.textContent = config.surfaceData
-      ? `${config.vectorData.attribution} Retrieved ${config.vectorData.retrievedOn}. ${config.surfaceData.attribution} Retrieved ${config.surfaceData.retrievedOn} · not for navigation.`
-      : `${config.vectorData.attribution} Retrieved ${config.vectorData.retrievedOn} · imported geometry staged · not for navigation.`;
+    mapDataVersion.textContent = config.contextData
+      ? `FAA geometry + OSM surface and surroundings · ${effective}`
+      : config.surfaceData
+        ? `FAA geometry + OSM surface graph · ${effective}`
+        : `FAA vector foundation · ${effective}`;
+    mapDataAttribution.textContent = config.contextData
+      ? `${config.vectorData.attribution} Retrieved ${config.vectorData.retrievedOn}. ${config.contextData.attribution} Surface and surroundings retrieved through ${config.contextData.retrievedOn} · not for navigation.`
+      : config.surfaceData
+        ? `${config.vectorData.attribution} Retrieved ${config.vectorData.retrievedOn}. ${config.surfaceData.attribution} Retrieved ${config.surfaceData.retrievedOn} · not for navigation.`
+        : `${config.vectorData.attribution} Retrieved ${config.vectorData.retrievedOn} · imported geometry staged · not for navigation.`;
     mapDataSource.hidden = false;
     mapSurfaceSource.hidden = !config.surfaceData;
   } else {
@@ -1213,13 +1248,17 @@ function updateAirportUi(): void {
   airportSelect.value = config.code;
   introAirportSelect.value = config.code;
   document.body.classList.toggle('center-scope', center);
+  mapOrientationToggle.checked = mapOrientationVisible;
+  mapOrientation.hidden = !mapOrientationVisible;
   for (const control of surfaceLayerControls) {
     const layer = control.dataset.surfaceLayer as SurfaceLayer;
     const available = layer === 'hotspots'
       ? config.surfaceGraph.hotspots.length > 0
       : layer === 'operational-zones'
         ? config.surfaceGraph.zones.length > 0
-        : config.surfaceGraph.taxiways.some((taxiway) => Boolean(taxiway.reference));
+        : layer === 'airport-boundary'
+          ? Boolean(config.contextData)
+          : config.surfaceGraph.taxiways.some((taxiway) => Boolean(taxiway.reference));
     control.disabled = !available;
     control.checked = available && surfaceLayerVisibility[layer];
     world.setSurfaceLayerVisible(layer, available && surfaceLayerVisibility[layer]);
@@ -1381,6 +1420,30 @@ function airportSnapshot() {
         license: config.surfaceData.license,
         attribution: config.surfaceData.attribution,
         copyrightUrl: config.surfaceData.copyrightUrl,
+      } : null,
+      contextData: config.contextData ? {
+        schemaVersion: config.contextData.schemaVersion,
+        assetPath: config.contextData.assetPath,
+        assetSha256: config.contextData.assetSha256,
+        retrievedOn: config.contextData.retrievedOn,
+        coordinateSystem: {
+          ...config.contextData.coordinateSystem,
+          originWgs84: [...config.contextData.coordinateSystem.originWgs84],
+          axes: { ...config.contextData.coordinateSystem.axes },
+        },
+        boundsMeters: {
+          min: [...config.contextData.boundsMeters.min],
+          max: [...config.contextData.boundsMeters.max],
+        },
+        source: {
+          provider: config.contextData.source.provider,
+          endpoint: config.contextData.source.endpoint,
+          osmBaseTimestamp: config.contextData.source.osmBaseTimestamp,
+        },
+        counts: { ...config.contextData.counts },
+        license: config.contextData.license,
+        attribution: config.contextData.attribution,
+        copyrightUrl: config.contextData.copyrightUrl,
       } : null,
     },
     clock: Number(simulation.state.elapsed.toFixed(2)),
@@ -1605,10 +1668,11 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
   }
   if (command.action === 'setRunwayLabelsVisible') setRunwayLabelsVisible(command.enabled);
   if (command.action === 'setSurfaceLayerVisible') {
-    accepted = ['taxiway-labels', 'operational-zones', 'hotspots'].includes(command.layer);
+    accepted = ['taxiway-labels', 'operational-zones', 'hotspots', 'airport-boundary'].includes(command.layer);
     if (accepted) setSurfaceLayerVisible(command.layer, command.enabled);
-    else reason = 'surface layer must be taxiway-labels, operational-zones, or hotspots';
+    else reason = 'surface layer must be taxiway-labels, operational-zones, hotspots, or airport-boundary';
   }
+  if (command.action === 'setMapOrientationVisible') setMapOrientationVisible(command.enabled);
   if (command.action === 'selectAirport') {
     const code = command.code.toUpperCase();
     accepted = code === 'LOCAL' || HUB_AIRPORTS.some((airport) => airport.code === code);
@@ -1699,6 +1763,7 @@ window.airportControl = {
       nightMode: "airportControl.command({ action: 'setNightMode', enabled: true })",
       radar: "airportControl.command({ action: 'setRadarVisible', enabled: true })",
       mapLayer: "airportControl.command({ action: 'setSurfaceLayerVisible', layer: 'hotspots', enabled: true })",
+      mapOrientation: "airportControl.command({ action: 'setMapOrientationVisible', enabled: true })",
       clearance: "airportControl.command({ action: 'clearFlight', flightId: 1, runway: 0 })",
       runwayEntry: "airportControl.command({ action: 'clearRunwayEntry', flightId: 1 })",
       takeoff: "airportControl.request({ action: 'clearTakeoff', flightId: 1 })",

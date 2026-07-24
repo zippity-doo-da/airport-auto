@@ -6,6 +6,7 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await expect(page.locator('#airport-name')).toContainText('O’Hare');
   await expect(page.locator('#flight-strip-count')).toContainText('aircraft');
   await page.waitForFunction(() => window.airportControl?.version === '2.1.0');
+  await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
   expect(initial.mode).toBe('assisted');
@@ -15,6 +16,8 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   expect(initial.airport.vectorData?.attribution).toContain('Federal Aviation Administration');
   expect(initial.airport.surfaceData?.counts.stands).toBeGreaterThanOrEqual(24);
   expect(initial.airport.surfaceData?.attribution).toContain('OpenStreetMap contributors');
+  expect(initial.airport.contextData?.counts).toMatchObject({ roads: 6_016, rails: 1_127, waterways: 35, areas: 1_568, boundaryRings: 1 });
+  expect(initial.airport.contextData?.attribution).toContain('OpenStreetMap contributors');
   expect(initial.surfaceGraph.schemaVersion).toBe(2);
   expect(initial.surfaceGraph.hotspots).toHaveLength(2);
   expect(initial.surfaceGraph.controlPoints.length).toBeGreaterThanOrEqual(200);
@@ -24,18 +27,31 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
     expect(zoneKinds.has(kind)).toBeTruthy();
   }
   expect(initial.runwayConfigurations.map((configuration) => configuration.id)).toEqual(['ORD-WEST-FLOW', 'ORD-EAST-FLOW']);
-  expect(initial.renderer.surfaceLayers).toEqual({ 'taxiway-labels': false, 'operational-zones': false, hotspots: false });
+  expect(initial.renderer.surfaceLayers).toEqual({ 'taxiway-labels': false, 'operational-zones': false, hotspots: false, 'airport-boundary': false });
+  expect(initial.renderer.context).toMatchObject({ status: 'loaded', roads: 6_016, rails: 1_127, boundaryRings: 1 });
+  expect(initial.renderer.context.drawGroups).toBeLessThanOrEqual(20);
+  expect(initial.renderer.drawCalls).toBeLessThan(800);
   expect(initial.flights.some((flight) => flight.phase === 'approach')).toBeTruthy();
   expect(initial.flights.some((flight) => flight.phase === 'taxi-out' || flight.phase === 'resting')).toBeTruthy();
   expect(initial.traffic.collisions).toHaveLength(0);
   expect(initial.traffic.obstacleCollisions).toHaveLength(0);
   const importedVectorCounts = await page.evaluate(async () => {
-    const response = await fetch('./data/airports/KORD.vector.json');
-    if (!response.ok) throw new Error(`airport vector request failed: ${response.status}`);
-    const asset = await response.json();
-    return { runways: asset.layers.runways.length, taxiways: asset.layers.taxiways.length };
+    const [vectorResponse, contextResponse] = await Promise.all([
+      fetch('./data/airports/KORD.vector.json'),
+      fetch('./data/airports/KORD.context.json'),
+    ]);
+    if (!vectorResponse.ok) throw new Error(`airport vector request failed: ${vectorResponse.status}`);
+    if (!contextResponse.ok) throw new Error(`airport context request failed: ${contextResponse.status}`);
+    const vectorAsset = await vectorResponse.json();
+    const contextAsset = await contextResponse.json();
+    return {
+      runways: vectorAsset.layers.runways.length,
+      taxiways: vectorAsset.layers.taxiways.length,
+      roads: contextAsset.roads.length,
+      boundary: contextAsset.airportBoundary.sourceId,
+    };
   });
-  expect(importedVectorCounts).toEqual({ runways: 8, taxiways: 743 });
+  expect(importedVectorCounts).toEqual({ runways: 8, taxiways: 743, roads: 6_016, boundary: 'relation/13423944' });
 
   const proposalButton = page.locator('#clearance-advisor button[data-proposal-id]');
   await expect(proposalButton).toBeVisible();
@@ -61,12 +77,22 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await expect(page.locator('#control-panel')).toHaveClass(/control-panel--open/);
   await expect(page.locator('.advanced-tools summary')).toBeVisible();
   await page.locator('.advanced-tools summary').click();
-  await expect(page.locator('#map-data-version')).toContainText('FAA geometry + OSM surface graph');
+  await expect(page.locator('#map-data-version')).toContainText('FAA geometry + OSM surface and surroundings');
   await expect(page.locator('#map-data-attribution')).toContainText('not for navigation');
   const hotspotLayer = page.locator('input[data-surface-layer="hotspots"]');
   await expect(hotspotLayer).not.toBeChecked();
   await hotspotLayer.check();
   expect((await page.evaluate(() => window.airportControl.snapshot())).renderer.surfaceLayers.hotspots).toBeTruthy();
+  const boundaryLayer = page.locator('input[data-surface-layer="airport-boundary"]');
+  await expect(boundaryLayer).not.toBeChecked();
+  await boundaryLayer.check();
+  expect((await page.evaluate(() => window.airportControl.snapshot())).renderer.surfaceLayers['airport-boundary']).toBeTruthy();
+  await page.locator('#map-orientation-toggle').check();
+  await expect(page.locator('#map-orientation')).toBeVisible();
+  await expect(page.locator('#map-scale-label')).toHaveText(/m|km/);
+  const orientationResult = await page.evaluate(() => window.airportControl.request({ action: 'setMapOrientationVisible', enabled: false }));
+  expect(orientationResult.accepted).toBeTruthy();
+  await expect(page.locator('#map-orientation')).toBeHidden();
   await page.evaluate(() => window.airportControl.command({ action: 'resetCamera' }));
   await page.waitForTimeout(250);
   await page.locator('#station-select').selectOption('ground');
@@ -77,6 +103,7 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
 test('Mobile Watch mode keeps controls readable and uses low-detail rendering', async ({ page }, testInfo) => {
   await page.goto('/?airport=ORD&mode=watch&autostart=1&detail=low');
   await page.waitForFunction(() => window.airportControl?.version === '2.1.0');
+  await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
   await expect(page.locator('body')).toHaveClass(/watch-mode/);
   await expect(page.locator('#menu-toggle')).toBeVisible();
   await expect(page.locator('#zoom-in')).toBeVisible();

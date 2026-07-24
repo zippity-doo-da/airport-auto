@@ -10,6 +10,7 @@ import {
 import { validateAirportObstacleEnvelopes } from './src/simulation/airportObstacles.ts';
 import { FixedStepSimulationHarness } from './src/simulation/fixedStepHarness.ts';
 import { runwaySupportsAircraft } from './src/simulation/runwayPerformance.ts';
+import { sceneryClearanceEnvelopes } from './src/render/sceneryPlacement.ts';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -25,10 +26,21 @@ const maximumVisualBodyRadius = (scope) => Math.max(...AIRCRAFT_ROSTER.map((mode
   return Math.max(scope === 'center' ? 0.92 : 2.2, (visual.bodyLength + visual.bodyRadius * 2) / 2 * scale, visual.wingSpan / 2 * scale);
 }));
 
+function pointToSegmentDistance(point, start, end) {
+  const deltaX = end[0] - start[0];
+  const deltaY = end[1] - start[1];
+  const lengthSquared = deltaX * deltaX + deltaY * deltaY;
+  const amount = lengthSquared <= 0
+    ? 0
+    : Math.max(0, Math.min(1, ((point[0] - start[0]) * deltaX + (point[1] - start[1]) * deltaY) / lengthSquared));
+  return Math.hypot(point[0] - start[0] - amount * deltaX, point[1] - start[1] - amount * deltaY);
+}
+
 const totals = {
   airports: configs.length,
   obstacleEnvelopes: 0,
   pavementSamples: 0,
+  sceneryEnvelopeChecks: 0,
   standPairs: 0,
   trafficRuns: 0,
   ticks: 0,
@@ -48,6 +60,22 @@ for (const config of configs) {
   totals.obstacleEnvelopes += validation.counts.obstacles;
 
   const nodes = new Map(config.surfaceGraph.nodes.map((node) => [node.id, node]));
+  if (config.code === 'ORD') {
+    const detailTreeCounts = [config.treeCount, Math.max(8, Math.floor(config.treeCount * 0.45))];
+    for (const treeCount of detailTreeCounts) {
+      for (const scenery of sceneryClearanceEnvelopes(config, treeCount)) {
+        for (const edge of config.surfaceGraph.edges) {
+          const from = nodes.get(edge.from);
+          const to = nodes.get(edge.to);
+          assert(from && to, config.code + ': scenery clearance edge ' + edge.id + ' has a missing node');
+          const distance = pointToSegmentDistance(scenery.position, from.position, to.position);
+          const requiredClearance = edge.width / 2 + scenery.radius + maximumBodyRadius;
+          assert(distance >= requiredClearance, config.code + ': ' + scenery.id + ' intrudes into aircraft clearance on ' + edge.id + ' (' + distance.toFixed(2) + ' < ' + requiredClearance.toFixed(2) + ')');
+          totals.sceneryEnvelopeChecks += 1;
+        }
+      }
+    }
+  }
   for (const edge of config.surfaceGraph.edges) {
     const from = nodes.get(edge.from);
     const to = nodes.get(edge.to);
