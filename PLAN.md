@@ -84,7 +84,10 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Chicago Department of Aviation’s 199-gate inventory defines four passenger terminals and nine concourses; sourced terminal/concourse labels, gate references, and facility attribution are visible in the map, flight chips, settings, and control snapshot.
 - [x] OSM nose-wheel stops are converted to aircraft-center stand points along their directed lead-ins with a 24 m minimum offset and 42 m FAA-building clearance, preventing gate aircraft from being centered inside terminal buildings.
 - [x] Cyclic and bidirectional runway-crossing geometry resolves distinct physical hold-short points on both approach sides; reverse taxi routes use the same authoritative crossing controls.
-- [x] ORD selects coherent east-flow or west-flow runway ends from wind, holds the current configuration while protected traffic is active, and reports the active configuration in the HUD and control snapshot.
+- [x] ORD exposes six FAA-sourced runway plans: normal west/east parallels, visual high-arrival west/east variants, east IFR, and the rare 22R/22L strong-southerly contingency.
+- [x] Each plan owns its arrival/departure/inactive roles, operating ends, procedure class, weather/visibility/wind/demand restrictions, and source metadata; automatic selection scores only eligible plans.
+- [x] Runway-plan changes meter new arrivals and taxi-out releases, identify protected blocking flights, keep the complete old plan active while they drain, and atomically apply every role, end, marker, and light together.
+- [x] The normal Supervisor UI and `airportControl` 2.2 can request eligible plans or restore automatic selection; snapshots expose eligibility reasons and transition state.
 - [x] Taxiway IDs, operational areas, and FAA hot spots are optional muted map layers; all start hidden and can be changed through the normal UI or typed control API.
 - [x] Imported stands maintain safe visual separation, reject incompatible aircraft, never reuse an occupied slot, and collectively pass 1,280 compatible stand-to-runway route checks.
 - [x] Deterministic import, topology, route-connectivity, fixed-step, trajectory, Auto/Watch Rush, collision, obstacle, desktop, and mobile browser gates cover the sourced layout.
@@ -99,7 +102,7 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.
 
-Current focus remains O’Hare. Its release graph combines FAA runway/apron/building/hot-spot geometry with a normalized OSM surface graph, real source taxiway names, operational zones, sourced passenger gates and parking ways, four terminals, nine concourses, stand compatibility, east/west flow configurations, sourced surrounding Chicago context, and an optional airport-boundary presentation. It remains schematic because less-common runway configurations and complete procedures are still roadmap work.
+Current focus remains O’Hare. Its release graph combines FAA runway/apron/building/hot-spot geometry with a normalized OSM surface graph, real source taxiway names, operational zones, sourced passenger gates and parking ways, four terminals, nine concourses, stand compatibility, six restricted runway plans, sourced surrounding Chicago context, and an optional airport-boundary presentation. It remains schematic because complete route and procedure fidelity is still roadmap work.
 
 ## Acceptance gates
 

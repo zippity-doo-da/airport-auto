@@ -1,10 +1,11 @@
-import { generateAirportConfig, generateHubConfig, HUB_AIRPORTS, type AirportConfig } from './airportConfig';
+import { generateAirportConfig, generateHubConfig, HUB_AIRPORTS, type AirportConfig, type RunwayOperationalRole } from './airportConfig';
 import { AirportSimulation } from './airportSimulation';
 import type {
   AirportEvent,
   ControlMode,
   Flight,
   FlightPhase,
+  RunwayConfigurationTransition,
   ShiftMetrics,
   TrafficScenario,
 } from './types';
@@ -80,7 +81,7 @@ export interface FixedStepFlightSnapshot {
 }
 
 export interface FixedStepSimulationSnapshot {
-  schemaVersion: 2;
+  schemaVersion: 3;
   seed: number;
   airportCode: string;
   stepSeconds: number;
@@ -96,7 +97,10 @@ export interface FixedStepSimulationSnapshot {
     mode: ControlMode;
     scenario: TrafficScenario;
     runwayConfigurationId: string;
+    runwayConfigurationMode: 'automatic' | 'manual';
+    runwayConfigurationTransition: RunwayConfigurationTransition | null;
     activeRunwayEnds: Record<number, -1 | 1>;
+    activeRunwayRoles: Record<number, RunwayOperationalRole>;
     weather: {
       enabled: boolean;
       windEnabled: boolean;
@@ -227,7 +231,7 @@ export class FixedStepSimulationHarness {
   snapshot(): FixedStepSimulationSnapshot {
     const diagnostics = this.simulation.diagnostics();
     return {
-      schemaVersion: 2,
+      schemaVersion: 3,
       seed: this.config.seed,
       airportCode: this.config.code,
       stepSeconds: round(this.stepSeconds),
@@ -243,7 +247,14 @@ export class FixedStepSimulationHarness {
         mode: this.simulation.state.mode,
         scenario: this.simulation.state.scenario,
         runwayConfigurationId: this.simulation.state.runwayConfigurationId,
+        runwayConfigurationMode: this.simulation.state.runwayConfigurationMode,
+        runwayConfigurationTransition: this.simulation.state.runwayConfigurationTransition ? {
+          ...this.simulation.state.runwayConfigurationTransition,
+          changedRunwayIds: [...this.simulation.state.runwayConfigurationTransition.changedRunwayIds],
+          blockingFlightIds: [...this.simulation.state.runwayConfigurationTransition.blockingFlightIds],
+        } : null,
         activeRunwayEnds: { ...this.simulation.state.activeRunwayEnds },
+        activeRunwayRoles: { ...this.simulation.state.activeRunwayRoles },
         weather: {
           enabled: this.simulation.state.weather.weatherEnabled,
           windEnabled: this.simulation.state.weather.windEnabled,

@@ -127,6 +127,11 @@ body.center-scope .brand__mark { font-size: 11px; letter-spacing: -0.04em; }
 .weather-readout__switches { grid-column: 1 / -1; display: flex; gap: 4px; margin-top: 3px; }
 .weather-readout__switches button { border: 1px solid rgba(244, 232, 206, 0.28); padding: 2px 5px; color: rgba(244, 232, 206, 0.68); background: rgba(16, 46, 48, 0.5); font: 800 6px/1.2 "Segoe UI", sans-serif; letter-spacing: 0.09em; cursor: pointer; }
 .weather-readout__switches button[aria-pressed="false"] { color: var(--amber); border-color: rgba(239, 199, 117, 0.6); }
+.runway-configuration-control { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; margin-top: 4px; }
+.runway-configuration-control span { color: rgba(244, 232, 206, 0.55); font-size: 7px; font-weight: 800; letter-spacing: 0.12em; }
+.runway-configuration-control select { min-width: 0; height: 28px; border: 1px solid rgba(244, 232, 206, 0.28); color: var(--ivory); background: rgba(16, 46, 48, 0.72); padding: 0 7px; font: 800 8px/1 "Segoe UI", sans-serif; letter-spacing: 0.04em; cursor: pointer; }
+.runway-configuration-control select:disabled { cursor: not-allowed; opacity: 0.52; }
+.runway-configuration-control select:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .quick-setup select { width: 100%; }
 .speed-control { width: 100%; }
 .speed-control > span { display: flex; justify-content: space-between; }
@@ -281,6 +286,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
 .quick-setup label > span, .intro-setup label > span, .menu-toggle small, .control small, .weather-readout span, .weather-readout small { font-size: 10px; }
 .quick-setup select, .intro-setup select { font-size: 11px; }
 .weather-readout__switches button { min-height: 36px; padding: 6px 9px; font-size: 9px; }
+.runway-configuration-control span { font-size: 9px; }
+.runway-configuration-control select { min-height: 36px; font-size: 10px; }
 .scoreboard span { font-size: 8px; }
 .status small { font-size: 10px; letter-spacing: 0.08em; }
 .controls { grid-template-columns: repeat(3, 1fr); }

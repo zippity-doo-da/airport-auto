@@ -27,5 +27,8 @@ export function runwaySupportsAircraft(
   aircraft: AircraftModel,
   operation: RunwayOperation,
 ): boolean {
-  return runway.role !== 'inactive' && runwayLengthM(runway) >= requiredRunwayLengthM(aircraft, operation);
+  // Operational availability belongs to the active runway configuration.
+  // This helper answers only the physical performance question so a runway
+  // that is normally inactive can become usable in a contingency plan.
+  return runwayLengthM(runway) >= requiredRunwayLengthM(aircraft, operation);
 }

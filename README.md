@@ -12,6 +12,7 @@ The airport layouts are readable operational schematics inspired by real runway 
 - Continuous arrivals from the map boundary, curved approaches, flare, touchdown, rollout, taxi, full takeoff roll, rotation, and climb-out.
 - Graph-routed taxi movement on visible pavement, named taxiways, hold-short points, crossing clearances, runway reservations, and collision prevention.
 - Auto, Assisted, Manual, and Watch modes; four controller stations; six scenarios; weather and wind controls; a five-channel sound mixer; replay; and four camera views.
+- Six sourced O’Hare runway plans with dynamic arrival/departure roles, visual and instrument restrictions, strong-southerly contingency operations, and safe drain-then-switch transitions.
 - A procedural aircraft fleet with model-specific size, runway performance, taxi/approach speeds, acceleration, braking, wake class, airline, callsign, registration, and fuel telemetry.
 - A local, versioned browser API and `BroadcastChannel` bridge for playtests and controller agents.
 - A fully offline ORD data foundation: FAA runway/apron/building/hot-spot geometry, a normalized OpenStreetMap surface graph with 40 compatible stands, 219 sourced gates, 364 parking positions, 35 operational zones and 248 control points, plus Chicago Department of Aviation terminal/concourse inventory and coherent east/west runway flows.
@@ -57,7 +58,7 @@ This URL starts a busy O'Hare session with local telemetry visible:
 http://127.0.0.1:5173/?airport=ORD&mode=auto&scenario=rush&speed=3&autostart=1&telemetry=1
 ```
 
-Useful parameters include `airport`, `mode`, `scenario`, `station`, `speed`, `weather`, `wind`, `windDir`, `night=1`, `radar=1`, `telemetry=1`, `debug=1`, `detail=low`, `soak=1`, and `autostart=1`. Modes are `auto`, `assisted`, `manual`, and `watch`.
+Useful parameters include `airport`, `mode`, `scenario`, `station`, `speed`, `weather`, `wind`, `windDir`, `runwayConfig`, `night=1`, `radar=1`, `telemetry=1`, `debug=1`, `detail=low`, `soak=1`, and `autostart=1`. Modes are `auto`, `assisted`, `manual`, and `watch`.
 
 See [docs/airport-control.md](docs/airport-control.md) for the live-control interface, [docs/airport-operations-review.md](docs/airport-operations-review.md) for modeled rules and deliberate simplifications, and [docs/airport-data-sources.md](docs/airport-data-sources.md) for airport-map provenance and import policy. Completed releases are recorded in [PLAN.md](PLAN.md); unfinished work is tracked in [ROADMAP.md](ROADMAP.md).
 

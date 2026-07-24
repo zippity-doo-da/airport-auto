@@ -6,6 +6,8 @@ import { airportContextDataManifest, type AirportContextDataManifest } from './a
 
 export type FlightColor = 'rose' | 'mist' | 'sage';
 export type TerrainTheme = 'coast' | 'highland' | 'woodland';
+export type RunwayOperationalRole = 'arrival' | 'departure' | 'mixed' | 'inactive';
+export type RunwayProcedureClass = 'schematic' | 'parallel' | 'offset-parallel' | 'instrument-parallel' | 'crosswind-contingency';
 
 export interface RunwayConfig {
   id: number;
@@ -15,17 +17,39 @@ export interface RunwayConfig {
   width: number;
   landingEnd: -1 | 1;
   color: FlightColor;
-  role: 'arrival' | 'departure' | 'mixed' | 'inactive';
+  role: RunwayOperationalRole;
   designation?: [string, string];
+}
+
+export interface RunwayConfigurationRestrictions {
+  conditions: Array<'clear' | 'rain' | 'fog'>;
+  minimumVisibilityMiles?: number;
+  minimumWindSpeedKts?: number;
+  preferredWindDirectionDegrees?: number;
+  windDirectionToleranceDegrees?: number;
+  scenarios?: Array<'normal' | 'rush' | 'storm' | 'closure' | 'training' | 'emergency'>;
+  autoSelectable: boolean;
+  note: string;
+}
+
+export interface RunwayConfigurationSource {
+  title: string;
+  url: string;
+  published: string;
 }
 
 export interface AirportRunwayConfiguration {
   id: string;
   name: string;
   description: string;
+  procedure: RunwayProcedureClass;
   arrivalRunwayIds: number[];
   departureRunwayIds: number[];
   operatingEnds: Record<number, -1 | 1>;
+  runwayRoles: Record<number, RunwayOperationalRole>;
+  restrictions: RunwayConfigurationRestrictions;
+  selectionPriority: number;
+  source?: RunwayConfigurationSource;
 }
 
 export interface AirportConfig {
@@ -272,14 +296,136 @@ function buildRunwayConfigurations(code: string, runways: RunwayConfig[]): Airpo
     id,
     name,
     description,
+    procedure: 'schematic',
     arrivalRunwayIds: [...arrivals],
     departureRunwayIds: [...departures],
     operatingEnds: Object.fromEntries(runways.map((runway) => [runway.id, end])) as Record<number, -1 | 1>,
+    runwayRoles: Object.fromEntries(runways.map((runway) => [runway.id, runway.role])) as Record<number, RunwayOperationalRole>,
+    restrictions: {
+      conditions: ['clear', 'rain', 'fog'],
+      autoSelectable: true,
+      note: 'Schematic configuration available in all simulated weather.',
+    },
+    selectionPriority: 0,
   });
   if (code === 'ORD') {
+    const source: RunwayConfigurationSource = {
+      title: 'FAA O’Hare Terminal Area Plan Final Environmental Assessment, Chapter 4',
+      url: 'https://www.faa.gov/sites/faa.gov/files/TAP_Final_EA_Chapter_4.pdf',
+      published: '2022-11',
+    };
+    const runwayUtilization: RunwayConfigurationSource = {
+      title: 'FAA O’Hare runway utilization',
+      url: 'https://www.faa.gov/airports/airport_development/omp/faq/runway_utilization',
+      published: 'current reference retrieved 2026-07-24',
+    };
+    const ordConfiguration = (
+      id: string,
+      name: string,
+      description: string,
+      end: -1 | 1,
+      arrivalRunwayIds: number[],
+      departureRunwayIds: number[],
+      procedure: RunwayProcedureClass,
+      restrictions: RunwayConfigurationRestrictions,
+      selectionPriority = 0,
+      configurationSource = source,
+    ): AirportRunwayConfiguration => {
+      const arrivalsSet = new Set(arrivalRunwayIds);
+      const departuresSet = new Set(departureRunwayIds);
+      return {
+        id,
+        name,
+        description,
+        procedure,
+        arrivalRunwayIds: [...arrivalRunwayIds],
+        departureRunwayIds: [...departureRunwayIds],
+        operatingEnds: Object.fromEntries(runways.map((runway) => [runway.id, end])) as Record<number, -1 | 1>,
+        runwayRoles: Object.fromEntries(runways.map((runway) => {
+          const arrival = arrivalsSet.has(runway.id);
+          const departure = departuresSet.has(runway.id);
+          return [runway.id, arrival && departure ? 'mixed' : arrival ? 'arrival' : departure ? 'departure' : 'inactive'];
+        })) as Record<number, RunwayOperationalRole>,
+        restrictions,
+        selectionPriority,
+        source: configurationSource,
+      };
+    };
     return [
-      configuration('ORD-WEST-FLOW', 'West flow', 'Arrivals use 27/28 ends; departures roll westbound on the parallel system.', 1),
-      configuration('ORD-EAST-FLOW', 'East flow', 'Arrivals use 09/10 ends; departures roll eastbound on the parallel system.', -1),
+      ordConfiguration(
+        'ORD-WEST-FLOW',
+        'West parallel',
+        'Arrivals 27R, 27C, and 28C; departures 27L, 28R, and 22L.',
+        1,
+        [0, 1, 4],
+        [2, 3, 7],
+        'parallel',
+        { conditions: ['clear', 'rain', 'fog'], autoSelectable: true, note: 'Preferred O’Hare flow and the robust option in marginal weather.' },
+        0.08,
+      ),
+      ordConfiguration(
+        'ORD-EAST-FLOW',
+        'East parallel',
+        'Arrivals 09L, 09C, and 10C; departures 09R and 10L.',
+        -1,
+        [0, 1, 4],
+        [2, 3],
+        'parallel',
+        { conditions: ['clear'], minimumVisibilityMiles: 5, autoSelectable: true, note: 'Visual east-flow parallel configuration.' },
+        0.06,
+      ),
+      ordConfiguration(
+        'ORD-WEST-HIGH-ARRIVAL',
+        'West high-arrival',
+        'Adds offset 28L arrivals to 27R, 27C, and 28C; 22L is unavailable.',
+        1,
+        [0, 1, 4, 5],
+        [2, 3],
+        'offset-parallel',
+        { conditions: ['clear'], minimumVisibilityMiles: 7, scenarios: ['rush'], autoSelectable: true, note: 'High-demand visual scenario based on the FAA modeled proposed-action configuration.' },
+        0.24,
+      ),
+      ordConfiguration(
+        'ORD-EAST-OFFSET',
+        'East offset arrivals',
+        'Arrivals 09L, 09C, 10C, and offset 10R; departures 09R and 10L.',
+        -1,
+        [0, 1, 4, 5],
+        [2, 3],
+        'offset-parallel',
+        { conditions: ['clear'], minimumVisibilityMiles: 7, scenarios: ['rush'], autoSelectable: true, note: 'High-demand visual configuration; the 10R arrival is offset from 10C traffic.' },
+        0.22,
+      ),
+      ordConfiguration(
+        'ORD-EAST-IFR',
+        'East instrument',
+        'Arrivals 09L, 09C, and 10R; departures 09R and 10L. Runway 10C is not paired with 10R.',
+        -1,
+        [0, 1, 5],
+        [2, 3],
+        'instrument-parallel',
+        { conditions: ['rain', 'fog'], autoSelectable: true, note: 'Instrument east-flow variant that avoids simultaneous 10C and 10R arrivals.' },
+        0.12,
+      ),
+      ordConfiguration(
+        'ORD-CROSSWIND-22',
+        '22 crosswind contingency',
+        'Strong southerly-wind contingency: arrivals use 22R and departures use 22L.',
+        1,
+        [6],
+        [7],
+        'crosswind-contingency',
+        {
+          conditions: ['clear', 'rain', 'fog'],
+          minimumWindSpeedKts: 18,
+          preferredWindDirectionDegrees: 220,
+          windDirectionToleranceDegrees: 55,
+          autoSelectable: true,
+          note: 'Rare strong-southerly configuration; runway 4R is never assigned for arrivals.',
+        },
+        0.34,
+        runwayUtilization,
+      ),
     ];
   }
   const defaultEnd = runways.find((runway) => runway.role !== 'inactive')?.landingEnd ?? 1;

@@ -4,7 +4,7 @@ Airport Auto exposes a local, versioned interface for playtests, scripted contro
 
 ## Browser API
 
-The current API version is `2.1.0`; snapshots use schema version `3`.
+The current API version is `2.2.0`; snapshots use schema version `4`.
 
 ```js
 airportControl.version
@@ -85,11 +85,20 @@ airportControl.request({ action: 'setWeatherEnabled', enabled: false })
 airportControl.request({ action: 'setWindEnabled', enabled: false })
 ```
 
+Runway-plan commands require the Supervisor station and pass through weather, visibility, wind, closure, and procedure checks:
+
+```js
+airportControl.request({ action: 'setRunwayConfiguration', configurationId: 'ORD-EAST-IFR' })
+airportControl.request({ action: 'setRunwayConfiguration', configurationId: null }) // restore automatic selection
+```
+
+An accepted plan may be queued rather than switched immediately. `resultingState.runwayConfiguration.transition` names the target, affected runways, and blocking flights while existing protected traffic drains. Operating ends and roles then change together in one fixed step; arrivals and new taxi-out releases are metered during the transition.
+
 In manual mode, the normal departure sequence is: clear every required crossing, clear runway entry / line-up, wait until the aircraft is lined up, then clear takeoff. Rejected commands return a plain-language reason.
 
 ## Snapshot and events
 
-Snapshots include the airport and seed, simulation clock, mode, speed, station, scenario, weather, active runway configuration and ends, closure, runway roles and reservations, proposed Assisted clearances, the complete surface graph, renderer/map-layer diagnostics, safety metrics, and every flight's route, clearances, model data, authoritative pose, rendered nose-up attitude, kinematics, fuel, trajectory stage, hold reason, and assigned gate/terminal/concourse. Surface graph schema v3 includes stand compatibility, sourced parking/gate references, passenger facilities and official gate-count provenance, pushback/ramp metadata, named routes, bridge/tunnel semantics, explicit control points, operational zones, and FAA hot spots. A taxiing flight reports its exact `crossingHoldPointId` when stopped for a runway crossing.
+Snapshots include the airport and seed, simulation clock, mode, speed, station, scenario, weather, active runway configuration, selection mode, transition queue, ends, dynamic roles, eligibility/restriction reasons, closure, runway reservations, proposed Assisted clearances, the complete surface graph, renderer/map-layer diagnostics, safety metrics, and every flight's route, clearances, model data, authoritative pose, rendered nose-up attitude, kinematics, fuel, trajectory stage, hold reason, and assigned gate/terminal/concourse. Surface graph schema v3 includes stand compatibility, sourced parking/gate references, passenger facilities and official gate-count provenance, pushback/ramp metadata, named routes, bridge/tunnel semantics, explicit control points, operational zones, and FAA hot spots. A taxiing flight reports its exact `crossingHoldPointId` when stopped for a runway crossing.
 
 Events have a monotonic sequence number and include command payloads and acceptance, flight/runway/taxiway context, and safety-hold or go-around details. The in-page log retains the latest 500 events.
 
@@ -126,4 +135,4 @@ http://127.0.0.1:5173/?airport=ORD&mode=auto&scenario=rush&speed=3&autostart=1&t
 
 Supported airports are `LOCAL`, `ATL`, `ORD`, `DXB`, `HND`, `DFW`, `LHR`, `IST`, `DEN`, `LAX`, and `JFK`. Modes are `auto`, `assisted`, `manual`, and `watch`; stations are `supervisor`, `approach`, `tower`, and `ground`; scenarios are `normal`, `rush`, `storm`, `closure`, `training`, and `emergency`.
 
-`?soak=1` starts an ORD Rush session at 3× for long-run health monitoring. Add `debug=1` for renderer/simulation probes and `detail=low` to force the mobile rendering tier.
+`runwayConfig=ORD-EAST-IFR` requests a specific eligible runway plan after launch; `runwayConfig=auto` restores automatic selection. `?soak=1` starts an ORD Rush session at 3× for long-run health monitoring. Add `debug=1` for renderer/simulation probes and `detail=low` to force the mobile rendering tier.

@@ -1,4 +1,4 @@
-import type { AirportConfig } from './airportConfig';
+import type { AirportConfig, AirportRunwayConfiguration, RunwayOperationalRole } from './airportConfig';
 import type { AirportEvent, AirportState, ClearanceProposal, ConflictPrediction, ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, ShiftMetrics, TrafficScenario, WeatherCondition } from './types';
 import { AIRCRAFT_ROSTER, aircraftProfile, type AircraftModel } from './aircraftProfiles';
 import { AIRPORT_AIRLINES, airlineProfile, type AirlineCode } from './airlineProfiles';
@@ -45,7 +45,10 @@ export class AirportSimulation {
     weather: { weatherEnabled: false, windEnabled: false, condition: 'clear', windDirection: Math.PI, windSpeed: 0, gustSpeed: 0, visibility: 10 },
     scenario: 'normal',
     runwayConfigurationId: '',
+    runwayConfigurationMode: 'automatic',
+    runwayConfigurationTransition: null,
     activeRunwayEnds: {},
+    activeRunwayRoles: {},
     closedRunway: null,
   };
 
@@ -54,12 +57,12 @@ export class AirportSimulation {
   private events: AirportEvent[] = [];
   private speed = 1;
   private runwayReservations = new Map<number, number>();
-  private readonly approachCapacity: number;
   private taxiOutReleaseIn = 0;
   private baseWindDirection = Math.PI;
   private baseWindSpeed = 10;
   private weatherOverrideUntil = 0;
   private closedRunway: number | null = null;
+  private runwayConfigurationOverrideId: string | null = null;
   private readonly surfaceGraphValidation: SurfaceGraphValidation;
   private readonly obstacleEnvelopeValidation: AirportObstacleValidation;
   private readonly metrics: ShiftMetrics = {
@@ -85,19 +88,15 @@ export class AirportSimulation {
 
   constructor(private readonly config: AirportConfig) {
     this.spawnIn = Math.min(3, this.arrivalSpacing() * 0.55);
-    this.approachCapacity = this.calculateApproachCapacity();
     const reference = config.runways.find((runway) => runway.role !== 'inactive') ?? config.runways[0];
     this.baseWindDirection = this.normalizeAngle(reference.heading + (reference.landingEnd === 1 ? Math.PI : 0) + Math.sin(config.seed) * 0.32);
     this.baseWindSpeed = 8 + config.seed % 7;
     this.surfaceGraphValidation = validateAirportSurfaceGraph(config);
     this.obstacleEnvelopeValidation = validateAirportObstacleEnvelopes(config);
-    this.state.runwayConfigurationId = config.defaultRunwayConfigurationId;
     const initialConfiguration = config.runwayConfigurations.find(
       (configuration) => configuration.id === config.defaultRunwayConfigurationId,
-    );
-    for (const runway of config.runways) {
-      this.state.activeRunwayEnds[runway.id] = initialConfiguration?.operatingEnds[runway.id] ?? runway.landingEnd;
-    }
+    ) ?? config.runwayConfigurations[0];
+    this.applyRunwayConfiguration(initialConfiguration);
     this.updateWeather();
     this.seedInitialTraffic();
   }
@@ -141,6 +140,7 @@ export class AirportSimulation {
 
   setNightMode(enabled: boolean): void {
     this.state.nightMode = enabled;
+    this.updateActiveRunwayConfiguration();
   }
 
   setStation(station: ControllerStation): void {
@@ -149,6 +149,37 @@ export class AirportSimulation {
 
   lastCommandReason(): string {
     return this.decisionReason;
+  }
+
+  runwayConfigurationOptions(): Array<{ id: string; eligible: boolean; reason: string }> {
+    return this.config.runwayConfigurations.map((configuration) => {
+      const reason = this.configurationRestrictionReason(configuration);
+      return { id: configuration.id, eligible: reason === null, reason: reason ?? 'available' };
+    });
+  }
+
+  setRunwayConfiguration(configurationId: string | null): boolean {
+    if (this.state.station !== 'supervisor') {
+      return this.rejectDecision(`${this.state.station} station cannot change the airport runway plan`);
+    }
+    if (configurationId === null) {
+      this.runwayConfigurationOverrideId = null;
+      this.state.runwayConfigurationMode = 'automatic';
+      this.decisionReason = 'automatic runway-plan selection restored';
+      this.updateActiveRunwayConfiguration();
+      return true;
+    }
+    const configuration = this.config.runwayConfigurations.find((candidate) => candidate.id === configurationId);
+    if (!configuration) return this.rejectDecision(`unknown runway configuration ${configurationId}`);
+    const restriction = this.configurationRestrictionReason(configuration);
+    if (restriction) return this.rejectDecision(`${configuration.name} unavailable: ${restriction}`);
+    this.runwayConfigurationOverrideId = configuration.id;
+    this.state.runwayConfigurationMode = 'manual';
+    this.requestRunwayConfiguration(configuration, 'supervisor selection');
+    this.decisionReason = this.state.runwayConfigurationTransition
+      ? `${configuration.name} queued until ${this.state.runwayConfigurationTransition.blockingFlightIds.length} protected flight${this.state.runwayConfigurationTransition.blockingFlightIds.length === 1 ? '' : 's'} clear`
+      : `${configuration.name} active`;
+    return true;
   }
 
   canIssue(kind: 'approach' | 'tower' | 'ground'): boolean {
@@ -175,11 +206,12 @@ export class AirportSimulation {
   setScenario(scenario: TrafficScenario): void {
     this.state.scenario = scenario;
     this.closedRunway = scenario === 'closure'
-      ? this.config.runways.find((runway) => runway.role === 'arrival' || runway.role === 'mixed')?.id ?? null
+      ? this.config.runways.find((runway) => this.runwayRole(runway.id) === 'arrival' || this.runwayRole(runway.id) === 'mixed')?.id ?? null
       : null;
     this.state.closedRunway = this.closedRunway;
     if (scenario === 'storm') this.setWeather('rain', this.state.weather.windDirection, Math.max(18, this.state.weather.windSpeed));
     if (scenario === 'normal' || scenario === 'rush' || scenario === 'closure') this.weatherOverrideUntil = 0;
+    this.updateActiveRunwayConfiguration();
   }
 
   shiftMetrics(): ShiftMetrics { return { ...this.metrics }; }
@@ -276,6 +308,7 @@ export class AirportSimulation {
     this.baseWindDirection = this.state.weather.windDirection;
     this.baseWindSpeed = this.state.weather.windSpeed;
     this.weatherOverrideUntil = this.state.elapsed + 180;
+    this.updateActiveRunwayConfiguration();
   }
 
   setWeatherEnabled(enabled: boolean): void {
@@ -425,8 +458,16 @@ export class AirportSimulation {
     this.state.closedRunway = null;
     this.state.scenario = 'normal';
     this.state.station = 'supervisor';
+    this.runwayConfigurationOverrideId = null;
+    this.state.runwayConfigurationMode = 'automatic';
+    this.state.runwayConfigurationTransition = null;
+    this.applyRunwayConfiguration(
+      this.config.runwayConfigurations.find((configuration) => configuration.id === this.config.defaultRunwayConfigurationId)
+        ?? this.config.runwayConfigurations[0],
+    );
     this.stationarySeconds.clear();
     Object.assign(this.metrics, { safeArrivals: 0, safeDepartures: 0, preventedConflicts: 0, holdsIssued: 0, manualCommands: 0, maxConcurrent: 0, airborneSeconds: 0, taxiSeconds: 0, estimatedDelaySeconds: 0, emergencyResponses: 0, safetyHolds: 0, collisionAlerts: 0, runwayIncursions: 0, unexplainedPauses: 0, longestHoldSeconds: 0 });
+    this.updateWeather();
     this.seedInitialTraffic();
   }
 
@@ -607,9 +648,12 @@ export class AirportSimulation {
     const target = this.config.scope === 'center'
       ? Math.min(8, Math.max(5, Math.floor(this.config.surfaceGraph.stands.length / 2)))
       : 1;
-    const departureRunways = this.config.runways.filter((runway) => runway.role === 'departure' || runway.role === 'mixed');
+    const departureRunways = this.config.runways.filter((runway) => {
+      const role = this.runwayRole(runway.id);
+      return role === 'departure' || role === 'mixed';
+    });
     if (!departureRunways.length) return;
-    const departureTarget = this.config.scope === 'center' ? Math.min(4, departureRunways.length) : 1;
+    const departureTarget = this.config.scope === 'center' ? Math.min(2, departureRunways.length) : 1;
     for (let index = 0; index < target; index += 1) {
       const aircraft = this.spawnFlight();
       if (!aircraft) break;
@@ -621,7 +665,9 @@ export class AirportSimulation {
       const compatible = departureRunways.filter((runway) => runwaySupportsAircraft(runway, aircraft, 'takeoff'));
       if (!flight || !compatible.length) continue;
       const runway = compatible[index % compatible.length];
-      const taxiing = index < Math.min(3, departureTarget);
+      // Start two independent departures in motion, avoiding a duplicate
+      // heavy-jet startup queue on 27L before the scheduler is established.
+      const taxiing = index < Math.min(2, departureTarget);
       flight.runway = runway.id;
       flight.departureRunway = runway.id;
       flight.operatingEnd = this.preferredOperatingEnd(runway.id);
@@ -673,13 +719,14 @@ export class AirportSimulation {
   }
 
   private spawnFlight(): AircraftModel | null {
+    if (this.state.runwayConfigurationTransition) return null;
     const approachLimit = this.weatherApproachCapacity();
     if (this.state.flights.filter((flight) => flight.phase === 'approach' || flight.phase === 'landing').length >= approachLimit) return null;
     const id = this.nextId;
     const airlineCode = this.airlineFor(id);
     const aircraft = this.aircraftFor(airlineCode, id);
     const arrivalRunways = this.config.runways.filter((runway) => (
-      (runway.role === 'arrival' || runway.role === 'mixed')
+      (this.runwayRole(runway.id) === 'arrival' || this.runwayRole(runway.id) === 'mixed')
       && runway.id !== this.closedRunway
       && runwaySupportsAircraft(runway, aircraft, 'landing')
     ));
@@ -691,7 +738,7 @@ export class AirportSimulation {
     const runway = candidates[0].id;
     const runwayConfig = this.config.runways[runway];
     const departureRunways = this.config.runways.filter((item) => (
-      (item.role === 'departure' || item.role === 'mixed')
+      (this.runwayRole(item.id) === 'departure' || this.runwayRole(item.id) === 'mixed')
       && item.id !== this.closedRunway
       && runwaySupportsAircraft(item, aircraft, 'takeoff')
     ));
@@ -775,6 +822,7 @@ export class AirportSimulation {
     const next = NEXT_PHASE[flight.phase];
     if (!next) return;
     if (next === 'taxi-out') {
+      if (this.state.runwayConfigurationTransition) return;
       if (this.taxiOutReleaseIn > 0) return;
       const departureRunway = this.selectDepartureRunway(flight);
       if (departureRunway === null) return;
@@ -1002,7 +1050,7 @@ export class AirportSimulation {
   private selectDepartureRunway(flight: Flight): number | null {
     const candidates = this.config.runways
       .filter((runway) => (
-        (runway.role === 'departure' || runway.role === 'mixed')
+        (this.runwayRole(runway.id) === 'departure' || this.runwayRole(runway.id) === 'mixed')
         && runway.id !== this.closedRunway
         && runwaySupportsAircraft(runway, flight.aircraft, 'takeoff')
       ))
@@ -1014,24 +1062,31 @@ export class AirportSimulation {
   }
 
   private calculateApproachCapacity(): number {
-    const arrivals = this.config.runways.filter((runway) => runway.role === 'arrival' || runway.role === 'mixed');
+    const arrivals = this.config.runways.filter((runway) => {
+      const role = this.runwayRole(runway.id);
+      return role === 'arrival' || role === 'mixed';
+    });
     const independentArrivals: number[] = [];
     for (const runway of arrivals) {
       if (independentArrivals.every((other) => !this.runwaysConflict(runway.id, other))) independentArrivals.push(runway.id);
     }
-    const departures = this.config.runways.filter((runway) => runway.role === 'departure' || runway.role === 'mixed').length;
+    const departures = this.config.runways.filter((runway) => {
+      const role = this.runwayRole(runway.id);
+      return role === 'departure' || role === 'mixed';
+    }).length;
     const maximumCapacity = this.config.code === 'ORD' ? 4 : 3;
     return Math.max(1, Math.min(maximumCapacity, independentArrivals.length, Math.max(1, departures + 1)));
   }
 
   private weatherApproachCapacity(): number {
+    const approachCapacity = this.calculateApproachCapacity();
     if (this.state.scenario === 'emergency') return 1;
     if (this.state.scenario === 'training') return 1;
-    if (this.state.scenario === 'rush') return Math.min(this.approachCapacity + 1, this.state.weather.condition === 'clear' ? 5 : this.approachCapacity);
-    if (this.state.scenario === 'storm') return Math.min(2, this.approachCapacity);
-    if (this.state.weather.condition === 'fog') return Math.min(2, this.approachCapacity);
-    if (this.state.weather.condition === 'rain') return Math.min(3, this.approachCapacity);
-    return this.approachCapacity;
+    if (this.state.scenario === 'rush') return Math.min(approachCapacity + 1, this.state.weather.condition === 'clear' ? 5 : approachCapacity);
+    if (this.state.scenario === 'storm') return Math.min(2, approachCapacity);
+    if (this.state.weather.condition === 'fog') return Math.min(2, approachCapacity);
+    if (this.state.weather.condition === 'rain') return Math.min(3, approachCapacity);
+    return approachCapacity;
   }
 
   private arrivalSpacing(profile?: ReturnType<typeof aircraftProfile>): number {
@@ -1083,12 +1138,12 @@ export class AirportSimulation {
 
   private hasUsableRunwayPair(aircraft: AircraftModel): boolean {
     const hasArrival = this.config.runways.some((runway) => (
-      (runway.role === 'arrival' || runway.role === 'mixed')
+      (this.runwayRole(runway.id) === 'arrival' || this.runwayRole(runway.id) === 'mixed')
       && runway.id !== this.closedRunway
       && runwaySupportsAircraft(runway, aircraft, 'landing')
     ));
     const hasDeparture = this.config.runways.some((runway) => (
-      (runway.role === 'departure' || runway.role === 'mixed')
+      (this.runwayRole(runway.id) === 'departure' || this.runwayRole(runway.id) === 'mixed')
       && runway.id !== this.closedRunway
       && runwaySupportsAircraft(runway, aircraft, 'takeoff')
     ));
@@ -1390,57 +1445,144 @@ export class AirportSimulation {
   private headwindComponent(runwayId: number): number {
     if (!this.state.weather.windEnabled) return 0;
     const runway = this.config.runways[runwayId];
-    const positiveEndHeading = runway.heading + Math.PI;
-    const positiveEndComponent = this.state.weather.windSpeed * Math.cos(this.state.weather.windDirection - positiveEndHeading);
-    const negativeEndComponent = this.state.weather.windSpeed * Math.cos(this.state.weather.windDirection - runway.heading);
-    return Math.max(positiveEndComponent, negativeEndComponent);
+    const operatingHeading = runway.heading + (this.preferredOperatingEnd(runwayId) === 1 ? Math.PI : 0);
+    return this.state.weather.windSpeed * Math.cos(this.state.weather.windDirection - operatingHeading);
   }
 
   private preferredOperatingEnd(runwayId: number): -1 | 1 {
     return this.state.activeRunwayEnds[runwayId] ?? this.config.runways[runwayId].landingEnd;
   }
 
-  private updateActiveRunwayConfiguration(): void {
-    const current = this.config.runwayConfigurations.find(
-      (configuration) => configuration.id === this.state.runwayConfigurationId,
-    ) ?? this.config.runwayConfigurations[0];
-    const ranked = [...this.config.runwayConfigurations]
-      .map((configuration) => ({
-        configuration,
-        score: this.runwayConfigurationHeadwindScore(configuration.operatingEnds),
-      }))
-      .sort((first, second) => second.score - first.score);
-    const best = this.state.weather.windEnabled ? ranked[0] : {
-      configuration: this.config.runwayConfigurations.find(
-        (configuration) => configuration.id === this.config.defaultRunwayConfigurationId,
-      ) ?? this.config.runwayConfigurations[0],
-      score: 0,
-    };
-    const currentScore = this.runwayConfigurationHeadwindScore(current.operatingEnds);
-    const target = this.state.weather.windEnabled && best.score < currentScore + 0.12
-      ? current
-      : best.configuration;
-    for (const runway of this.config.runways) {
-      const desired = target.operatingEnds[runway.id] ?? runway.landingEnd;
-      const protectedTraffic = this.state.flights.some((flight) => (
-        flight.runway === runway.id
-        && (flight.phase === 'approach' || flight.phase === 'landing' || flight.phase === 'takeoff'
-          || (flight.phase === 'taxi-in' && flight.progress < 0.25)
-          || (flight.phase === 'taxi-out' && flight.progress > 0.92))
-      ));
-      if (!protectedTraffic) this.state.activeRunwayEnds[runway.id] = desired;
-    }
-    const transitioned = this.config.runways.every(
-      (runway) => this.state.activeRunwayEnds[runway.id] === (target.operatingEnds[runway.id] ?? runway.landingEnd),
-    );
-    if (transitioned) this.state.runwayConfigurationId = target.id;
+  private runwayRole(runwayId: number): RunwayOperationalRole {
+    return this.state.activeRunwayRoles[runwayId] ?? this.config.runways[runwayId]?.role ?? 'inactive';
   }
 
-  private runwayConfigurationHeadwindScore(operatingEnds: Record<number, -1 | 1>): number {
-    const activeRunways = this.config.runways.filter((runway) => runway.role !== 'inactive');
+  private updateActiveRunwayConfiguration(): void {
+    let target: AirportRunwayConfiguration | null = null;
+    let reason = 'automatic wind and procedure selection';
+    if (this.runwayConfigurationOverrideId) {
+      const override = this.config.runwayConfigurations.find(
+        (configuration) => configuration.id === this.runwayConfigurationOverrideId,
+      );
+      const restriction = override ? this.configurationRestrictionReason(override) : 'configuration no longer exists';
+      if (override && !restriction) {
+        target = override;
+        reason = 'supervisor selection';
+      } else {
+        this.runwayConfigurationOverrideId = null;
+        this.state.runwayConfigurationMode = 'automatic';
+      }
+    }
+    target ??= this.selectAutomaticRunwayConfiguration();
+    this.requestRunwayConfiguration(target, reason);
+  }
+
+  private selectAutomaticRunwayConfiguration(): AirportRunwayConfiguration {
+    const fallback = this.config.runwayConfigurations.find(
+      (configuration) => configuration.id === this.config.defaultRunwayConfigurationId,
+    ) ?? this.config.runwayConfigurations[0];
+    const eligible = this.config.runwayConfigurations.filter((configuration) => (
+      configuration.restrictions.autoSelectable
+      && this.configurationRestrictionReason(configuration) === null
+    ));
+    if (!eligible.length) return fallback;
+    if (!this.state.weather.windEnabled) {
+      return eligible.find((configuration) => configuration.id === fallback.id) ?? eligible[0];
+    }
+    return [...eligible]
+      .map((configuration) => ({
+        configuration,
+        score: this.runwayConfigurationHeadwindScore(configuration)
+          + configuration.selectionPriority
+          + (configuration.id === this.state.runwayConfigurationId ? 0.05 : 0),
+      }))
+      .sort((first, second) => second.score - first.score || first.configuration.id.localeCompare(second.configuration.id))[0]
+      .configuration;
+  }
+
+  private configurationRestrictionReason(configuration: AirportRunwayConfiguration): string | null {
+    const restrictions = configuration.restrictions;
+    if (!restrictions.conditions.includes(this.state.weather.condition)) {
+      return `${this.state.weather.condition} weather is outside this procedure`;
+    }
+    if (restrictions.minimumVisibilityMiles !== undefined
+      && this.state.weather.visibility < restrictions.minimumVisibilityMiles) {
+      return `visibility must be at least ${restrictions.minimumVisibilityMiles} mi`;
+    }
+    if (restrictions.scenarios && !restrictions.scenarios.includes(this.state.scenario)) {
+      return `reserved for ${restrictions.scenarios.join('/')} traffic`;
+    }
+    if (restrictions.minimumWindSpeedKts !== undefined) {
+      if (!this.state.weather.windEnabled) return 'wind must be enabled';
+      if (this.state.weather.windSpeed < restrictions.minimumWindSpeedKts) {
+        return `wind must be at least ${restrictions.minimumWindSpeedKts} kt`;
+      }
+    }
+    if (restrictions.preferredWindDirectionDegrees !== undefined
+      && restrictions.windDirectionToleranceDegrees !== undefined) {
+      if (!this.state.weather.windEnabled) return 'wind must be enabled';
+      const windDegrees = (90 - this.state.weather.windDirection * 180 / Math.PI + 360) % 360;
+      const difference = Math.abs(((windDegrees - restrictions.preferredWindDirectionDegrees + 540) % 360) - 180);
+      if (difference > restrictions.windDirectionToleranceDegrees) {
+        return `wind must be within ${restrictions.windDirectionToleranceDegrees}° of ${restrictions.preferredWindDirectionDegrees}°`;
+      }
+    }
+    const usableArrival = configuration.arrivalRunwayIds.some((runwayId) => runwayId !== this.closedRunway);
+    const usableDeparture = configuration.departureRunwayIds.some((runwayId) => runwayId !== this.closedRunway);
+    if (!usableArrival || !usableDeparture) return 'the active closure removes a required runway role';
+    return null;
+  }
+
+  private requestRunwayConfiguration(configuration: AirportRunwayConfiguration, reason: string): void {
+    const changedRunwayIds = this.config.runways
+      .filter((runway) => (
+        this.preferredOperatingEnd(runway.id) !== (configuration.operatingEnds[runway.id] ?? runway.landingEnd)
+        || this.runwayRole(runway.id) !== (configuration.runwayRoles[runway.id] ?? runway.role)
+      ))
+      .map((runway) => runway.id);
+    if (configuration.id === this.state.runwayConfigurationId && changedRunwayIds.length === 0) {
+      this.state.runwayConfigurationTransition = null;
+      return;
+    }
+    const changed = new Set(changedRunwayIds);
+    const blockingFlightIds = this.state.flights
+      .filter((flight) => flight.phase !== 'resting' && changed.has(flight.runway))
+      .map((flight) => flight.id)
+      .sort((first, second) => first - second);
+    if (blockingFlightIds.length) {
+      const previous = this.state.runwayConfigurationTransition;
+      this.state.runwayConfigurationTransition = {
+        targetId: configuration.id,
+        requestedAt: previous?.targetId === configuration.id ? previous.requestedAt : this.state.elapsed,
+        reason,
+        changedRunwayIds,
+        blockingFlightIds,
+      };
+      return;
+    }
+    this.applyRunwayConfiguration(configuration);
+  }
+
+  private applyRunwayConfiguration(configuration: AirportRunwayConfiguration): void {
+    this.state.runwayConfigurationId = configuration.id;
+    this.state.activeRunwayEnds = Object.fromEntries(this.config.runways.map((runway) => [
+      runway.id,
+      configuration.operatingEnds[runway.id] ?? runway.landingEnd,
+    ])) as Record<number, -1 | 1>;
+    this.state.activeRunwayRoles = Object.fromEntries(this.config.runways.map((runway) => [
+      runway.id,
+      configuration.runwayRoles[runway.id] ?? runway.role,
+    ])) as Record<number, RunwayOperationalRole>;
+    this.state.runwayConfigurationTransition = null;
+  }
+
+  private runwayConfigurationHeadwindScore(configuration: AirportRunwayConfiguration): number {
+    const activeRunways = this.config.runways.filter((runway) => (
+      (configuration.runwayRoles[runway.id] ?? runway.role) !== 'inactive'
+    ));
     if (!activeRunways.length) return -Infinity;
     return activeRunways.reduce((score, runway) => {
-      const end = operatingEnds[runway.id] ?? runway.landingEnd;
+      const end = configuration.operatingEnds[runway.id] ?? runway.landingEnd;
       const heading = runway.heading + (end === 1 ? Math.PI : 0);
       return score + Math.cos(this.state.weather.windDirection - heading);
     }, 0) / activeRunways.length;

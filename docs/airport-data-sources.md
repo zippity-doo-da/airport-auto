@@ -40,6 +40,12 @@ FAA attribution used in the game and asset manifest:
 
 The current committed asset records its own effective window. Reimporting against a later FAA cycle is an intentional data update and must pass the same validation and visual review as a code change.
 
+## O'Hare runway operating plans
+
+The runway-plan model is sourced separately from physical geometry. Normal east/west and less-common parallel/offset/instrument configurations are based on the FAA's November 2022 *O'Hare Terminal Area Plan Final Environmental Assessment*, Chapter 4 (`https://www.faa.gov/sites/faa.gov/files/TAP_Final_EA_Chapter_4.pdf`). Strong-southerly use of 22R for arrivals and 22L for departures is based on the FAA's O'Hare runway-utilization reference (`https://www.faa.gov/airports/airport_development/omp/faq/runway_utilization`). Chicago's public airport-operations overview provides additional east/west-flow context (`https://www.flychicago.com/community/ORDnoise/AirportOperations/Pages/default.aspx`).
+
+Each compiled plan preserves its source title, URL, publication reference, runway roles, operating ends, procedure class, and simulated eligibility restrictions. The high-arrival configurations are explicitly described as gameplay adaptations of FAA-modeled configurations, not live operational assignments. They remain offline definitions and are validated with the code; Airport Auto does not query live runway use.
+
 ## O'Hare surface centerlines, passenger facilities, and surroundings
 
 O'Hare taxiway, taxilane, runway centerline, and available parking-position data use OpenStreetMap data obtained through a bounded, saved Overpass query. The resulting ODbL asset is kept separate from FAA airfield geometry. The importer converts shared OSM nodes into a routable graph, preserves direction and bridge/tunnel semantics where present, removes building conflicts, maps geometric runway crossings to protected FAA runway IDs, and records every deliberately excluded way or segment.

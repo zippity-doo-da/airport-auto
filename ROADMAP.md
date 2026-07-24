@@ -1,7 +1,7 @@
 # Airport Auto — Forward Roadmap
 
 Last reconciled: July 24, 2026
-Baseline: Airport Auto 2.1
+Baseline: Airport Auto 2.2
 
 Airport Auto is an **ASMR-first web airport simulation with an optional serious ATC layer**. The simulation should remain enjoyable as a calm, hands-off miniature world while also supporting increasingly authentic controller work when the player asks for it.
 
@@ -19,7 +19,7 @@ This document contains only unfinished, still-valid work. Shipped behavior belon
 
 ## Milestone 1 — ORD Surface Graph v1
 
-**Priority: next.** Make O’Hare operationally recognizable before adding another high-fidelity airport.
+**Status: complete in 2.2.** O’Hare is operationally recognizable while remaining explicitly schematic.
 
 ### Source and import pipeline
 
@@ -40,7 +40,7 @@ This document contains only unfinished, still-valid work. Shipped behavior belon
 - [x] Add unique stands with aircraft-size compatibility, pushback direction, ramp access, and occupancy constraints.
 - [x] Derive actual route-crossing clearances from the imported route and protected runway zones.
 - [x] Support coherent ORD east-flow and west-flow runway configurations without moving visual markers to the wrong threshold.
-- [ ] Add less-common ORD runway configurations, mixed-mode runway-role changes, configuration transition queues, and weather/procedure restrictions.
+- [x] Add less-common ORD runway configurations, mixed-mode runway-role changes, configuration transition queues, and weather/procedure restrictions.
 
 ### Chicago context and presentation
 
@@ -125,7 +125,7 @@ Make each controller position a complete, satisfying job rather than a filtered 
 
 ## Milestone 5 — Agents and multi-controller operation
 
-Use the 2.1 control API as the safety boundary for live human and agent controllers.
+Use the 2.2 local control API as the safety boundary for live human and agent controllers.
 
 - [ ] Publish a formal command/event schema with parameters, results, causal event IDs, authority, and compatibility rules.
 - [ ] Add deterministic scripted controllers for Approach, Tower, Ground, Ramp, and Supervisor before introducing LLM decisions.

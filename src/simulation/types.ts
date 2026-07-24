@@ -1,6 +1,6 @@
 export type FlightPhase = 'approach' | 'landing' | 'taxi-in' | 'resting' | 'taxi-out' | 'takeoff';
 
-import type { FlightColor } from './airportConfig';
+import type { FlightColor, RunwayOperationalRole } from './airportConfig';
 import type { AircraftModel } from './aircraftProfiles';
 import type { AirlineCode } from './airlineProfiles';
 
@@ -162,6 +162,14 @@ export interface AirportEvent {
   detail?: string;
 }
 
+export interface RunwayConfigurationTransition {
+  targetId: string;
+  requestedAt: number;
+  reason: string;
+  changedRunwayIds: number[];
+  blockingFlightIds: number[];
+}
+
 export interface AirportState {
   elapsed: number;
   flights: Flight[];
@@ -176,6 +184,9 @@ export interface AirportState {
   weather: WeatherState;
   scenario: TrafficScenario;
   runwayConfigurationId: string;
+  runwayConfigurationMode: 'automatic' | 'manual';
+  runwayConfigurationTransition: RunwayConfigurationTransition | null;
   activeRunwayEnds: Record<number, -1 | 1>;
+  activeRunwayRoles: Record<number, RunwayOperationalRole>;
   closedRunway: number | null;
 }

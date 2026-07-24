@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { AirportConfig, FlightColor, RunwayConfig } from '../simulation/airportConfig';
+import type { AirportConfig, FlightColor, RunwayConfig, RunwayOperationalRole } from '../simulation/airportConfig';
 import { aircraftProfile } from '../simulation/aircraftProfiles';
 import { airlineProfile } from '../simulation/airlineProfiles';
 import type { AirportState, Flight, FlightMotionState } from '../simulation/types';
@@ -37,12 +37,14 @@ type RunwayLight = {
   nightOpacity: number;
   phase: number;
   runwayId: number;
-  end?: -1 | 1;
-  activeOnly?: boolean;
+  activeEnd?: -1 | 1;
+  roles?: RunwayOperationalRole[];
 };
 
 type RunwayVisual = {
   marker: THREE.Group;
+  arrivalMarker: THREE.Group;
+  departureMarker: THREE.Group;
   closure: THREE.Group;
   labels: THREE.Sprite[];
 };
@@ -64,6 +66,13 @@ export type WorldDiagnostics = {
   pooledAircraft: number;
   passengerFacilities: number;
   surfaceLayers: Record<SurfaceLayer, boolean>;
+  runways: Array<{
+    id: number;
+    activeEnd: -1 | 1;
+    markerVisible: boolean;
+    arrivalMarkerVisible: boolean;
+    departureMarkerVisible: boolean;
+  }>;
   context: AirportContextDiagnostics | { status: 'procedural' };
 };
 
@@ -221,7 +230,10 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     for (let index = 0; index < runwayLights.length; index += 1) {
       const light = runwayLights[index];
       const activeEnd = state.activeRunwayEnds[light.runwayId] ?? config.runways[light.runwayId]?.landingEnd;
-      light.mesh.visible = !light.activeOnly || light.end === activeEnd;
+      const role = state.activeRunwayRoles[light.runwayId] ?? config.runways[light.runwayId]?.role ?? 'inactive';
+      light.mesh.visible = role !== 'inactive'
+        && (light.activeEnd === undefined || light.activeEnd === activeEnd)
+        && (!light.roles || light.roles.includes(role));
       if (!light.mesh.visible) continue;
       const material = light.mesh.material as THREE.MeshBasicMaterial;
       const shimmer = Math.sin(state.elapsed * 2.4 + light.phase) * 0.035;
@@ -232,9 +244,12 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
       const runway = config.runways[index];
       const visual = airportBuild.runwayVisuals[index];
       const activeEnd = state.activeRunwayEnds[index] ?? runway.landingEnd;
+      const role = state.activeRunwayRoles[index] ?? runway.role;
       visual.marker.position.x = activeEnd * (runway.length / 2 - 3.1);
       visual.marker.scale.x = activeEnd;
-      visual.marker.visible = state.closedRunway !== index && runway.role !== 'inactive';
+      visual.marker.visible = state.closedRunway !== index && role !== 'inactive';
+      visual.arrivalMarker.visible = role === 'arrival' || role === 'mixed';
+      visual.departureMarker.visible = role === 'departure' || role === 'mixed';
       visual.closure.visible = state.closedRunway === index;
       for (const label of visual.labels) label.visible = runwayLabelsVisible;
     }
@@ -549,6 +564,13 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
           hotspots: airportBuild.surfaceLayers.hotspots.visible,
           'airport-boundary': airportBuild.surfaceLayers['airport-boundary'].visible,
         },
+        runways: airportBuild.runwayVisuals.map((visual, id) => ({
+          id,
+          activeEnd: visual.marker.scale.x < 0 ? -1 : 1,
+          markerVisible: visual.marker.visible,
+          arrivalMarkerVisible: visual.arrivalMarker.visible,
+          departureMarkerVisible: visual.departureMarker.visible,
+        })),
         context: contextRuntime?.diagnostics() ?? { status: 'procedural' },
       };
     },
@@ -653,24 +675,26 @@ function buildAirport(root: THREE.Group, config: AirportConfig): AirportBuild {
     const marker = new THREE.Group();
     marker.position.set(data.landingEnd * (data.length / 2 - 3.1), 0, 0.25);
     marker.scale.x = data.landingEnd;
-    if (data.role === 'arrival' || data.role === 'mixed') {
-      const barCount = Math.max(2, Math.min(7, Math.floor(data.width / 0.42)));
-      for (let bar = 0; bar < barCount; bar += 1) {
-        const thresholdBar = new THREE.Mesh(new THREE.BoxGeometry(0.55, Math.min(0.36, data.width / (barCount * 1.35)), 0.06), stripe);
-        const across = barCount === 1 ? 0 : (bar / (barCount - 1) - 0.5) * Math.max(0.5, data.width - 0.5);
-        thresholdBar.position.set(0, across, 0);
-        marker.add(thresholdBar);
-      }
+    const arrivalMarker = new THREE.Group();
+    const barCount = Math.max(2, Math.min(7, Math.floor(data.width / 0.42)));
+    for (let bar = 0; bar < barCount; bar += 1) {
+      const thresholdBar = new THREE.Mesh(new THREE.BoxGeometry(0.55, Math.min(0.36, data.width / (barCount * 1.35)), 0.06), stripe);
+      const across = barCount === 1 ? 0 : (bar / (barCount - 1) - 0.5) * Math.max(0.5, data.width - 0.5);
+      thresholdBar.position.set(0, across, 0);
+      arrivalMarker.add(thresholdBar);
     }
-    if (data.role === 'departure' || data.role === 'mixed') {
-      const departureMaterial = new THREE.MeshBasicMaterial({ color: 0x79c8e8 });
-      for (const side of [-1, 1]) {
-        const chevron = new THREE.Mesh(new THREE.BoxGeometry(3.7, Math.min(0.38, data.width * 0.13), 0.07), departureMaterial);
-        chevron.position.set(-0.7, side * data.width * 0.23, 0.02);
-        chevron.rotation.z = side * 0.38;
-        marker.add(chevron);
-      }
+    arrivalMarker.visible = data.role === 'arrival' || data.role === 'mixed';
+    marker.add(arrivalMarker);
+    const departureMarker = new THREE.Group();
+    const departureMaterial = new THREE.MeshBasicMaterial({ color: 0x79c8e8 });
+    for (const side of [-1, 1]) {
+      const chevron = new THREE.Mesh(new THREE.BoxGeometry(3.7, Math.min(0.38, data.width * 0.13), 0.07), departureMaterial);
+      chevron.position.set(-0.7, side * data.width * 0.23, 0.02);
+      chevron.rotation.z = side * 0.38;
+      departureMarker.add(chevron);
     }
+    departureMarker.visible = data.role === 'departure' || data.role === 'mixed';
+    marker.add(departureMarker);
     runway.add(marker);
     const labels: THREE.Sprite[] = [];
     if (data.designation) {
@@ -695,29 +719,40 @@ function buildAirport(root: THREE.Group, config: AirportConfig): AirportBuild {
     }
     closure.visible = false;
     runway.add(closure);
-    const addLight = (x: number, y: number, color: number, dayOpacity: number, nightOpacity: number, radius = 0.27, end?: -1 | 1, activeOnly = false): void => {
+    const addLight = (
+      x: number,
+      y: number,
+      color: number,
+      dayOpacity: number,
+      nightOpacity: number,
+      radius = 0.27,
+      activeEnd?: -1 | 1,
+      roles?: RunwayOperationalRole[],
+    ): void => {
       const material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: dayOpacity, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
       const light = new THREE.Mesh(new THREE.SphereGeometry(radius, 10, 6), material);
       light.position.set(x, y, 0.45);
       runway.add(light);
-      runwayLights.push({ mesh: light, dayOpacity, nightOpacity, phase: runwayIndex * 1.7 + runwayLights.length * 0.31, runwayId: runwayIndex, end, activeOnly });
+      runwayLights.push({ mesh: light, dayOpacity, nightOpacity, phase: runwayIndex * 1.7 + runwayLights.length * 0.31, runwayId: runwayIndex, activeEnd, roles });
     };
     const thresholdColor = PALETTE_COLOR[data.color];
     for (const end of [-1, 1] as const) {
       for (let lightIndex = 1; lightIndex <= 6; lightIndex += 1) {
-        addLight(end * (data.length / 2 + lightIndex * 3.1), 0, thresholdColor, 0.36, 1, 0.38, end, true);
+        addLight(end * (data.length / 2 + lightIndex * 3.1), 0, thresholdColor, 0.36, 1, 0.38, end, ['arrival', 'mixed']);
       }
     }
     const edgeLightCount = Math.max(8, Math.round(data.length / 6));
     for (let lightIndex = 0; lightIndex <= edgeLightCount; lightIndex += 1) {
       const x = -data.length / 2 + 2 + (data.length - 4) * lightIndex / edgeLightCount;
-      addLight(x, -Math.max(0.18, data.width / 2 - 0.18), 0xb9ddff, 0.14, 0.92);
-      addLight(x, Math.max(0.18, data.width / 2 - 0.18), 0xb9ddff, 0.14, 0.92);
+      addLight(x, -Math.max(0.18, data.width / 2 - 0.18), 0xb9ddff, 0.14, 0.92, 0.27, undefined, ['arrival', 'departure', 'mixed']);
+      addLight(x, Math.max(0.18, data.width / 2 - 0.18), 0xb9ddff, 0.14, 0.92, 0.27, undefined, ['arrival', 'departure', 'mixed']);
     }
-    for (const side of [-1, 1]) {
-      addLight(-data.landingEnd * (data.length / 2 - 0.8), side * Math.max(0.16, data.width / 2 - 0.3), 0xff6d61, 0.18, 1, 0.24);
+    for (const operatingEnd of [-1, 1] as const) {
+      for (const side of [-1, 1]) {
+        addLight(-operatingEnd * (data.length / 2 - 0.8), side * Math.max(0.16, data.width / 2 - 0.3), 0xff6d61, 0.18, 1, 0.24, operatingEnd, ['arrival', 'departure', 'mixed']);
+      }
     }
-    runwayVisuals.push({ marker, closure, labels });
+    runwayVisuals.push({ marker, arrivalMarker, departureMarker, closure, labels });
     root.add(runway);
   });
 

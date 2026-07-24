@@ -28,7 +28,8 @@ type AirportControlCommand =
   | { action: 'triggerEmergency'; flightId: number; type: EmergencyType }
   | { action: 'setWeather'; condition: WeatherCondition; directionDegrees: number; windSpeed: number }
   | { action: 'setWeatherEnabled'; enabled: boolean }
-  | { action: 'setWindEnabled'; enabled: boolean };
+  | { action: 'setWindEnabled'; enabled: boolean }
+  | { action: 'setRunwayConfiguration'; configurationId: string | null };
 
 type AirportControlResult = {
   accepted: boolean;
@@ -140,6 +141,7 @@ const weatherCondition = $<HTMLElement>('#weather-condition');
 const weatherWind = $<HTMLElement>('#weather-wind');
 const weatherVisibility = $<HTMLElement>('#weather-visibility');
 const runwayConfiguration = $<HTMLElement>('#runway-configuration');
+const runwayConfigurationSelect = $<HTMLSelectElement>('#runway-configuration-select');
 const weatherToggle = $<HTMLButtonElement>('#weather-toggle');
 const windToggle = $<HTMLButtonElement>('#wind-toggle');
 const audioPreset = $<HTMLSelectElement>('#audio-preset');
@@ -212,6 +214,7 @@ let simulationSpeed = 1;
 let radarVisible = false;
 let telemetrySequence = 0;
 let lastWeatherCondition: WeatherCondition | null = null;
+let runwayConfigurationOptionsKey = '';
 let lastPredictionKey = '';
 let replayIndex = -1;
 let replayMode = false;
@@ -357,6 +360,13 @@ weatherToggle.addEventListener('click', () => {
 windToggle.addEventListener('click', () => {
   simulation.setWindEnabled(!simulation.state.weather.windEnabled);
   updateWeatherUi();
+});
+runwayConfigurationSelect.addEventListener('change', () => {
+  const requested = runwayConfigurationSelect.value === 'auto' ? null : runwayConfigurationSelect.value;
+  const accepted = simulation.setRunwayConfiguration(requested);
+  const reason = simulation.lastCommandReason();
+  updateWeatherUi();
+  setStatus(accepted ? 'Runway plan accepted' : 'Runway plan rejected', reason);
 });
 audioPreset.addEventListener('change', () => audio.setPreset(audioPreset.value as AudioPreset));
 for (const control of audioLevelControls) {
@@ -696,6 +706,12 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
     ...state,
     weather: { ...state.weather },
     activeRunwayEnds: { ...state.activeRunwayEnds },
+    activeRunwayRoles: { ...state.activeRunwayRoles },
+    runwayConfigurationTransition: state.runwayConfigurationTransition ? {
+      ...state.runwayConfigurationTransition,
+      changedRunwayIds: [...state.runwayConfigurationTransition.changedRunwayIds],
+      blockingFlightIds: [...state.runwayConfigurationTransition.blockingFlightIds],
+    } : null,
     flights: state.flights.map((flight) => ({
       ...flight,
       surfaceRoute: flight.surfaceRoute ? [...flight.surfaceRoute] : undefined,
@@ -712,7 +728,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
 function replayRecording(): ReplayRecording {
   return {
     schemaVersion: 1,
-    simulationVersion: window.airportControl?.version ?? '2.1.0',
+    simulationVersion: window.airportControl?.version ?? '2.2.0',
     recordedAt: new Date().toISOString(),
     seed: config.seed,
     airport: { code: config.code, name: config.name, scope: config.scope },
@@ -1258,6 +1274,8 @@ function updateAirportUi(): void {
   document.body.classList.toggle('center-scope', center);
   mapOrientationToggle.checked = mapOrientationVisible;
   mapOrientation.hidden = !mapOrientationVisible;
+  runwayConfigurationOptionsKey = '';
+  updateRunwayConfigurationOptions();
   for (const control of surfaceLayerControls) {
     const layer = control.dataset.surfaceLayer as SurfaceLayer;
     const available = layer === 'hotspots'
@@ -1271,6 +1289,42 @@ function updateAirportUi(): void {
     control.checked = available && surfaceLayerVisibility[layer];
     world.setSurfaceLayerVisible(layer, available && surfaceLayerVisibility[layer]);
   }
+}
+
+function updateRunwayConfigurationOptions(): void {
+  const eligibility = new Map(simulation.runwayConfigurationOptions().map((option) => [option.id, option]));
+  const key = JSON.stringify({
+    airport: config.code,
+    station: simulation.state.station,
+    options: config.runwayConfigurations.map((configuration) => ({
+      id: configuration.id,
+      eligible: eligibility.get(configuration.id)?.eligible,
+      reason: eligibility.get(configuration.id)?.reason,
+    })),
+  });
+  if (key !== runwayConfigurationOptionsKey) {
+    const automatic = document.createElement('option');
+    automatic.value = 'auto';
+    automatic.textContent = 'Automatic';
+    const options = config.runwayConfigurations.map((configuration) => {
+      const option = document.createElement('option');
+      const availability = eligibility.get(configuration.id);
+      option.value = configuration.id;
+      option.disabled = !availability?.eligible;
+      option.textContent = availability?.eligible ? configuration.name : `${configuration.name} — unavailable`;
+      option.title = availability?.reason ?? configuration.restrictions.note;
+      return option;
+    });
+    runwayConfigurationSelect.replaceChildren(automatic, ...options);
+    runwayConfigurationOptionsKey = key;
+  }
+  runwayConfigurationSelect.disabled = simulation.state.station !== 'supervisor';
+  runwayConfigurationSelect.title = runwayConfigurationSelect.disabled
+    ? 'Select the Supervisor station to change the runway plan.'
+    : 'Automatic follows wind, weather, visibility, and demand restrictions.';
+  runwayConfigurationSelect.value = simulation.state.runwayConfigurationMode === 'manual'
+    ? simulation.state.runwayConfigurationTransition?.targetId ?? simulation.state.runwayConfigurationId
+    : 'auto';
 }
 
 function selectAirport(code: string, paused: boolean): void {
@@ -1307,6 +1361,7 @@ function setScenario(scenario: TrafficScenario): void {
 function setStation(station: ControllerStation): void {
   simulation.setStation(station);
   stationSelect.value = station;
+  updateWeatherUi();
   const labels: Record<ControllerStation, string> = { supervisor: 'Supervisor', approach: 'Approach', tower: 'Tower', ground: 'Ground' };
   focusedFlightId = null;
   world.selectFlight(null);
@@ -1351,9 +1406,16 @@ function updateWeatherUi(): void {
   const activeConfiguration = config.runwayConfigurations.find(
     (configuration) => configuration.id === simulation.state.runwayConfigurationId,
   );
-  runwayConfiguration.textContent = activeConfiguration
-    ? `${activeConfiguration.name} · ${activeConfiguration.description}`
-    : 'Runway flow transitioning';
+  const transition = simulation.state.runwayConfigurationTransition;
+  const targetConfiguration = transition
+    ? config.runwayConfigurations.find((configuration) => configuration.id === transition.targetId)
+    : null;
+  runwayConfiguration.textContent = transition
+    ? `${activeConfiguration?.name ?? 'Current plan'} → ${targetConfiguration?.name ?? transition.targetId} · draining ${transition.blockingFlightIds.length} protected flight${transition.blockingFlightIds.length === 1 ? '' : 's'}`
+    : activeConfiguration
+      ? `${activeConfiguration.name} · ${activeConfiguration.description}`
+      : 'Runway plan unavailable';
+  updateRunwayConfigurationOptions();
   weatherToggle.setAttribute('aria-pressed', String(weather.weatherEnabled));
   weatherToggle.textContent = weather.weatherEnabled ? 'WX ON' : 'WX OFF';
   windToggle.setAttribute('aria-pressed', String(weather.windEnabled));
@@ -1389,11 +1451,27 @@ function recordTelemetry(
   airportChannel?.postMessage({ type: 'event', event });
 }
 
+function cloneRunwayConfiguration(configuration: (typeof config.runwayConfigurations)[number]) {
+  return {
+    ...configuration,
+    arrivalRunwayIds: [...configuration.arrivalRunwayIds],
+    departureRunwayIds: [...configuration.departureRunwayIds],
+    operatingEnds: { ...configuration.operatingEnds },
+    runwayRoles: { ...configuration.runwayRoles },
+    restrictions: {
+      ...configuration.restrictions,
+      conditions: [...configuration.restrictions.conditions],
+      scenarios: configuration.restrictions.scenarios ? [...configuration.restrictions.scenarios] : undefined,
+    },
+    source: configuration.source ? { ...configuration.source } : undefined,
+  };
+}
+
 function airportSnapshot() {
   const diagnostics = simulation.diagnostics();
   const movingPhases = new Set(['approach', 'landing', 'taxi-in', 'taxi-out', 'takeoff']);
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     airport: {
       code: config.code,
       name: config.name,
@@ -1474,15 +1552,19 @@ function airportSnapshot() {
       visibilityMiles: simulation.state.weather.visibility,
     },
     runwayConfiguration: {
-      ...(config.runwayConfigurations.find(
+      ...cloneRunwayConfiguration(config.runwayConfigurations.find(
         (configuration) => configuration.id === simulation.state.runwayConfigurationId,
       ) ?? config.runwayConfigurations[0]),
+      selectionMode: simulation.state.runwayConfigurationMode,
+      transition: simulation.state.runwayConfigurationTransition ? {
+        ...simulation.state.runwayConfigurationTransition,
+        changedRunwayIds: [...simulation.state.runwayConfigurationTransition.changedRunwayIds],
+        blockingFlightIds: [...simulation.state.runwayConfigurationTransition.blockingFlightIds],
+      } : null,
     },
     runwayConfigurations: config.runwayConfigurations.map((configuration) => ({
-      ...configuration,
-      arrivalRunwayIds: [...configuration.arrivalRunwayIds],
-      departureRunwayIds: [...configuration.departureRunwayIds],
-      operatingEnds: { ...configuration.operatingEnds },
+      ...cloneRunwayConfiguration(configuration),
+      eligibility: simulation.runwayConfigurationOptions().find((option) => option.id === configuration.id),
     })),
     score: { landed: simulation.state.arrivals, departed: simulation.state.departures },
     replay: {
@@ -1495,7 +1577,8 @@ function airportSnapshot() {
     runways: config.runways.map((runway) => ({
       id: runway.id,
       designation: runway.designation?.join('/'),
-      role: runway.role,
+      role: simulation.state.activeRunwayRoles[runway.id] ?? runway.role,
+      publishedRole: runway.role,
       landingEnd: runway.landingEnd,
       activeEnd: simulation.state.activeRunwayEnds[runway.id],
       activeDesignation: runway.designation?.[simulation.state.activeRunwayEnds[runway.id] === 1 ? 1 : 0],
@@ -1773,6 +1856,11 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
   }
   if (command.action === 'setWeatherEnabled') simulation.setWeatherEnabled(command.enabled);
   if (command.action === 'setWindEnabled') simulation.setWindEnabled(command.enabled);
+  if (command.action === 'setRunwayConfiguration') {
+    accepted = simulation.setRunwayConfiguration(command.configurationId);
+    reason = simulation.lastCommandReason();
+    updateWeatherUi();
+  }
   if (command.action === 'restart') newSession(false, config.code === 'LOCAL' ? generateAirportConfig() : generateHubConfig(hubIndex));
   recordTelemetry(`command:${command.action}`, undefined, undefined, undefined, { accepted, detail: reason, payload: command });
   const snapshot = airportSnapshot();
@@ -1784,7 +1872,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
 }
 
 window.airportControl = {
-  version: '2.1.0',
+  version: '2.2.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },
@@ -1823,6 +1911,7 @@ window.airportControl = {
       weather: "airportControl.command({ action: 'setWeather', condition: 'rain', directionDegrees: 270, windSpeed: 18 })",
       weatherToggle: "airportControl.command({ action: 'setWeatherEnabled', enabled: false })",
       windToggle: "airportControl.command({ action: 'setWindEnabled', enabled: false })",
+      runwayConfiguration: "airportControl.request({ action: 'setRunwayConfiguration', configurationId: 'ORD-EAST-IFR' }) // supervisor only; null restores automatic",
       broadcast: "new BroadcastChannel('airport-auto') // send { type: 'command', requestId, command }",
     };
   },
@@ -1899,6 +1988,11 @@ if ((launchWeather === 'clear' || launchWeather === 'rain' || launchWeather === 
 }
 if (launchWeatherValue === 'off') simulation.setWeatherEnabled(false);
 if (launchWindValue === 'off') simulation.setWindEnabled(false);
+const launchRunwayConfiguration = launchOptions.get('runwayConfig');
+if (launchRunwayConfiguration) {
+  simulation.setRunwayConfiguration(launchRunwayConfiguration === 'auto' ? null : launchRunwayConfiguration);
+  updateWeatherUi();
+}
 if (launchOptions.get('autostart') === '1' || soakEnabled) startShift();
 
 requestAnimationFrame(frame);

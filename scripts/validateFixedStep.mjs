@@ -51,6 +51,8 @@ const totals = {
   manualDepartureCleared: false,
   repeatedCrossingClearances: false,
   runwayConfigurationsVerified: false,
+  runwayTransitionQueueVerified: false,
+  runwayConfigurationSoaks: 0,
 };
 
 const seeds = [1, 17, 991, 42_424];
@@ -125,7 +127,74 @@ eastFlow.simulation.setWeather('clear', 0, 14);
 eastFlow.advanceTicks(1);
 assert(eastFlow.simulation.state.runwayConfigurationId === 'ORD-EAST-FLOW', 'ORD: east wind did not select east flow');
 assert(Object.values(eastFlow.simulation.state.activeRunwayEnds).every((end) => end === -1), 'ORD: east flow changed runway ends incoherently');
+
+const eastIfr = createHubSimulationHarness('ORD', { stepSeconds: 0.05 });
+eastIfr.simulation.state.flights = [];
+eastIfr.simulation.setWeather('fog', 0, 14);
+eastIfr.advanceTicks(1);
+assert(eastIfr.simulation.state.runwayConfigurationId === 'ORD-EAST-IFR', 'ORD: east IFR weather did not select the instrument plan');
+assert(eastIfr.simulation.state.activeRunwayRoles[4] === 'inactive', 'ORD: east IFR incorrectly kept 10C active');
+assert(eastIfr.simulation.state.activeRunwayRoles[5] === 'arrival', 'ORD: east IFR did not activate 10R arrivals');
+
+const highArrival = createHubSimulationHarness('ORD', { stepSeconds: 0.05 });
+highArrival.simulation.state.flights = [];
+highArrival.simulation.setScenario('rush');
+highArrival.simulation.setWeather('clear', Math.PI, 14);
+highArrival.advanceTicks(1);
+assert(highArrival.simulation.state.runwayConfigurationId === 'ORD-WEST-HIGH-ARRIVAL', 'ORD: west rush did not select the high-arrival plan');
+assert(highArrival.simulation.state.activeRunwayRoles[5] === 'arrival', 'ORD: west high-arrival plan did not activate 28L');
+assert(highArrival.simulation.state.activeRunwayRoles[7] === 'inactive', 'ORD: west high-arrival plan did not protect 22L');
+
+const crosswind = createHubSimulationHarness('ORD', { stepSeconds: 0.05 });
+crosswind.simulation.state.flights = [];
+crosswind.simulation.setWeather('clear', (90 - 220) * Math.PI / 180, 24);
+crosswind.advanceTicks(1);
+assert(crosswind.simulation.state.runwayConfigurationId === 'ORD-CROSSWIND-22', 'ORD: strong southerly wind did not select the 22 contingency');
+assert(crosswind.simulation.state.activeRunwayRoles[6] === 'arrival', 'ORD: 22R was not activated for arrivals');
+assert(crosswind.simulation.state.activeRunwayRoles[7] === 'departure', 'ORD: 22L was not activated for departures');
+
+const transition = createHubSimulationHarness('ORD', { stepSeconds: 0.05 });
+const endsBeforeTransition = JSON.stringify(transition.simulation.state.activeRunwayEnds);
+transition.simulation.setWeather('clear', 0, 14);
+transition.advanceTicks(1);
+assert(transition.simulation.state.runwayConfigurationId === 'ORD-WEST-FLOW', 'ORD: runway plan changed before protected traffic drained');
+assert(transition.simulation.state.runwayConfigurationTransition?.targetId === 'ORD-EAST-FLOW', 'ORD: east-flow transition was not queued');
+assert(transition.simulation.state.runwayConfigurationTransition.blockingFlightIds.length > 0, 'ORD: transition did not identify blocking flights');
+assert(JSON.stringify(transition.simulation.state.activeRunwayEnds) === endsBeforeTransition, 'ORD: runway ends changed partially during transition');
+transition.simulation.state.flights = [];
+transition.advanceTicks(1);
+assert(transition.simulation.state.runwayConfigurationId === 'ORD-EAST-FLOW', 'ORD: queued transition did not activate after traffic drained');
+assert(transition.simulation.state.runwayConfigurationTransition === null, 'ORD: completed transition remained queued');
+assert(Object.values(transition.simulation.state.activeRunwayEnds).every((end) => end === -1), 'ORD: queued transition did not apply atomically');
+
+const manualConfiguration = createHubSimulationHarness('ORD', { stepSeconds: 0.05 });
+manualConfiguration.simulation.state.flights = [];
+manualConfiguration.simulation.setStation('ground');
+assert(!manualConfiguration.simulation.setRunwayConfiguration('ORD-EAST-FLOW'), 'ORD: ground station changed the airport runway plan');
+manualConfiguration.simulation.setStation('supervisor');
+assert(manualConfiguration.simulation.setRunwayConfiguration('ORD-EAST-FLOW'), 'ORD: supervisor could not select an eligible runway plan');
+assert(manualConfiguration.simulation.state.runwayConfigurationMode === 'manual', 'ORD: supervisor selection did not enter manual runway-plan mode');
+manualConfiguration.simulation.setWeather('rain', 0, 14);
+manualConfiguration.advanceTicks(1);
+assert(manualConfiguration.simulation.state.runwayConfigurationMode === 'automatic', 'ORD: unsafe manual plan did not release to automatic selection');
+assert(!manualConfiguration.simulation.setRunwayConfiguration('ORD-EAST-FLOW'), 'ORD: visual east plan was accepted in rain');
+for (const [name, harness] of [
+  ['east IFR', eastIfr],
+  ['west high-arrival', highArrival],
+  ['22 crosswind', crosswind],
+]) {
+  harness.advanceBy(120);
+  const snapshot = harness.snapshot();
+  assert(snapshot.diagnostics.collisionPairs.length === 0, 'ORD ' + name + ': collision in configuration soak');
+  assert(snapshot.diagnostics.obstacleCollisions.length === 0, 'ORD ' + name + ': obstacle collision in configuration soak');
+  assert(snapshot.diagnostics.metrics.collisionAlerts === 0, 'ORD ' + name + ': collision alert in configuration soak');
+  assert(snapshot.diagnostics.activeFlights > 0, 'ORD ' + name + ': configuration did not sustain traffic ' + JSON.stringify({ state: snapshot.state, diagnostics: snapshot.diagnostics, options: harness.simulation.runwayConfigurationOptions() }));
+  totals.runwayConfigurationSoaks += 1;
+  totals.ticks += harness.tickCount;
+  totals.simulatedMinutes += snapshot.simulationTimeSeconds / 60;
+}
 totals.runwayConfigurationsVerified = true;
+totals.runwayTransitionQueueVerified = true;
 
 const concurrent = createHubSimulationHarness('ORD', { stepSeconds: 0.05 });
 const initialGates = concurrent.simulation.state.flights.map((flight) => flight.gateSlot);

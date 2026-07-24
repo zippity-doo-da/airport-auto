@@ -5,10 +5,11 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await page.goto('/?airport=ORD&mode=assisted&station=supervisor&autostart=1&detail=low');
   await expect(page.locator('#airport-name')).toContainText('O’Hare');
   await expect(page.locator('#flight-strip-count')).toContainText('aircraft');
-  await page.waitForFunction(() => window.airportControl?.version === '2.1.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.2.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
+  expect(initial.schemaVersion).toBe(4);
   expect(initial.mode).toBe('assisted');
   expect(initial.airport.code).toBe('ORD');
   expect(initial.airport.vectorData?.layerCounts.runways).toBe(8);
@@ -36,7 +37,23 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   for (const kind of ['terminal-complex', 'terminal-apron', 'cargo-ramp', 'general-aviation', 'deicing-pad', 'holding-pad', 'maintenance', 'remote-ramp', 'perimeter-route']) {
     expect(zoneKinds.has(kind)).toBeTruthy();
   }
-  expect(initial.runwayConfigurations.map((configuration) => configuration.id)).toEqual(['ORD-WEST-FLOW', 'ORD-EAST-FLOW']);
+  expect(initial.runwayConfigurations.map((configuration) => configuration.id)).toEqual([
+    'ORD-WEST-FLOW',
+    'ORD-EAST-FLOW',
+    'ORD-WEST-HIGH-ARRIVAL',
+    'ORD-EAST-OFFSET',
+    'ORD-EAST-IFR',
+    'ORD-CROSSWIND-22',
+  ]);
+  expect(initial.runwayConfiguration.selectionMode).toBe('automatic');
+  expect(initial.runwayConfigurations.every((configuration) => configuration.source?.url.startsWith('https://www.faa.gov/'))).toBeTruthy();
+  for (const runway of initial.runways) {
+    const presentation = initial.renderer.runways.find((candidate) => candidate.id === runway.id);
+    expect(presentation?.activeEnd).toBe(runway.activeEnd);
+    expect(presentation?.markerVisible).toBe(!runway.closed && runway.role !== 'inactive');
+    expect(presentation?.arrivalMarkerVisible).toBe(runway.role === 'arrival' || runway.role === 'mixed');
+    expect(presentation?.departureMarkerVisible).toBe(runway.role === 'departure' || runway.role === 'mixed');
+  }
   expect(initial.renderer.surfaceLayers).toEqual({ 'taxiway-labels': false, 'operational-zones': false, hotspots: false, 'airport-boundary': false });
   expect(initial.renderer.context).toMatchObject({ status: 'loaded', roads: 6_016, rails: 1_127, boundaryRings: 1 });
   expect(initial.renderer.context.drawGroups).toBeLessThanOrEqual(20);
@@ -46,6 +63,13 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   expect(initial.flights.some((flight) => flight.gate?.ref)).toBeTruthy();
   expect(initial.traffic.collisions).toHaveLength(0);
   expect(initial.traffic.obstacleCollisions).toHaveLength(0);
+  const runwayPlanResult = await page.evaluate(() => window.airportControl.request({ action: 'setRunwayConfiguration', configurationId: 'ORD-EAST-FLOW' }));
+  expect(runwayPlanResult.accepted).toBeTruthy();
+  expect(runwayPlanResult.resultingState.runwayConfiguration.selectionMode).toBe('manual');
+  expect(runwayPlanResult.resultingState.runwayConfiguration.transition?.targetId).toBe('ORD-EAST-FLOW');
+  const automaticPlanResult = await page.evaluate(() => window.airportControl.request({ action: 'setRunwayConfiguration', configurationId: null }));
+  expect(automaticPlanResult.accepted).toBeTruthy();
+  expect(automaticPlanResult.resultingState.runwayConfiguration.selectionMode).toBe('automatic');
   const importedVectorCounts = await page.evaluate(async () => {
     const [vectorResponse, contextResponse, surfaceResponse] = await Promise.all([
       fetch('./data/airports/KORD.vector.json'),
@@ -102,6 +126,9 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
 
   await page.locator('#menu-toggle').click();
   await expect(page.locator('#control-panel')).toHaveClass(/control-panel--open/);
+  await expect(page.locator('#runway-configuration-select')).toBeEnabled();
+  await expect(page.locator('#runway-configuration-select option')).toHaveCount(7);
+  await page.screenshot({ path: testInfo.outputPath('runway-plans.png') });
   await expect(page.locator('.advanced-tools summary')).toBeVisible();
   await page.locator('.advanced-tools summary').click();
   await expect(page.locator('#map-data-version')).toContainText('FAA geometry + OSM surface and surroundings');
@@ -132,7 +159,7 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
 
 test('Mobile Watch mode keeps controls readable and uses low-detail rendering', async ({ page }, testInfo) => {
   await page.goto('/?airport=ORD&mode=watch&autostart=1&detail=low');
-  await page.waitForFunction(() => window.airportControl?.version === '2.1.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.2.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
   await expect(page.locator('body')).toHaveClass(/watch-mode/);
   await expect(page.locator('#menu-toggle')).toBeVisible();

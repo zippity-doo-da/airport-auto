@@ -83,9 +83,27 @@ for (const config of configs) {
     for (const kind of ['terminal-complex', 'terminal-apron', 'cargo-ramp', 'general-aviation', 'deicing-pad', 'holding-pad', 'maintenance', 'remote-ramp', 'perimeter-route']) {
       if (!zoneKinds.has(kind)) throw new Error('ORD: missing operational zone kind ' + kind);
     }
-    if (config.runwayConfigurations.length !== 2) throw new Error('ORD: expected west-flow and east-flow configurations');
-    if (!config.runwayConfigurations.some((configuration) => configuration.id === 'ORD-WEST-FLOW')) throw new Error('ORD: west-flow configuration missing');
-    if (!config.runwayConfigurations.some((configuration) => configuration.id === 'ORD-EAST-FLOW')) throw new Error('ORD: east-flow configuration missing');
+    const expectedConfigurations = [
+      'ORD-WEST-FLOW',
+      'ORD-EAST-FLOW',
+      'ORD-WEST-HIGH-ARRIVAL',
+      'ORD-EAST-OFFSET',
+      'ORD-EAST-IFR',
+      'ORD-CROSSWIND-22',
+    ];
+    if (config.runwayConfigurations.length !== expectedConfigurations.length) throw new Error('ORD: incomplete runway configuration set');
+    for (const id of expectedConfigurations) {
+      const configuration = config.runwayConfigurations.find((candidate) => candidate.id === id);
+      if (!configuration) throw new Error('ORD: runway configuration missing ' + id);
+      if (Object.keys(configuration.runwayRoles).length !== config.runways.length) throw new Error('ORD: incomplete runway roles for ' + id);
+      if (Object.keys(configuration.operatingEnds).length !== config.runways.length) throw new Error('ORD: incomplete operating ends for ' + id);
+      if (!configuration.restrictions.conditions.length || !configuration.restrictions.note) throw new Error('ORD: undocumented restrictions for ' + id);
+      if (!configuration.source?.url.startsWith('https://www.faa.gov/')) throw new Error('ORD: non-FAA runway configuration source for ' + id);
+    }
+    const eastIfr = config.runwayConfigurations.find((configuration) => configuration.id === 'ORD-EAST-IFR');
+    if (eastIfr.runwayRoles[4] !== 'inactive' || eastIfr.runwayRoles[5] !== 'arrival') throw new Error('ORD: east IFR must replace 10C arrivals with 10R');
+    const crosswind = config.runwayConfigurations.find((configuration) => configuration.id === 'ORD-CROSSWIND-22');
+    if (crosswind.runwayRoles[6] !== 'arrival' || crosswind.runwayRoles[7] !== 'departure') throw new Error('ORD: 22 contingency roles are incorrect');
   }
 }
 
