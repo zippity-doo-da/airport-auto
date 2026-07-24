@@ -65,14 +65,14 @@ This document contains only unfinished, still-valid work. Shipped behavior belon
 
 Turn the safe surface graph into a believable airport lifecycle.
 
-**Status: in progress.** Pushback shipped in 2.3, aircraft-specific ground handling in 2.4, ramp/alley flow control in 2.5, scheduled gate assignment in 2.6, and explicit turnaround services in 2.7.
+**Status: in progress.** Pushback shipped in 2.3, aircraft-specific ground handling in 2.4, ramp/alley flow control in 2.5, scheduled gate assignment in 2.6, explicit turnaround services in 2.7, and protected service-vehicle routing in 2.8.
 
 - [x] Add explicit pushback clearance, tug attachment, push direction, engine-start state, and tug release.
 - [x] Add aircraft-specific taxi speed, turn-radius, stopping-distance, and wingtip-clearance behavior on the imported graph.
 - [x] Add ramp-control zones, alley conflicts, one-way restrictions, stand lead-in/lead-out paths, and congestion-aware routing.
 - [x] Add gate assignment by airline, terminal, aircraft size, service type, arrival time, and next departure.
 - [x] Replace the simple turnaround timer with optional fueling, baggage, cargo, catering, cleaning, boarding, and maintenance states.
-- [ ] Add service vehicles with reserved routes that never cross protected movement areas without authorization.
+- [x] Add service vehicles with reserved routes that never cross protected movement areas without authorization.
 - [ ] Add deicing pads, queues, treatment time, holdover time, and winter routing.
 - [ ] Select runway exits from touchdown point, braking action, aircraft performance, traffic, and destination stand.
 - [ ] Add taxiway/runway closures, construction zones, disabled-aircraft recovery, and graph rerouting.
@@ -219,16 +219,16 @@ These tasks travel with the milestones above rather than waiting for a final cle
 
 Valid unfinished items from the former product plan were retained here and consolidated as follows:
 
-| Former area | New home |
-| --- | --- |
-| Real layouts, OSM/open-data import, attribution, map context | Milestone 1 |
-| Pushback, gates, services, deicing, closures, ramp congestion | Milestone 2 |
-| Hub schedules, traffic banks, queues, holding, diversions, SIDs/STARs, physical separation | Milestone 3 |
-| Rich ATC commands, training, challenge, sandbox, station handoffs | Milestone 4 |
-| Scripted/LLM agents, WebSocket control, authentication, multiple controllers | Milestone 5 |
-| Recorded/spatial audio, weather ambience, day/season presentation | Milestone 6 |
-| Distinct aircraft, detailed animation/lights, fleet and maintenance depth | Milestone 7 |
-| Live feeds, exports, dashboards, sharing, challenges, classrooms, leaderboards | Milestone 8 |
+| Former area                                                                                    | New home           |
+| ---------------------------------------------------------------------------------------------- | ------------------ |
+| Real layouts, OSM/open-data import, attribution, map context                                   | Milestone 1        |
+| Pushback, gates, services, deicing, closures, ramp congestion                                  | Milestone 2        |
+| Hub schedules, traffic banks, queues, holding, diversions, SIDs/STARs, physical separation     | Milestone 3        |
+| Rich ATC commands, training, challenge, sandbox, station handoffs                              | Milestone 4        |
+| Scripted/LLM agents, WebSocket control, authentication, multiple controllers                   | Milestone 5        |
+| Recorded/spatial audio, weather ambience, day/season presentation                              | Milestone 6        |
+| Distinct aircraft, detailed animation/lights, fleet and maintenance depth                      | Milestone 7        |
+| Live feeds, exports, dashboards, sharing, challenges, classrooms, leaderboards                 | Milestone 8        |
 | Modularity, manifests, pooling, performance budgets, soaks, browser/visual/accessibility tests | Cross-cutting work |
 
 The following former categories were intentionally **not** copied as open work because 2.1 already ships and tests them: fixed-step authoritative motion, shared simulation/render paths, edge-spawned arrivals, full landing and takeoff rolls, pavement-only graph routing, surface reservations, basic wind-selected runway ends, Auto/Assisted/Manual/Watch modes, station authority, structured command rejections, deterministic recording/replay, local BroadcastChannel control, responsive camera controls, audio channel mixing, low-detail rendering, linting, browser tests, CI, and additive Pages deployment.

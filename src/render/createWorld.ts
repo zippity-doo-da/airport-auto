@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { AirportConfig, FlightColor, RunwayConfig, RunwayOperationalRole } from '../simulation/airportConfig';
 import { aircraftProfile } from '../simulation/aircraftProfiles';
 import { airlineProfile } from '../simulation/airlineProfiles';
-import type { AirportState, Flight, FlightMotionState } from '../simulation/types';
+import type { AirportState, Flight, FlightMotionState, ServiceVehicleType } from '../simulation/types';
 import { applyAircraftOrientation } from './aircraftOrientation';
 import { createAirportContext, type AirportContextDiagnostics } from './airportContext';
 import { treePlacement } from './sceneryPlacement';
@@ -44,6 +44,14 @@ type RunwayLight = {
   roles?: RunwayOperationalRole[];
 };
 
+type ServiceVehicleVisual = {
+  poolKey: ServiceVehicleType;
+  root: THREE.Group;
+  beacon: THREE.Mesh;
+  wheels: THREE.Mesh[];
+  active: boolean;
+};
+
 type RunwayVisual = {
   marker: THREE.Group;
   arrivalMarker: THREE.Group;
@@ -67,9 +75,20 @@ export type WorldDiagnostics = {
   textures: number;
   detail: 'low' | 'high';
   pooledAircraft: number;
+  activeServiceVehicles: number;
+  heldServiceVehicles: number;
+  pooledServiceVehicles: number;
   attachedTugs: number;
   startingEngines: number;
   passengerFacilities: number;
+  camera: {
+    focusX: number;
+    focusY: number;
+    zoom: number;
+    panningEnabled: true;
+    groundWidth: number;
+    groundHeight: number;
+  };
   surfaceLayers: Record<SurfaceLayer, boolean>;
   runways: Array<{
     id: number;
@@ -164,7 +183,8 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   sun.shadow.bias = -0.0008;
   scene.add(sun);
 
-  buildLandscape(world, config);
+  const landscape = landscapeDimensions(config);
+  buildLandscape(world, config, landscape);
   const contextRuntime = config.contextData
     ? createAirportContext(world, config.contextData, config.vectorData?.runtimeReference.worldMetersPerUnit ?? 38)
     : null;
@@ -181,6 +201,8 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
 
   const flightVisuals = new Map<number, FlightVisual>();
   const flightPool = new Map<string, FlightVisual[]>();
+  const serviceVehicleVisuals = new Map<string, ServiceVehicleVisual>();
+  const serviceVehiclePool = new Map<ServiceVehicleType, ServiceVehicleVisual[]>();
   let selectedFlightId: number | null = null;
   let viewIndex = 0;
   let cameraTime = 0;
@@ -206,6 +228,9 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   const attitudeNose = new THREE.Vector3();
   let previousPinchDistance = 0;
   let previousPinchGround: THREE.Vector3 | null = null;
+  let dragPointerId: number | null = null;
+  let previousDragPoint: { x: number; y: number } | null = null;
+  let manualCameraActive = false;
 
   function updateProjection(): void {
     const aspect = viewportWidth / Math.max(1, viewportHeight);
@@ -336,6 +361,40 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
       }
     }
 
+    for (const visual of serviceVehicleVisuals.values()) visual.active = false;
+    for (const vehicle of state.serviceVehicles) {
+      if (vehicle.status === 'scheduled' || vehicle.status === 'complete') continue;
+      let visual = serviceVehicleVisuals.get(vehicle.id);
+      if (!visual) {
+        visual = serviceVehiclePool.get(vehicle.type)?.pop() ?? createServiceVehicle(vehicle.type);
+        visual.root.visible = true;
+        visual.root.scale.setScalar(config.scope === 'center' ? 0.17 : 0.92);
+        serviceVehicleVisuals.set(vehicle.id, visual);
+        world.add(visual.root);
+      }
+      visual.active = true;
+      visual.root.position.set(vehicle.x, vehicle.y, 1.64);
+      visual.root.rotation.z = vehicle.heading;
+      visual.root.userData.status = vehicle.status;
+      visual.root.userData.held = vehicle.held;
+      const beaconPulse = 0.45 + Math.sin(state.elapsed * 7.6 + vehicle.flightId) * 0.45;
+      visual.beacon.visible = vehicle.status !== 'servicing';
+      (visual.beacon.material as THREE.MeshBasicMaterial).opacity = vehicle.held ? 0.95 : 0.35 + beaconPulse * 0.55;
+      visual.beacon.scale.setScalar(vehicle.held ? 1.45 : 0.9 + beaconPulse * 0.35);
+      for (const wheel of visual.wheels) wheel.rotation.y -= delta * vehicle.groundSpeedMps * 3.4;
+    }
+    for (const [id, visual] of serviceVehicleVisuals) {
+      if (visual.active) continue;
+      world.remove(visual.root);
+      visual.root.visible = false;
+      const pool = serviceVehiclePool.get(visual.poolKey) ?? [];
+      if (pool.length < 10) {
+        pool.push(visual);
+        serviceVehiclePool.set(visual.poolKey, pool);
+      } else disposeObject(visual.root);
+      serviceVehicleVisuals.delete(id);
+    }
+
     for (let index = 0; index < swayingObjects.length; index += 1) {
       const item = swayingObjects[index];
       item.rotation.x = Math.sin(state.elapsed * 0.45 + index * 0.71) * 0.025 * (0.45 + state.breeze);
@@ -362,11 +421,11 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
 
     const view = views[viewIndex];
     const selected = selectedFlightId === null ? null : flightVisuals.get(selectedFlightId);
-    if (selected) {
+    if (selected && !manualCameraActive) {
       const follow = 1 - Math.exp(-delta * 2.8);
       cameraFocus.lerp(new THREE.Vector2(selected.root.position.x, selected.root.position.y), follow);
     }
-    const drift = reducedMotion ? 0 : 1;
+    const drift = reducedMotion || manualCameraActive ? 0 : 1;
     const orbit = view.phase + Math.sin(cameraTime * 0.035) * 0.13 * drift;
     const targetX = cameraFocus.x + Math.sin(cameraTime * 0.021) * 5 * drift;
     const targetY = cameraFocus.y + Math.cos(cameraTime * 0.017) * 3 * drift;
@@ -444,61 +503,95 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     return zoomRaycaster.ray.intersectPlane(groundPlane, zoomGroundPoint)?.clone() ?? null;
   }
 
+  function moveCameraFocus(deltaX: number, deltaY: number): void {
+    const previousX = cameraFocus.x;
+    const previousY = cameraFocus.y;
+    cameraFocus.x = THREE.MathUtils.clamp(cameraFocus.x + deltaX, -landscape.panX, landscape.panX);
+    cameraFocus.y = THREE.MathUtils.clamp(cameraFocus.y + deltaY, -landscape.panY, landscape.panY);
+    camera.position.x += cameraFocus.x - previousX;
+    camera.position.y += cameraFocus.y - previousY;
+    camera.updateMatrixWorld();
+  }
+
   const onWheel = (event: WheelEvent): void => {
     event.preventDefault();
+    manualCameraActive = true;
     const before = groundPointAt(event.clientX, event.clientY);
     const minimumZoom = config.scope === 'center' ? 0.08 : 0.12;
     manualZoom = THREE.MathUtils.clamp(manualZoom * Math.exp(event.deltaY * 0.0014), minimumZoom, 3);
     updateProjection();
     const after = groundPointAt(event.clientX, event.clientY);
-    if (before && after) {
-      const focusLimit = config.scope === 'center' ? 170 : 110;
-      cameraFocus.x = THREE.MathUtils.clamp(cameraFocus.x + before.x - after.x, -focusLimit, focusLimit);
-      cameraFocus.y = THREE.MathUtils.clamp(cameraFocus.y + before.y - after.y, -focusLimit, focusLimit);
-    }
+    if (before && after) moveCameraFocus(before.x - after.x, before.y - after.y);
   };
 
   const onPointerDown = (event: PointerEvent): void => {
-    if (event.pointerType !== 'touch') return;
-    touchPoints.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (event.pointerType === 'touch') {
+      touchPoints.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    } else if (event.button !== 0 && event.button !== 1) return;
     if (touchPoints.size === 2) {
       const [first, second] = [...touchPoints.values()];
       previousPinchDistance = Math.max(1, Math.hypot(first.x - second.x, first.y - second.y));
       previousPinchGround = groundPointAt((first.x + second.x) / 2, (first.y + second.y) / 2);
+      dragPointerId = null;
+      previousDragPoint = null;
+      manualCameraActive = true;
+      canvas.classList.add('scene--panning');
+      return;
+    }
+    const forcePan = event.pointerType !== 'touch' && event.button === 1;
+    if (!forcePan && pickFlight(event.clientX, event.clientY) !== null) return;
+    dragPointerId = event.pointerId;
+    previousDragPoint = { x: event.clientX, y: event.clientY };
+    manualCameraActive = true;
+    canvas.classList.add('scene--panning');
+    try {
+      canvas.setPointerCapture(event.pointerId);
+    } catch {
+      // Synthetic browser tests do not create an OS pointer to capture.
     }
   };
 
   const onPointerMove = (event: PointerEvent): void => {
-    if (event.pointerType !== 'touch' || !touchPoints.has(event.pointerId)) return;
-    touchPoints.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    if (touchPoints.size !== 2) return;
-    event.preventDefault();
-    const [first, second] = [...touchPoints.values()];
-    const distance = Math.max(1, Math.hypot(first.x - second.x, first.y - second.y));
-    const midpoint = { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 };
-    const minimumZoom = config.scope === 'center' ? 0.08 : 0.12;
-    manualZoom = THREE.MathUtils.clamp(manualZoom * previousPinchDistance / distance, minimumZoom, 3);
-    updateProjection();
-    const nextGround = groundPointAt(midpoint.x, midpoint.y);
-    if (previousPinchGround && nextGround) {
-      const focusLimit = config.scope === 'center' ? 170 : 110;
-      cameraFocus.x = THREE.MathUtils.clamp(cameraFocus.x + previousPinchGround.x - nextGround.x, -focusLimit, focusLimit);
-      cameraFocus.y = THREE.MathUtils.clamp(cameraFocus.y + previousPinchGround.y - nextGround.y, -focusLimit, focusLimit);
+    if (event.pointerType === 'touch' && touchPoints.has(event.pointerId)) {
+      touchPoints.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (touchPoints.size === 2) {
+        event.preventDefault();
+        const [first, second] = [...touchPoints.values()];
+        const distance = Math.max(1, Math.hypot(first.x - second.x, first.y - second.y));
+        const midpoint = { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 };
+        const minimumZoom = config.scope === 'center' ? 0.08 : 0.12;
+        manualZoom = THREE.MathUtils.clamp(manualZoom * previousPinchDistance / distance, minimumZoom, 3);
+        updateProjection();
+        const nextGround = groundPointAt(midpoint.x, midpoint.y);
+        if (previousPinchGround && nextGround) moveCameraFocus(previousPinchGround.x - nextGround.x, previousPinchGround.y - nextGround.y);
+        previousPinchDistance = distance;
+        previousPinchGround = groundPointAt(midpoint.x, midpoint.y);
+        return;
+      }
     }
-    previousPinchDistance = distance;
-    previousPinchGround = groundPointAt(midpoint.x, midpoint.y);
+    if (dragPointerId !== event.pointerId || !previousDragPoint) return;
+    event.preventDefault();
+    const before = groundPointAt(previousDragPoint.x, previousDragPoint.y);
+    const after = groundPointAt(event.clientX, event.clientY);
+    if (before && after) moveCameraFocus(before.x - after.x, before.y - after.y);
+    previousDragPoint = { x: event.clientX, y: event.clientY };
   };
 
   const onPointerUp = (event: PointerEvent): void => {
-    if (event.pointerType !== 'touch') return;
-    touchPoints.delete(event.pointerId);
+    if (event.pointerType === 'touch') touchPoints.delete(event.pointerId);
+    if (dragPointerId === event.pointerId) {
+      dragPointerId = null;
+      previousDragPoint = null;
+    }
     if (touchPoints.size < 2) {
       previousPinchDistance = 0;
       previousPinchGround = null;
     }
+    if (dragPointerId === null && touchPoints.size < 2) canvas.classList.remove('scene--panning');
   };
 
   function changeZoom(factor: number): void {
+    manualCameraActive = true;
     const minimumZoom = config.scope === 'center' ? 0.08 : 0.12;
     manualZoom = THREE.MathUtils.clamp(manualZoom * factor, minimumZoom, 3);
     updateProjection();
@@ -508,6 +601,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     manualZoom = 1;
     cameraFocus.set(0, 0);
     selectedFlightId = null;
+    manualCameraActive = false;
     updateProjection();
   }
 
@@ -566,7 +660,10 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     nextView,
     pickFlight,
     pickRunway,
-    selectFlight(id) { selectedFlightId = id; },
+    selectFlight(id) {
+      selectedFlightId = id;
+      if (id !== null) manualCameraActive = false;
+    },
     flightScreenPosition,
     flightAttitude,
     mapMetrics,
@@ -588,9 +685,20 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
         textures: renderer.info.memory.textures,
         detail: lowDetail ? 'low' : 'high',
         pooledAircraft: [...flightPool.values()].reduce((sum, pool) => sum + pool.length, 0),
+        activeServiceVehicles: serviceVehicleVisuals.size,
+        heldServiceVehicles: [...serviceVehicleVisuals.values()].filter((visual) => Boolean(visual.root.userData.held)).length,
+        pooledServiceVehicles: [...serviceVehiclePool.values()].reduce((sum, pool) => sum + pool.length, 0),
         attachedTugs: [...flightVisuals.values()].filter((visual) => visual.tug.visible).length,
         startingEngines: [...flightVisuals.values()].filter((visual) => visual.root.userData.engineState === 'starting').length,
         passengerFacilities: config.surfaceGraph.passengerFacilities.length,
+        camera: {
+          focusX: Number(cameraFocus.x.toFixed(3)),
+          focusY: Number(cameraFocus.y.toFixed(3)),
+          zoom: Number(manualZoom.toFixed(3)),
+          panningEnabled: true,
+          groundWidth: landscape.width,
+          groundHeight: landscape.height,
+        },
         surfaceLayers: {
           'taxiway-labels': airportBuild.surfaceLayers['taxiway-labels'].visible,
           'operational-zones': airportBuild.surfaceLayers['operational-zones'].visible,
@@ -620,20 +728,30 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
       contextRuntime?.dispose();
       for (const pool of flightPool.values()) for (const visual of pool) disposeObject(visual.root);
       flightPool.clear();
+      for (const pool of serviceVehiclePool.values()) for (const visual of pool) disposeObject(visual.root);
+      serviceVehiclePool.clear();
       disposeObject(scene);
       renderer.dispose();
     },
   };
 }
 
-function buildLandscape(root: THREE.Group, config: AirportConfig): void {
+type LandscapeDimensions = { width: number; height: number; panX: number; panY: number };
+
+function landscapeDimensions(config: Pick<AirportConfig, 'scope'>): LandscapeDimensions {
+  return config.scope === 'center'
+    ? { width: 4000, height: 3000, panX: 1200, panY: 850 }
+    : { width: 2400, height: 1800, panX: 650, panY: 480 };
+}
+
+function buildLandscape(root: THREE.Group, config: AirportConfig, dimensions: LandscapeDimensions): void {
   const terrainColors = {
     coast: { ground: 0x6f8068, district: 0x829071 },
     highland: { ground: 0x756f55, district: 0x918868 },
     woodland: { ground: 0x4f6852, district: 0x687a5c },
   }[config.terrain];
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(1400, 1000),
+    new THREE.PlaneGeometry(dimensions.width, dimensions.height),
     new THREE.MeshStandardMaterial({ color: terrainColors.ground, roughness: 1 }),
   );
   ground.position.z = 1.24;
@@ -1298,6 +1416,111 @@ function createPlane(flight: Flight): FlightVisual {
     poseInitialized: false,
     active: true,
   };
+}
+
+function createServiceVehicle(type: ServiceVehicleType): ServiceVehicleVisual {
+  const root = new THREE.Group();
+  root.name = `service-vehicle-${type}`;
+  const color = {
+    'fuel-truck': 0xe7ded0,
+    'baggage-cart': 0xd5a44e,
+    'cargo-loader': 0xc7865c,
+    'catering-truck': 0x8fafaa,
+    'cleaning-van': 0x8ca6bd,
+    'maintenance-van': 0xd7c46a,
+    'passenger-bus': 0xe0d4bd,
+  }[type];
+  const bodyMaterial = new THREE.MeshStandardMaterial({
+    color,
+    roughness: 0.72,
+    metalness: 0.08,
+  });
+  const dark = new THREE.MeshStandardMaterial({
+    color: 0x314443,
+    roughness: 0.62,
+    metalness: 0.12,
+  });
+  const glass = new THREE.MeshStandardMaterial({
+    color: 0x668386,
+    roughness: 0.34,
+    metalness: 0.16,
+  });
+  const wheelMaterial = new THREE.MeshStandardMaterial({
+    color: 0x202829,
+    roughness: 0.94,
+  });
+  const longVehicle = type === 'passenger-bus' || type === 'baggage-cart';
+  const length = longVehicle ? 2.35 : type === 'fuel-truck' || type === 'catering-truck' ? 1.95 : 1.65;
+  const width = type === 'passenger-bus' ? 0.78 : 0.72;
+  const chassis = new THREE.Mesh(new THREE.BoxGeometry(length, width, 0.22), dark);
+  chassis.position.z = 0.28;
+  chassis.castShadow = true;
+  root.add(chassis);
+  const cab = new THREE.Mesh(new THREE.BoxGeometry(type === 'passenger-bus' ? length * 0.9 : 0.62, width * 0.9, type === 'passenger-bus' ? 0.72 : 0.58), bodyMaterial);
+  cab.position.set(type === 'passenger-bus' ? 0 : length * 0.31, 0, type === 'passenger-bus' ? 0.68 : 0.59);
+  cab.castShadow = true;
+  root.add(cab);
+  const windshield = new THREE.Mesh(new THREE.BoxGeometry(0.04, width * 0.7, 0.28), glass);
+  windshield.position.set(type === 'passenger-bus' ? length * 0.46 : length * 0.31 + 0.32, 0, type === 'passenger-bus' ? 0.78 : 0.69);
+  root.add(windshield);
+
+  if (type === 'fuel-truck') {
+    const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 1.12, 14), bodyMaterial);
+    tank.rotation.z = Math.PI / 2;
+    tank.position.set(-0.3, 0, 0.68);
+    tank.castShadow = true;
+    root.add(tank);
+  } else if (type === 'baggage-cart') {
+    for (const x of [-0.2, -0.78]) {
+      const cart = new THREE.Mesh(new THREE.BoxGeometry(0.46, width * 0.84, 0.35), bodyMaterial);
+      cart.position.set(x, 0, 0.5);
+      cart.castShadow = true;
+      root.add(cart);
+    }
+  } else if (type === 'cargo-loader') {
+    const platform = new THREE.Mesh(new THREE.BoxGeometry(0.92, width * 1.05, 0.12), bodyMaterial);
+    platform.position.set(-0.22, 0, 0.82);
+    root.add(platform);
+    const lift = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.08, 0.54), dark);
+    lift.rotation.y = -0.5;
+    lift.position.set(-0.18, 0, 0.56);
+    root.add(lift);
+  } else if (type === 'catering-truck') {
+    const box = new THREE.Mesh(new THREE.BoxGeometry(1.05, width * 0.94, 0.86), bodyMaterial);
+    box.position.set(-0.32, 0, 0.78);
+    box.castShadow = true;
+    root.add(box);
+  } else if (type === 'cleaning-van' || type === 'maintenance-van') {
+    const van = new THREE.Mesh(new THREE.BoxGeometry(0.92, width * 0.92, 0.64), bodyMaterial);
+    van.position.set(-0.28, 0, 0.64);
+    van.castShadow = true;
+    root.add(van);
+  }
+
+  const wheels: THREE.Mesh[] = [];
+  for (const x of [-length * 0.32, length * 0.32]) {
+    for (const y of [-width * 0.52, width * 0.52]) {
+      const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.13, 10), wheelMaterial);
+      wheel.rotation.x = Math.PI / 2;
+      wheel.position.set(x, y, 0.2);
+      wheel.castShadow = true;
+      root.add(wheel);
+      wheels.push(wheel);
+    }
+  }
+  const beacon = new THREE.Mesh(
+    new THREE.SphereGeometry(0.12, 8, 6),
+    new THREE.MeshBasicMaterial({
+      color: 0xffb23b,
+      transparent: true,
+      opacity: 0.8,
+      depthWrite: false,
+      toneMapped: false,
+    }),
+  );
+  beacon.position.set(length * 0.26, 0, type === 'passenger-bus' ? 1.08 : 0.98);
+  root.add(beacon);
+  return { poolKey: type, root, beacon, wheels, active: true };
 }
 
 function positionFlight(

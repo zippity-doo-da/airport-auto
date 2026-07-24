@@ -1,5 +1,5 @@
 import type { AirportConfig, AirportRunwayConfiguration, RunwayOperationalRole } from './airportConfig';
-import type { AirportEvent, AirportState, ClearanceProposal, ConflictPrediction, ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, ShiftMetrics, TrafficScenario, WeatherCondition } from './types';
+import type { AirportEvent, AirportState, ClearanceProposal, ConflictPrediction, ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, ServiceVehicleState, ShiftMetrics, TrafficScenario, WeatherCondition } from './types';
 import { AIRCRAFT_ROSTER, aircraftProfile, type AircraftModel } from './aircraftProfiles';
 import { AIRPORT_AIRLINES, airlineProfile, type AirlineCode } from './airlineProfiles';
 import { aircraftCollisionEnvelope, findFlightConflicts, findObstacleConflicts, findProposedConflict } from './collisionDetection';
@@ -13,6 +13,7 @@ import { intersectingRunways, runwaysConflict } from './runwayConflict';
 import { SurfaceReservationLedger, surfaceCongestionPlanning, surfaceRouteOperationalState, surfaceRouteReservationClaims, type SurfaceReservationClaim, type SurfaceTrafficMovement } from './surfaceOperations';
 import { GATE_TURN_BUFFER_SECONDS, gateReservationsOverlap, planGateAssignment, type GateReservation } from './gateAssignment';
 import { advanceTurnaround, completeTurnaround, createTurnaroundPlan, releaseTurnaround, scheduleTurnaround, startTurnaround, turnaroundBlockingServices, turnaroundFuelPercent, type TurnaroundTransition } from './turnaroundOperations';
+import { advanceServiceVehicleMotion, availableVehicleServices, createServiceVehiclePlans, findServiceVehicleConflicts, serviceVehicleOwnerId, serviceVehicleReservationClaims, serviceVehicleRouteViolations, serviceVehiclesBlockingPushback, setServiceVehicleStatus, syncServiceVehiclePose } from './serviceVehicleOperations';
 
 const PHASE_DURATION: Record<FlightPhase, number> = {
   approach: 38,
@@ -22,6 +23,31 @@ const PHASE_DURATION: Record<FlightPhase, number> = {
   'taxi-out': 20,
   takeoff: 48,
 };
+
+const SERVICE_VEHICLE_SURFACE_PRIORITY: Record<ServiceVehicleState['status'], number> = {
+  clearing: 3,
+  dispatching: 4,
+  approaching: 5,
+  returning: 6,
+  servicing: 7,
+  staged: 8,
+  scheduled: 9,
+  complete: 10,
+};
+
+function serviceVehicleSurfacePriority(vehicle: ServiceVehicleState): number {
+  // Traffic already ahead keeps moving: inbound equipment on the stand
+  // connector clears toward staging, while outbound equipment already on the
+  // graph clears away from it. A follower waits at the preceding resource.
+  if (vehicle.status === 'dispatching' && vehicle.currentEdge === undefined && vehicle.progress > 1e-6) return 0;
+  if (vehicle.status === 'returning' && vehicle.currentEdge !== undefined) return 0;
+  if (vehicle.currentEdge !== undefined) return 1;
+  if (vehicle.status === 'returning' && vehicle.progress > 1e-6) return 1;
+  // A returner waiting exactly at staging gets the next release so following
+  // equipment cannot clear through its parked position.
+  if (vehicle.status === 'returning' && vehicle.progress <= 1e-6) return 2;
+  return SERVICE_VEHICLE_SURFACE_PRIORITY[vehicle.status];
+}
 
 const KNOT_TO_MPS = 0.514444;
 const CROSSING_CLEARANCE_RANGE_M = 190;
@@ -38,6 +64,7 @@ export class AirportSimulation {
   readonly state: AirportState = {
     elapsed: 0,
     flights: [],
+    serviceVehicles: [],
     arrivals: 0,
     departures: 0,
     breeze: 0,
@@ -367,6 +394,10 @@ export class AirportSimulation {
       const blocking = turnaroundBlockingServices(flight.turnaround);
       return this.rejectDecision(`pushback held: ${blocking.length ? `${blocking.join(', ')} incomplete` : 'turnaround is not ready'}`, flight);
     }
+    const rampBlockers = serviceVehiclesBlockingPushback(this.state.serviceVehicles, flight.id);
+    if (rampBlockers.length) {
+      return this.rejectDecision(`pushback held: ${rampBlockers.map((vehicle) => vehicle.label.toLowerCase()).join(', ')} not clear of the stand`, flight);
+    }
     if (flight.pushbackCleared) return this.rejectDecision('pushback is already cleared', flight);
     if (this.state.runwayConfigurationTransition) return this.rejectDecision('pushback held while the runway plan changes', flight);
     if (this.selectDepartureRunway(flight) === null) return this.rejectDecision('no compatible departure runway is available', flight);
@@ -475,6 +506,7 @@ export class AirportSimulation {
   reset(): void {
     this.state.elapsed = 0;
     this.state.flights = [];
+    this.state.serviceVehicles = [];
     this.state.arrivals = 0;
     this.state.departures = 0;
     this.state.gameOver = false;
@@ -518,6 +550,7 @@ export class AirportSimulation {
     this.metrics.maxConcurrent = Math.max(this.metrics.maxConcurrent, this.state.flights.length);
     this.coordinateAutomaticRunwayCrossings();
     this.coordinateAutomaticSurfaceTraffic();
+    this.updateServiceVehicles(delta);
 
     for (const flight of this.state.flights) {
       if (flight.phase === 'resting') this.updateTurnaround(flight);
@@ -658,7 +691,10 @@ export class AirportSimulation {
     return result;
   }
 
-  diagnostics(): { flow: 'continuous'; approachCapacity: number; nextArrivalIn: number; activeFlights: number; runwayReservations: Array<{ runway: number; flight: number }>; scenario: TrafficScenario; closedRunway: number | null; predictions: ConflictPrediction[]; collisions: ReturnType<typeof findFlightConflicts>; obstacleCollisions: ReturnType<typeof findObstacleConflicts>; collisionEnvelopes: { aircraft: ReturnType<typeof aircraftCollisionEnvelope>[]; obstacles: AirportConfig['obstacles'] }; metrics: ShiftMetrics; surfaceGraph: SurfaceGraphValidation; obstacleEnvelopes: AirportObstacleValidation } {
+  diagnostics(): { flow: 'continuous'; approachCapacity: number; nextArrivalIn: number; activeFlights: number; runwayReservations: Array<{ runway: number; flight: number }>; scenario: TrafficScenario; closedRunway: number | null; predictions: ConflictPrediction[]; collisions: ReturnType<typeof findFlightConflicts>; obstacleCollisions: ReturnType<typeof findObstacleConflicts>;
+    serviceVehicleConflicts: ReturnType<typeof findServiceVehicleConflicts>;
+    serviceVehicleRouteViolations: ReturnType<typeof serviceVehicleRouteViolations>;
+    collisionEnvelopes: { aircraft: ReturnType<typeof aircraftCollisionEnvelope>[]; obstacles: AirportConfig['obstacles'] }; metrics: ShiftMetrics; surfaceGraph: SurfaceGraphValidation; obstacleEnvelopes: AirportObstacleValidation } {
     return {
       flow: 'continuous',
       approachCapacity: this.weatherApproachCapacity(),
@@ -670,6 +706,8 @@ export class AirportSimulation {
       predictions: this.conflictPredictions(),
       collisions: findFlightConflicts(this.config, this.state.flights),
       obstacleCollisions: findObstacleConflicts(this.config, this.state.flights),
+      serviceVehicleConflicts: findServiceVehicleConflicts(this.config, this.state.serviceVehicles, this.state.flights),
+      serviceVehicleRouteViolations: serviceVehicleRouteViolations(this.config.surfaceGraph, this.state.serviceVehicles),
       collisionEnvelopes: {
         aircraft: this.state.flights.map((flight) => aircraftCollisionEnvelope(this.config, flight)),
         obstacles: this.config.obstacles.map((obstacle) => ({ ...obstacle })),
@@ -689,7 +727,8 @@ export class AirportSimulation {
       return role === 'departure' || role === 'mixed';
     });
     if (!departureRunways.length) return;
-    const departureTarget = this.config.scope === 'center' ? Math.min(2, departureRunways.length) : 1;
+    const liveTurnAtStartup = this.config.code === 'ORD' && departureRunways.length >= 3;
+    const departureTarget = this.config.scope === 'center' ? Math.min(liveTurnAtStartup ? 3 : 2, departureRunways.length) : 1;
     for (let index = 0; index < target; index += 1) {
       const aircraft = this.spawnFlight();
       if (!aircraft) break;
@@ -701,10 +740,11 @@ export class AirportSimulation {
       const compatible = departureRunways.filter((runway) => runwaySupportsAircraft(runway, aircraft, 'takeoff'));
       if (!flight || !compatible.length) continue;
       const runway = compatible[index % compatible.length];
-      // Start one departure already taxiing and one push-ready at a stand. The
-      // first preserves an immediate arrival/departure picture; the second
-      // exposes the complete tug and engine-start lifecycle from session start.
+      // Start one departure taxiing and one push-ready. ORD also receives one
+      // live turn, preserving immediate ramp-service activity without making
+      // smaller hub schematics reuse an occupied stand.
       const taxiing = index === 0;
+      const servicing = liveTurnAtStartup && index === 2;
       flight.runway = runway.id;
       flight.departureRunway = runway.id;
       flight.operatingEnd = this.preferredOperatingEnd(runway.id);
@@ -728,6 +768,11 @@ export class AirportSimulation {
       flight.tugAttached = false;
       flight.engineState = taxiing ? 'running' : 'off';
       flight.holdShortRunway = taxiing ? runway.id : undefined;
+      if (!taxiing && !this.ensureArrivalGate(flight)) {
+        this.state.flights = this.state.flights.filter((candidate) => candidate.id !== flight.id);
+        this.events = this.events.filter((event) => event.flight.id !== flight.id);
+        continue;
+      }
       this.assignSurfaceRoute(flight, flight.phase);
       if (taxiing) {
         completeTurnaround(flight.turnaround, this.state.elapsed);
@@ -764,6 +809,8 @@ export class AirportSimulation {
           flight.gateAssignment.scheduledDepartureSeconds = this.state.elapsed;
         }
         this.updateSurfaceRouteState(flight);
+      } else if (servicing) {
+        this.confirmGateArrival(flight);
       } else {
         completeTurnaround(flight.turnaround, this.state.elapsed);
         flight.progress = 1;
@@ -919,12 +966,14 @@ export class AirportSimulation {
       this.metrics.safeDepartures += 1;
       this.events.push({ type: 'depart', flight });
       this.state.flights = this.state.flights.filter((item) => item !== flight);
+      this.state.serviceVehicles = this.state.serviceVehicles.filter((vehicle) => vehicle.flightId !== flight.id);
       this.stationarySeconds.delete(flight.id);
       return;
     }
 
     if (flight.phase === 'resting' && !flight.pushbackCleared) {
       if (!this.isAutomaticMode()) return;
+      if (serviceVehiclesBlockingPushback(this.state.serviceVehicles, flight.id).length) return;
       this.grantPushbackClearance(flight, true);
     }
 
@@ -1074,17 +1123,12 @@ export class AirportSimulation {
   }
 
   /**
-   * Auto/Watch reserve intersections, opposing edges, directional ramp
-   * alleys, exclusive stand paths, and finite-capacity ramp-control zones.
+   * Aircraft and service equipment share one ramp ledger. Auto/Watch also use
+   * it for aircraft-to-aircraft sequencing; Manual retains controller traffic
+   * authority while the safety layer still stops an aircraft from entering an
+   * edge physically occupied by slower service equipment.
    */
   private coordinateAutomaticSurfaceTraffic(): void {
-    if (!this.isAutomaticMode()) {
-      for (const flight of this.state.flights) {
-        flight.automaticHold = false;
-        flight.automaticHoldReason = undefined;
-      }
-      return;
-    }
     const surfaceFlights = this.state.flights.filter((flight): flight is Flight & { phase: 'taxi-in' | 'taxi-out' } => (
       flight.phase === 'taxi-in' || flight.phase === 'taxi-out'
     ));
@@ -1101,6 +1145,19 @@ export class AirportSimulation {
         return first.id - second.id;
       });
     const reservations = new SurfaceReservationLedger();
+    const orderedVehicles = [...this.state.serviceVehicles].sort((first, second) => (
+      serviceVehicleSurfacePriority(first) - serviceVehicleSurfacePriority(second)
+      || second.progress - first.progress
+      || first.id.localeCompare(second.id)
+    ));
+    // Seed actual occupancy before evaluating lookahead. Owners can extend
+    // their own claim, while nobody can plan through another current segment.
+    for (const flight of surfaceFlights) {
+      reservations.reserve(flight.id, surfaceRouteReservationClaims(this.config.surfaceGraph, flight.surfaceRoute, flight.surfaceRouteEdges, flight.progress, flight.phase, 0));
+    }
+    for (const vehicle of orderedVehicles) {
+      reservations.reserve(serviceVehicleOwnerId(vehicle), serviceVehicleReservationClaims(this.config.surfaceGraph, vehicle, 0));
+    }
     for (const flight of candidates) {
       const claims = surfaceRouteReservationClaims(
         this.config.surfaceGraph,
@@ -1110,17 +1167,38 @@ export class AirportSimulation {
         flight.phase,
         2,
       );
-      const conflict = reservations.firstConflict(claims);
-      const shouldHold = Boolean(conflict);
+      const conflict = reservations.firstConflictDetail(claims, flight.id);
+      const vehicleConflict = typeof conflict?.ownerId === 'string' && conflict.ownerId.startsWith('vehicle:');
+      const shouldHold = vehicleConflict || (this.isAutomaticMode() && Boolean(conflict));
       if (shouldHold && !flight.automaticHold) this.metrics.preventedConflicts += 1;
       flight.automaticHold = shouldHold;
-      flight.automaticHoldReason = conflict ? this.surfaceReservationConflictReason(conflict) : undefined;
+      flight.automaticHoldReason = conflict ? this.surfaceReservationConflictReason(conflict.claim) : undefined;
       if (shouldHold) continue;
       reservations.reserve(flight.id, claims);
     }
     for (const flight of surfaceFlights.filter((item) => item.emergency === 'disabled')) {
       flight.automaticHold = true;
       flight.automaticHoldReason = 'disabled aircraft blocks surface movement';
+    }
+    for (const vehicle of orderedVehicles) {
+      const wasHeld = vehicle.held;
+      const claims = serviceVehicleReservationClaims(this.config.surfaceGraph, vehicle, 1);
+      const conflict = reservations.firstConflictDetail(claims, serviceVehicleOwnerId(vehicle));
+      vehicle.held = Boolean(conflict);
+      vehicle.holdReason = conflict ? this.surfaceReservationConflictReason(conflict.claim) : undefined;
+      if (!conflict) reservations.reserve(serviceVehicleOwnerId(vehicle), claims);
+      const flight = this.state.flights.find((candidate) => candidate.id === vehicle.flightId);
+      if (!flight || wasHeld === vehicle.held) continue;
+      this.events.push({
+        type: vehicle.held ? 'service-vehicle-hold' : 'service-vehicle-release',
+        flight,
+        taxiway: flight.taxiway,
+        detail: vehicle.held ? `${vehicle.label} holding · ${vehicle.holdReason}` : `${vehicle.label} route released`,
+        turnaroundService: vehicle.service,
+        serviceVehicleId: vehicle.id,
+        serviceVehicleType: vehicle.type,
+        serviceVehicleStatus: vehicle.status,
+      });
     }
   }
 
@@ -1129,6 +1207,7 @@ export class AirportSimulation {
     if (claim.kind === 'ramp-zone') return `${claim.label} ramp-control zone is at capacity (${claim.capacity})`;
     if (claim.kind === 'stand') return `${claim.label} is occupied`;
     if (claim.kind === 'node') return `${claim.label} is reserved`;
+    if (claim.kind === 'service-lane' || claim.kind === 'service-bay' || claim.kind === 'service-staging') return `${claim.label} is occupied`;
     return `opposing traffic occupies ${claim.label}`;
   }
 
@@ -1231,7 +1310,11 @@ export class AirportSimulation {
   private confirmGateArrival(flight: Flight): void {
     const assignment = flight.gateAssignment;
     if (!assignment) return;
-    const transitions = startTurnaround(flight.turnaround, this.state.elapsed, flight.kinematics.fuelPercent);
+    const reservedDepots = new Set(this.state.serviceVehicles.filter((vehicle) => vehicle.status !== 'complete').map((vehicle) => vehicle.depotNodeId));
+    const vehicles = createServiceVehiclePlans(this.config, flight, this.state.elapsed, reservedDepots);
+    this.state.serviceVehicles = this.state.serviceVehicles.filter((vehicle) => vehicle.flightId !== flight.id);
+    this.state.serviceVehicles.push(...vehicles);
+    const transitions = startTurnaround(flight.turnaround, this.state.elapsed, flight.kinematics.fuelPercent, availableVehicleServices(flight, vehicles));
     flight.duration = flight.turnaround.plannedDurationSeconds;
     flight.phaseElapsed = 0;
     flight.progress = 0;
@@ -1729,8 +1812,73 @@ export class AirportSimulation {
     return Math.max(18, distance * WORLD_METERS_PER_UNIT / Math.max(1, taxiMps) * weatherFactor);
   }
 
+  private updateServiceVehicles(delta: number): void {
+    for (const vehicle of this.state.serviceVehicles) {
+      const flight = this.state.flights.find((candidate) => candidate.id === vehicle.flightId);
+      if (!flight) continue;
+      const task = flight.turnaround.tasks.find((candidate) => candidate.type === vehicle.service);
+      if (!task?.required) continue;
+      if (vehicle.status === 'scheduled' && this.state.elapsed + 1e-6 >= vehicle.dispatchAtSeconds) {
+        setServiceVehicleStatus(this.config.surfaceGraph, vehicle, 'dispatching');
+        this.emitServiceVehicleEvent('service-vehicle-dispatch', flight, vehicle, `${vehicle.label} dispatched from ramp staging`);
+        continue;
+      }
+      if (vehicle.status === 'dispatching' && advanceServiceVehicleMotion(this.config.surfaceGraph, vehicle, delta)) {
+        setServiceVehicleStatus(this.config.surfaceGraph, vehicle, 'staged');
+        continue;
+      }
+      if (vehicle.status === 'staged') {
+        const dependenciesComplete = task.dependencies.every((dependency) => {
+          const prerequisite = flight.turnaround.tasks.find((candidate) => candidate.type === dependency);
+          return !prerequisite?.required || prerequisite.status === 'complete';
+        });
+        const earliest = (flight.turnaround.actualStartSeconds ?? this.state.elapsed) + task.scheduledStartOffsetSeconds;
+        if (flight.phase === 'resting' && dependenciesComplete && this.state.elapsed + 1e-6 >= earliest) {
+          setServiceVehicleStatus(this.config.surfaceGraph, vehicle, 'approaching');
+        }
+        continue;
+      }
+      if (vehicle.status === 'approaching' && advanceServiceVehicleMotion(this.config.surfaceGraph, vehicle, delta)) {
+        setServiceVehicleStatus(this.config.surfaceGraph, vehicle, 'servicing');
+        this.emitServiceVehicleEvent('service-vehicle-arrive', flight, vehicle, `${vehicle.label} in position at ${vehicle.standId}`);
+        continue;
+      }
+      if (vehicle.status === 'servicing' && task.status === 'complete') {
+        setServiceVehicleStatus(this.config.surfaceGraph, vehicle, 'clearing');
+        this.emitServiceVehicleEvent('service-vehicle-return', flight, vehicle, `${vehicle.label} service complete · clearing the stand`);
+        continue;
+      }
+      if (vehicle.status === 'clearing' && advanceServiceVehicleMotion(this.config.surfaceGraph, vehicle, delta)) {
+        setServiceVehicleStatus(this.config.surfaceGraph, vehicle, 'returning');
+        this.emitServiceVehicleEvent('service-vehicle-clear', flight, vehicle, `${vehicle.label} clear of the stand lane`);
+        continue;
+      }
+      if (vehicle.status === 'returning' && advanceServiceVehicleMotion(this.config.surfaceGraph, vehicle, delta)) {
+        setServiceVehicleStatus(this.config.surfaceGraph, vehicle, 'complete');
+        continue;
+      }
+      syncServiceVehiclePose(this.config.surfaceGraph, vehicle);
+    }
+    const liveFlightIds = new Set(this.state.flights.map((flight) => flight.id));
+    this.state.serviceVehicles = this.state.serviceVehicles.filter((vehicle) => liveFlightIds.has(vehicle.flightId));
+  }
+
+  private emitServiceVehicleEvent(type: AirportEvent['type'], flight: Flight, vehicle: ServiceVehicleState, detail: string): void {
+    this.events.push({
+      type,
+      flight,
+      taxiway: flight.taxiway,
+      detail,
+      turnaroundService: vehicle.service,
+      serviceVehicleId: vehicle.id,
+      serviceVehicleType: vehicle.type,
+      serviceVehicleStatus: vehicle.status,
+    });
+  }
+
   private updateTurnaround(flight: Flight): void {
-    const transitions = advanceTurnaround(flight.turnaround, this.state.elapsed);
+    const vehicles = this.state.serviceVehicles.filter((vehicle) => vehicle.flightId === flight.id);
+    const transitions = advanceTurnaround(flight.turnaround, this.state.elapsed, availableVehicleServices(flight, vehicles));
     flight.phaseElapsed = flight.turnaround.elapsedSeconds;
     flight.progress = flight.turnaround.progress;
     flight.kinematics.fuelPercent = turnaroundFuelPercent(flight.turnaround);

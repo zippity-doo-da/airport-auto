@@ -36,7 +36,7 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Full Manual requires the player to issue each operational clearance.
 - [x] Watch / ASMR runs the automatic policy with reduced chrome and a calm sound preset.
 - [x] Station-specific flight strips keep the selected frequency readable without hiding traffic from the 3D field.
-- [x] Selected-flight camera follow, four camera views, wheel zoom, buttons, and two-finger mobile pinch/pan are available.
+- [x] Selected-flight camera follow, four camera views, drag/one-finger pan, cursor-centered wheel zoom, two-finger pinch zoom, buttons, and reset are available.
 
 ### Safety and observability
 
@@ -149,6 +149,17 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] API 2.7 / snapshot schema 9 emits structured turnaround/service lifecycle events and exposes planned, servicing, ready, and released states.
 - [x] A dedicated validation gate proves dependency order, passenger/freighter task selection, optional maintenance, partition invariance, fuel completion, early-push rejection, lifecycle events, and zero protected-envelope breaches.
 
+## Airport Auto 2.8 — protected service-vehicle routing
+
+- [x] Add distinct fuel, baggage, cargo, catering, cleaning, maintenance, and remote-stand passenger vehicle families tied to required turnaround tasks.
+- [x] Route equipment from deterministic ramp depots to unique staging positions and stand-side service bays, with continuous fixed-step position, speed, heading, and return motion.
+- [x] Exclude runway, runway-access, and runway-crossing edges from every service route unless a future explicit authorization model grants access.
+- [x] Share edge, node, alley, and ramp-capacity reservations with aircraft; add exclusive staging, side-lane, and service-bay claims so visible equipment and safety arbitration use the same path.
+- [x] Gate service start on actual vehicle arrival and gate pushback on physical stand clearance, with explainable hold/rejection reasons.
+- [x] Pool and render low-detail service equipment, interpolate its authoritative pose, and expose task-linked status in the selected-flight panel, replay, telemetry, diagnostics, and API 2.8 / snapshot schema 10.
+- [x] Seed ORD sessions with a live turn so ramp activity is visible immediately without forcing smaller hub schematics to reuse a stand; validate concurrent movement/servicing, shared-ledger exclusion, lifecycle events, zero protected-route entries, and zero vehicle separation conflicts.
+- [x] Let desktop and touch users drag the map, preserve middle-button panning over traffic, expand camera bounds, and extend a low-detail ground plane well beyond sourced scenery so the airport perimeter and inbound paths remain explorable without exposing empty world space.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.
@@ -175,7 +186,7 @@ The prioritized implementation order, acceptance gates, and reconciled pre-2.1 b
 - Real recorded engine/ramp/radio libraries after licensing, normalization, and long-loop repetition review.
 - Authenticated remote WebSocket control; static GitHub Pages intentionally exposes local-only control today.
 - Live METAR, NOTAM, schedule, and traffic feeds with caching and offline fallback.
-- Service vehicles, detailed tug types, deicing queues, maintenance, diversions, and gate-service choreography.
+- Detailed tug types, deicing queues, diversions, and deeper gate-service choreography.
 - Server-validated leaderboards, shared replay URLs, daily challenges, and classroom accounts.
 - Optional generated or recorded ATC voice; captions and event telemetry remain the accessible source of truth.
 

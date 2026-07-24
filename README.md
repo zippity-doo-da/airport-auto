@@ -12,8 +12,8 @@ The airport layouts are readable operational schematics inspired by real runway 
 - Continuous arrivals from the map boundary, curved approaches, flare, touchdown, rollout, taxi, full takeoff roll, rotation, and climb-out.
 - Graph-routed pushback and taxi movement on visible pavement, with Ground clearance, animated tug attachment/release, engine-start state, aircraft-specific circular turns and braking, wingtip-aware and congestion-aware routing, directional ramp alleys, finite-capacity ramp-control zones, explicit stand in/out paths, named taxiways, hold-short points, crossing clearances, runway reservations, and collision prevention.
 - Scheduled gate assignment scores airline/terminal affinity, aircraft size, passenger or cargo service, arrival time, the next destination/runway, taxi distance, and non-overlapping stand reservations; changed arrival times are rechecked before taxi-in.
-- Fixed-step turnarounds run fueling, baggage or cargo, catering, cleaning, boarding, and optional maintenance as explicit parallel/dependent tasks; the flight strip shows live progress and Ground cannot release pushback until every required service is complete.
-- Auto, Assisted, Manual, and Watch modes; four controller stations; six scenarios; weather and wind controls; a five-channel sound mixer; replay; and four camera views.
+- Fixed-step turnarounds run fueling, baggage or cargo, catering, cleaning, boarding, and optional maintenance as explicit parallel/dependent tasks. Pooled fuel trucks, baggage trains, cargo loaders, catering trucks, cleaning/maintenance vans, and remote-stand passenger coaches travel reserved ramp routes, stage beside the assigned stand, and must clear before pushback.
+- Auto, Assisted, Manual, and Watch modes; four controller stations; six scenarios; weather and wind controls; a five-channel sound mixer; replay; four camera views; drag/touch panning; and cursor-centered wheel or pinch zoom.
 - Six sourced O’Hare runway plans with dynamic arrival/departure roles, visual and instrument restrictions, strong-southerly contingency operations, and safe drain-then-switch transitions.
 - A procedural aircraft fleet with model-specific size, runway performance, straight/turn taxi speeds, ground acceleration, stopping distance, turn radius, wingtip margin, approach speed, wake class, airline, callsign, registration, and fuel telemetry.
 - A local, versioned browser API and `BroadcastChannel` bridge for playtests and controller agents.
@@ -42,12 +42,13 @@ npm run preview
 ## Controls
 
 - Click a flight strip to select and follow an aircraft.
+- Drag empty ground with a mouse or one finger to pan; use the middle mouse button to pan from anywhere; scroll or pinch to zoom.
 - `L`: clear selected arrival to land.
 - `G`: send selected arrival around.
 - `H`: hold or resume selected surface aircraft.
 - `E`: line up / clear runway entry.
 - `T`: clear takeoff after line-up.
-- `V`: cycle cameras; `+`/`-`: zoom; `0`: reset camera.
+- `V`: cycle cameras; `+`/`-`: zoom; `0`: reset the camera and map position.
 - `Space`: pause; `Escape`: deselect or close the controls.
 
 The selected-flight panel exposes the same commands with contextual buttons, including individual runway-crossing clearances and speed instructions.
@@ -62,10 +63,10 @@ http://127.0.0.1:5173/?airport=ORD&mode=auto&scenario=rush&speed=3&autostart=1&t
 
 Useful parameters include `airport`, `mode`, `scenario`, `station`, `speed`, `weather`, `wind`, `windDir`, `runwayConfig`, `night=1`, `radar=1`, `telemetry=1`, `debug=1`, `detail=low`, `soak=1`, and `autostart=1`. Modes are `auto`, `assisted`, `manual`, and `watch`.
 
-See [docs/airport-control.md](docs/airport-control.md) for the live-control interface, [docs/airport-operations-review.md](docs/airport-operations-review.md) for modeled rules and deliberate simplifications, [docs/gate-operations.md](docs/gate-operations.md) for scheduled stand planning, [docs/turnaround-operations.md](docs/turnaround-operations.md) for servicing and departure readiness, and [docs/airport-data-sources.md](docs/airport-data-sources.md) for airport-map provenance and import policy. Completed releases are recorded in [PLAN.md](PLAN.md); unfinished work is tracked in [ROADMAP.md](ROADMAP.md).
+See [docs/airport-control.md](docs/airport-control.md) for the live-control interface, [docs/airport-operations-review.md](docs/airport-operations-review.md) for modeled rules and deliberate simplifications, [docs/gate-operations.md](docs/gate-operations.md) for scheduled stand planning, [docs/turnaround-operations.md](docs/turnaround-operations.md) for servicing and departure readiness, [docs/service-vehicle-operations.md](docs/service-vehicle-operations.md) for ramp-equipment routing and protection, and [docs/airport-data-sources.md](docs/airport-data-sources.md) for airport-map provenance and import policy. Completed releases are recorded in [PLAN.md](PLAN.md); unfinished work is tracked in [ROADMAP.md](ROADMAP.md).
 
 ## Architecture
 
-The simulation is authoritative and renderer-independent. A deterministic fixed-step clock integrates speed and acceleration into path distance and owns each serializable aircraft pose. Three.js only interpolates those states for smooth presentation; the DOM HUD issues validated commands; and audio/telemetry consume simulation state and events. Rendering never decides where an aircraft is or whether a movement is safe.
+The simulation is authoritative and renderer-independent. A deterministic fixed-step clock integrates speed and acceleration into path distance and owns each serializable aircraft and service-vehicle pose. Three.js only interpolates those states for smooth presentation; the DOM HUD issues validated commands; and audio/telemetry consume simulation state and events. Rendering never decides where an entity is or whether a movement is safe.
 
 The project is intentionally lightweight: TypeScript, Vite, and plain Three.js, with no backend required for the shipped game.

@@ -6,20 +6,20 @@ Airport Auto is an entertainment simulation. Named hubs use simplified, recogniz
 
 The O'Hare schematic contains six east-west runways and the 04/22 diagonal pair. Six sourced operating plans are modeled:
 
-| Plan | Arrivals | Departures | Simulated restriction |
-| --- | --- | --- | --- |
-| West parallel | 27R, 27C, 28C | 27L, 28R, 22L | Default and marginal-weather-capable |
-| East parallel | 09L, 09C, 10C | 09R, 10L | Clear/visual weather, at least 5 mi visibility |
-| West high-arrival | 27R, 27C, 28C, offset 28L | 27L, 28R | Clear Rush traffic, at least 7 mi visibility; 22L unavailable |
-| East offset arrivals | 09L, 09C, 10C, offset 10R | 09R, 10L | Clear Rush traffic, at least 7 mi visibility |
-| East instrument | 09L, 09C, 10R | 09R, 10L | Rain/fog; 10C and 10R are not simultaneous arrivals |
-| 22 crosswind contingency | 22R | 22L | Wind at least 18 kt and within 55° of 220° |
+| Plan                     | Arrivals                  | Departures    | Simulated restriction                                         |
+| ------------------------ | ------------------------- | ------------- | ------------------------------------------------------------- |
+| West parallel            | 27R, 27C, 28C             | 27L, 28R, 22L | Default and marginal-weather-capable                          |
+| East parallel            | 09L, 09C, 10C             | 09R, 10L      | Clear/visual weather, at least 5 mi visibility                |
+| West high-arrival        | 27R, 27C, 28C, offset 28L | 27L, 28R      | Clear Rush traffic, at least 7 mi visibility; 22L unavailable |
+| East offset arrivals     | 09L, 09C, 10C, offset 10R | 09R, 10L      | Clear Rush traffic, at least 7 mi visibility                  |
+| East instrument          | 09L, 09C, 10R             | 09R, 10L      | Rain/fog; 10C and 10R are not simultaneous arrivals           |
+| 22 crosswind contingency | 22R                       | 22L           | Wind at least 18 kt and within 55° of 220°                    |
 
 The high-arrival plans are gameplay implementations based on configurations evaluated in the FAA’s 2022 O’Hare Terminal Area Plan environmental assessment; they are not a claim about the live airport’s current runway assignment. The strong-southerly contingency follows the FAA runway-utilization description. Automatic selection considers wind, weather, visibility, scenario, closure, and a small stability bias. A Supervisor can request any currently eligible plan.
 
 Configuration changes use a drain-then-switch rule. The complete old plan—including ends, arrival/departure roles, markings, and lights—stays authoritative while affected approach, landing, taxi-in, taxi-out, or takeoff traffic clears. New arrivals and taxi-out releases are metered during that interval. The complete target plan is then applied in one fixed step; there is no mixed partial state.
 
-The terminal apron is geometrically separated from perimeter taxi routes and runway-access spurs. Stands have unique physical occupancy and explicit lead-in/lead-out paths, while sourced apron polygons define finite-capacity ramp-control zones. Named ramp alleys receive directional flow locks: following traffic may proceed, but opposing traffic waits until the alley clears. Taxi routes follow the imported graph and add live congestion costs when alternatives exist. Gate plans reserve non-overlapping future windows and score airline/terminal affinity, aircraft fit, passenger/cargo service, arrival time, and both arrival and departure taxi routes. At the stand, explicit fueling, baggage/cargo, catering, cleaning, boarding, and optional maintenance tasks run concurrently or through declared dependencies and gate pushback readiness. These remain readable game abstractions, not a one-for-one transcription of current controller or airline agreements.
+The terminal apron is geometrically separated from perimeter taxi routes and runway-access spurs. Stands have unique physical occupancy and explicit lead-in/lead-out paths, while sourced apron polygons define finite-capacity ramp-control zones. Named ramp alleys receive directional flow locks: following traffic may proceed, but opposing traffic waits until the alley clears. Taxi routes follow the imported graph and add live congestion costs when alternatives exist. Gate plans reserve non-overlapping future windows and score airline/terminal affinity, aircraft fit, passenger/cargo service, arrival time, and both arrival and departure taxi routes. At the stand, explicit fueling, baggage/cargo, catering, cleaning, boarding, and optional maintenance tasks run concurrently or through declared dependencies. Their assigned service vehicles share edge/node/ramp reservations with aircraft, use exclusive staging/side-lane/bay reservations, and cannot route through a protected runway area. These remain readable game abstractions, not a one-for-one transcription of current controller or airline agreements.
 
 Useful real-world references for future fidelity work:
 
@@ -48,6 +48,7 @@ Useful real-world references for future fidelity work:
 - Runway reservations protect intersecting and occupied runways while still permitting independent parallel operations.
 - Physical envelopes and broader airborne/surface separation envelopes are checked before movement is committed.
 - Gate slots cannot be reused while physically occupied; future non-overlapping assignment windows may reuse a stand, while surface traffic reserves upcoming nodes and edges, exclusive stand paths, directional alleys, and ramp-zone capacity.
+- Vehicle-backed tasks cannot start before their equipment reaches the stand; pushback cannot start until that equipment clears the stand lane.
 - Auto and Watch issue the same discrete clearances that a Manual controller must issue; Assisted proposes and explains those commands without silently executing them.
 - Simulation speed advances one shared clock; taxiing does not secretly run at a different multiplier.
 
@@ -58,7 +59,7 @@ Useful real-world references for future fidelity work:
 - Approach and departure procedure names are descriptive placeholders, not published SID/STAR data.
 - Wake class affects spacing, but the game does not reproduce every FAA separation category or local waiver. The E175 and Q400 use the medium game category, not the former misleading light label.
 - Gate assignment uses 40 sampled playable stands rather than all 199 real passenger gates; airline affinities are schematic, scheduled windows are simulation time rather than a live airline feed, and actual leases/irregular operations are not reproduced.
-- Pushback uses a compact procedural tug and graph-derived ramp release. Turnaround tasks have operational state but no visible/routed service vehicles yet; detailed tug types, deicing queues, NOTAM ingestion, and live METAR/traffic feeds are not yet modeled.
+- Pushback uses a compact procedural tug and graph-derived ramp release. Turnaround equipment uses stylized procedural vehicle families rather than airline-specific models; detailed tug fleets, deicing queues, lavatory/water service, NOTAM ingestion, and live METAR/traffic feeds are not yet modeled.
 - Manufacturer airport-planning manuals and FAA taxiway-design guidance bound the ground model, but its speeds, radii, and imported edge-clearance corridors remain entertainment-scale parameters—not dispatch or airport-engineering data.
 - O'Hare ships versioned offline OSM surface and surrounding-context assets; other hubs retain procedural surroundings.
 

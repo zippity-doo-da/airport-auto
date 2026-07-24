@@ -199,8 +199,13 @@ totals.runwayConfigurationsVerified = true;
 totals.runwayTransitionQueueVerified = true;
 
 const concurrent = createHubSimulationHarness('ORD', { stepSeconds: 0.05 });
-const initialGates = concurrent.simulation.state.flights.map((flight) => flight.gateSlot);
-assert(new Set(initialGates).size === initialGates.length, 'ORD: startup reused an occupied gate');
+const occupiedStartupFlights = concurrent.simulation.state.flights.filter((flight) => (
+  flight.phase === 'resting'
+  || flight.phase === 'taxi-in'
+  || (flight.phase === 'taxi-out' && (flight.tugAttached || flight.pushbackProgress < 1))
+));
+const initialGates = occupiedStartupFlights.map((flight) => flight.gateSlot);
+assert(new Set(initialGates).size === initialGates.length, 'ORD: startup reused a physically occupied gate ' + JSON.stringify(occupiedStartupFlights.map((flight) => ({ id: flight.id, phase: flight.phase, gateSlot: flight.gateSlot, standId: flight.standId }))));
 let concurrentMovers = 0;
 for (let tick = 0; tick < 40; tick += 1) {
   const before = new Map(concurrent.simulation.state.flights.map((flight) => [flight.id, flight.progress]));

@@ -18,6 +18,48 @@ export type TurnaroundServiceType = 'fueling' | 'baggage' | 'cargo' | 'catering'
 export type TurnaroundTaskStatus = 'not-required' | 'waiting' | 'active' | 'complete';
 export type TurnaroundStatus = 'planned' | 'servicing' | 'ready' | 'released';
 
+export type ServiceVehicleType = 'fuel-truck' | 'baggage-cart' | 'cargo-loader' | 'catering-truck' | 'cleaning-van' | 'maintenance-van' | 'passenger-bus';
+export type ServiceVehicleStatus = 'scheduled' | 'dispatching' | 'staged' | 'approaching' | 'servicing' | 'clearing' | 'returning' | 'complete';
+
+/**
+ * Authoritative fixed-step state for one turnaround vehicle. Graph routes and
+ * the stand-side path are part of replay state; the renderer only consumes the
+ * resulting pose and never creates an independent animation path.
+ */
+export interface ServiceVehicleState {
+  id: string;
+  flightId: number;
+  callsign: string;
+  service: TurnaroundServiceType;
+  type: ServiceVehicleType;
+  label: string;
+  status: ServiceVehicleStatus;
+  standId: string;
+  zoneId: string;
+  bayId: string;
+  standSide: 'left' | 'right';
+  depotNodeId: string;
+  outboundRoute: string[];
+  outboundRouteEdges: string[];
+  returnRoute: string[];
+  returnRouteEdges: string[];
+  /** Staging point, stand-side bend, and service bay in world coordinates. */
+  standPath: Array<[number, number]>;
+  dispatchAtSeconds: number;
+  progress: number;
+  x: number;
+  y: number;
+  heading: number;
+  groundSpeedMps: number;
+  maximumSpeedMps: number;
+  currentNode?: string;
+  currentEdge?: string;
+  held: boolean;
+  holdReason?: string;
+  protectedMovementArea: boolean;
+  protectedMovementAuthorized: boolean;
+}
+
 export interface TurnaroundTaskState {
   type: TurnaroundServiceType;
   label: string;
@@ -237,12 +279,15 @@ export interface ReplayFrame {
 }
 
 export interface AirportEvent {
-  type: 'spawn' | 'gate-assignment' | 'gate-reassignment' | 'gate-release' | 'turnaround-start' | 'service-start' | 'service-complete' | 'turnaround-ready' | 'land' | 'chime' | 'depart' | 'clear' | 'auto-clear' | 'pushback-clearance' | 'pushback-start' | 'engine-start' | 'tug-release' | 'reject' | 'conflict' | 'safety-hold' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'takeoff-clearance' | 'go-around' | 'emergency';
+  type: 'spawn' | 'gate-assignment' | 'gate-reassignment' | 'gate-release' | 'turnaround-start' | 'service-start' | 'service-complete' | 'turnaround-ready' | 'service-vehicle-dispatch' | 'service-vehicle-arrive' | 'service-vehicle-hold' | 'service-vehicle-release' | 'service-vehicle-return' | 'service-vehicle-clear' | 'land' | 'chime' | 'depart' | 'clear' | 'auto-clear' | 'pushback-clearance' | 'pushback-start' | 'engine-start' | 'tug-release' | 'reject' | 'conflict' | 'safety-hold' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'takeoff-clearance' | 'go-around' | 'emergency';
   flight: Flight;
   runway?: number;
   taxiway?: string;
   detail?: string;
   turnaroundService?: TurnaroundServiceType;
+  serviceVehicleId?: string;
+  serviceVehicleType?: ServiceVehicleType;
+  serviceVehicleStatus?: ServiceVehicleStatus;
 }
 
 export interface RunwayConfigurationTransition {
@@ -256,6 +301,7 @@ export interface RunwayConfigurationTransition {
 export interface AirportState {
   elapsed: number;
   flights: Flight[];
+  serviceVehicles: ServiceVehicleState[];
   arrivals: number;
   departures: number;
   breeze: number;

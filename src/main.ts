@@ -474,6 +474,7 @@ restartButton.addEventListener('click', () => {
 });
 
 canvas.addEventListener('pointerdown', (event) => {
+  if (event.pointerType !== 'touch' && event.button !== 0) return;
   if (event.pointerType === 'touch' && !event.isPrimary) {
     activeFlightId = null;
     clearRoute();
@@ -598,6 +599,7 @@ function frame(now: number): void {
   for (const event of simulation.drainEvents()) {
     const gateEvent = event.type === 'gate-assignment' || event.type === 'gate-reassignment' || event.type === 'gate-release';
     const turnaroundEvent = event.type === 'turnaround-start' || event.type === 'service-start' || event.type === 'service-complete' || event.type === 'turnaround-ready';
+    const serviceVehicleEvent = event.type.startsWith('service-vehicle-');
     recordTelemetry(event.type, event.flight, event.runway, event.taxiway, {
       detail: event.detail ?? (event.type === 'safety-hold' ? event.flight.safetyHoldReason : undefined),
       payload: gateEvent && event.flight.gateAssignment ? {
@@ -610,6 +612,11 @@ function frame(now: number): void {
         scheduledDepartureSeconds: event.flight.gateAssignment.scheduledDepartureSeconds,
         nextDestination: event.flight.gateAssignment.nextDestination,
         revision: event.flight.gateAssignment.revision,
+      } : serviceVehicleEvent ? {
+        id: event.serviceVehicleId ?? null,
+        type: event.serviceVehicleType ?? null,
+        status: event.serviceVehicleStatus ?? null,
+        service: event.turnaroundService ?? null,
       } : turnaroundEvent ? {
         service: event.turnaroundService ?? null,
         status: event.flight.turnaround.status,
@@ -694,6 +701,19 @@ function capturePresentation(state: typeof simulation.state) {
       kinematics: { ...flight.kinematics },
       motion: { ...flight.motion },
     }])),
+    serviceVehicles: new Map(
+      state.serviceVehicles.map((vehicle) => [
+        vehicle.id,
+        {
+          status: vehicle.status,
+          progress: vehicle.progress,
+          x: vehicle.x,
+          y: vehicle.y,
+          heading: vehicle.heading,
+          groundSpeedMps: vehicle.groundSpeedMps,
+        },
+      ]),
+    ),
   };
 }
 
@@ -703,6 +723,19 @@ function presentationState(): typeof simulation.state {
   return {
     ...current,
     elapsed: previousPresentation.elapsed + (current.elapsed - previousPresentation.elapsed) * alpha,
+    serviceVehicles: current.serviceVehicles.map((vehicle) => {
+      const previous = previousPresentation.serviceVehicles.get(vehicle.id);
+      if (!previous || previous.status !== vehicle.status) return vehicle;
+      const mix = (first: number, second: number) => first + (second - first) * alpha;
+      return {
+        ...vehicle,
+        progress: mix(previous.progress, vehicle.progress),
+        x: mix(previous.x, vehicle.x),
+        y: mix(previous.y, vehicle.y),
+        heading: previous.heading + Math.atan2(Math.sin(vehicle.heading - previous.heading), Math.cos(vehicle.heading - previous.heading)) * alpha,
+        groundSpeedMps: mix(previous.groundSpeedMps, vehicle.groundSpeedMps),
+      };
+    }),
     flights: current.flights.map((flight) => {
       const previous = previousPresentation.flights.get(flight.id);
       if (!previous || previous.phase !== flight.phase) return flight;
@@ -747,6 +780,14 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
       changedRunwayIds: [...state.runwayConfigurationTransition.changedRunwayIds],
       blockingFlightIds: [...state.runwayConfigurationTransition.blockingFlightIds],
     } : null,
+    serviceVehicles: state.serviceVehicles.map((vehicle) => ({
+      ...vehicle,
+      outboundRoute: [...vehicle.outboundRoute],
+      outboundRouteEdges: [...vehicle.outboundRouteEdges],
+      returnRoute: [...vehicle.returnRoute],
+      returnRouteEdges: [...vehicle.returnRouteEdges],
+      standPath: vehicle.standPath.map((point) => [...point]),
+    })),
     flights: state.flights.map((flight) => ({
       ...flight,
       surfaceRoute: flight.surfaceRoute ? [...flight.surfaceRoute] : undefined,
@@ -772,7 +813,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
 function replayRecording(): ReplayRecording {
   return {
     schemaVersion: 1,
-    simulationVersion: window.airportControl?.version ?? '2.7.0',
+    simulationVersion: window.airportControl?.version ?? '2.8.0',
     recordedAt: new Date().toISOString(),
     seed: config.seed,
     airport: { code: config.code, name: config.name, scope: config.scope },
@@ -910,7 +951,7 @@ const TURNAROUND_SHORT_LABEL: Record<TurnaroundServiceType, string> = {
 
 function turnaroundChipSummary(flight: Flight): string {
   const turnaround = flight.turnaround;
-  if (turnaround.status === 'ready') return 'ALL SERVICES COMPLETE';
+  if (turnaround.status === 'ready') return serviceVehiclesBlockingPush(flight.id).length ? 'RAMP EQUIPMENT CLEARING' : 'ALL SERVICES COMPLETE';
   if (turnaround.status === 'released') return 'TURNAROUND RELEASED';
   if (turnaround.status === 'planned') return 'SERVICES PLANNED';
   const active = turnaround.tasks.filter((task) => task.status === 'active');
@@ -921,6 +962,23 @@ function turnaroundChipSummary(flight: Flight): string {
   if (active.length > 2) labels.push(`+${active.length - 2}`);
   if (!labels.length && waiting.length) labels.push(`${TURNAROUND_SHORT_LABEL[waiting[0].type]} waiting`);
   return labels.join(' · ').toUpperCase();
+}
+
+function serviceVehiclesForFlight(flightId: number) {
+  return displayState().serviceVehicles.filter((vehicle) => vehicle.flightId === flightId);
+}
+
+function serviceVehiclesBlockingPush(flightId: number) {
+  return serviceVehiclesForFlight(flightId).filter((vehicle) => vehicle.status === 'approaching' || vehicle.status === 'servicing' || vehicle.status === 'clearing');
+}
+
+function serviceVehicleStatusLabel(status: (typeof simulation.state.serviceVehicles)[number]['status']): string {
+  if (status === 'dispatching') return 'en route';
+  if (status === 'approaching') return 'parking';
+  if (status === 'servicing') return 'working';
+  if (status === 'clearing') return 'clearing';
+  if (status === 'returning') return 'returning';
+  return status;
 }
 
 function turnaroundLongSummary(flight: Flight): string {
@@ -980,6 +1038,9 @@ function renderFlightActions(): void {
         flight.turnaround.status,
         Math.floor(flight.turnaround.progress * 20),
         flight.turnaround.tasks.map((task) => task.status).join(','),
+        serviceVehiclesForFlight(flight.id)
+          .map((vehicle) => `${vehicle.id}:${vehicle.status}:${vehicle.held}`)
+          .join(','),
         flight.controlHold,
         flight.crossingHoldRunway ?? 'none',
         flight.runwayEntryCleared,
@@ -1020,7 +1081,7 @@ function renderFlightActions(): void {
   const ground = flight.phase === 'taxi-in' || flight.phase === 'taxi-out';
   if (flight.phase === 'approach' && !flight.cleared) add('clear', `Land ${runwayDesignation(flight.runway)}`, !simulation.canIssue('approach'));
   if (flight.phase === 'approach' || flight.phase === 'landing') add('go-around', 'Go around', !simulation.canIssue('approach'));
-  if (flight.phase === 'resting' && flight.turnaround.status === 'ready' && !flight.pushbackCleared) add('pushback', `Push ${flight.pushbackDirection}`, !simulation.canIssue('ground'));
+  if (flight.phase === 'resting' && flight.turnaround.status === 'ready' && !flight.pushbackCleared && !serviceVehiclesBlockingPush(flight.id).length) add('pushback', `Push ${flight.pushbackDirection}`, !simulation.canIssue('ground'));
   if (ground) add('hold-toggle', flight.controlHold ? 'Resume taxi' : 'Hold position', !simulation.canIssue('ground'));
   for (const runway of flight.crossingHoldRunway === undefined ? [] : [flight.crossingHoldRunway]) {
     add('cross', `Cross ${runwayDesignation(runway)}`, !simulation.canIssue('ground'), runway);
@@ -1036,11 +1097,12 @@ function renderFlightActions(): void {
   if (!controls.children.length) {
     const note = document.createElement('p');
     const blocking = flight.turnaround.tasks.filter((task) => task.required && task.status !== 'complete').map((task) => task.label.toLowerCase());
+    const rampBlockers = serviceVehiclesBlockingPush(flight.id).map((vehicle) => vehicle.label.toLowerCase());
     note.textContent = replayMode
       ? 'Replay is read-only.'
       : flight.phase === 'resting' && blocking.length
         ? `Pushback waits for ${blocking.join(', ')}.`
-        : 'No clearance required at this point.';
+        : flight.phase === 'resting' && rampBlockers.length ? `Pushback waits for ${rampBlockers.join(', ')} to clear the stand.` : 'No clearance required at this point.';
     flightActions.append(note);
   }
 }
@@ -1065,6 +1127,7 @@ function createTurnaroundPanel(flight: Flight): HTMLElement {
   progress.append(fill);
   const tasks = document.createElement('ul');
   tasks.className = 'turnaround-panel__tasks';
+  const vehicles = serviceVehiclesForFlight(flight.id);
   for (const task of turnaround.tasks.filter((candidate) => candidate.required)) {
     const item = document.createElement('li');
     item.dataset.status = task.status;
@@ -1072,7 +1135,9 @@ function createTurnaroundPanel(flight: Flight): HTMLElement {
     label.textContent = task.label;
     const taskStatus = document.createElement('em');
     const taskProgress = task.durationSeconds <= 0 ? 1 : task.elapsedSeconds / task.durationSeconds;
-    taskStatus.textContent = task.status === 'active' ? `${Math.round(taskProgress * 100)}%` : task.status;
+    const vehicle = vehicles.find((candidate) => candidate.service === task.type);
+    taskStatus.textContent = task.status === 'active' ? `${Math.round(taskProgress * 100)}%` : task.status === 'waiting' && vehicle ? `${vehicle.held ? 'hold' : serviceVehicleStatusLabel(vehicle.status)}` : task.status;
+    item.title = vehicle ? `${vehicle.label} · ${serviceVehicleStatusLabel(vehicle.status)}${vehicle.holdReason ? ` · ${vehicle.holdReason}` : ''}` : task.reason;
     item.append(label, taskStatus);
     tasks.append(item);
   }
@@ -1311,7 +1376,7 @@ function updateModeControl(): void {
   modeButton.classList.toggle('control--active', automatic);
   modeIcon.textContent = mode === 'auto' ? 'A' : mode === 'assisted' ? '✓' : mode === 'manual' ? 'M' : '◌';
   modeLabel.textContent = mode === 'auto' ? 'Auto' : mode === 'assisted' ? 'Assist' : mode === 'manual' ? 'Manual' : 'Watch';
-  const zoomHint = ' · scroll to zoom';
+  const zoomHint = ' · drag to pan · scroll or pinch to zoom';
   instructionCopy.innerHTML = mode === 'watch'
     ? `Watch mode · calm continuous traffic${zoomHint} · <b>select a flight to follow</b>`
     : mode === 'assisted'
@@ -1320,8 +1385,8 @@ function updateModeControl(): void {
         ? `Full Manual ATC${zoomHint} · <b>select a flight for live clearances</b>`
         : `Continuous Auto tower${zoomHint} · <b>select a flight to follow</b>`;
   canvas.setAttribute('aria-label', mode === 'manual' || mode === 'assisted'
-    ? `${mode === 'assisted' ? 'Assisted' : 'Manual'} air traffic control at ${config.name}. Select a flight card for clearances.`
-    : `${mode === 'watch' ? 'Watch-only' : 'Automatic'} live traffic at ${config.name}. Select a flight card to follow it.`);
+    ? `${mode === 'assisted' ? 'Assisted' : 'Manual'} air traffic control at ${config.name}. Drag empty ground to pan, scroll or pinch to zoom, and select a flight card for clearances.`
+    : `${mode === 'watch' ? 'Watch-only' : 'Automatic'} live traffic at ${config.name}. Drag empty ground to pan, scroll or pinch to zoom, and select a flight card to follow it.`);
   controlSelect.value = mode;
   introControlSelect.value = mode;
   document.body.classList.toggle('watch-mode', mode === 'watch');
@@ -1665,7 +1730,7 @@ function airportSnapshot() {
   const diagnostics = simulation.diagnostics();
   const movingPhases = new Set(['approach', 'landing', 'taxi-in', 'taxi-out', 'takeoff']);
   return {
-    schemaVersion: 9,
+    schemaVersion: 10,
     airport: {
       code: config.code,
       name: config.name,
@@ -1809,6 +1874,12 @@ function airportSnapshot() {
         turnBufferSeconds: GATE_TURN_BUFFER_SECONDS,
         factors: ['airline', 'terminal', 'aircraft-size', 'service-type', 'arrival-time', 'next-departure-route'],
       },
+      serviceVehiclePolicy: {
+        model: 'shared-surface-reservations',
+        protectedMovementAreas: 'blocked unless explicitly authorized',
+        routeResources: ['edge', 'node', 'ramp-zone', 'staging-position', 'stand-side-lane', 'service-bay'],
+        pushbackRequiresStandClear: true,
+      },
       passengerFacilities: config.surfaceGraph.passengerFacilities.map((facility) => ({
         ...facility,
         center: [...facility.center],
@@ -1894,6 +1965,40 @@ function airportSnapshot() {
         crossingClearanceIds: flight.crossingClearanceIds ?? [],
         crossingHoldPointId: flight.crossingHoldPointId,
       })),
+    serviceVehicles: simulation.state.serviceVehicles.map((vehicle) => ({
+      id: vehicle.id,
+      flightId: vehicle.flightId,
+      callsign: vehicle.callsign,
+      service: vehicle.service,
+      type: vehicle.type,
+      label: vehicle.label,
+      status: vehicle.status,
+      standId: vehicle.standId,
+      zoneId: vehicle.zoneId,
+      bayId: vehicle.bayId,
+      standSide: vehicle.standSide,
+      depotNodeId: vehicle.depotNodeId,
+      dispatchAtSeconds: Number(vehicle.dispatchAtSeconds.toFixed(2)),
+      progress: Number(vehicle.progress.toFixed(3)),
+      position: {
+        x: Number(vehicle.x.toFixed(3)),
+        y: Number(vehicle.y.toFixed(3)),
+      },
+      headingDegrees: Number(((vehicle.heading * 180) / Math.PI).toFixed(2)),
+      groundSpeedMps: Number(vehicle.groundSpeedMps.toFixed(2)),
+      maximumSpeedMps: vehicle.maximumSpeedMps,
+      currentNode: vehicle.currentNode ?? null,
+      currentEdge: vehicle.currentEdge ?? null,
+      held: vehicle.held,
+      holdReason: vehicle.holdReason ?? null,
+      protectedMovementArea: vehicle.protectedMovementArea,
+      protectedMovementAuthorized: vehicle.protectedMovementAuthorized,
+      outboundRoute: [...vehicle.outboundRoute],
+      outboundRouteEdges: [...vehicle.outboundRouteEdges],
+      returnRoute: [...vehicle.returnRoute],
+      returnRouteEdges: [...vehicle.returnRouteEdges],
+      standPath: vehicle.standPath.map((point) => [...point]),
+    })),
     flights: simulation.state.flights.map((flight) => ({
       id: flight.id,
       callsign: flight.callsign,
@@ -2232,7 +2337,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
 }
 
 window.airportControl = {
-  version: '2.7.0',
+  version: '2.8.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },

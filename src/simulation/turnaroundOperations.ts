@@ -147,8 +147,7 @@ export function scheduleTurnaround(turnaround: FlightTurnaroundState, scheduledG
 export function startTurnaround(
   turnaround: FlightTurnaroundState,
   actualStartSeconds: number,
-  initialFuelPercent: number,
-): TurnaroundTransition[] {
+  initialFuelPercent: number, availableServices?: ReadonlySet<TurnaroundServiceType>): TurnaroundTransition[] {
   turnaround.status = 'servicing';
   turnaround.actualStartSeconds = actualStartSeconds;
   turnaround.actualReadySeconds = undefined;
@@ -164,11 +163,12 @@ export function startTurnaround(
     task.actualCompleteSeconds = undefined;
     task.status = task.required ? 'waiting' : 'not-required';
   }
-  return advanceTurnaround(turnaround, actualStartSeconds);
+  return advanceTurnaround(turnaround, actualStartSeconds, availableServices);
 }
 
-export function advanceTurnaround(turnaround: FlightTurnaroundState, nowSeconds: number): TurnaroundTransition[] {
+export function advanceTurnaround(turnaround: FlightTurnaroundState, nowSeconds: number, availableServices?: ReadonlySet<TurnaroundServiceType>): TurnaroundTransition[] {
   if (turnaround.status !== 'servicing' || turnaround.actualStartSeconds === undefined) return [];
+  if (availableServices) return advanceResourceGatedTurnaround(turnaround, nowSeconds, availableServices);
   const transitions: TurnaroundTransition[] = [];
   const elapsed = round6(Math.max(0, Math.min(turnaround.plannedDurationSeconds, nowSeconds - turnaround.actualStartSeconds)));
   turnaround.elapsedSeconds = elapsed;
@@ -199,6 +199,51 @@ export function advanceTurnaround(turnaround: FlightTurnaroundState, nowSeconds:
     turnaround.elapsedSeconds = turnaround.plannedDurationSeconds;
     turnaround.progress = 1;
     turnaround.actualReadySeconds = turnaround.actualStartSeconds + turnaround.plannedDurationSeconds;
+    transitions.push({ type: 'turnaround-ready' });
+  }
+  return transitions;
+}
+
+/**
+ * Physical equipment can delay a task beyond its nominal offset. Once a task
+ * starts, its own elapsed clock is authoritative; dependent work waits for the
+ * recorded completion rather than a detached master timeline.
+ */
+function advanceResourceGatedTurnaround(turnaround: FlightTurnaroundState, nowSeconds: number, availableServices: ReadonlySet<TurnaroundServiceType>): TurnaroundTransition[] {
+  const transitions: TurnaroundTransition[] = [];
+  const actualStart = turnaround.actualStartSeconds!;
+  const taskByType = new Map(turnaround.tasks.map((task) => [task.type, task]));
+  for (const task of turnaround.tasks) {
+    if (!task.required || task.status === 'complete') continue;
+    const dependenciesComplete = task.dependencies.every((dependency) => {
+      const prerequisite = taskByType.get(dependency);
+      return !prerequisite?.required || prerequisite.status === 'complete';
+    });
+    const earliestStart = actualStart + task.scheduledStartOffsetSeconds;
+    if (task.status === 'waiting' && nowSeconds + 1e-6 >= earliestStart && dependenciesComplete && availableServices.has(task.type)) {
+      task.status = 'active';
+      task.actualStartSeconds = nowSeconds;
+      task.elapsedSeconds = 0;
+      transitions.push({ type: 'service-start', service: task.type });
+    }
+    if (task.status !== 'active' || task.actualStartSeconds === undefined) continue;
+    task.elapsedSeconds = round6(Math.max(0, Math.min(task.durationSeconds, nowSeconds - task.actualStartSeconds)));
+    if (task.elapsedSeconds + 1e-6 < task.durationSeconds) continue;
+    task.status = 'complete';
+    task.actualCompleteSeconds = task.actualStartSeconds + task.durationSeconds;
+    transitions.push({ type: 'service-complete', service: task.type });
+  }
+
+  const required = turnaround.tasks.filter((task) => task.required);
+  const totalWork = required.reduce((total, task) => total + task.durationSeconds, 0);
+  const completedWork = required.reduce((total, task) => total + task.elapsedSeconds, 0);
+  turnaround.elapsedSeconds = round6(Math.max(0, nowSeconds - actualStart));
+  turnaround.progress = totalWork <= 0 ? 1 : Math.max(0, Math.min(1, completedWork / totalWork));
+  if (required.every((task) => task.status === 'complete')) {
+    turnaround.status = 'ready';
+    turnaround.progress = 1;
+    turnaround.actualReadySeconds = Math.max(actualStart, ...required.map((task) => task.actualCompleteSeconds ?? nowSeconds));
+    turnaround.elapsedSeconds = round6(turnaround.actualReadySeconds - actualStart);
     transitions.push({ type: 'turnaround-ready' });
   }
   return transitions;

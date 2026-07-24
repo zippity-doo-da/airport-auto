@@ -8,13 +8,14 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await page.goto('/?airport=ORD&mode=assisted&station=supervisor&autostart=1&detail=low');
   await expect(page.locator('#airport-name')).toContainText('O’Hare');
   await expect(page.locator('#flight-strip-count')).toContainText('aircraft');
-  await page.waitForFunction(() => window.airportControl?.version === '2.7.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.8.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
-  expect(initial.schemaVersion).toBe(9);
+  expect(initial.schemaVersion).toBe(10);
   expect(initial.mode).toBe('assisted');
   expect(initial.airport.code).toBe('ORD');
+  expect(initial.renderer.camera).toMatchObject({ panningEnabled: true, groundWidth: 4000, groundHeight: 3000 });
   expect(initial.airport.vectorData?.layerCounts.runways).toBe(8);
   expect(initial.airport.vectorData?.layerCounts.taxiways).toBe(743);
   expect(initial.airport.vectorData?.attribution).toContain('Federal Aviation Administration');
@@ -50,6 +51,10 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   expect(initial.surfaceGraph.gatePlanning.factors).toEqual(expect.arrayContaining([
     'airline', 'terminal', 'aircraft-size', 'service-type', 'arrival-time', 'next-departure-route',
   ]));
+  expect(initial.surfaceGraph.serviceVehiclePolicy).toMatchObject({
+    model: 'shared-surface-reservations',
+    pushbackRequiresStandClear: true,
+  });
   const zoneKinds = new Set(initial.surfaceGraph.zones.map((zone) => zone.kind));
   for (const kind of ['terminal-complex', 'terminal-apron', 'cargo-ramp', 'general-aviation', 'deicing-pad', 'holding-pad', 'maintenance', 'remote-ramp', 'perimeter-route']) {
     expect(zoneKinds.has(kind)).toBeTruthy();
@@ -92,6 +97,8 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
     && flight.turnaround.targetFuelPercent >= flight.turnaround.initialFuelPercent
   ))).toBeTruthy();
   expect(initial.flights.filter((flight) => flight.phase === 'approach').every((flight) => flight.turnaround.status === 'planned')).toBeTruthy();
+  expect(initial.serviceVehicles.length).toBeGreaterThanOrEqual(2);
+  expect(initial.serviceVehicles.every((vehicle) => !vehicle.protectedMovementAuthorized && !vehicle.protectedMovementArea && vehicle.outboundRoute.length > 0 && vehicle.returnRoute.length > 0)).toBeTruthy();
   expect(initial.flights.some((flight) => flight.gate?.assignment?.airlineFit === 'preferred')).toBeTruthy();
   expect(initial.flights.filter((flight) => flight.airline.code === 'UA' && flight.service === 'passenger').every((flight) => ['B', 'C', 'E', 'F', 'G'].includes(flight.gate?.concourse))).toBeTruthy();
   expect(initial.flights.filter((flight) => flight.airline.code === 'AA' && flight.service === 'passenger').every((flight) => ['G', 'H', 'K', 'L'].includes(flight.gate?.concourse))).toBeTruthy();
@@ -128,6 +135,21 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   expect(pushReady?.turnaround).toMatchObject({ status: 'ready', progress: 1, blockingServices: [] });
   expect(initial.traffic.collisions).toHaveLength(0);
   expect(initial.traffic.obstacleCollisions).toHaveLength(0);
+  expect(initial.traffic.serviceVehicleConflicts).toHaveLength(0);
+  expect(initial.traffic.serviceVehicleRouteViolations).toHaveLength(0);
+  const initialCamera = initial.renderer.camera;
+  await page.locator('#scene').evaluate((canvas) => {
+    const rect = canvas.getBoundingClientRect();
+    const start = { x: rect.left + rect.width * 0.64, y: rect.top + rect.height * 0.46 };
+    const pointer = { bubbles: true, pointerId: 71, pointerType: 'mouse', isPrimary: true };
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { ...pointer, clientX: start.x, clientY: start.y, button: 1, buttons: 4 }));
+    canvas.dispatchEvent(new PointerEvent('pointermove', { ...pointer, clientX: start.x + 90, clientY: start.y + 55, button: -1, buttons: 4 }));
+    canvas.dispatchEvent(new PointerEvent('pointerup', { ...pointer, clientX: start.x + 90, clientY: start.y + 55, button: 1, buttons: 0 }));
+  });
+  await page.waitForFunction(({ x, y }) => {
+    const camera = window.airportControl.snapshot().renderer.camera;
+    return Math.hypot(camera.focusX - x, camera.focusY - y) > 1;
+  }, { x: initialCamera.focusX, y: initialCamera.focusY });
   await page.evaluate(() => window.airportControl.request({ action: 'setStation', station: 'ground' }));
   await page.evaluate((flightId) => window.airportControl.request({ action: 'focusFlight', flightId }), pushReady!.id);
   await expect(page.locator('.turnaround-panel')).toBeVisible();
@@ -255,7 +277,7 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
 
 test('Mobile Watch mode keeps controls readable and uses low-detail rendering', async ({ page }, testInfo) => {
   await page.goto('/?airport=ORD&mode=watch&autostart=1&detail=low');
-  await page.waitForFunction(() => window.airportControl?.version === '2.7.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.8.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
   await expect(page.locator('body')).toHaveClass(/watch-mode/);
   await expect(page.locator('#menu-toggle')).toBeVisible();
@@ -263,6 +285,19 @@ test('Mobile Watch mode keeps controls readable and uses low-detail rendering', 
   const snapshot = await page.evaluate(() => window.airportControl.snapshot());
   expect(snapshot.mode).toBe('watch');
   expect(snapshot.renderer.detail).toBe('low');
+  const initialCamera = snapshot.renderer.camera;
+  await page.locator('#scene').evaluate((canvas) => {
+    const rect = canvas.getBoundingClientRect();
+    const start = { x: rect.left + rect.width * 0.85, y: rect.top + rect.height * 0.82 };
+    const pointer = { bubbles: true, pointerId: 93, pointerType: 'touch', isPrimary: true, button: 0 };
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { ...pointer, clientX: start.x, clientY: start.y, buttons: 1 }));
+    canvas.dispatchEvent(new PointerEvent('pointermove', { ...pointer, clientX: start.x - 70, clientY: start.y + 45, buttons: 1 }));
+    canvas.dispatchEvent(new PointerEvent('pointerup', { ...pointer, clientX: start.x - 70, clientY: start.y + 45, buttons: 0 }));
+  });
+  await page.waitForFunction(({ x, y }) => {
+    const camera = window.airportControl.snapshot().renderer.camera;
+    return Math.hypot(camera.focusX - x, camera.focusY - y) > 1;
+  }, { x: initialCamera.focusX, y: initialCamera.focusY });
   const safetyFont = await page.locator('.scoreboard span').nth(2).evaluate((element) => parseFloat(getComputedStyle(element).fontSize));
   expect(safetyFont).toBeGreaterThanOrEqual(7);
   await page.screenshot({ path: testInfo.outputPath('mobile-watch.png') });

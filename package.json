@@ -1,7 +1,7 @@
 {
   "name": "airport-auto",
   "private": true,
-  "version": "2.7.0",
+  "version": "2.8.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "lint": "eslint src scripts e2e vite.config.ts playwright.config.ts",
     "format": "prettier --write src scripts e2e *.md *.json *.ts .github/workflows/*.yml",
-    "test": "npm run test:airport-data && npm run test:surface && npm run test:surface-motion && npm run test:ramp-operations && npm run test:gate-assignments && npm run test:turnaround && npm run test:simulation && npm run test:trajectories && npm run test:collisions",
+    "test": "npm run test:airport-data && npm run test:surface && npm run test:surface-motion && npm run test:ramp-operations && npm run test:gate-assignments && npm run test:turnaround && npm run test:service-vehicles && npm run test:simulation && npm run test:trajectories && npm run test:collisions",
     "test:e2e": "playwright test",
     "test:airport-data": "node scripts/validateAirportVectorAssets.mjs && node scripts/validateImportedSurfaceGraph.mjs && node scripts/validateOsmContext.mjs",
     "import:ord": "node scripts/importAirportVector.mjs KORD && node scripts/importOsmSurfaceGraph.mjs KORD --input public/data/airports/KORD.osm-surface.json",
@@ -20,6 +20,7 @@
     "test:ramp-operations": "node scripts/validateRampOperations.mjs",
     "test:gate-assignments": "node scripts/validateGateAssignments.mjs",
     "test:turnaround": "node scripts/validateTurnaroundOperations.mjs",
+    "test:service-vehicles": "node scripts/validateServiceVehicles.mjs",
     "test:simulation": "node scripts/validateFixedStep.mjs",
     "test:trajectories": "node scripts/validateFlightTrajectories.mjs",
     "test:collisions": "node scripts/validateCollisionEnvelopes.mjs"

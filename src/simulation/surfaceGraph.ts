@@ -233,6 +233,8 @@ export interface SurfaceRouteRequirements {
 export interface SurfaceRoutePlanning {
   /** Non-negative world-distance penalties applied only while choosing a path. */
   edgePenaltyById?: ReadonlyMap<string, number>;
+  /** Edges excluded from this route without mutating the shared graph. */
+  blockedEdgeIds?: ReadonlySet<string>;
 }
 
 type SurfaceGraphConfig = Pick<AirportConfig, 'code' | 'seed' | 'scope' | 'terminal' | 'runways'>;
@@ -671,6 +673,7 @@ export function findSurfaceRoute(
     if (currentDistance !== distanceByNode.get(current)) continue;
     if (current === toNodeId) break;
     for (const next of adjacency.get(current) ?? []) {
+      if (planning?.blockedEdgeIds?.has(next.edge.id)) continue;
       if (requirements && !surfaceEdgeSupportsAircraft(next.edge, requirements)) continue;
       const trafficPenalty = Math.max(0, planning?.edgePenaltyById?.get(next.edge.id) ?? 0);
       const nextDistance = currentDistance + next.cost + trafficPenalty;

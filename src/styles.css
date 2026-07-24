@@ -40,7 +40,8 @@ body.center-scope.radar-visible #app::before {
   background: repeating-radial-gradient(circle at 50% 52%, transparent 0 82px, rgba(121, 200, 232, 0.07) 83px 84px);
 }
 
-#scene { display: block; width: 100%; height: 100%; outline: none; touch-action: none; cursor: crosshair; }
+#scene { display: block; width: 100%; height: 100%; outline: none; touch-action: none; cursor: grab; }
+#scene.scene--panning { cursor: grabbing; }
 #route-layer { position: absolute; inset: 0; z-index: 5; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 #route-layer path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
 #route-shadow { stroke: rgba(10, 32, 34, 0.55); stroke-width: 8; }

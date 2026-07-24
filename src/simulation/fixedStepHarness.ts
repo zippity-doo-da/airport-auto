@@ -34,6 +34,9 @@ export interface FixedStepHarnessEvent {
   taxiway?: string;
   detail?: string;
   turnaroundService?: AirportEvent['turnaroundService'];
+  serviceVehicleId?: AirportEvent['serviceVehicleId'];
+  serviceVehicleType?: AirportEvent['serviceVehicleType'];
+  serviceVehicleStatus?: AirportEvent['serviceVehicleStatus'];
 }
 
 export interface FixedStepFlightSnapshot {
@@ -127,7 +130,7 @@ export interface FixedStepFlightSnapshot {
 }
 
 export interface FixedStepSimulationSnapshot {
-  schemaVersion: 5;
+  schemaVersion: 6;
   seed: number;
   airportCode: string;
   stepSeconds: number;
@@ -158,6 +161,23 @@ export interface FixedStepSimulationSnapshot {
     };
   };
   flights: FixedStepFlightSnapshot[];
+  serviceVehicles: Array<{
+    id: string;
+    flightId: number;
+    service: AirportEvent['turnaroundService'];
+    type: AirportEvent['serviceVehicleType'];
+    status: AirportEvent['serviceVehicleStatus'];
+    standId: string;
+    progress: number;
+    x: number;
+    y: number;
+    heading: number;
+    groundSpeedMps: number;
+    held: boolean;
+    holdReason?: string;
+    protectedMovementArea: boolean;
+    currentEdge?: string;
+  }>;
   diagnostics: {
     approachCapacity: number;
     nextArrivalIn: number;
@@ -277,7 +297,7 @@ export class FixedStepSimulationHarness {
   snapshot(): FixedStepSimulationSnapshot {
     const diagnostics = this.simulation.diagnostics();
     return {
-      schemaVersion: 5,
+      schemaVersion: 6,
       seed: this.config.seed,
       airportCode: this.config.code,
       stepSeconds: round(this.stepSeconds),
@@ -314,6 +334,25 @@ export class FixedStepSimulationHarness {
       flights: [...this.simulation.state.flights]
         .sort((first, second) => first.id - second.id)
         .map((flight) => snapshotFlight(this.config, flight)),
+      serviceVehicles: [...this.simulation.state.serviceVehicles]
+        .sort((first, second) => first.id.localeCompare(second.id))
+        .map((vehicle) => ({
+          id: vehicle.id,
+          flightId: vehicle.flightId,
+          service: vehicle.service,
+          type: vehicle.type,
+          status: vehicle.status,
+          standId: vehicle.standId,
+          progress: round(vehicle.progress),
+          x: round(vehicle.x),
+          y: round(vehicle.y),
+          heading: round(vehicle.heading),
+          groundSpeedMps: round(vehicle.groundSpeedMps),
+          held: vehicle.held,
+          holdReason: vehicle.holdReason,
+          protectedMovementArea: vehicle.protectedMovementArea,
+          currentEdge: vehicle.currentEdge,
+        })),
       diagnostics: {
         approachCapacity: diagnostics.approachCapacity,
         nextArrivalIn: round(diagnostics.nextArrivalIn),
@@ -358,6 +397,9 @@ export class FixedStepSimulationHarness {
         taxiway: event.taxiway ?? event.flight.taxiway,
         detail: event.detail,
         turnaroundService: event.turnaroundService,
+        serviceVehicleId: event.serviceVehicleId,
+        serviceVehicleType: event.serviceVehicleType,
+        serviceVehicleStatus: event.serviceVehicleStatus,
       });
     }
   }

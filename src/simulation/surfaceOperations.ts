@@ -8,7 +8,13 @@ import {
 } from './surfaceGraph';
 
 export type SurfaceFlowDirection = 'inbound' | 'outbound';
-export type SurfaceReservationKind = 'edge' | 'node' | 'alley' | 'stand' | 'ramp-zone';
+export type SurfaceReservationKind = 'edge' | 'node' | 'alley' | 'stand' | 'ramp-zone' | 'service-lane' | 'service-bay' | 'service-staging';
+export type SurfaceReservationOwnerId = number | string;
+
+export interface SurfaceReservationConflict {
+  claim: SurfaceReservationClaim;
+  ownerId: SurfaceReservationOwnerId;
+}
 
 export interface SurfaceRampControlZone {
   id: string;
@@ -67,45 +73,72 @@ export interface SurfaceCongestionPlanning extends SurfaceRoutePlanning {
 
 /** Deterministic per-tick resource ledger shared by Auto and test harnesses. */
 export class SurfaceReservationLedger {
-  private readonly reservedNodes = new Map<string, number>();
-  private readonly reservedEdges = new Map<string, { direction: string; flight: number }>();
-  private readonly reservedAlleys = new Map<string, { direction: string; flights: Set<number> }>();
-  private readonly reservedStands = new Map<string, number>();
-  private readonly rampZoneOccupants = new Map<string, Set<number>>();
+  private readonly reservedNodes = new Map<string, SurfaceReservationOwnerId>();
+  private readonly reservedEdges = new Map<string, { direction: string; owners: Set<SurfaceReservationOwnerId> }>();
+  private readonly reservedAlleys = new Map<string, { direction: string; owners: Set<SurfaceReservationOwnerId> }>();
+  private readonly reservedStands = new Map<string, SurfaceReservationOwnerId>();
+  private readonly rampZoneOccupants = new Map<string, Set<SurfaceReservationOwnerId>>();
+  private readonly exclusiveResources = new Map<string, SurfaceReservationOwnerId>();
 
-  firstConflict(claims: SurfaceReservationClaim[]): SurfaceReservationClaim | undefined {
-    return claims.find((claim) => {
-      if (claim.kind === 'node') return this.reservedNodes.has(claim.id);
-      if (claim.kind === 'edge') {
-        const reservation = this.reservedEdges.get(claim.id);
-        return Boolean(reservation && reservation.direction !== claim.direction);
-      }
-      if (claim.kind === 'alley') {
-        const reservation = this.reservedAlleys.get(claim.id);
-        return Boolean(reservation && reservation.direction !== claim.direction);
-      }
-      if (claim.kind === 'stand') return this.reservedStands.has(claim.id);
-      if (claim.kind === 'ramp-zone') return (this.rampZoneOccupants.get(claim.id)?.size ?? 0) >= claim.capacity;
-      return false;
-    });
+  firstConflict(claims: SurfaceReservationClaim[], ownerId?: SurfaceReservationOwnerId): SurfaceReservationClaim | undefined {
+    return this.firstConflictDetail(claims, ownerId)?.claim;
   }
 
-  reserve(flightId: number, claims: SurfaceReservationClaim[]): void {
+  firstConflictDetail(claims: SurfaceReservationClaim[], ownerId?: SurfaceReservationOwnerId): SurfaceReservationConflict | undefined {
     for (const claim of claims) {
-      if (claim.kind === 'node') this.reservedNodes.set(claim.id, flightId);
-      if (claim.kind === 'edge' && !this.reservedEdges.has(claim.id)) {
-        this.reservedEdges.set(claim.id, { direction: claim.direction ?? '', flight: flightId });
+      if (claim.kind === 'node') {
+        const owner = this.reservedNodes.get(claim.id);
+        if (owner !== undefined && owner !== ownerId) return { claim, ownerId: owner };
+      }
+      if (claim.kind === 'edge') {
+        const reservation = this.reservedEdges.get(claim.id);
+        const other = reservation ? [...reservation.owners].find((owner) => owner !== ownerId) : undefined;
+        if (reservation && other !== undefined && reservation.direction !== claim.direction) return { claim, ownerId: other };
       }
       if (claim.kind === 'alley') {
         const reservation = this.reservedAlleys.get(claim.id);
-        if (reservation) reservation.flights.add(flightId);
-        else this.reservedAlleys.set(claim.id, { direction: claim.direction ?? '', flights: new Set([flightId]) });
+        const other = reservation ? [...reservation.owners].find((owner) => owner !== ownerId) : undefined;
+        if (reservation && other !== undefined && reservation.direction !== claim.direction) return { claim, ownerId: other };
       }
-      if (claim.kind === 'stand') this.reservedStands.set(claim.id, flightId);
+      if (claim.kind === 'stand') {
+        const owner = this.reservedStands.get(claim.id);
+        if (owner !== undefined && owner !== ownerId) return { claim, ownerId: owner };
+      }
       if (claim.kind === 'ramp-zone') {
-        const occupants = this.rampZoneOccupants.get(claim.id) ?? new Set<number>();
-        occupants.add(flightId);
+        const occupants = this.rampZoneOccupants.get(claim.id);
+        const others = occupants ? [...occupants].filter((owner) => owner !== ownerId) : [];
+        if (others.length >= claim.capacity) return { claim, ownerId: others[0] };
+      }
+      if (claim.kind === 'service-lane' || claim.kind === 'service-bay' || claim.kind === 'service-staging') {
+        const owner = this.exclusiveResources.get(`${claim.kind}:${claim.id}`);
+        if (owner !== undefined && owner !== ownerId) return { claim, ownerId: owner };
+      }
+    }
+    return undefined;
+  }
+
+  reserve(ownerId: SurfaceReservationOwnerId, claims: SurfaceReservationClaim[]): void {
+    for (const claim of claims) {
+      if (claim.kind === 'node' && !this.reservedNodes.has(claim.id)) this.reservedNodes.set(claim.id, ownerId);
+      if (claim.kind === 'edge') {
+        const reservation = this.reservedEdges.get(claim.id);
+        if (reservation && reservation.direction === (claim.direction ?? '')) reservation.owners.add(ownerId);
+        else if (!reservation) this.reservedEdges.set(claim.id, { direction: claim.direction ?? '', owners: new Set([ownerId]) });
+      }
+      if (claim.kind === 'alley') {
+        const reservation = this.reservedAlleys.get(claim.id);
+        if (reservation && reservation.direction === (claim.direction ?? '')) reservation.owners.add(ownerId);
+        else if (!reservation) this.reservedAlleys.set(claim.id, { direction: claim.direction ?? '', owners: new Set([ownerId]) });
+      }
+      if (claim.kind === 'stand' && !this.reservedStands.has(claim.id)) this.reservedStands.set(claim.id, ownerId);
+      if (claim.kind === 'ramp-zone') {
+        const occupants = this.rampZoneOccupants.get(claim.id) ?? new Set<SurfaceReservationOwnerId>();
+        occupants.add(ownerId);
         this.rampZoneOccupants.set(claim.id, occupants);
+      }
+      if (claim.kind === 'service-lane' || claim.kind === 'service-bay' || claim.kind === 'service-staging') {
+        const key = `${claim.kind}:${claim.id}`;
+        if (!this.exclusiveResources.has(key)) this.exclusiveResources.set(key, ownerId);
       }
     }
   }
@@ -230,6 +263,12 @@ export function surfaceRouteReservationClaims(
       direction: `${from}>${to}`,
       capacity: 1,
     });
+    // Keep ownership of the junction behind a moving body until it is clear.
+    // Paired with the forward claim below, this closes the reservation gap
+    // where two movers could meet on opposite sides of a shared node.
+    if (edgeIndex === sample.edgeIndex && sample.edgeProgress < 0.36) {
+      addClaim(claims, { kind: 'node', id: from, label: `intersection ${from}`, capacity: 1 });
+    }
     if (edgeIndex > sample.edgeIndex || sample.edgeProgress > 0.64) {
       addClaim(claims, { kind: 'node', id: to, label: `intersection ${to}`, capacity: 1 });
     }
