@@ -56,9 +56,17 @@ type ArcLengthSample = { parameter: number; distance: number };
 type PreparedSmoothPath = { points: Point3[]; samples: ArcLengthSample[]; totalDistance: number };
 
 const KNOT_TO_MPS = 0.514444;
+const DEGREES_TO_RADIANS = Math.PI / 180;
+const RUNWAY_TRACK_ALTITUDE = 2;
+const THRESHOLD_CROSSING_ALTITUDE = 2.3;
+const FINAL_GLIDE_SLOPE = Math.tan(3 * DEGREES_TO_RADIANS);
 const APPROACH_PITCH = 0.105;
 const LANDING_FLARE_PITCH = 0.18;
-const TAKEOFF_ROTATION_PITCH = 0.19;
+const TAKEOFF_ROTATION_PITCH = 12 * DEGREES_TO_RADIANS;
+const TAKEOFF_ANGLE_OF_ATTACK = 2.5 * DEGREES_TO_RADIANS;
+const MINIMUM_CLIMB_PITCH = 10 * DEGREES_TO_RADIANS;
+const MAXIMUM_CLIMB_PITCH = 13.5 * DEGREES_TO_RADIANS;
+const ROTATION_LIFTOFF_HEIGHT = 0.12;
 const APPROACH_PATH_CACHE = new WeakMap<AirportConfig, Map<string, PreparedSmoothPath>>();
 
 export function phaseUsesFlightTrajectory(phase: FlightPhase): phase is 'approach' | 'landing' | 'takeoff' {
@@ -180,16 +188,16 @@ function sampleApproachPath(config: AirportConfig, flight: Flight, progress: num
   if (!path) {
     const startDistance = config.scope === 'center' ? 265 : 175;
     const lateral = config.scope === 'center' ? 12 : 38;
-    const threshold = runwayEnd(runway, landingSign, 0, 4.2);
+    const threshold = runwayEnd(runway, landingSign, 0, THRESHOLD_CROSSING_ALTITUDE);
     path = prepareSmoothPath([
-      offset(runwayEnd(runway, landingSign, startDistance, (config.scope === 'center' ? 32 : 30) + altitudeLane * 4), side, lateralSign * lateral),
-      offset(runwayEnd(runway, landingSign, startDistance * 0.82, (config.scope === 'center' ? 28 : 25) + altitudeLane * 4), side, lateralSign * lateral * 0.94),
-      offset(runwayEnd(runway, landingSign, startDistance * 0.62, (config.scope === 'center' ? 22 : 20) + altitudeLane * 3.2), side, lateralSign * lateral * 0.68),
-      offset(runwayEnd(runway, landingSign, startDistance * 0.43, (config.scope === 'center' ? 16 : 15) + altitudeLane * 2), side, lateralSign * lateral * 0.34),
-      offset(runwayEnd(runway, landingSign, startDistance * 0.31, 10.5 + altitudeLane * 0.8), side, lateralSign * lateral * 0.06),
-      runwayEnd(runway, landingSign, 44, 8.2),
-      runwayEnd(runway, landingSign, 21, 6.1),
-      runwayEnd(runway, landingSign, 8, 4.9),
+      offset(runwayEnd(runway, landingSign, startDistance, approachAltitude(startDistance, altitudeLane * 4)), side, lateralSign * lateral),
+      offset(runwayEnd(runway, landingSign, startDistance * 0.82, approachAltitude(startDistance * 0.82, altitudeLane * 4)), side, lateralSign * lateral * 0.94),
+      offset(runwayEnd(runway, landingSign, startDistance * 0.62, approachAltitude(startDistance * 0.62, altitudeLane * 3.2)), side, lateralSign * lateral * 0.68),
+      offset(runwayEnd(runway, landingSign, startDistance * 0.43, approachAltitude(startDistance * 0.43, altitudeLane * 1.4)), side, lateralSign * lateral * 0.34),
+      offset(runwayEnd(runway, landingSign, startDistance * 0.31, approachAltitude(startDistance * 0.31, altitudeLane * 0.25)), side, lateralSign * lateral * 0.06),
+      runwayEnd(runway, landingSign, 44, approachAltitude(44)),
+      runwayEnd(runway, landingSign, 21, approachAltitude(21)),
+      runwayEnd(runway, landingSign, 8, approachAltitude(8)),
       threshold,
     ]);
     airportPaths.set(cacheKey, path);
@@ -246,7 +254,7 @@ function sampleLanding(config: AirportConfig, flight: Flight, progress: number):
   const timing = landingTrajectoryTiming(config, flight.runway, flight.aircraft);
   const elapsed = progress * timing.totalSeconds;
   const travel = runwayTravelDirection(runway, flight.operatingEnd);
-  const threshold = runwayEnd(runway, flight.operatingEnd, 0, 4.2);
+  const threshold = runwayEnd(runway, flight.operatingEnd, 0, THRESHOLD_CROSSING_ALTITUDE);
   const fallbackExitDistance = Math.max(1, runway.length - 5);
   const exitPoint = runwaySurfacePoint(config, flight.runway, -flight.operatingEnd as -1 | 1, 'exit') ?? {
     x: threshold.x + travel.x * fallbackExitDistance,
@@ -274,7 +282,7 @@ function sampleLanding(config: AirportConfig, flight: Flight, progress: number):
   };
   const exitPathDistance = Math.max(1, distance(exitStart, exitControl) + distance(exitControl, exitPoint));
   let distanceAlong = 0;
-  let z = 4.2;
+  let z = THRESHOLD_CROSSING_ALTITUDE;
   let pitch = APPROACH_PITCH;
   let x = threshold.x;
   let y = threshold.y;
@@ -287,7 +295,7 @@ function sampleLanding(config: AirportConfig, flight: Flight, progress: number):
   if (elapsed < timing.flareSeconds) {
     stageProgress = clamp(elapsed / timing.flareSeconds, 0, 1);
     distanceAlong = touchdownDistance * stageProgress;
-    z = lerp(4.2, 2, smooth01(stageProgress));
+    z = lerp(THRESHOLD_CROSSING_ALTITUDE, RUNWAY_TRACK_ALTITUDE, smooth01(stageProgress));
     pitch = lerp(APPROACH_PITCH, LANDING_FLARE_PITCH, smooth01(stageProgress));
     groundBlend = smoothRange(stageProgress, 0.48, 1);
     onGround = stageProgress >= 0.985;
@@ -300,7 +308,7 @@ function sampleLanding(config: AirportConfig, flight: Flight, progress: number):
       initialSpeed * stageProgress + 0.5 * (finalSpeed - initialSpeed) * stageProgress * stageProgress
     ) / Math.max(1, 0.5 * (initialSpeed + finalSpeed));
     distanceAlong = touchdownDistance + rolloutTravel * distanceProgress;
-    z = 2;
+    z = RUNWAY_TRACK_ALTITUDE;
     pitch = LANDING_FLARE_PITCH * (1 - smoothRange(stageProgress, 0.06, 0.52));
     stage = stageProgress < 0.08 ? 'touchdown' : 'rollout';
     onGround = true;
@@ -314,7 +322,7 @@ function sampleLanding(config: AirportConfig, flight: Flight, progress: number):
     y = point.y;
     heading = Math.atan2(tangent.y, tangent.x);
     distanceAlong = rolloutEnd + exitPathDistance * stageProgress;
-    z = 2;
+    z = RUNWAY_TRACK_ALTITUDE;
     pitch = 0;
     stage = 'runway-exit';
     onGround = true;
@@ -348,16 +356,16 @@ function sampleDeparture(config: AirportConfig, flight: Flight, progress: number
   const timing = departureTrajectoryTiming(config, flight.runway, flight.aircraft);
   const elapsed = progress * timing.totalSeconds;
   const travel = runwayTravelDirection(runway, flight.operatingEnd);
-  const threshold = runwayEnd(runway, flight.operatingEnd, 0, 2);
+  const threshold = runwayEnd(runway, flight.operatingEnd, 0, RUNWAY_TRACK_ALTITUDE);
   const holdPoint = runwaySurfacePoint(config, flight.runway, flight.operatingEnd, 'hold') ?? {
     x: threshold.x - travel.x * 8,
     y: threshold.y - travel.y * 8,
-    z: 2,
+    z: RUNWAY_TRACK_ALTITUDE,
   };
   const lineupControl = {
     x: threshold.x - travel.x * Math.min(5, Math.max(2, distance(holdPoint, threshold) * 0.35)),
     y: threshold.y - travel.y * Math.min(5, Math.max(2, distance(holdPoint, threshold) * 0.35)),
-    z: 2,
+    z: RUNWAY_TRACK_ALTITUDE,
   };
   const lineupDistance = Math.max(1, distance(holdPoint, lineupControl) + distance(lineupControl, threshold));
   const rollDistance = takeoffRollDistance(runway, flight.aircraft);
@@ -366,7 +374,7 @@ function sampleDeparture(config: AirportConfig, flight: Flight, progress: number
   const edgeBeyond = config.scope === 'center' ? 220 : 150;
   const endDistance = runway.length + edgeBeyond;
   let distanceAlong = -lineupDistance;
-  let z = 2;
+  let z = RUNWAY_TRACK_ALTITUDE;
   let pitch = 0;
   let x = holdPoint.x;
   let y = holdPoint.y;
@@ -393,17 +401,25 @@ function sampleDeparture(config: AirportConfig, flight: Flight, progress: number
     stageProgress = clamp((elapsed - timing.lineupSeconds - timing.rollSeconds) / timing.rotationSeconds, 0, 1);
     distanceAlong = lerp(rollDistance, liftoffDistance, stageProgress);
     pitch = TAKEOFF_ROTATION_PITCH * smooth01(stageProgress);
-    const liftoff = smoothRange(stageProgress, 0.72, 1);
-    z = lerp(2, 2.8, liftoff);
+    const liftoff = smoothRange(stageProgress, 0.78, 1);
+    z = lerp(RUNWAY_TRACK_ALTITUDE, RUNWAY_TRACK_ALTITUDE + ROTATION_LIFTOFF_HEIGHT, liftoff);
     groundBlend = 1 - liftoff;
-    onGround = stageProgress < 0.78;
+    onGround = stageProgress < 0.8;
     stage = 'rotation';
   } else {
     stageProgress = clamp((elapsed - timing.lineupSeconds - timing.rollSeconds - timing.rotationSeconds) / timing.climbSeconds, 0, 1);
     distanceAlong = lerp(liftoffDistance, endDistance, stageProgress);
-    const climb = stageProgress * (2 - stageProgress);
-    z = 2.8 + (config.scope === 'center' ? 39 : 31) * climb;
-    pitch = lerp(TAKEOFF_ROTATION_PITCH, 0.085, smooth01(stageProgress));
+    const climbHeight = config.scope === 'center' ? 39 : 31;
+    const climb = stageProgress * (1.04 - 0.04 * stageProgress);
+    const climbDerivative = 1.04 - 0.08 * stageProgress;
+    const climbDistance = Math.max(1, endDistance - liftoffDistance);
+    const flightPathAngle = Math.atan(climbHeight * climbDerivative / climbDistance);
+    z = RUNWAY_TRACK_ALTITUDE + ROTATION_LIFTOFF_HEIGHT + climbHeight * climb;
+    pitch = clamp(
+      flightPathAngle + TAKEOFF_ANGLE_OF_ATTACK,
+      MINIMUM_CLIMB_PITCH,
+      MAXIMUM_CLIMB_PITCH,
+    );
     groundBlend = 0;
     onGround = false;
     stage = 'climbout';
@@ -540,6 +556,10 @@ function runwayEnd(runway: RunwayConfig, sign: number, beyond: number, z: number
     y: runway.center[1] + Math.sin(runway.heading) * amount,
     z,
   };
+}
+
+function approachAltitude(distanceFromThreshold: number, laneOffset = 0): number {
+  return THRESHOLD_CROSSING_ALTITUDE + Math.max(0, distanceFromThreshold) * FINAL_GLIDE_SLOPE + laneOffset;
 }
 
 function runwaySurfacePoint(

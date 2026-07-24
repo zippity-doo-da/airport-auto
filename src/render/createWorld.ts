@@ -26,8 +26,8 @@ type FlightVisual = {
   active: boolean;
 };
 
-const APPROACH_PRESENTATION_PITCH = THREE.MathUtils.degToRad(10);
-const TOUCHDOWN_PRESENTATION_PITCH = THREE.MathUtils.degToRad(12);
+const APPROACH_PRESENTATION_PITCH = THREE.MathUtils.degToRad(6);
+const TOUCHDOWN_PRESENTATION_PITCH = THREE.MathUtils.degToRad(10);
 
 type RunwayLight = {
   mesh: THREE.Mesh;
@@ -1180,7 +1180,10 @@ function positionFlight(
     tangent.z = 0;
     tangent.normalize();
   } else {
-    visual.root.position.z += wheelOnSurfaceLift * groundFactor;
+    // Motion altitude describes the track beneath the aircraft. Keep the
+    // airframe's wheel-to-root offset present both in flight and on the ground
+    // so the flare does not visually dive toward the runway as contact blends.
+    visual.root.position.z += wheelOnSurfaceLift;
     // Pitch the airframe around the main gear instead of its center. Without
     // this contact correction, the main wheels sink into the runway during
     // flare and the aircraft can read as if it is rotating nose-down.
@@ -1226,8 +1229,8 @@ function flightPresentationPitch(
   motion: FlightMotionState,
 ): number {
   if (flight.phase === 'approach') {
-    // Preserve the simulated flare curve, but give its six-degree endpoint a
-    // clearly readable ten-degree attitude in the distant ATC camera.
+    // Preserve the six-degree final-approach attitude. The landing phase then
+    // raises the nose smoothly to ten degrees at main-gear contact.
     return motion.pitch * (APPROACH_PRESENTATION_PITCH / 0.105);
   }
   if (flight.phase !== 'landing') return motion.pitch;

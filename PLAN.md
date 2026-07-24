@@ -78,7 +78,7 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Surface-route indexing and geometry caching keep the large ORD graph deterministic without rebuilding thousands of nodes every movement sample.
 - [x] Taxi aircraft brake to a generated hold-short point before each uncleared runway crossing; Auto sequences safe clearances and Manual requires explicit Ground approval.
 - [x] Landing rollout leaves the centerline on a smooth path to the assigned OSM exit, and departure lineup begins at the actual hold-short node without a positional jump.
-- [x] Landing flare/touchdown reaches roughly 10.3° nose-up and takeoff rotation reaches roughly 10.9° nose-up in either runway direction.
+- [x] Landing flare/touchdown reaches roughly 10° nose-up and takeoff rotation reaches 12° nose-up in either runway direction; the airborne nose remains above the climb path.
 - [x] Surface schema v2 records 248 explicit control points, 35 operational zones, two current FAA hot spots, two sourced taxiway-bridge edges, stand compatibility, pushback headings, and ramp access.
 - [x] Cyclic and bidirectional runway-crossing geometry resolves distinct physical hold-short points on both approach sides; reverse taxi routes use the same authoritative crossing controls.
 - [x] ORD selects coherent east-flow or west-flow runway ends from wind, holds the current configuration while protected traffic is active, and reports the active configuration in the HUD and control snapshot.

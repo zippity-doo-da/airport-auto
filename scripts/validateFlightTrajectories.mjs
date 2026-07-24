@@ -93,10 +93,16 @@ for (const pitch of [THREE.MathUtils.degToRad(8), THREE.MathUtils.degToRad(12)])
       const aircraft = new THREE.Object3D();
       applyAircraftOrientation(aircraft, THREE.MathUtils.degToRad(headingDegrees), pitch, bank);
       const nose = new THREE.Vector3(1, 0, 0).applyQuaternion(aircraft.quaternion);
+      const nosePosition = new THREE.Vector3(4, 0, 0).applyQuaternion(aircraft.quaternion);
+      const tailPosition = new THREE.Vector3(-4, 0, 0).applyQuaternion(aircraft.quaternion);
       const renderedPitch = Math.atan2(nose.z, Math.hypot(nose.x, nose.y));
       assert(
         Math.abs(renderedPitch - pitch) < 1e-10,
         'aircraft orientation: positive pitch was not nose-up at heading ' + headingDegrees + '°, bank ' + bank,
+      );
+      assert(
+        nosePosition.z > tailPosition.z,
+        'aircraft orientation: physical nose was not above the tail at heading ' + headingDegrees + '°, bank ' + bank,
       );
       totals.orientationChecks += 1;
     }
@@ -136,9 +142,14 @@ for (const config of configs) {
       for (let index = 1; index < approachSamples.length; index += 1) {
         const previous = approachSamples[index - 1];
         const sample = approachSamples[index];
-        assert(horizontalDistance(previous, sample) > 1e-5, config.code + ' runway ' + runway.id + ': approach paused at sample ' + index);
+        const horizontalStep = horizontalDistance(previous, sample);
+        assert(horizontalStep > 1e-5, config.code + ' runway ' + runway.id + ': approach paused at sample ' + index);
         assert(angleDifference(previous.heading, sample.heading) < 0.08, config.code + ' seed ' + config.seed + ' runway ' + runway.id + ': approach turn snapped at sample ' + index + ' ' + JSON.stringify({ previous, sample }));
         assert(sample.z <= previousAltitude + 0.08, config.code + ' runway ' + runway.id + ': approach climbed unexpectedly at sample ' + index);
+        if (sample.stage === 'final' && previous.stage === 'final') {
+          const descentAngle = Math.atan2(previous.z - sample.z, horizontalStep);
+          assert(descentAngle < THREE.MathUtils.degToRad(7), config.code + ' runway ' + runway.id + ': final approach became an implausible dive at sample ' + index);
+        }
         previousAltitude = sample.z;
       }
 
@@ -195,10 +206,21 @@ for (const config of configs) {
           const lateral = Math.abs((sample.x - runway.center[0]) * -direction.y + (sample.y - runway.center[1]) * direction.x);
           assert(lateral < 1e-6, config.code + ' runway ' + runway.id + ': departure left the runway centerline after lineup');
         }
+        if (index > 0 && !sample.onGround && (sample.stage === 'rotation' || sample.stage === 'climbout')) {
+          const previous = departureSamples[index - 1];
+          if (previous.stage === sample.stage) {
+            const pathAngle = Math.atan2(sample.z - previous.z, horizontalDistance(previous, sample));
+            assert(
+              sample.pitch > pathAngle,
+              config.code + ' runway ' + runway.id + ': airborne departure pointed below its climb path at sample ' + index,
+            );
+          }
+        }
       }
       assert(sawRoll && sawRotation && sawClimb, config.code + ' runway ' + runway.id + ': departure sequence omitted roll, rotation, or climb');
       assert(liftoffIndex > departureSamples.length * 0.4, config.code + ' runway ' + runway.id + ': aircraft lifted off without a full runway roll');
       assert(departureSamples[liftoffIndex].distanceAlong >= runway.length * 0.42, config.code + ' runway ' + runway.id + ': aircraft lifted off too early on the runway');
+      assert(departureSamples[liftoffIndex].pitch >= THREE.MathUtils.degToRad(10), config.code + ' runway ' + runway.id + ': aircraft lifted off without a nose-up rotation');
       assert(Math.max(...departureSamples.map((sample) => sample.pitch)) >= 0.18, config.code + ' runway ' + runway.id + ': departure did not rotate to a 10-degree nose-up attitude');
       assert(takeoffEnd.z >= 30 && !takeoffEnd.onGround, config.code + ' runway ' + runway.id + ': departure did not complete its climb-out');
       const departureThreshold = {
