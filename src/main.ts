@@ -9,6 +9,18 @@ import { GATE_TURN_BUFFER_SECONDS } from './simulation/gateAssignment';
 import type { ClearanceProposal, ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, ReplayFrame, SurfaceDisruptionKind, TrafficScenario, TurnaroundServiceType, WeatherCondition } from './simulation/types';
 import { AmbientAudio, type AudioChannel, type AudioPreset } from './audio/ambientAudio';
 import { createWorld, type SurfaceLayer } from './render/createWorld';
+import { drawRadarInset } from './render/radarInset';
+import {
+  isOperationQueueFilter,
+  operationQueueRenderKey,
+  renderOperationQueueInspector,
+  type OperationQueueFilter,
+} from './ui/queueInspector';
+import {
+  renderSurfaceDisruptionPanel,
+  surfaceDisruptionPanelKey,
+  updateSurfaceDisruptionTargetOptions,
+} from './ui/surfaceDisruptionPanel';
 
 type AirportControlCommand =
   | { action: 'pause' | 'resume' | 'nextView' | 'zoomIn' | 'zoomOut' | 'resetCamera' | 'restart' }
@@ -16,6 +28,7 @@ type AirportControlCommand =
   | { action: 'setMode'; value: ControlMode }
   | { action: 'setNightMode'; enabled: boolean }
   | { action: 'setRadarVisible'; enabled: boolean }
+  | { action: 'setQueueInspectorVisible'; enabled: boolean }
   | { action: 'setRunwayLabelsVisible'; enabled: boolean }
   | { action: 'setSurfaceLayerVisible'; layer: SurfaceLayer; enabled: boolean }
   | { action: 'setMapOrientationVisible'; enabled: boolean }
@@ -132,6 +145,14 @@ const radarScope = $<HTMLCanvasElement>('#radar-scope');
 const radarAirport = $<HTMLElement>('#radar-airport');
 const radarClose = $<HTMLButtonElement>('#radar-close');
 const radarRange = $<HTMLElement>('#radar-range');
+const queueButton = $<HTMLButtonElement>('#queue-toggle');
+const queueLabel = $<HTMLElement>('#queue-label');
+const queuePanel = $<HTMLElement>('#queue-panel');
+const queueClose = $<HTMLButtonElement>('#queue-close');
+const queueCount = $<HTMLElement>('#queue-count');
+const queueFilter = $<HTMLSelectElement>('#queue-filter');
+const queueList = $<HTMLElement>('#queue-list');
+const queueLongest = $<HTMLElement>('#queue-longest');
 const scopeButton = $<HTMLButtonElement>('#scope-toggle');
 const scopeLabel = $<HTMLElement>('#scope-label');
 const brandMark = $<HTMLElement>('#brand-mark');
@@ -238,6 +259,9 @@ let activeFlightId: number | null = null;
 let routePoints: Array<{ x: number; y: number }> = [];
 let simulationSpeed = 1;
 let radarVisible = false;
+let queueInspectorVisible = false;
+let queueInspectorFilter: OperationQueueFilter = 'all';
+let queueInspectorUiKey = '';
 let windOverlayVisible = false;
 let serviceVehiclesVisible = true;
 let telemetrySequence = 0;
@@ -282,6 +306,8 @@ debugPanel.hidden = !debugEnabled;
 updateAirportUi();
 updateNightControl();
 updateRadarControl();
+updateQueueInspectorControl();
+renderQueueInspector();
 updateSurfaceDisruptionTargets();
 renderSurfaceDisruptionControls();
 renderFlightStrip();
@@ -562,6 +588,39 @@ radarClose.addEventListener('click', () => {
   setStatus('Terminal radar closed', 'unobstructed map view restored');
 });
 
+queueButton.addEventListener('click', () => {
+  queueInspectorVisible = !queueInspectorVisible;
+  updateQueueInspectorControl();
+  renderQueueInspector();
+  setStatus(queueInspectorVisible ? 'Operation queues open' : 'Operation queues closed', queueInspectorVisible ? 'live blockers and downstream dependencies explained' : 'unobstructed map view restored');
+});
+
+queueClose.addEventListener('click', () => {
+  queueInspectorVisible = false;
+  updateQueueInspectorControl();
+  setStatus('Operation queues closed', 'unobstructed map view restored');
+});
+
+queueFilter.addEventListener('change', () => {
+  if (!isOperationQueueFilter(queueFilter.value)) return;
+  queueInspectorFilter = queueFilter.value;
+  queueInspectorUiKey = '';
+  renderQueueInspector();
+});
+
+queueList.addEventListener('click', (event) => {
+  const row = (event.target as HTMLElement).closest<HTMLElement>('[data-queue-flight]');
+  if (!row) return;
+  const flightId = Number(row.dataset.queueFlight);
+  const result = executeAirportRequest({ action: 'focusFlight', flightId });
+  if (result.accepted) {
+    queueInspectorUiKey = '';
+    renderQueueInspector();
+    const flight = displayState().flights.find((candidate) => candidate.id === flightId);
+    if (flight) setStatus(`${flight.callsign} selected from queue`, flight.automaticHoldReason ?? flight.safetyHoldReason ?? 'operational dependency highlighted');
+  }
+});
+
 restartButton.addEventListener('click', () => {
   setExclusiveModal(null);
   newSession(false, config.scope === 'center' ? generateHubConfig(hubIndex) : generateAirportConfig());
@@ -699,6 +758,7 @@ function frame(now: number): void {
     updateReplayUi();
     updateOperationsHealth();
     renderSurfaceDisruptionControls();
+    if (queueInspectorVisible) renderQueueInspector();
   }
   if (simulation.state.arrivals !== lastArrivals) {
     landedCount.textContent = two(simulation.state.arrivals);
@@ -975,7 +1035,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
 function replayRecording(): ReplayRecording {
   return {
     schemaVersion: 1,
-    simulationVersion: window.airportControl?.version ?? '2.11.0',
+    simulationVersion: window.airportControl?.version ?? '2.12.0',
     recordedAt: new Date().toISOString(),
     seed: config.seed,
     airport: { code: config.code, name: config.name, scope: config.scope },
@@ -1246,82 +1306,29 @@ function setServiceVehiclesVisible(visible: boolean): void {
 }
 
 function updateSurfaceDisruptionTargets(): void {
-  const previous = surfaceDisruptionTarget.value;
-  const kind = surfaceDisruptionKind.value as Exclude<SurfaceDisruptionKind, 'disabled-aircraft'>;
-  const targets = kind === 'runway-closure'
-    ? config.runways
-        .filter((runway) => runway.role !== 'inactive')
-        .map((runway) => ({ value: String(runway.id), label: `Runway ${runway.designation?.join('/') ?? runway.id}` }))
-    : config.surfaceGraph.taxiways
-        .filter((taxiway) => taxiway.edgeIds.length > 0)
-        .filter((taxiway) => taxiway.sourceKind !== 'taxilane' || kind === 'construction')
-        .sort((first, second) => (first.reference ?? first.name).localeCompare(second.reference ?? second.name))
-        .map((taxiway) => ({ value: taxiway.id, label: taxiway.name }));
-  surfaceDisruptionTarget.replaceChildren(...targets.map((target) => {
-    const option = document.createElement('option');
-    option.value = target.value;
-    option.textContent = target.label;
-    return option;
-  }));
-  if (targets.some((target) => target.value === previous)) surfaceDisruptionTarget.value = previous;
+  updateSurfaceDisruptionTargetOptions(config, surfaceDisruptionKind, surfaceDisruptionTarget);
 }
 
 function renderSurfaceDisruptionControls(): void {
   const disruptions = displayState().surfaceDisruptions;
-  const key = [
-    config.code,
-    surfaceDisruptionKind.value,
-    simulation.state.station,
+  const panelState = {
+    airportCode: config.code,
+    elapsed: displayState().elapsed,
+    station: simulation.state.station,
     replayMode,
-    ...disruptions.map((disruption) => [
-      disruption.id,
-      disruption.status,
-      Math.floor(disruption.recoveryProgress * 20),
-      Math.max(0, Math.ceil((disruption.expectedClearAtSeconds ?? displayState().elapsed) - displayState().elapsed)),
-      disruption.reroutedFlightIds.join(','),
-    ].join(':')),
-  ].join('|');
-  const supervisor = simulation.state.station === 'supervisor';
-  surfaceDisruptionApply.disabled = replayMode || !supervisor || !surfaceDisruptionTarget.value;
-  surfaceDisruptionTarget.disabled = replayMode || !supervisor;
-  surfaceDisruptionKind.disabled = replayMode || !supervisor;
-  surfaceDisruptionDuration.disabled = replayMode || !supervisor;
+    disruptions,
+    canRecover: simulation.canIssue('ground'),
+  };
+  const key = surfaceDisruptionPanelKey(panelState, surfaceDisruptionKind.value);
   if (surfaceDisruptionUiKey === key) return;
   surfaceDisruptionUiKey = key;
-  if (!disruptions.length) {
-    const empty = document.createElement('small');
-    empty.textContent = 'All movement surfaces available.';
-    surfaceDisruptionList.replaceChildren(empty);
-    return;
-  }
-  const rows = disruptions.map((disruption) => {
-    const row = document.createElement('div');
-    row.className = 'surface-disruptions__item';
-    const copy = document.createElement('span');
-    const title = document.createElement('b');
-    title.textContent = disruption.label;
-    const remaining = disruption.expectedClearAtSeconds === undefined
-      ? ''
-      : ` · ${Math.max(0, Math.ceil(disruption.expectedClearAtSeconds - displayState().elapsed))}s`;
-    const detail = document.createElement('small');
-    detail.textContent = `${disruption.status.replace('-', ' ')}${remaining} · ${disruption.reroutedFlightIds.length} rerouted`;
-    detail.title = disruption.reason;
-    copy.append(title, detail);
-    const button = document.createElement('button');
-    button.type = 'button';
-    if (disruption.kind === 'disabled-aircraft') {
-      button.textContent = disruption.status === 'recovering' ? `${Math.round(disruption.recoveryProgress * 100)}%` : 'Recover';
-      if (disruption.flightId !== undefined) button.dataset.recoverFlight = String(disruption.flightId);
-      button.disabled = replayMode || disruption.status === 'recovering' || !simulation.canIssue('ground');
-    } else {
-      button.textContent = 'Reopen';
-      button.dataset.clearDisruption = disruption.id;
-      button.disabled = replayMode || !supervisor;
-    }
-    row.append(copy, button);
-    return row;
-  });
-  surfaceDisruptionList.replaceChildren(...rows);
+  renderSurfaceDisruptionPanel({
+    kind: surfaceDisruptionKind,
+    target: surfaceDisruptionTarget,
+    duration: surfaceDisruptionDuration,
+    apply: surfaceDisruptionApply,
+    list: surfaceDisruptionList,
+  }, panelState);
 }
 
 function updateMapOrientation(): void {
@@ -1342,93 +1349,7 @@ function updateMapOrientation(): void {
 }
 
 function drawRadar(state: typeof simulation.state): void {
-  const context = radarScope.getContext('2d');
-  if (!context) return;
-  const width = radarScope.width;
-  const height = radarScope.height;
-  const centerX = width / 2;
-  const centerY = height / 2;
-  const range = config.scope === 'center' ? 360 : 215;
-  const scale = Math.min(width, height) * 0.44 / range;
-  context.clearRect(0, 0, width, height);
-  context.fillStyle = state.nightMode ? '#031210' : '#061b19';
-  context.fillRect(0, 0, width, height);
-
-  context.strokeStyle = 'rgba(121, 200, 176, 0.18)';
-  context.lineWidth = 1.5;
-  for (const amount of [0.25, 0.5, 0.75, 1]) {
-    context.beginPath();
-    context.arc(centerX, centerY, range * scale * amount, 0, Math.PI * 2);
-    context.stroke();
-  }
-  context.beginPath();
-  context.moveTo(centerX, centerY - range * scale);
-  context.lineTo(centerX, centerY + range * scale);
-  context.moveTo(centerX - range * scale, centerY);
-  context.lineTo(centerX + range * scale, centerY);
-  context.stroke();
-
-  context.save();
-  context.translate(centerX, centerY);
-  for (const runway of config.runways) {
-    const directionX = Math.cos(runway.heading);
-    const directionY = Math.sin(runway.heading);
-    const half = runway.length / 2;
-    context.beginPath();
-    context.moveTo((runway.center[0] - directionX * half) * scale, -(runway.center[1] - directionY * half) * scale);
-    context.lineTo((runway.center[0] + directionX * half) * scale, -(runway.center[1] + directionY * half) * scale);
-    context.strokeStyle = state.closedRunway === runway.id ? 'rgba(239, 147, 127, 0.55)' : 'rgba(244, 232, 206, 0.68)';
-    context.lineWidth = Math.max(2, runway.width * scale * 0.28);
-    context.stroke();
-  }
-  context.restore();
-
-  context.font = '800 15px "Segoe UI", sans-serif';
-  context.textBaseline = 'middle';
-  const labelRows: number[] = [];
-  for (const flight of state.flights) {
-    const x = centerX + flight.motion.x * scale;
-    const y = centerY - flight.motion.y * scale;
-    if (x < 5 || y < 5 || x > width - 5 || y > height - 5) continue;
-    const arrival = flight.phase === 'approach' || flight.phase === 'landing';
-    const departure = flight.phase === 'takeoff';
-    const color = arrival ? '#80ddc7' : departure ? '#efc775' : 'rgba(188, 232, 216, 0.58)';
-    const headingX = Math.cos(flight.motion.heading);
-    const headingY = -Math.sin(flight.motion.heading);
-    context.strokeStyle = color;
-    context.fillStyle = color;
-    context.lineWidth = 2;
-    context.beginPath();
-    context.moveTo(x, y);
-    context.lineTo(x + headingX * 16, y + headingY * 16);
-    context.stroke();
-    context.beginPath();
-    if (departure) {
-      context.moveTo(x, y - 5);
-      context.lineTo(x + 5, y);
-      context.lineTo(x, y + 5);
-      context.lineTo(x - 5, y);
-      context.closePath();
-    } else context.arc(x, y, arrival ? 4.5 : 3.2, 0, Math.PI * 2);
-    context.fill();
-    if (flight.id === focusedFlightId) {
-      context.strokeStyle = '#ffffff';
-      context.lineWidth = 2;
-      context.beginPath();
-      context.arc(x, y, 10, 0, Math.PI * 2);
-      context.stroke();
-    }
-    if (arrival || departure || flight.id === focusedFlightId) {
-      let labelY = y - 8;
-      while (labelRows.some((row) => Math.abs(row - labelY) < 17)) labelY += 17;
-      labelY = Math.max(10, Math.min(height - 10, labelY));
-      labelRows.push(labelY);
-      context.fillStyle = color;
-      context.fillText(flight.callsign.replace(/\s+/g, ''), x + 10, labelY);
-    }
-  }
-  const metersPerUnit = config.vectorData?.runtimeReference.worldMetersPerUnit ?? 38;
-  radarRange.textContent = `${Math.max(1, Math.round(range * metersPerUnit / 1_852))} NM`;
+  drawRadarInset({ canvas: radarScope, rangeLabel: radarRange, config, state, focusedFlightId });
 }
 
 function renderFlightActions(): void {
@@ -1934,6 +1855,29 @@ function updateRadarControl(): void {
   lastRadarUpdate = -Infinity;
 }
 
+function updateQueueInspectorControl(): void {
+  queueButton.setAttribute('aria-pressed', String(queueInspectorVisible));
+  queueButton.setAttribute('aria-label', queueInspectorVisible ? 'Hide operation queue inspector' : 'Show operation queue inspector');
+  queueButton.classList.toggle('control--active', queueInspectorVisible);
+  queueLabel.textContent = queueInspectorVisible ? 'Queues on' : 'Queues off';
+  document.body.classList.toggle('queue-visible', queueInspectorVisible);
+  queuePanel.hidden = !queueInspectorVisible;
+  queueInspectorUiKey = '';
+}
+
+function renderQueueInspector(): void {
+  const snapshot = simulation.queueSnapshot(displayState());
+  const key = operationQueueRenderKey(snapshot, queueInspectorFilter, focusedFlightId);
+  if (key === queueInspectorUiKey) return;
+  queueInspectorUiKey = key;
+  renderOperationQueueInspector(
+    { count: queueCount, longest: queueLongest, list: queueList },
+    snapshot,
+    queueInspectorFilter,
+    focusedFlightId,
+  );
+}
+
 function newSession(paused: boolean, nextConfig = generateAirportConfig()): void {
   const mode = simulation.state.mode;
   const nightMode = simulation.state.nightMode;
@@ -1975,6 +1919,8 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   updateModeControl();
   updateNightControl();
   updateRadarControl();
+  updateQueueInspectorControl();
+  renderQueueInspector();
   updateSurfaceDisruptionTargets();
   surfaceDisruptionUiKey = '';
   renderSurfaceDisruptionControls();
@@ -2264,7 +2210,7 @@ function airportSnapshot() {
   const diagnostics = simulation.diagnostics();
   const movingPhases = new Set(['approach', 'landing', 'taxi-in', 'taxi-out', 'takeoff']);
   return {
-    schemaVersion: 13,
+    schemaVersion: 14,
     airport: {
       code: config.code,
       name: config.name,
@@ -2332,6 +2278,7 @@ function airportSnapshot() {
     mode: simulation.state.mode,
     nightMode: simulation.state.nightMode,
     radarVisible,
+    queueInspectorVisible,
     windOverlayVisible,
     serviceVehiclesVisible,
     station: simulation.state.station,
@@ -2369,6 +2316,7 @@ function airportSnapshot() {
       durationSeconds: replayFrames.length ? replayFrames[replayFrames.length - 1].clock - replayFrames[0].clock : 0,
     },
     traffic: diagnostics,
+    queues: diagnostics.queues,
     surfaceDisruptions: simulation.state.surfaceDisruptions.map((disruption) => ({
       ...disruption,
       edgeIds: [...disruption.edgeIds],
@@ -2836,6 +2784,11 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
     radarVisible = command.enabled;
     updateRadarControl();
   }
+  if (command.action === 'setQueueInspectorVisible') {
+    queueInspectorVisible = command.enabled;
+    updateQueueInspectorControl();
+    renderQueueInspector();
+  }
   if (command.action === 'setRunwayLabelsVisible') setRunwayLabelsVisible(command.enabled);
   if (command.action === 'setSurfaceLayerVisible') {
     accepted = ['taxiway-labels', 'operational-zones', 'hotspots', 'airport-boundary'].includes(command.layer);
@@ -2950,7 +2903,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
 }
 
 window.airportControl = {
-  version: '2.11.0',
+  version: '2.12.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },
@@ -2968,6 +2921,7 @@ window.airportControl = {
       mode: "airportControl.command({ action: 'setMode', value: 'auto' })",
       nightMode: "airportControl.command({ action: 'setNightMode', enabled: true })",
       radar: "airportControl.command({ action: 'setRadarVisible', enabled: true })",
+      queues: "airportControl.request({ action: 'setQueueInspectorVisible', enabled: true })",
       mapLayer: "airportControl.command({ action: 'setSurfaceLayerVisible', layer: 'hotspots', enabled: true })",
       mapOrientation: "airportControl.command({ action: 'setMapOrientationVisible', enabled: true })",
       windOverlay: "airportControl.command({ action: 'setWindOverlayVisible', enabled: true })",
@@ -3058,6 +3012,11 @@ if (launchOptions.get('night') === '1') {
 if (launchOptions.get('radar') === '1') {
   radarVisible = true;
   updateRadarControl();
+}
+if (launchOptions.get('queues') === '1') {
+  queueInspectorVisible = true;
+  updateQueueInspectorControl();
+  renderQueueInspector();
 }
 const launchScenario = (launchOptions.get('scenario') ?? (soakEnabled ? 'rush' : null)) as TrafficScenario | null;
 if (launchScenario && ['normal', 'rush', 'storm', 'closure', 'training', 'emergency'].includes(launchScenario)) setScenario(launchScenario);

@@ -2,11 +2,11 @@ import * as THREE from 'three';
 import type { AirportConfig, FlightColor, RunwayConfig, RunwayOperationalRole } from '../simulation/airportConfig';
 import { aircraftProfile } from '../simulation/aircraftProfiles';
 import { airlineProfile } from '../simulation/airlineProfiles';
-import type { AirportState, Flight, FlightMotionState, ServiceVehicleType, SurfaceDisruptionKind } from '../simulation/types';
+import type { AirportState, Flight, FlightMotionState, ServiceVehicleType } from '../simulation/types';
 import { applyAircraftOrientation } from './aircraftOrientation';
 import { createAirportContext, type AirportContextDiagnostics } from './airportContext';
 import { treePlacement } from './sceneryPlacement';
-import { surfaceDisruptionPosition } from '../simulation/surfaceDisruptions';
+import { updateSurfaceDisruptionVisuals } from './surfaceDisruptionVisuals';
 
 type FlightVisual = {
   poolKey: string;
@@ -311,7 +311,14 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
       visual.closure.visible = closed;
       for (const label of visual.labels) label.visible = runwayLabelsVisible;
     }
-    updateSurfaceDisruptionVisuals(state);
+    updateSurfaceDisruptionVisuals({
+      state,
+      graph: config.surfaceGraph,
+      scope: config.scope,
+      layer: disruptionLayer,
+      visuals: disruptionVisuals,
+      dispose: disposeObject,
+    });
     updateRain(rain, state, delta);
     for (const visual of flightVisuals.values()) visual.active = false;
 
@@ -463,44 +470,6 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     const drift = reducedMotion || manualCameraActive ? 0 : 1;
     applyCameraPose(drift);
     renderer.render(scene, camera);
-  }
-
-  function updateSurfaceDisruptionVisuals(state: AirportState): void {
-    const visible = state.surfaceDisruptions.filter((disruption) => disruption.kind !== 'runway-closure');
-    const visibleIds = new Set(visible.map((disruption) => disruption.id));
-    for (const [id, marker] of disruptionVisuals) {
-      if (visibleIds.has(id)) continue;
-      disruptionLayer.remove(marker);
-      disposeObject(marker);
-      disruptionVisuals.delete(id);
-    }
-    const nodeById = new Map(config.surfaceGraph.nodes.map((node) => [node.id, node]));
-    const edgeById = new Map(config.surfaceGraph.edges.map((edge) => [edge.id, edge]));
-    for (const disruption of visible) {
-      let marker = disruptionVisuals.get(disruption.id);
-      if (!marker) {
-        marker = createSurfaceDisruptionMarker(disruption.kind);
-        disruptionVisuals.set(disruption.id, marker);
-        disruptionLayer.add(marker);
-      }
-      const flight = disruption.flightId === undefined
-        ? undefined
-        : state.flights.find((candidate) => candidate.id === disruption.flightId);
-      const position = flight
-        ? [flight.motion.x, flight.motion.y] as [number, number]
-        : surfaceDisruptionPosition(config.surfaceGraph, disruption);
-      marker.visible = Boolean(position);
-      if (!position) continue;
-      marker.position.set(position[0], position[1], 1.72);
-      const edge = edgeById.get(disruption.edgeIds[0]);
-      const from = edge ? nodeById.get(edge.from) : undefined;
-      const to = edge ? nodeById.get(edge.to) : undefined;
-      marker.rotation.z = from && to ? Math.atan2(to.position[1] - from.position[1], to.position[0] - from.position[0]) : 0;
-      const baseScale = config.scope === 'center' ? 0.78 : 1;
-      const recoveryPulse = disruption.status === 'recovering' ? 1 + Math.sin(state.elapsed * 4.5) * 0.08 : 1;
-      marker.scale.setScalar(baseScale * recoveryPulse);
-      marker.userData.status = disruption.status;
-    }
   }
 
   function applyCameraPose(drift: number): void {
@@ -2103,50 +2072,6 @@ function ringCenter(ring: Array<[number, number]>): [number, number] {
 
 function distance2(first: [number, number], second: [number, number]): number {
   return (first[0] - second[0]) ** 2 + (first[1] - second[1]) ** 2;
-}
-
-function createSurfaceDisruptionMarker(kind: SurfaceDisruptionKind): THREE.Group {
-  const group = new THREE.Group();
-  group.name = `surface-disruption-${kind}`;
-  const orange = new THREE.MeshStandardMaterial({ color: 0xe48d42, roughness: 0.62, emissive: 0x54240d, emissiveIntensity: 0.22 });
-  const ivory = new THREE.MeshStandardMaterial({ color: 0xf1e5c8, roughness: 0.7 });
-  const red = new THREE.MeshStandardMaterial({ color: 0xc5554f, roughness: 0.58, emissive: 0x4b1010, emissiveIntensity: 0.25 });
-
-  if (kind === 'construction') {
-    for (let index = -2; index <= 2; index += 1) {
-      const cone = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.9, 8), index % 2 ? ivory : orange);
-      cone.rotation.x = Math.PI / 2;
-      cone.position.set(index * 0.9, 0, 0);
-      cone.castShadow = true;
-      group.add(cone);
-    }
-    const barrier = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.28, 0.28), orange);
-    barrier.position.z = 0.65;
-    barrier.castShadow = true;
-    group.add(barrier);
-    return group;
-  }
-
-  if (kind === 'disabled-aircraft') {
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(2.25, 0.22, 8, 32), orange);
-    ring.position.z = -0.35;
-    group.add(ring);
-    for (const x of [-1.4, 1.4]) {
-      const beacon = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.38, 0.7, 8), red);
-      beacon.rotation.x = Math.PI / 2;
-      beacon.position.set(x, -1.6, 0.05);
-      group.add(beacon);
-    }
-    return group;
-  }
-
-  for (const angle of [-0.55, 0.55]) {
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(4.7, 0.5, 0.42), angle < 0 ? red : ivory);
-    bar.rotation.z = angle;
-    bar.castShadow = true;
-    group.add(bar);
-  }
-  return group;
 }
 
 function disposeObject(object: THREE.Object3D): void {

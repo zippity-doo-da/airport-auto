@@ -49,6 +49,7 @@ Useful real-world references for future fidelity work:
 - A disabled surface aircraft protects its occupied resource until Ground/automatic recovery completes a modeled tow and inspection; closing the last usable arrival or departure runway is rejected.
 - Runway entry, crossing, and takeoff are distinct clearances.
 - Runway reservations protect intersecting and occupied runways while still permitting independent parallel operations.
+- The queue inspector reports the active gate, ramp, taxi, crossing, runway, wake, weather, and downstream dependency from authoritative state, including causal traffic and shared-resource position; it never invents a separate movement decision.
 - Physical envelopes and broader airborne/surface separation envelopes are checked before movement is committed.
 - Gate slots cannot be reused while physically occupied; future non-overlapping assignment windows may reuse a stand, while surface traffic reserves upcoming nodes and edges, exclusive stand paths, directional alleys, and ramp-zone capacity.
 - Vehicle-backed tasks cannot start before their equipment reaches the stand; pushback cannot start until that equipment clears the stand lane.
@@ -62,6 +63,7 @@ Useful real-world references for future fidelity work:
 - Taxiway naming is partial and schematic; ramp-control jurisdictions derive from sourced apron polygons rather than current airline or controller agreements.
 - Approach and departure procedure names are descriptive placeholders, not published SID/STAR data.
 - Wake class affects spacing, but the game does not reproduce every FAA separation category or local waiver. The E175 and Q400 use the medium game category, not the former misleading light label.
+- A `wake` queue entry currently explains the compressed game-scale arrival-release meter. It is not a statement of physical miles or FAA wake minima.
 - Gate assignment uses 40 sampled playable stands rather than all 199 real passenger gates; airline affinities are schematic, scheduled windows are simulation time rather than a live airline feed, and actual leases/irregular operations are not reproduced.
 - Pushback uses a compact procedural tug and graph-derived ramp release. Turnaround equipment uses stylized procedural vehicle families rather than airline-specific models; individually routed deicing rigs, detailed fluid/inspection rules, emergency-response staging, tow-route choreography, NOTAM ingestion, and live METAR/traffic feeds are not yet modeled.
 - Manufacturer airport-planning manuals and FAA taxiway-design guidance bound the ground model, but its speeds, radii, and imported edge-clearance corridors remain entertainment-scale parameters—not dispatch or airport-engineering data.

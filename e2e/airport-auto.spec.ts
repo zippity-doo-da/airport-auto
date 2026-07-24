@@ -9,11 +9,11 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await page.goto('/?airport=ORD&mode=assisted&station=supervisor&autostart=1&detail=low');
   await expect(page.locator('#airport-name')).toContainText('O’Hare');
   await expect(page.locator('#flight-strip-count')).toContainText('aircraft');
-  await page.waitForFunction(() => window.airportControl?.version === '2.11.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.12.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
-  expect(initial.schemaVersion).toBe(13);
+  expect(initial.schemaVersion).toBe(14);
   expect(initial.mode).toBe('assisted');
   expect(initial.airport.code).toBe('ORD');
   expect(initial.renderer.camera).toMatchObject({
@@ -170,6 +170,8 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   expect(initial.traffic.obstacleCollisions).toHaveLength(0);
   expect(initial.traffic.serviceVehicleConflicts).toHaveLength(0);
   expect(initial.traffic.serviceVehicleRouteViolations).toHaveLength(0);
+  expect(initial.queues.total).toBeGreaterThan(0);
+  expect(initial.queues.counts).toMatchObject({ gate: expect.any(Number), ramp: expect.any(Number), taxi: expect.any(Number), crossing: expect.any(Number), runway: expect.any(Number), wake: expect.any(Number), weather: expect.any(Number), downstream: expect.any(Number) });
   const focusCandidate = initial.flights.find((flight) => flight.phase === 'approach')!;
   await page.evaluate((flightId) => window.airportControl.request({ action: 'focusFlight', flightId }), focusCandidate.id);
   await expect(page.locator('#flight-actions')).toBeVisible();
@@ -187,6 +189,16 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await page.screenshot({ path: testInfo.outputPath('terminal-radar.png') });
   await page.locator('#radar-close').click();
   await expect(page.locator('#radar-panel')).toBeHidden();
+  const queueResult = await page.evaluate(() => window.airportControl.request({ action: 'setQueueInspectorVisible', enabled: true }));
+  expect(queueResult.accepted).toBeTruthy();
+  await expect(page.locator('#queue-panel')).toBeVisible();
+  await expect(page.locator('#queue-count')).toContainText('waiting');
+  await expect(page.locator('#queue-list .queue-entry').first()).toBeVisible();
+  await page.locator('#queue-filter').selectOption('runway');
+  await expect(page.locator('#queue-list')).toContainText(/runway|rwy|arrival|departure/i);
+  await page.screenshot({ path: testInfo.outputPath('operation-queues.png') });
+  await page.locator('#queue-close').click();
+  await expect(page.locator('#queue-panel')).toBeHidden();
   const initialCamera = initial.renderer.camera;
   await page.locator('#scene').evaluate((canvas) => {
     const rect = canvas.getBoundingClientRect();
@@ -387,7 +399,7 @@ test('ORD snow exposes the deicing route and holdover model in the normal UI', a
   test.skip(testInfo.project.name !== 'desktop-chromium', 'Winter operations are viewport-independent and covered once in Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=auto&autostart=1&detail=low&weather=snow&windDir=270&wind=12');
-  await page.waitForFunction(() => window.airportControl?.version === '2.11.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.12.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
   await page.locator('#menu-toggle').click();
@@ -438,7 +450,7 @@ test('Go-around climbs from the live pose and flies a visible missed-approach pa
   test.skip(testInfo.project.name !== 'desktop-chromium', 'The authoritative go-around is viewport-independent and covered once in Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ATL&mode=auto&autostart=1&detail=low&speed=3');
-  await page.waitForFunction(() => window.airportControl?.version === '2.11.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.12.0');
   await page.waitForFunction(() => {
     const flight = window.airportControl.snapshot().flights.find((candidate) => candidate.phase === 'approach');
     return Boolean(flight && flight.progress > 0.18);
@@ -472,7 +484,7 @@ test('Mobile Watch mode keeps non-ORD and procedural maps navigable in low detai
   test.skip(testInfo.project.name !== 'mobile-chromium', 'This test is the dedicated responsive/mobile browser gate.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ATL&mode=watch&autostart=1&detail=low');
-  await page.waitForFunction(() => window.airportControl?.version === '2.11.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.12.0');
   await expect(page.locator('body')).toHaveClass(/watch-mode/);
   await expect(page.locator('#menu-toggle')).toBeVisible();
   await expect(page.locator('#zoom-in')).toBeVisible();
@@ -508,6 +520,12 @@ test('Mobile Watch mode keeps non-ORD and procedural maps navigable in low detai
   await page.screenshot({ path: testInfo.outputPath('mobile-watch.png') });
   await page.locator('#radar-close').click();
   await expect(page.locator('#radar-panel')).toBeHidden();
+  const queueResult = await page.evaluate(() => window.airportControl.request({ action: 'setQueueInspectorVisible', enabled: true }));
+  expect(queueResult.accepted).toBeTruthy();
+  await expect(page.locator('#queue-panel')).toBeVisible();
+  expect(await page.locator('#queue-panel').evaluate((element) => element.getBoundingClientRect().width)).toBeLessThanOrEqual(280);
+  await page.screenshot({ path: testInfo.outputPath('mobile-queues.png') });
+  await page.locator('#queue-close').click();
 
   await page.evaluate(() => window.airportControl.request({ action: 'selectAirport', code: 'LOCAL' }));
   await page.waitForFunction(() => window.airportControl.snapshot().airport.code === 'LOCAL');

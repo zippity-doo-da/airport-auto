@@ -17,6 +17,7 @@ import { advanceServiceVehicleMotion, availableVehicleServices, createServiceVeh
 import { applyDeicingRoutePlan, createDeicingState, deicingFacilities, deicingMovementLimit, deicingReleaseValid, markDeicingNotRequired, markStartupPretreated, planDeicingTaxiRoute, winterDeicingRequired } from './deicingOperations';
 import { selectRunwayExit } from './runwayExitSelection';
 import { resolveSurfaceDisruptionTarget, runwayClosedByDisruption, surfaceDisruptionBlockedEdgeIds, surfaceDisruptionsForRoute } from './surfaceDisruptions';
+import { buildOperationQueueSnapshot, type OperationQueueSnapshot } from './operationQueues';
 
 const PHASE_DURATION: Record<FlightPhase, number> = {
   approach: 38,
@@ -804,10 +805,20 @@ export class AirportSimulation {
     return result;
   }
 
+  queueSnapshot(state: AirportState = this.state): OperationQueueSnapshot {
+    return buildOperationQueueSnapshot(this.config, state, {
+      stationarySeconds: state === this.state ? this.stationarySeconds : undefined,
+      runwayReservations: state === this.state ? this.runwayReservations : undefined,
+      nextArrivalIn: state === this.state ? Math.max(0, this.spawnIn) : undefined,
+      approachCapacity: this.weatherApproachCapacity(),
+    });
+  }
+
   diagnostics(): { flow: 'continuous'; approachCapacity: number; nextArrivalIn: number; activeFlights: number; runwayReservations: Array<{ runway: number; flight: number }>; scenario: TrafficScenario; closedRunway: number | null; predictions: ConflictPrediction[]; collisions: ReturnType<typeof findFlightConflicts>; obstacleCollisions: ReturnType<typeof findObstacleConflicts>;
     serviceVehicleConflicts: ReturnType<typeof findServiceVehicleConflicts>;
     serviceVehicleRouteViolations: ReturnType<typeof serviceVehicleRouteViolations>;
     surfaceDisruptions: SurfaceDisruptionState[];
+    queues: OperationQueueSnapshot;
     deicing: { facilities: ReturnType<typeof deicingFacilities>; required: number; queued: number; treating: number; protected: number; expired: number };
     collisionEnvelopes: { aircraft: ReturnType<typeof aircraftCollisionEnvelope>[]; obstacles: AirportConfig['obstacles'] }; metrics: ShiftMetrics; surfaceGraph: SurfaceGraphValidation; obstacleEnvelopes: AirportObstacleValidation } {
     return {
@@ -828,6 +839,7 @@ export class AirportSimulation {
         edgeIds: [...disruption.edgeIds],
         reroutedFlightIds: [...disruption.reroutedFlightIds],
       })),
+      queues: this.queueSnapshot(),
       deicing: {
         facilities: deicingFacilities(this.config.surfaceGraph),
         required: this.state.flights.filter((flight) => flight.deicing.required).length,
