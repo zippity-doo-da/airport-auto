@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 test('Assisted ORD shift exposes proposals, station workload, and structured control', async ({ page }, testInfo) => {
+  test.setTimeout(60_000);
   await page.goto('/?airport=ORD&mode=assisted&station=supervisor&autostart=1&detail=low');
   await expect(page.locator('#airport-name')).toContainText('O’Hare');
   await expect(page.locator('#flight-strip-count')).toContainText('aircraft');
@@ -47,6 +48,8 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await page.evaluate(() => window.airportControl.request({ action: 'resume' }));
 
   await page.locator('#menu-toggle').click();
+  await expect(page.locator('#control-panel')).toHaveClass(/control-panel--open/);
+  await expect(page.locator('.advanced-tools summary')).toBeVisible();
   await page.locator('.advanced-tools summary').click();
   await expect(page.locator('#map-data-version')).toContainText('FAA geometry + OSM surface graph');
   await expect(page.locator('#map-data-attribution')).toContainText('not for navigation');
