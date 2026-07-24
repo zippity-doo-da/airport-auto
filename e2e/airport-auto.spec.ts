@@ -8,11 +8,11 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await page.goto('/?airport=ORD&mode=assisted&station=supervisor&autostart=1&detail=low');
   await expect(page.locator('#airport-name')).toContainText('O’Hare');
   await expect(page.locator('#flight-strip-count')).toContainText('aircraft');
-  await page.waitForFunction(() => window.airportControl?.version === '2.5.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.6.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
-  expect(initial.schemaVersion).toBe(7);
+  expect(initial.schemaVersion).toBe(8);
   expect(initial.mode).toBe('assisted');
   expect(initial.airport.code).toBe('ORD');
   expect(initial.airport.vectorData?.layerCounts.runways).toBe(8);
@@ -43,6 +43,13 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
     && flow.leadOut.direction === 'outbound'
     && flow.leadIn.edgeIds[0] === flow.leadOut.edgeIds[0]
   ))).toBeTruthy();
+  expect(initial.surfaceGraph.gatePlanning).toMatchObject({
+    model: 'scheduled-stand-reservations',
+    turnBufferSeconds: 18,
+  });
+  expect(initial.surfaceGraph.gatePlanning.factors).toEqual(expect.arrayContaining([
+    'airline', 'terminal', 'aircraft-size', 'service-type', 'arrival-time', 'next-departure-route',
+  ]));
   const zoneKinds = new Set(initial.surfaceGraph.zones.map((zone) => zone.kind));
   for (const kind of ['terminal-complex', 'terminal-apron', 'cargo-ramp', 'general-aviation', 'deicing-pad', 'holding-pad', 'maintenance', 'remote-ramp', 'perimeter-route']) {
     expect(zoneKinds.has(kind)).toBeTruthy();
@@ -71,6 +78,22 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   expect(initial.flights.some((flight) => flight.phase === 'approach')).toBeTruthy();
   expect(initial.flights.some((flight) => flight.phase === 'taxi-out' || flight.phase === 'resting')).toBeTruthy();
   expect(initial.flights.some((flight) => flight.gate?.ref)).toBeTruthy();
+  expect(initial.flights.every((flight) => (
+    flight.gate?.assignment
+    && flight.gate.id === flight.stand
+    && flight.gate.assignment.scheduledDepartureSeconds >= flight.gate.assignment.scheduledGateInSeconds
+    && flight.gate.assignment.nextDestination !== initial.airport.code
+    && flight.gate.assignment.zoneName.length > 0
+    && flight.gate.assignment.rationale.length >= 4
+  ))).toBeTruthy();
+  expect(initial.flights.some((flight) => flight.gate?.assignment?.airlineFit === 'preferred')).toBeTruthy();
+  expect(initial.flights.filter((flight) => flight.airline.code === 'UA' && flight.service === 'passenger').every((flight) => ['B', 'C', 'E', 'F', 'G'].includes(flight.gate?.concourse))).toBeTruthy();
+  expect(initial.flights.filter((flight) => flight.airline.code === 'AA' && flight.service === 'passenger').every((flight) => ['G', 'H', 'K', 'L'].includes(flight.gate?.concourse))).toBeTruthy();
+  expect(initial.flights.filter((flight) => flight.service === 'cargo').every((flight) => (
+    flight.gate?.assignment?.serviceArea === 'cargo-ramp'
+    && flight.gate.assignment.zoneName.includes('Cargo')
+  ))).toBeTruthy();
+  await expect(page.locator('.flight-chip__detail').filter({ hasText: 'planned' }).first()).toBeVisible();
   const taxiingFlight = initial.flights.find((flight) => flight.phase === 'taxi-in' || flight.phase === 'taxi-out');
   expect(taxiingFlight?.aircraft).toMatchObject({
     taxiAccelerationMps2: expect.any(Number),
@@ -95,6 +118,7 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   expect(['left', 'right', 'straight']).toContain(pushReady?.groundOperation.pushbackDirection);
   expect(pushReady?.groundOperation.rampControlZoneId).toMatch(/^RAMP-/);
   expect(pushReady?.groundOperation.alleyId).toEqual(expect.any(String));
+  expect(pushReady?.gate?.assignment).toMatchObject({ status: 'occupied', nextDestination: expect.any(String) });
   expect(initial.traffic.collisions).toHaveLength(0);
   expect(initial.traffic.obstacleCollisions).toHaveLength(0);
   await page.evaluate(() => window.airportControl.request({ action: 'setStation', station: 'ground' }));
@@ -220,7 +244,7 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
 
 test('Mobile Watch mode keeps controls readable and uses low-detail rendering', async ({ page }, testInfo) => {
   await page.goto('/?airport=ORD&mode=watch&autostart=1&detail=low');
-  await page.waitForFunction(() => window.airportControl?.version === '2.5.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.6.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
   await expect(page.locator('body')).toHaveClass(/watch-mode/);
   await expect(page.locator('#menu-toggle')).toBeVisible();

@@ -19,7 +19,7 @@ The high-arrival plans are gameplay implementations based on configurations eval
 
 Configuration changes use a drain-then-switch rule. The complete old plan—including ends, arrival/departure roles, markings, and lights—stays authoritative while affected approach, landing, taxi-in, taxi-out, or takeoff traffic clears. New arrivals and taxi-out releases are metered during that interval. The complete target plan is then applied in one fixed step; there is no mixed partial state.
 
-The terminal apron is geometrically separated from perimeter taxi routes and runway-access spurs. Stands have unique occupancy and explicit lead-in/lead-out paths, while sourced apron polygons define finite-capacity ramp-control zones. Named ramp alleys receive directional flow locks: following traffic may proceed, but opposing traffic waits until the alley clears. Taxi routes follow the imported graph and add live congestion costs when alternatives exist. These remain readable game abstractions, not a one-for-one transcription of current controller instructions.
+The terminal apron is geometrically separated from perimeter taxi routes and runway-access spurs. Stands have unique physical occupancy and explicit lead-in/lead-out paths, while sourced apron polygons define finite-capacity ramp-control zones. Named ramp alleys receive directional flow locks: following traffic may proceed, but opposing traffic waits until the alley clears. Taxi routes follow the imported graph and add live congestion costs when alternatives exist. Gate plans reserve non-overlapping future windows and score airline/terminal affinity, aircraft fit, passenger/cargo service, arrival time, and both arrival and departure taxi routes. These remain readable game abstractions, not a one-for-one transcription of current controller or airline agreements.
 
 Useful real-world references for future fidelity work:
 
@@ -30,6 +30,9 @@ Useful real-world references for future fidelity work:
 - Airbus aircraft characteristics and airport-planning manuals: https://www.aircraft.airbus.com/en/customer-care/fleet-wide-care/airport-operations-and-aircraft-characteristics/aircraft-characteristics
 - Boeing airplane characteristics for airport planning: https://www.boeing.com/commercial/airports/plan-manuals
 - Chicago Department of Aviation airport operations: https://www.flychicago.com/community/ORDnoise/AirportOperations/Pages/default.aspx
+- Chicago Department of Aviation 2026 gate reallocation: https://www.flychicago.com/business/media/news/pages/article.aspx?newsid=1959
+- Chicago Department of Aviation O'Hare facility inventory: https://www.flychicago.com/business/cda/factsfigures/pages/facility.aspx
+- Chicago Department of Aviation cargo overview: https://flychicago.com/business/cargo/pages/default.aspx
 - FAA O'Hare Terminal Area Plan Final Environmental Assessment, Chapter 4: https://www.faa.gov/sites/faa.gov/files/TAP_Final_EA_Chapter_4.pdf
 - FAA O'Hare runway utilization: https://www.faa.gov/airports/airport_development/omp/faq/runway_utilization
 
@@ -44,7 +47,7 @@ Useful real-world references for future fidelity work:
 - Runway entry, crossing, and takeoff are distinct clearances.
 - Runway reservations protect intersecting and occupied runways while still permitting independent parallel operations.
 - Physical envelopes and broader airborne/surface separation envelopes are checked before movement is committed.
-- Gate slots cannot be reused while occupied; surface traffic reserves upcoming nodes and edges, exclusive stand paths, directional alleys, and ramp-zone capacity.
+- Gate slots cannot be reused while physically occupied; future non-overlapping assignment windows may reuse a stand, while surface traffic reserves upcoming nodes and edges, exclusive stand paths, directional alleys, and ramp-zone capacity.
 - Auto and Watch issue the same discrete clearances that a Manual controller must issue; Assisted proposes and explains those commands without silently executing them.
 - Simulation speed advances one shared clock; taxiing does not secretly run at a different multiplier.
 
@@ -54,6 +57,7 @@ Useful real-world references for future fidelity work:
 - Taxiway naming is partial and schematic; ramp-control jurisdictions derive from sourced apron polygons rather than current airline or controller agreements.
 - Approach and departure procedure names are descriptive placeholders, not published SID/STAR data.
 - Wake class affects spacing, but the game does not reproduce every FAA separation category or local waiver. The E175 and Q400 use the medium game category, not the former misleading light label.
+- Gate assignment uses 40 sampled playable stands rather than all 199 real passenger gates; airline affinities are schematic, scheduled windows are simulation time rather than a live airline feed, and actual leases/irregular operations are not reproduced.
 - Pushback uses a compact procedural tug and graph-derived ramp release; detailed tug types, service vehicles, deicing queues, NOTAM ingestion, and live METAR/traffic feeds are not yet modeled.
 - Manufacturer airport-planning manuals and FAA taxiway-design guidance bound the ground model, but its speeds, radii, and imported edge-clearance corridors remain entertainment-scale parameters—not dispatch or airport-engineering data.
 - O'Hare ships versioned offline OSM surface and surrounding-context assets; other hubs retain procedural surroundings.

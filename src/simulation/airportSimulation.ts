@@ -3,7 +3,7 @@ import type { AirportEvent, AirportState, ClearanceProposal, ConflictPrediction,
 import { AIRCRAFT_ROSTER, aircraftProfile, type AircraftModel } from './aircraftProfiles';
 import { AIRPORT_AIRLINES, airlineProfile, type AirlineCode } from './airlineProfiles';
 import { aircraftCollisionEnvelope, findFlightConflicts, findObstacleConflicts, findProposedConflict } from './collisionDetection';
-import { sampleSurfaceRouteWithEdges, surfacePushbackPlan, surfaceRouteCrossingWindows, surfaceRouteForFlight, surfaceRouteRunwayCrossings, surfaceStandSupportsAircraft, validateAirportSurfaceGraph, type SurfaceGraphValidation, type SurfaceRoute, type SurfaceRouteCrossingWindow } from './surfaceGraph';
+import { sampleSurfaceRouteWithEdges, surfacePushbackPlan, surfaceRouteCrossingWindows, surfaceRouteForFlight, surfaceRouteRunwayCrossings, validateAirportSurfaceGraph, type SurfaceGraphValidation, type SurfaceRoute, type SurfaceRouteCrossingWindow } from './surfaceGraph';
 import { validateAirportObstacleEnvelopes, type AirportObstacleValidation } from './airportObstacles';
 import { departureTrajectoryTiming, landingTrajectoryTiming } from './flightTrajectory';
 import { runwaySupportsAircraft, WORLD_METERS_PER_UNIT } from './runwayPerformance';
@@ -11,6 +11,7 @@ import { sampleAircraftSurfaceMotion } from './surfaceMotion';
 import { progressAfterDistance, syncFlightMotion } from './flightMotion';
 import { intersectingRunways, runwaysConflict } from './runwayConflict';
 import { SurfaceReservationLedger, surfaceCongestionPlanning, surfaceRouteOperationalState, surfaceRouteReservationClaims, type SurfaceReservationClaim, type SurfaceTrafficMovement } from './surfaceOperations';
+import { GATE_TURN_BUFFER_SECONDS, gateReservationsOverlap, planGateAssignment, type GateReservation } from './gateAssignment';
 
 const PHASE_DURATION: Record<FlightPhase, number> = {
   approach: 38,
@@ -747,10 +748,21 @@ export class AirportSimulation {
         flight.pushbackProgress = Math.max(0, Math.min(1, flight.progress / Math.max(0.001, flight.pushbackReleaseProgress)));
         flight.tugAttached = flight.pushbackProgress < 1;
         flight.engineState = flight.pushbackProgress < 0.62 ? 'starting' : 'running';
+        if (flight.gateAssignment && flight.pushbackProgress >= 1) {
+          flight.gateAssignment.actualGateInSeconds ??= Math.max(0, this.state.elapsed - this.plannedTurnaroundDuration(flight.id));
+          flight.gateAssignment.scheduledGateInSeconds = flight.gateAssignment.actualGateInSeconds;
+          flight.gateAssignment.actualGateOutSeconds = this.state.elapsed;
+          flight.gateAssignment.scheduledDepartureSeconds = this.state.elapsed;
+        }
         this.updateSurfaceRouteState(flight);
       } else {
         flight.progress = 1;
         flight.phaseElapsed = flight.duration;
+        if (flight.gateAssignment) {
+          flight.gateAssignment.actualGateInSeconds = Math.max(0, this.state.elapsed - flight.duration);
+          flight.gateAssignment.scheduledGateInSeconds = flight.gateAssignment.actualGateInSeconds;
+          flight.gateAssignment.scheduledDepartureSeconds = this.state.elapsed + 8;
+        }
       }
       syncFlightMotion(this.config, flight);
       this.events = this.events.filter((event) => !(event.flight.id === flight.id && event.type === 'auto-clear'));
@@ -782,8 +794,6 @@ export class AirportSimulation {
       && runwaySupportsAircraft(item, aircraft, 'takeoff')
     ));
     if (departureRunways.length === 0) return null;
-    const gateSlot = this.availableGateSlot(aircraft);
-    if (gateSlot === null) return null;
     const departureRunway = [...departureRunways].sort((first, second) => this.headwindComponent(second.id) - this.headwindComponent(first.id))[(id - 1) % departureRunways.length].id;
     const automatic = this.isAutomaticMode();
     const airline = airlineProfile(airlineCode);
@@ -792,13 +802,34 @@ export class AirportSimulation {
     const registration = this.registrationFor(airlineCode, id);
     const service = airline.cargo || profile.category === 'cargo' ? 'cargo' : 'passenger';
     const approachDuration = this.phaseDuration(aircraft, 'approach', runway);
+    const operatingEnd = this.preferredOperatingEnd(runway);
+    const nextDestination = this.originFor(id + 5);
+    const gateAssignment = planGateAssignment({
+      config: this.config,
+      flightId: id,
+      aircraft,
+      airline: airlineCode,
+      service,
+      arrivalRunway: runway,
+      arrivalOperatingEnd: operatingEnd,
+      departureRunway,
+      departureOperatingEnd: this.preferredOperatingEnd(departureRunway),
+      readyForTaxiAtSeconds: this.state.elapsed + approachDuration + this.phaseDuration(aircraft, 'landing', runway),
+      turnaroundSeconds: this.plannedTurnaroundDuration(id),
+      nextDestination,
+      assignedAtSeconds: this.state.elapsed,
+      reservations: this.gateReservations(),
+    });
+    if (!gateAssignment) return null;
+    const gateSlot = gateAssignment.gateSlot;
+    const stand = this.config.surfaceGraph.stands.find((candidate) => candidate.id === gateAssignment.standId);
     const flight: Flight = {
       id,
       callsign: `${airline.callsign} ${flightNumber}`,
       palette: runwayConfig.color,
       runway,
       departureRunway,
-      operatingEnd: this.preferredOperatingEnd(runway),
+      operatingEnd,
       phase: 'approach',
       progress: 0,
       phaseElapsed: 0,
@@ -806,8 +837,9 @@ export class AirportSimulation {
       cleared: automatic,
       clearanceLeft: automatic ? 99 : approachDuration * 0.96,
       gateSlot,
+      gateAssignment,
       pushbackCleared: false,
-      pushbackDirection: this.config.surfaceGraph.stands.find((stand) => stand.slot === gateSlot)?.pushbackDirection ?? 'straight',
+      pushbackDirection: stand?.pushbackDirection ?? 'straight',
       pushbackProgress: 0,
       pushbackReleaseProgress: 0,
       tugAttached: false,
@@ -837,7 +869,7 @@ export class AirportSimulation {
         distanceAlongM: 0, totalDistanceM: 0, stageProgress: 0,
       },
     };
-    flight.standId = this.config.surfaceGraph.stands.find((stand) => stand.slot === flight.gateSlot)?.id;
+    flight.standId = gateAssignment.standId;
     syncFlightMotion(this.config, flight);
     flight.kinematics.altitudeFt = this.motionAltitudeFt(flight);
 
@@ -846,6 +878,11 @@ export class AirportSimulation {
     this.nextId += 1;
     this.state.flights.push(flight);
     this.events.push({ type: 'spawn', flight });
+    this.events.push({
+      type: 'gate-assignment',
+      flight,
+      detail: `${gateAssignment.gateRef ?? gateAssignment.zoneName ?? gateAssignment.standId} planned · ${gateAssignment.rationale.slice(0, 2).join(' · ')}`,
+    });
     if (automatic) this.events.push({ type: 'auto-clear', flight });
     if (flight.emergency) this.events.push({ type: 'emergency', flight });
     return aircraft;
@@ -888,8 +925,9 @@ export class AirportSimulation {
       flight.crossingClearances = [];
       flight.crossingClearanceIds = [];
       flight.origin = this.config.code === 'LOCAL' ? 'LOCAL' : this.config.code;
-      flight.destination = this.originFor(flight.id + 5);
+      flight.destination = flight.gateAssignment?.nextDestination ?? this.originFor(flight.id + 5);
       flight.procedure = this.departureProcedure(flight.runway);
+      if (flight.gateAssignment) flight.gateAssignment.departureRunway = departureRunway;
       this.taxiOutReleaseIn = this.config.scope === 'center' ? 12 : 16;
     }
     if (next === 'takeoff') {
@@ -909,6 +947,11 @@ export class AirportSimulation {
       }
       const crossingClear = !this.nextUnclearedCrossing(flight);
       if (!flight.runwayEntryCleared || !crossingClear || !this.reserveDeparture(flight)) return;
+    }
+    if (next === 'taxi-in' && !this.ensureArrivalGate(flight)) {
+      flight.safetyHold = true;
+      flight.safetyHoldReason = 'no conflict-free stand is available for taxi-in';
+      return;
     }
     const transitionConflict = this.transitionConflict(flight, next);
     if (transitionConflict) {
@@ -942,6 +985,7 @@ export class AirportSimulation {
       flight.pushbackProgress = 0;
       flight.tugAttached = false;
       flight.engineState = 'off';
+      this.confirmGateArrival(flight);
     }
     if (next === 'taxi-out') {
       flight.pushbackProgress = 0;
@@ -1065,23 +1109,135 @@ export class AirportSimulation {
     return `opposing traffic occupies ${claim.label}`;
   }
 
-  private availableGateSlot(aircraft: AircraftModel): number | null {
-    const gateCount = this.config.surfaceGraph.stands.length;
-    const occupied = new Set(this.state.flights.map((flight) => flight.gateSlot));
-    const profile = aircraftProfile(aircraft);
-    const columns = Math.ceil(gateCount / 2);
-    for (let column = 0; column < columns; column += 1) {
-      for (const slot of [column, column + columns]) {
-        const stand = this.config.surfaceGraph.stands.find((candidate) => candidate.slot === slot);
-        if (
-          stand
-          && !occupied.has(slot)
-          && surfaceStandSupportsAircraft(stand, profile.category, profile.wingspanM)
-        )
-          return slot;
+  private gateReservations(excludedFlightId?: number): GateReservation[] {
+    const now = this.state.elapsed;
+    return this.state.flights.flatMap((flight): GateReservation[] => {
+      const assignment = flight.gateAssignment;
+      if (!assignment || flight.id === excludedFlightId || flight.phase === 'takeoff') return [];
+      let startSeconds = assignment.scheduledGateInSeconds;
+      let endSeconds = assignment.scheduledDepartureSeconds;
+      if (flight.phase === 'approach' || flight.phase === 'landing') {
+        // Future reservation remains on its planned window.
+      } else if (flight.phase === 'taxi-in') {
+        const remainingTaxi = Math.max(0, flight.duration * (1 - flight.progress));
+        startSeconds = Math.min(startSeconds, now + remainingTaxi);
+        endSeconds = Math.max(endSeconds, now + remainingTaxi + this.plannedTurnaroundDuration(flight.id));
+      } else if (flight.phase === 'resting') {
+        const remainingTurn = Math.max(0, flight.duration * (1 - flight.progress));
+        startSeconds = Math.min(startSeconds, assignment.actualGateInSeconds ?? now);
+        endSeconds = Math.max(endSeconds, now + remainingTurn + (this.isAutomaticMode() ? 24 : 180));
+      } else if (flight.phase === 'taxi-out') {
+        if (!flight.tugAttached && flight.pushbackProgress >= 1) return [];
+        startSeconds = now - GATE_TURN_BUFFER_SECONDS;
+        endSeconds = now + Math.max(8, flight.duration * Math.max(0, flight.pushbackReleaseProgress - flight.progress));
       }
+      return [{
+        flightId: flight.id,
+        standId: assignment.standId,
+        terminalId: assignment.terminalId,
+        startSeconds,
+        endSeconds,
+      }];
+    });
+  }
+
+  private ensureArrivalGate(flight: Flight): boolean {
+    const assignment = flight.gateAssignment;
+    const blocker = assignment
+      ? this.state.flights.find((other) => (
+          other.id !== flight.id
+          && other.standId === assignment.standId
+          && (
+            other.phase === 'taxi-in'
+            || other.phase === 'resting'
+            || (other.phase === 'taxi-out' && (other.tugAttached || other.pushbackProgress < 1))
+          )
+        ))
+      : undefined;
+    if (assignment && !blocker) return true;
+    const reason = blocker ? `${assignment?.gateRef ?? assignment?.zoneName ?? assignment?.standId} still occupied by ${blocker.callsign}` : 'arrival had no usable stand plan';
+    return this.reassignArrivalGate(flight, reason);
+  }
+
+  private reassignArrivalGate(flight: Flight, reason: string): boolean {
+    const previous = flight.gateAssignment;
+    const nextDestination = previous?.nextDestination ?? this.originFor(flight.id + 5);
+    const decision = planGateAssignment({
+      config: this.config,
+      flightId: flight.id,
+      aircraft: flight.aircraft,
+      airline: flight.airline,
+      service: flight.service,
+      arrivalRunway: flight.runway,
+      arrivalOperatingEnd: flight.operatingEnd,
+      departureRunway: flight.departureRunway,
+      departureOperatingEnd: this.preferredOperatingEnd(flight.departureRunway),
+      readyForTaxiAtSeconds: this.gateReadyForTaxiAt(flight),
+      turnaroundSeconds: this.plannedTurnaroundDuration(flight.id),
+      nextDestination,
+      assignedAtSeconds: this.state.elapsed,
+      reservations: this.gateReservations(flight.id),
+      revision: (previous?.revision ?? -1) + 1,
+      previousStandId: previous?.standId,
+    });
+    if (!decision) return false;
+    const stand = this.config.surfaceGraph.stands.find((candidate) => candidate.id === decision.standId);
+    flight.gateAssignment = decision;
+    flight.gateSlot = decision.gateSlot;
+    flight.standId = decision.standId;
+    flight.pushbackDirection = stand?.pushbackDirection ?? 'straight';
+    this.events.push({
+      type: previous ? 'gate-reassignment' : 'gate-assignment',
+      flight,
+      detail: `${reason} · ${previous?.gateRef ?? previous?.zoneName ?? previous?.standId ?? 'unassigned'} → ${decision.gateRef ?? decision.zoneName ?? decision.standId}`,
+    });
+    return true;
+  }
+
+  private gateReadyForTaxiAt(flight: Flight): number {
+    if (flight.phase === 'approach') {
+      return this.state.elapsed
+        + Math.max(0, flight.duration - flight.phaseElapsed)
+        + this.phaseDuration(flight.aircraft, 'landing', flight.runway);
     }
-    return null;
+    if (flight.phase === 'landing') return this.state.elapsed + Math.max(0, flight.duration - flight.phaseElapsed);
+    return this.state.elapsed;
+  }
+
+  private confirmGateArrival(flight: Flight): void {
+    const assignment = flight.gateAssignment;
+    if (!assignment) return;
+    assignment.actualGateInSeconds = this.state.elapsed;
+    assignment.scheduledGateInSeconds = this.state.elapsed;
+    assignment.scheduledDepartureSeconds = this.state.elapsed + flight.duration;
+    const occupiedWindow = {
+      startSeconds: this.state.elapsed,
+      endSeconds: assignment.scheduledDepartureSeconds,
+    };
+    const futureTraffic = this.state.flights
+      .filter((other) => other.id !== flight.id && (other.phase === 'approach' || other.phase === 'landing'))
+      .filter((other) => other.gateAssignment?.standId === assignment.standId)
+      .sort((first, second) => (first.gateAssignment?.scheduledGateInSeconds ?? Infinity) - (second.gateAssignment?.scheduledGateInSeconds ?? Infinity));
+    for (const future of futureTraffic) {
+      const futureAssignment = future.gateAssignment;
+      if (!futureAssignment || !gateReservationsOverlap(occupiedWindow, {
+        startSeconds: futureAssignment.scheduledGateInSeconds,
+        endSeconds: futureAssignment.scheduledDepartureSeconds,
+      })) continue;
+      this.reassignArrivalGate(future, `${assignment.gateRef ?? assignment.zoneName ?? assignment.standId} occupancy window changed`);
+    }
+  }
+
+  private releaseGate(flight: Flight): void {
+    const assignment = flight.gateAssignment;
+    if (!assignment || assignment.actualGateOutSeconds !== undefined) return;
+    assignment.actualGateOutSeconds = this.state.elapsed;
+    assignment.scheduledDepartureSeconds = this.state.elapsed;
+    this.events.push({
+      type: 'gate-release',
+      flight,
+      detail: `${assignment.gateRef ?? assignment.zoneName ?? assignment.standId} released for the next arrival`,
+    });
   }
 
   /** Prevent a phase handoff from introducing an envelope the prior phase did not carry. */
@@ -1542,8 +1698,12 @@ export class AirportSimulation {
   }
 
   private turnaroundDuration(flight: Flight): number {
+    return this.plannedTurnaroundDuration(flight.id);
+  }
+
+  private plannedTurnaroundDuration(flightId: number): number {
     const base = this.config.scope === 'center' ? 55 : 36;
-    return base + (flight.id % 5) * 7;
+    return base + (flightId % 5) * 7;
   }
 
   private updateSurfaceRouteState(flight: Flight): void {
@@ -1633,6 +1793,7 @@ export class AirportSimulation {
       flight.tugAttached = false;
       this.events.push({ type: 'tug-release', flight, taxiway: flight.taxiway, detail: 'tug clear · taxi power available' });
     }
+    this.releaseGate(flight);
     flight.engineState = 'running';
   }
 

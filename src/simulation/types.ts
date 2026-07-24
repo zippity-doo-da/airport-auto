@@ -13,6 +13,36 @@ export type AircraftCategory = 'regional' | 'narrowbody' | 'widebody' | 'cargo';
 export type WakeClass = 'light' | 'medium' | 'heavy';
 export type EmergencyType = 'medical' | 'disabled' | 'birdstrike' | 'go-around';
 export type EngineState = 'off' | 'starting' | 'running';
+export type FlightService = 'passenger' | 'cargo';
+
+export type GateServiceArea = 'passenger-terminal' | 'cargo-ramp' | 'remote-ramp' | 'maintenance' | 'general-aviation' | 'other';
+
+export interface FlightGateAssignment {
+  standId: string;
+  gateSlot: number;
+  terminal: string;
+  terminalId?: string;
+  concourse?: string;
+  gateRef?: string;
+  zoneId: string;
+  zoneName: string;
+  serviceArea: GateServiceArea;
+  assignedAtSeconds: number;
+  scheduledGateInSeconds: number;
+  scheduledDepartureSeconds: number;
+  actualGateInSeconds?: number;
+  actualGateOutSeconds?: number;
+  nextDestination: string;
+  departureRunway: number;
+  airlineFit: 'preferred' | 'compatible' | 'fallback';
+  serviceFit: 'preferred' | 'compatible' | 'fallback';
+  arrivalRouteDistance: number;
+  departureRouteDistance: number;
+  score: number;
+  rationale: string[];
+  revision: number;
+  previousStandId?: string;
+}
 export type PushbackDirection = 'left' | 'right' | 'straight';
 
 export interface WeatherState {
@@ -120,11 +150,12 @@ export interface Flight {
   controlPattern?: 'zigzag';
   controlPatternStart?: number;
   gateSlot: number;
+  gateAssignment?: FlightGateAssignment;
   aircraft: AircraftModel;
   airline: AirlineCode;
   flightNumber: number;
   registration: string;
-  service: 'passenger' | 'cargo';
+  service: FlightService;
   category: AircraftCategory;
   wakeClass: WakeClass;
   procedure: string;
@@ -173,7 +204,7 @@ export interface ReplayFrame {
 }
 
 export interface AirportEvent {
-  type: 'spawn' | 'land' | 'chime' | 'depart' | 'clear' | 'auto-clear' | 'pushback-clearance' | 'pushback-start' | 'engine-start' | 'tug-release' | 'reject' | 'conflict' | 'safety-hold' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'takeoff-clearance' | 'go-around' | 'emergency';
+  type: 'spawn' | 'gate-assignment' | 'gate-reassignment' | 'gate-release' | 'land' | 'chime' | 'depart' | 'clear' | 'auto-clear' | 'pushback-clearance' | 'pushback-start' | 'engine-start' | 'tug-release' | 'reject' | 'conflict' | 'safety-hold' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'takeoff-clearance' | 'go-around' | 'emergency';
   flight: Flight;
   runway?: number;
   taxiway?: string;

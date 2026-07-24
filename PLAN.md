@@ -130,6 +130,15 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] API 2.5 / snapshot schema 7 exposes ramp zones, stand flows, alley direction, zone capacity, automatic hold reasons, routing cost, congestion penalty, and affected edges.
 - [x] A dedicated ramp-operations gate verifies one-way traversal, opposing-alley exclusion, stand exclusivity, ramp capacity, alternate-route selection, all 80 ORD stand movements, four concurrent surface movers, and a zero-collision Rush soak.
 
+## Airport Auto 2.6 — scheduled gate assignment
+
+- [x] Every arriving flight receives a scored stand plan using airline/terminal affinity, aircraft category and wingspan, passenger/cargo service area, predicted gate-in time, turnaround window, and its next destination/runway.
+- [x] Gate windows are explicit reservations with an 18-second turn buffer; a later active arrival may reuse a stand only when its planned occupancy does not overlap.
+- [x] Taxi-in rechecks actual occupancy, changed gate-in times reassign conflicting future arrivals, and the stand remains occupied until the pushback tug clears the lead-out.
+- [x] The ORD schematic uses CDA's May 2026 final passenger-gate allocation for concourse affinity and sourced cargo-ramp roles for UPS/FedEx affinity, while retaining clear sampled-stand and not-for-navigation labeling.
+- [x] Flight strips show planned/from-gate state and schedule; API 2.6 / snapshot schema 8 exposes policy factors, fit, timing, next flight, route distances, score, rationale, revision, and structured assignment/reassignment/release events.
+- [x] A dedicated validation gate proves home-concourse and cargo-ramp selection, aircraft compatibility, overlapping-window rejection, safe future stand reuse, departure-route influence, next-flight identity, physical stand exclusivity, and a zero-collision ORD Rush soak.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.

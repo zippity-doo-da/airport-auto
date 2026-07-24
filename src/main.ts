@@ -5,6 +5,7 @@ import { aircraftProfile } from './simulation/aircraftProfiles';
 import { airlineProfile } from './simulation/airlineProfiles';
 import { sampleAircraftSurfaceMotion, surfaceStoppingDistanceM } from './simulation/surfaceMotion';
 import { surfaceRampControlZones, surfaceStandFlow } from './simulation/surfaceOperations';
+import { GATE_TURN_BUFFER_SECONDS } from './simulation/gateAssignment';
 import type { ClearanceProposal, ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, ReplayFrame, TrafficScenario, WeatherCondition } from './simulation/types';
 import { AmbientAudio, type AudioChannel, type AudioPreset } from './audio/ambientAudio';
 import { createWorld, type SurfaceLayer } from './render/createWorld';
@@ -595,8 +596,20 @@ function frame(now: number): void {
   }
 
   for (const event of simulation.drainEvents()) {
+    const gateEvent = event.type === 'gate-assignment' || event.type === 'gate-reassignment' || event.type === 'gate-release';
     recordTelemetry(event.type, event.flight, event.runway, event.taxiway, {
       detail: event.detail ?? (event.type === 'safety-hold' ? event.flight.safetyHoldReason : undefined),
+      payload: gateEvent && event.flight.gateAssignment ? {
+        standId: event.flight.gateAssignment.standId,
+        gateRef: event.flight.gateAssignment.gateRef ?? null,
+        zoneName: event.flight.gateAssignment.zoneName,
+        terminalId: event.flight.gateAssignment.terminalId ?? null,
+        concourse: event.flight.gateAssignment.concourse ?? null,
+        scheduledGateInSeconds: event.flight.gateAssignment.scheduledGateInSeconds,
+        scheduledDepartureSeconds: event.flight.gateAssignment.scheduledDepartureSeconds,
+        nextDestination: event.flight.gateAssignment.nextDestination,
+        revision: event.flight.gateAssignment.revision,
+      } : undefined,
     });
     if (event.type === 'spawn') audio.traffic(event.flight.category, 'spawn');
     if (event.type === 'chime') {
@@ -608,6 +621,9 @@ function frame(now: number): void {
       event.flight.phase === 'approach' ? `${event.flight.callsign} entering the scope` : `${event.flight.callsign} ready at the terminal`,
       simulation.state.mode === 'auto' || simulation.state.mode === 'watch' ? 'tower building the next safe movement' : simulation.state.mode === 'assisted' ? 'advisor preparing the next clearance' : 'select the flight strip for clearances',
     );
+    if (event.type === 'gate-assignment') setStatus(`${event.flight.callsign} gate planned`, event.detail ?? 'stand schedule confirmed');
+    if (event.type === 'gate-reassignment') setStatus(`${event.flight.callsign} gate changed`, event.detail ?? 'stand conflict resolved');
+    if (event.type === 'gate-release') setStatus(`${event.flight.callsign} clear of stand`, event.detail ?? 'gate available');
     if (event.type === 'clear') {
       audio.radio();
       setStatus(`${event.flight.callsign} cleared to land`, 'route accepted · runway lights are yours');
@@ -728,6 +744,10 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
       surfaceRoute: flight.surfaceRoute ? [...flight.surfaceRoute] : undefined,
       surfaceRouteEdges: flight.surfaceRouteEdges ? [...flight.surfaceRouteEdges] : undefined,
       surfaceCongestedEdgeIds: flight.surfaceCongestedEdgeIds ? [...flight.surfaceCongestedEdgeIds] : undefined,
+      gateAssignment: flight.gateAssignment ? {
+        ...flight.gateAssignment,
+        rationale: [...flight.gateAssignment.rationale],
+      } : undefined,
       requiredCrossings: flight.requiredCrossings ? [...flight.requiredCrossings] : undefined,
       crossingClearances: flight.crossingClearances ? [...flight.crossingClearances] : undefined,
       crossingClearanceIds: flight.crossingClearanceIds ? [...flight.crossingClearanceIds] : undefined,
@@ -740,7 +760,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
 function replayRecording(): ReplayRecording {
   return {
     schemaVersion: 1,
-    simulationVersion: window.airportControl?.version ?? '2.5.0',
+    simulationVersion: window.airportControl?.version ?? '2.6.0',
     recordedAt: new Date().toISOString(),
     seed: config.seed,
     airport: { code: config.code, name: config.name, scope: config.scope },
@@ -805,14 +825,37 @@ function updateFlightChip(item: HTMLElement, flight: Flight): void {
   const fuel = Math.max(0, Math.min(100, kinematics.fuelPercent));
   const operation = flightOperationLabel(flight);
   const phase = held ? 'Hold' : operation;
-  const stand = config.surfaceGraph.stands.find((candidate) => candidate.slot === flight.gateSlot);
-  const gateLabel = stand?.gateRef ? `Gate ${stand.gateRef}` : stand?.id ? `Stand ${stand.id}` : null;
+  const assignment = flight.gateAssignment;
+  const stand = config.surfaceGraph.stands.find((candidate) => candidate.id === assignment?.standId)
+    ?? config.surfaceGraph.stands.find((candidate) => candidate.slot === flight.gateSlot);
+  const gateLabel = assignment?.gateRef
+    ? `Gate ${assignment.gateRef}`
+    : assignment?.zoneName
+      ? assignment.zoneName.replace(/ Ramp$/i, '')
+      : stand?.id
+        ? `Stand ${stand.id}`
+        : null;
+  const gateDisplay = gateLabel
+    ? flight.phase === 'approach' || flight.phase === 'landing' || flight.phase === 'taxi-in'
+      ? `${gateLabel} planned`
+      : flight.phase === 'taxi-out' || flight.phase === 'takeoff'
+        ? `from ${gateLabel}`
+        : gateLabel
+    : null;
+  const gateTime = assignment
+    ? flight.phase === 'resting'
+      ? `out ${formatTime(assignment.scheduledDepartureSeconds)}`
+      : flight.phase === 'approach' || flight.phase === 'landing' || flight.phase === 'taxi-in'
+        ? `ETA ${formatTime(assignment.scheduledGateInSeconds)}`
+        : null
+    : null;
   button.dataset.flightChip = String(flight.id);
   button.className = ['flight-chip', focusedFlightId === flight.id ? 'flight-chip--selected' : '', held ? 'flight-chip--hold' : '', flight.emergency ? 'flight-chip--emergency' : '', fuel < 15 ? 'flight-chip--low-fuel' : ''].filter(Boolean).join(' ');
   button.style.setProperty('--flight-accent', flight.palette === 'rose' ? 'var(--rose)' : flight.palette === 'sage' ? '#9bc8a0' : 'var(--blue)');
   button.style.setProperty('--fuel', `${fuel.toFixed(1)}%`);
   const holdDetail = flight.automaticHoldReason ?? flight.safetyHoldReason;
-  button.setAttribute('aria-label', `${flight.callsign}, ${flight.aircraft}, ${phase}${holdDetail ? `, ${holdDetail}` : ''}${gateLabel ? `, ${gateLabel}` : ''}, fuel ${fuel.toFixed(0)} percent, ${speedLabel} ${speed.toFixed(0)} knots, altitude ${altitude} feet`);
+  button.setAttribute('aria-label', `${flight.callsign}, ${flight.aircraft}, ${phase}${holdDetail ? `, ${holdDetail}` : ''}${gateDisplay ? `, ${gateDisplay}` : ''}${gateTime ? `, ${gateTime}` : ''}, fuel ${fuel.toFixed(0)} percent, ${speedLabel} ${speed.toFixed(0)} knots, altitude ${altitude} feet`);
+  button.title = assignment?.rationale.join(' · ') ?? '';
   const identity = button.querySelector('.flight-chip__identity')!;
   identity.querySelector('strong')!.textContent = flight.callsign;
   identity.querySelector('span')!.textContent = phase;
@@ -822,7 +865,7 @@ function updateFlightChip(item: HTMLElement, flight: Flight): void {
   metrics[1].querySelector('b')!.innerHTML = `${Math.round(speed)}<em>KT</em>`;
   metrics[2].querySelector('b')!.innerHTML = `${altitude.toLocaleString()}<em>FT</em>`;
   const detail = button.querySelector('.flight-chip__detail')!;
-  detail.children[0].textContent = `${flight.aircraft} · ${operation} · ${gateLabel ?? `RWY ${runwayDesignation(flight.runway)}`}`;
+  detail.children[0].textContent = `${flight.aircraft} · ${operation} · ${gateDisplay ?? `RWY ${runwayDesignation(flight.runway)}`}${gateTime ? ` · ${gateTime}` : ''}`;
   detail.children[1].textContent = held && holdDetail
     ? `HOLD · ${holdDetail.toUpperCase()}`
     : `${surface ? flight.engineState.toUpperCase() + ' ENGINES · ' : ''}${verticalText} · ${motionText}`;
@@ -909,8 +952,10 @@ function renderFlightActions(): void {
   const heading = document.createElement('header');
   heading.innerHTML = '<div><b></b><small></small></div><span></span>';
   heading.querySelector('b')!.textContent = flight.callsign;
-  const stand = config.surfaceGraph.stands.find((candidate) => candidate.slot === flight.gateSlot);
-  heading.querySelector('small')!.textContent = `${flight.aircraft} · ${flight.origin} → ${flight.destination}${stand?.gateRef ? ` · Gate ${stand.gateRef}` : ''}`;
+  const standLabel = flight.gateAssignment?.gateRef
+    ? `Gate ${flight.gateAssignment.gateRef}`
+    : flight.gateAssignment?.zoneName?.replace(/ Ramp$/i, '');
+  heading.querySelector('small')!.textContent = `${flight.aircraft} · ${flight.origin} → ${flight.destination}${standLabel ? ` · ${standLabel}` : ''}`;
   heading.querySelector('span')!.textContent = simulation.state.station.toUpperCase();
   flightActions.append(heading);
   const controls = document.createElement('div');
@@ -1071,7 +1116,11 @@ function renderTelemetryControls(): void {
               : '';
     const profile = aircraftProfile(flight.aircraft);
     const airline = airlineProfile(flight.airline);
-    return `<div class="telemetry__flight"><strong>${flight.callsign} · ${flight.aircraft} · ${flightOperationLabel(flight).toUpperCase()}${flight.taxiway ? ` · ${flight.taxiway}` : ''}${directive}</strong><small>${airline.name} · ${flight.registration} · ${flight.service} · ${profile.name} · ${profile.wakeClass} wake · ${flight.engineState} engines${flight.tugAttached ? ` · tug attached · ${Math.round(flight.pushbackProgress * 100)}% push` : ''}</small>${flightControls}${crossings}${entry}${takeoff}</div>`;
+    const gate = flight.gateAssignment;
+    const gateDetail = gate
+      ? ` · ${gate.gateRef ?? gate.zoneName ?? gate.standId} · ${gate.airlineFit} airline fit · in ${formatTime(gate.scheduledGateInSeconds)} / out ${formatTime(gate.scheduledDepartureSeconds)}`
+      : '';
+    return `<div class="telemetry__flight"><strong>${flight.callsign} · ${flight.aircraft} · ${flightOperationLabel(flight).toUpperCase()}${flight.taxiway ? ` · ${flight.taxiway}` : ''}${directive}</strong><small>${airline.name} · ${flight.registration} · ${flight.service} · ${profile.name} · ${profile.wakeClass} wake · ${flight.engineState} engines${flight.tugAttached ? ` · tug attached · ${Math.round(flight.pushbackProgress * 100)}% push` : ''}${gateDetail}</small>${flightControls}${crossings}${entry}${takeoff}</div>`;
   }).join('');
 }
 
@@ -1525,7 +1574,7 @@ function airportSnapshot() {
   const diagnostics = simulation.diagnostics();
   const movingPhases = new Set(['approach', 'landing', 'taxi-in', 'taxi-out', 'takeoff']);
   return {
-    schemaVersion: 7,
+    schemaVersion: 8,
     airport: {
       code: config.code,
       name: config.name,
@@ -1663,6 +1712,12 @@ function airportSnapshot() {
       standFlows: config.surfaceGraph.stands
         .map((stand) => surfaceStandFlow(config.surfaceGraph, stand.id))
         .filter((flow) => flow !== null),
+      gatePlanning: {
+        model: 'scheduled-stand-reservations',
+        policy: config.code === 'ORD' ? 'ORD 2026 schematic airline and cargo affinities' : 'deterministic airline terminal sectors',
+        turnBufferSeconds: GATE_TURN_BUFFER_SECONDS,
+        factors: ['airline', 'terminal', 'aircraft-size', 'service-type', 'arrival-time', 'next-departure-route'],
+      },
       passengerFacilities: config.surfaceGraph.passengerFacilities.map((facility) => ({
         ...facility,
         center: [...facility.center],
@@ -1817,6 +1872,34 @@ function airportSnapshot() {
           terminal: stand.terminal,
           concourse: stand.concourse ?? null,
           maximumWingspanM: stand.maximumWingspanM,
+          assignment: flight.gateAssignment ? {
+            status: flight.phase === 'approach' || flight.phase === 'landing'
+              ? 'planned'
+              : flight.phase === 'taxi-in'
+                ? 'inbound'
+                : flight.phase === 'resting'
+                  ? 'occupied'
+                  : flight.phase === 'taxi-out' && flight.gateAssignment.actualGateOutSeconds === undefined
+                    ? 'releasing'
+                    : 'released',
+            assignedAtSeconds: Number(flight.gateAssignment.assignedAtSeconds.toFixed(2)),
+            scheduledGateInSeconds: Number(flight.gateAssignment.scheduledGateInSeconds.toFixed(2)),
+            scheduledDepartureSeconds: Number(flight.gateAssignment.scheduledDepartureSeconds.toFixed(2)),
+            actualGateInSeconds: flight.gateAssignment.actualGateInSeconds === undefined ? null : Number(flight.gateAssignment.actualGateInSeconds.toFixed(2)),
+            actualGateOutSeconds: flight.gateAssignment.actualGateOutSeconds === undefined ? null : Number(flight.gateAssignment.actualGateOutSeconds.toFixed(2)),
+            nextDestination: flight.gateAssignment.nextDestination,
+            departureRunway: flight.gateAssignment.departureRunway,
+            airlineFit: flight.gateAssignment.airlineFit,
+            serviceFit: flight.gateAssignment.serviceFit,
+            serviceArea: flight.gateAssignment.serviceArea,
+            zoneName: flight.gateAssignment.zoneName,
+            arrivalRouteDistance: flight.gateAssignment.arrivalRouteDistance,
+            departureRouteDistance: flight.gateAssignment.departureRouteDistance,
+            score: flight.gateAssignment.score,
+            rationale: [...flight.gateAssignment.rationale],
+            revision: flight.gateAssignment.revision,
+            previousStandId: flight.gateAssignment.previousStandId ?? null,
+          } : null,
         } : null;
       })(),
       cleared: flight.cleared,
@@ -2025,7 +2108,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
 }
 
 window.airportControl = {
-  version: '2.5.0',
+  version: '2.6.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },

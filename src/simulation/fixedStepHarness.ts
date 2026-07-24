@@ -48,6 +48,21 @@ export interface FixedStepFlightSnapshot {
   cleared: boolean;
   taxiway?: string;
   standId?: string;
+  gateSlot: number;
+  gateAssignment?: {
+    standId: string;
+    gateRef?: string;
+    zoneName: string;
+    terminalId?: string;
+    concourse?: string;
+    scheduledGateInSeconds: number;
+    scheduledDepartureSeconds: number;
+    nextDestination: string;
+    airlineFit: 'preferred' | 'compatible' | 'fallback';
+    serviceFit: 'preferred' | 'compatible' | 'fallback';
+    score: number;
+    revision: number;
+  };
   pushbackCleared: boolean;
   pushbackDirection: Flight['pushbackDirection'];
   pushbackProgress: number;
@@ -354,6 +369,21 @@ function snapshotFlight(config: AirportConfig, flight: Flight): FixedStepFlightS
     cleared: flight.cleared,
     taxiway: flight.taxiway,
     standId: flight.standId,
+    gateSlot: flight.gateSlot,
+    gateAssignment: flight.gateAssignment ? {
+      standId: flight.gateAssignment.standId,
+      gateRef: flight.gateAssignment.gateRef,
+      zoneName: flight.gateAssignment.zoneName,
+      terminalId: flight.gateAssignment.terminalId,
+      concourse: flight.gateAssignment.concourse,
+      scheduledGateInSeconds: round(flight.gateAssignment.scheduledGateInSeconds),
+      scheduledDepartureSeconds: round(flight.gateAssignment.scheduledDepartureSeconds),
+      nextDestination: flight.gateAssignment.nextDestination,
+      airlineFit: flight.gateAssignment.airlineFit,
+      serviceFit: flight.gateAssignment.serviceFit,
+      score: round(flight.gateAssignment.score),
+      revision: flight.gateAssignment.revision,
+    } : undefined,
     pushbackCleared: flight.pushbackCleared,
     pushbackDirection: flight.pushbackDirection,
     pushbackProgress: round(flight.pushbackProgress),
