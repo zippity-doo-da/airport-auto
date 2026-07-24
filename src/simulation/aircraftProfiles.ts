@@ -42,13 +42,13 @@ export interface AircraftProfile {
 /** A compact, intentionally curated fleet for readable airport traffic. */
 export const AIRCRAFT_PROFILES: Record<AircraftModel, AircraftProfile> = {
   E175: {
-    model: 'E175', manufacturer: 'Embraer', name: 'E175 regional jet', category: 'regional', wakeClass: 'light',
+    model: 'E175', manufacturer: 'Embraer', name: 'E175 regional jet', category: 'regional', wakeClass: 'medium',
     lengthM: 31.7, wingspanM: 28.7, maxTakeoffWeightT: 40.4, cruiseKts: 447, approachKts: 130, taxiKts: 15,
     takeoffRollM: 1_650, landingRollM: 1_350, climbFpm: 2_500, descentFpm: 1_800, accelerationMps2: 2.2, brakingMps2: 1.8, turnRadiusM: 820, wakeSeparationSeconds: 3.4, engines: 2, engineType: 'turbofan',
     visual: { bodyRadius: 0.43, bodyLength: 5.4, wingSpan: 6.2, wingSweep: 0.62, tailHeight: 1.08, engineRadius: 0.34, engineLength: 1.18, engineOffset: 1.7 },
   },
   Q400: {
-    model: 'Q400', manufacturer: 'De Havilland Canada', name: 'Dash 8 Q400 turboprop', category: 'regional', wakeClass: 'light',
+    model: 'Q400', manufacturer: 'De Havilland Canada', name: 'Dash 8 Q400 turboprop', category: 'regional', wakeClass: 'medium',
     lengthM: 32.8, wingspanM: 28.4, maxTakeoffWeightT: 29.6, cruiseKts: 360, approachKts: 119, taxiKts: 12,
     takeoffRollM: 1_390, landingRollM: 1_120, climbFpm: 2_000, descentFpm: 1_500, accelerationMps2: 1.7, brakingMps2: 1.7, turnRadiusM: 690, wakeSeparationSeconds: 3.1, engines: 2, engineType: 'turboprop',
     visual: { bodyRadius: 0.46, bodyLength: 5.5, wingSpan: 6.35, wingSweep: 0.48, tailHeight: 1.12, engineRadius: 0.52, engineLength: 0.8, engineOffset: 1.45, propeller: true },

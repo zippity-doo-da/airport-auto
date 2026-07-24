@@ -166,23 +166,24 @@ function sampleApproachPath(config: AirportConfig, flight: Flight, progress: num
   const side = { x: -direction.y, y: direction.x };
   const landingSign = flight.operatingEnd;
   const lateralSign = flight.id % 2 ? 1 : -1;
+  const altitudeLane = flight.id % 3 - 1;
   let airportPaths = APPROACH_PATH_CACHE.get(config);
   if (!airportPaths) {
     airportPaths = new Map();
     APPROACH_PATH_CACHE.set(config, airportPaths);
   }
-  const cacheKey = `${runway.id}:${landingSign}:${lateralSign}`;
+  const cacheKey = `${runway.id}:${landingSign}:${lateralSign}:${altitudeLane}`;
   let path = airportPaths.get(cacheKey);
   if (!path) {
     const startDistance = config.scope === 'center' ? 265 : 175;
     const lateral = config.scope === 'center' ? 12 : 38;
     const threshold = runwayEnd(runway, landingSign, 0, 4.2);
     path = prepareSmoothPath([
-      offset(runwayEnd(runway, landingSign, startDistance, config.scope === 'center' ? 32 : 30), side, lateralSign * lateral),
-      offset(runwayEnd(runway, landingSign, startDistance * 0.82, config.scope === 'center' ? 28 : 25), side, lateralSign * lateral * 0.94),
-      offset(runwayEnd(runway, landingSign, startDistance * 0.62, config.scope === 'center' ? 22 : 20), side, lateralSign * lateral * 0.68),
-      offset(runwayEnd(runway, landingSign, startDistance * 0.43, config.scope === 'center' ? 16 : 15), side, lateralSign * lateral * 0.34),
-      offset(runwayEnd(runway, landingSign, startDistance * 0.31, 10.5), side, lateralSign * lateral * 0.06),
+      offset(runwayEnd(runway, landingSign, startDistance, (config.scope === 'center' ? 32 : 30) + altitudeLane * 4), side, lateralSign * lateral),
+      offset(runwayEnd(runway, landingSign, startDistance * 0.82, (config.scope === 'center' ? 28 : 25) + altitudeLane * 4), side, lateralSign * lateral * 0.94),
+      offset(runwayEnd(runway, landingSign, startDistance * 0.62, (config.scope === 'center' ? 22 : 20) + altitudeLane * 3.2), side, lateralSign * lateral * 0.68),
+      offset(runwayEnd(runway, landingSign, startDistance * 0.43, (config.scope === 'center' ? 16 : 15) + altitudeLane * 2), side, lateralSign * lateral * 0.34),
+      offset(runwayEnd(runway, landingSign, startDistance * 0.31, 10.5 + altitudeLane * 0.8), side, lateralSign * lateral * 0.06),
       runwayEnd(runway, landingSign, 44, 8.2),
       runwayEnd(runway, landingSign, 21, 6.1),
       runwayEnd(runway, landingSign, 8, 4.9),

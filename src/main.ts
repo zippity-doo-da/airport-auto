@@ -3,10 +3,9 @@ import { AirportSimulation } from './simulation/airportSimulation';
 import { generateAirportConfig, generateHubConfig, HUB_AIRPORTS } from './simulation/airportConfig';
 import { aircraftProfile } from './simulation/aircraftProfiles';
 import { airlineProfile } from './simulation/airlineProfiles';
-import type { ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, ReplayFrame, TrafficScenario, WeatherCondition } from './simulation/types';
-import { AmbientAudio } from './audio/ambientAudio';
+import type { ClearanceProposal, ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, ReplayFrame, TrafficScenario, WeatherCondition } from './simulation/types';
+import { AmbientAudio, type AudioChannel, type AudioPreset } from './audio/ambientAudio';
 import { createWorld } from './render/createWorld';
-import { sampleFlightTrajectory } from './simulation/flightTrajectory';
 
 type AirportControlCommand =
   | { action: 'pause' | 'resume' | 'nextView' | 'zoomIn' | 'zoomOut' | 'resetCamera' | 'restart' }
@@ -33,7 +32,23 @@ type AirportControlResult = {
   accepted: boolean;
   reason: string;
   sequence: number;
+  eventId: number;
   snapshot: ReturnType<typeof airportSnapshot>;
+  resultingState: ReturnType<typeof airportSnapshot>;
+};
+
+type RecordedCommand = { sequence: number; elapsed: number; command: AirportControlCommand; accepted: boolean; reason: string };
+type ReplayRecording = {
+  schemaVersion: 1;
+  simulationVersion: string;
+  recordedAt: string;
+  seed: number;
+  airport: { code: string; name: string; scope: string };
+  initialState: ReturnType<typeof cloneAirportState>;
+  commands: RecordedCommand[];
+  weatherHistory: TelemetryEvent[];
+  events: TelemetryEvent[];
+  frames: ReplayFrame[];
 };
 
 declare global {
@@ -46,6 +61,7 @@ declare global {
       request(command: AirportControlCommand): AirportControlResult;
       help(): Record<string, string>;
       replay(): ReplayFrame[];
+      recording(): ReplayRecording;
     };
   }
 }
@@ -140,11 +156,23 @@ const flightStripToggle = $<HTMLButtonElement>('#flight-strip-toggle');
 const flightStripCount = $<HTMLElement>('#flight-strip-count');
 const flightChips = $<HTMLElement>('#flight-chips');
 const flightActions = $<HTMLElement>('#flight-actions');
+const clearanceAdvisor = $<HTMLElement>('#clearance-advisor');
 const zoomInButton = $<HTMLButtonElement>('#zoom-in');
 const zoomOutButton = $<HTMLButtonElement>('#zoom-out');
 const cameraResetButton = $<HTMLButtonElement>('#camera-reset');
 const runwayLabelButton = $<HTMLButtonElement>('#runway-label-toggle');
 const runwayLabelLabel = $<HTMLElement>('#runway-label-label');
+const operationsHealth = $<HTMLElement>('#operations-health');
+const healthState = $<HTMLElement>('#health-state');
+const healthThroughput = $<HTMLElement>('#health-throughput');
+const healthConflicts = $<HTMLElement>('#health-conflicts');
+const healthIncursions = $<HTMLElement>('#health-incursions');
+const healthPauses = $<HTMLElement>('#health-pauses');
+const healthHold = $<HTMLElement>('#health-hold');
+const healthDelay = $<HTMLElement>('#health-delay');
+const healthFps = $<HTMLElement>('#health-fps');
+const debugPanel = $<HTMLElement>('#debug-panel');
+const audioLevelControls = [...document.querySelectorAll<HTMLInputElement>('[data-audio-level]')];
 
 let lastTime = performance.now();
 let simulationAccumulator = 0;
@@ -168,11 +196,21 @@ let focusedFlightId: number | null = null;
 let runwayLabelsVisible = false;
 let previousPresentation = capturePresentation(simulation.state);
 let lastFlightStripRender = -Infinity;
+let renderedFrames = 0;
+let frameWindowStarted = performance.now();
+let measuredFps = 0;
+let modalReturnFocus: HTMLElement | null = null;
+let lastDebugSecond = -1;
 const replayFrames: ReplayFrame[] = [];
 const telemetryEvents: TelemetryEvent[] = [];
+const commandHistory: RecordedCommand[] = [];
+let initialReplayState = cloneAirportState(simulation.state);
 const airportChannel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('airport-auto');
 const launchOptions = new URLSearchParams(window.location.search);
 const telemetryEnabled = launchOptions.get('telemetry') === '1';
+const debugEnabled = launchOptions.get('debug') === '1';
+const soakEnabled = launchOptions.get('soak') === '1';
+debugPanel.hidden = !debugEnabled;
 updateAirportUi();
 updateNightControl();
 updateRadarControl();
@@ -185,7 +223,7 @@ function startShift(): void {
   setControlPanelOpen(false);
   intro.classList.add('modal--hidden');
   simulation.setPaused(false);
-  if (config.scope === 'center' && simulation.state.mode === 'auto') setFlightStripCollapsed(true);
+  if (config.scope === 'center' && (simulation.state.mode === 'auto' || simulation.state.mode === 'watch')) setFlightStripCollapsed(true);
   canvas.focus({ preventScroll: true });
   setStatus(`${config.code === 'LOCAL' ? config.name : config.code} control is open`, 'the tower will guide each arrival');
 }
@@ -210,6 +248,12 @@ flightActions.addEventListener('click', (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-flight-action]');
   if (!button || focusedFlightId === null) return;
   handleFlightAction(focusedFlightId, button.dataset.flightAction ?? '', button.dataset.runway);
+});
+clearanceAdvisor.addEventListener('click', (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-proposal-id]');
+  if (!button) return;
+  const proposal = simulation.clearanceProposals().find((item) => item.id === button.dataset.proposalId);
+  if (proposal) applyClearanceProposal(proposal);
 });
 
 zoomInButton.addEventListener('click', () => world.zoomIn());
@@ -276,7 +320,10 @@ windToggle.addEventListener('click', () => {
   simulation.setWindEnabled(!simulation.state.weather.windEnabled);
   updateWeatherUi();
 });
-audioPreset.addEventListener('change', () => audio.setPreset(audioPreset.value as 'full' | 'calm' | 'radio'));
+audioPreset.addEventListener('change', () => audio.setPreset(audioPreset.value as AudioPreset));
+for (const control of audioLevelControls) {
+  control.addEventListener('input', () => audio.setLevel(control.dataset.audioLevel as AudioChannel, Number(control.value)));
+}
 
 replayToggle.addEventListener('click', () => {
   replayMode = !replayMode;
@@ -302,13 +349,13 @@ replaySlider.addEventListener('input', () => {
   renderFlightActions();
 });
 replayExport.addEventListener('click', () => {
-  const payload = JSON.stringify(replayFrames, null, 2);
+  const payload = JSON.stringify(replayRecording(), null, 2);
   const link = document.createElement('a');
   link.href = URL.createObjectURL(new Blob([payload], { type: 'application/json' }));
   link.download = `${config.code.toLowerCase()}-replay.json`;
   link.click();
   URL.revokeObjectURL(link.href);
-  setStatus('Replay exported', `${replayFrames.length} frames · JSON download ready`);
+  setStatus('Replay exported', `${replayFrames.length} frames · seed, weather, commands, and states included`);
 });
 
 soundButton.addEventListener('click', async () => {
@@ -344,10 +391,11 @@ scopeButton.addEventListener('click', () => {
   setStatus(enterCenter ? `${config.code} center scope` : `${config.name} airfield scope`, enterCenter ? trafficDescription() : 'close view · local traffic');
 });
 modeButton.addEventListener('click', () => {
-  const mode: ControlMode = simulation.state.mode === 'auto' ? 'manual' : 'auto';
+  const modes: ControlMode[] = ['auto', 'assisted', 'manual', 'watch'];
+  const mode = modes[(modes.indexOf(simulation.state.mode) + 1) % modes.length];
   simulation.setMode(mode);
   updateModeControl();
-  setStatus(`${mode === 'auto' ? 'Automatic tower' : 'Manual control'} active`, mode === 'auto' ? 'the tower routes all traffic' : 'clear every arrival to its runway');
+  setStatus(modeName(mode), modeDescription(mode));
 });
 nightButton.addEventListener('click', () => {
   simulation.setNightMode(!simulation.state.nightMode);
@@ -373,6 +421,11 @@ restartButton.addEventListener('click', () => {
 });
 
 canvas.addEventListener('pointerdown', (event) => {
+  if (event.pointerType === 'touch' && !event.isPrimary) {
+    activeFlightId = null;
+    clearRoute();
+    return;
+  }
   if (simulation.state.paused || simulation.state.gameOver) return;
   const id = world.pickFlight(event.clientX, event.clientY);
   const flight = simulation.state.flights.find((item) => item.id === id);
@@ -430,6 +483,12 @@ function clearRoute(): void {
 function frame(now: number): void {
   const delta = Math.min(0.25, (now - lastTime) / 1000);
   lastTime = now;
+  renderedFrames += 1;
+  if (now - frameWindowStarted >= 1_000) {
+    measuredFps = renderedFrames * 1_000 / Math.max(1, now - frameWindowStarted);
+    renderedFrames = 0;
+    frameWindowStarted = now;
+  }
   if (!replayMode) {
     simulationAccumulator = Math.min(0.3, simulationAccumulator + delta);
     let ticks = 0;
@@ -472,6 +531,7 @@ function frame(now: number): void {
     }
     updateSafetyUi(predictions);
     updateReplayUi();
+    updateOperationsHealth();
   }
   if (simulation.state.arrivals !== lastArrivals) {
     landedCount.textContent = two(simulation.state.arrivals);
@@ -494,7 +554,7 @@ function frame(now: number): void {
     if (event.type === 'depart') audio.traffic(event.flight.category, 'depart');
     if (event.type === 'spawn') setStatus(
       event.flight.phase === 'approach' ? `${event.flight.callsign} entering the scope` : `${event.flight.callsign} ready at the terminal`,
-      simulation.state.mode === 'auto' ? 'tower building the next safe movement' : 'select the flight strip for clearances',
+      simulation.state.mode === 'auto' || simulation.state.mode === 'watch' ? 'tower building the next safe movement' : simulation.state.mode === 'assisted' ? 'advisor preparing the next clearance' : 'select the flight strip for clearances',
     );
     if (event.type === 'clear') {
       audio.radio();
@@ -520,6 +580,10 @@ function frame(now: number): void {
   }
 
   world.update(replayMode ? displayedState : presentationState(), delta);
+  if (!debugPanel.hidden && hudSecond !== lastDebugSecond) {
+    renderDebugPanel();
+    lastDebugSecond = hudSecond;
+  }
   if (telemetryEnabled && hudSecond !== lastTelemetrySecond) {
     renderTelemetryControls();
     telemetryOutput.textContent = JSON.stringify(replayMode && replayFrames[replayIndex] ? { replay: replayFrames[replayIndex], live: airportSnapshot() } : airportSnapshot(), null, 2);
@@ -541,6 +605,7 @@ function capturePresentation(state: typeof simulation.state) {
       progress: flight.progress,
       phaseElapsed: flight.phaseElapsed,
       kinematics: { ...flight.kinematics },
+      motion: { ...flight.motion },
     }])),
   };
 }
@@ -567,6 +632,18 @@ function presentationState(): typeof simulation.state {
           accelerationMps2: mix(previous.kinematics.accelerationMps2, flight.kinematics.accelerationMps2),
           fuelPercent: mix(previous.kinematics.fuelPercent, flight.kinematics.fuelPercent),
         },
+        motion: {
+          ...flight.motion,
+          x: mix(previous.motion.x, flight.motion.x),
+          y: mix(previous.motion.y, flight.motion.y),
+          z: mix(previous.motion.z, flight.motion.z),
+          heading: previous.motion.heading + Math.atan2(Math.sin(flight.motion.heading - previous.motion.heading), Math.cos(flight.motion.heading - previous.motion.heading)) * alpha,
+          pitch: mix(previous.motion.pitch, flight.motion.pitch),
+          bank: mix(previous.motion.bank, flight.motion.bank),
+          distanceAlongM: mix(previous.motion.distanceAlongM, flight.motion.distanceAlongM),
+          totalDistanceM: mix(previous.motion.totalDistanceM, flight.motion.totalDistanceM),
+          stageProgress: mix(previous.motion.stageProgress, flight.motion.stageProgress),
+        },
       };
     }),
   };
@@ -584,18 +661,36 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
       requiredCrossings: flight.requiredCrossings ? [...flight.requiredCrossings] : undefined,
       crossingClearances: flight.crossingClearances ? [...flight.crossingClearances] : undefined,
       kinematics: { ...flight.kinematics },
+      motion: { ...flight.motion },
     })),
+  };
+}
+
+function replayRecording(): ReplayRecording {
+  return {
+    schemaVersion: 1,
+    simulationVersion: window.airportControl?.version ?? '2.1.0',
+    recordedAt: new Date().toISOString(),
+    seed: config.seed,
+    airport: { code: config.code, name: config.name, scope: config.scope },
+    initialState: cloneAirportState(initialReplayState),
+    commands: commandHistory.map((entry) => ({ ...entry, command: { ...entry.command } as AirportControlCommand })),
+    weatherHistory: telemetryEvents.filter((event) => event.type.startsWith('weather') || event.type.startsWith('command:setWeather')),
+    events: telemetryEvents.map((event) => ({ ...event })),
+    frames: replayFrames.map((frame) => ({ ...frame, state: cloneAirportState(frame.state) })),
   };
 }
 
 function renderFlightStrip(): void {
   const phaseOrder: Record<FlightPhase, number> = { landing: 0, approach: 1, takeoff: 2, 'taxi-in': 3, 'taxi-out': 4, resting: 5 };
-  const flights = [...displayState().flights].sort((first, second) => phaseOrder[first.phase] - phaseOrder[second.phase] || first.id - second.id);
+  const allFlights = displayState().flights;
+  const flights = visibleFlightsForStation(allFlights).sort((first, second) => phaseOrder[first.phase] - phaseOrder[second.phase] || first.id - second.id);
   if (focusedFlightId !== null && !flights.some((flight) => flight.id === focusedFlightId)) focusedFlightId = null;
-  flightStripCount.textContent = `${flights.length} aircraft`;
+  flightStripCount.textContent = flights.length === allFlights.length ? `${flights.length} aircraft` : `${flights.length} of ${allFlights.length} on frequency`;
   if (!flights.length) {
-    flightChips.replaceChildren(Object.assign(document.createElement('p'), { className: 'flight-chips__empty', textContent: 'No active tracks · waiting at the edge of the scope' }));
+    flightChips.replaceChildren(Object.assign(document.createElement('p'), { className: 'flight-chips__empty', textContent: simulation.state.station === 'supervisor' ? 'No active tracks · waiting at the edge of the scope' : `No ${simulation.state.station} traffic awaiting action` }));
     renderFlightActions();
+    renderClearanceAdvisor();
     return;
   }
   const liveIds = new Set(flights.map((flight) => String(flight.id)));
@@ -614,6 +709,14 @@ function renderFlightStrip(): void {
     flightChips.append(item);
   }
   renderFlightActions();
+  renderClearanceAdvisor();
+}
+
+function visibleFlightsForStation(flights: Flight[]): Flight[] {
+  if (simulation.state.mode === 'auto' || simulation.state.mode === 'watch' || simulation.state.station === 'supervisor') return [...flights];
+  if (simulation.state.station === 'approach') return flights.filter((flight) => flight.phase === 'approach' || flight.phase === 'landing');
+  if (simulation.state.station === 'ground') return flights.filter((flight) => flight.phase === 'taxi-in' || flight.phase === 'resting' || flight.phase === 'taxi-out');
+  return flights.filter((flight) => flight.phase === 'approach' || flight.phase === 'landing' || flight.phase === 'takeoff' || (flight.phase === 'taxi-out' && flight.progress > 0.72));
 }
 
 function updateFlightChip(item: HTMLElement, flight: Flight): void {
@@ -710,6 +813,57 @@ function renderFlightActions(): void {
   }
 }
 
+function renderClearanceAdvisor(): void {
+  clearanceAdvisor.replaceChildren();
+  clearanceAdvisor.hidden = simulation.state.mode !== 'assisted' || replayMode;
+  if (clearanceAdvisor.hidden) return;
+  const authority = (proposal: ClearanceProposal): boolean => {
+    if (simulation.state.station === 'supervisor') return true;
+    if (proposal.station === 'approach') return simulation.canIssue('approach');
+    if (proposal.station === 'tower') return simulation.canIssue('tower');
+    return simulation.canIssue('ground');
+  };
+  const available = simulation.clearanceProposals().filter(authority);
+  const proposal = available.find((item) => item.flightId === focusedFlightId) ?? available[0];
+  if (!proposal) {
+    const quiet = document.createElement('p');
+    quiet.textContent = 'Advisor monitoring · no clearance needs approval';
+    clearanceAdvisor.append(quiet);
+    return;
+  }
+  const flight = simulation.state.flights.find((item) => item.id === proposal.flightId);
+  const header = document.createElement('header');
+  const identity = document.createElement('div');
+  const title = document.createElement('b');
+  const station = document.createElement('small');
+  title.textContent = `${proposal.priority === 'urgent' ? 'Priority · ' : ''}${flight?.callsign ?? `Flight ${proposal.flightId}`}`;
+  station.textContent = `${proposal.station.toUpperCase()} PROPOSAL`;
+  identity.append(title, station);
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.dataset.proposalId = proposal.id;
+  button.textContent = proposal.label;
+  header.append(identity, button);
+  const reason = document.createElement('p');
+  reason.textContent = proposal.reason;
+  clearanceAdvisor.dataset.priority = proposal.priority;
+  clearanceAdvisor.append(header, reason);
+}
+
+function applyClearanceProposal(proposal: ClearanceProposal): void {
+  focusedFlightId = proposal.flightId;
+  world.selectFlight(proposal.flightId);
+  let result: AirportControlResult;
+  if (proposal.action === 'land') result = executeAirportRequest({ action: 'clearFlight', flightId: proposal.flightId, runway: proposal.runway! });
+  else if (proposal.action === 'go-around') result = executeAirportRequest({ action: 'triggerEmergency', flightId: proposal.flightId, type: 'go-around' });
+  else if (proposal.action === 'cross') result = executeAirportRequest({ action: 'clearRunwayCrossing', flightId: proposal.flightId, runway: proposal.runway! });
+  else if (proposal.action === 'line-up') result = executeAirportRequest({ action: 'clearRunwayEntry', flightId: proposal.flightId });
+  else if (proposal.action === 'takeoff') result = executeAirportRequest({ action: 'clearTakeoff', flightId: proposal.flightId });
+  else result = executeAirportRequest({ action: 'controlFlights', flightIds: [proposal.flightId], instruction: 'resume' });
+  setStatus(result.accepted ? `${proposal.label} approved` : 'Proposal rejected', result.reason);
+  renderFlightStrip();
+}
+
 function handleFlightAction(flightId: number, action: string, runwayValue?: string): void {
   if (replayMode) {
     setStatus('Replay is read-only', 'return to Live before issuing a clearance');
@@ -792,6 +946,35 @@ function updateSafetyUi(predictions = simulation.conflictPredictions()): void {
   safetyScore.style.color = score > 84 ? '#d9f4f4' : score > 64 ? '#f2c84b' : '#ef937f';
 }
 
+function updateOperationsHealth(): void {
+  const diagnostics = simulation.diagnostics();
+  const metrics = diagnostics.metrics;
+  const completed = simulation.state.arrivals + simulation.state.departures;
+  const throughput = completed / Math.max(1 / 60, simulation.state.elapsed / 3_600);
+  const invariantFailures = metrics.collisionAlerts + metrics.runwayIncursions + metrics.unexplainedPauses;
+  healthThroughput.textContent = throughput.toFixed(1);
+  healthConflicts.textContent = String(metrics.collisionAlerts);
+  healthIncursions.textContent = String(metrics.runwayIncursions);
+  healthPauses.textContent = String(metrics.unexplainedPauses);
+  healthHold.textContent = `${Math.round(metrics.longestHoldSeconds)}s`;
+  healthDelay.textContent = `${(metrics.estimatedDelaySeconds / 60).toFixed(1)}m`;
+  healthFps.textContent = measuredFps ? String(Math.round(measuredFps)) : '—';
+  const state = invariantFailures > 0 ? 'ATTENTION' : simulation.state.elapsed < 10 ? 'WARMING UP' : 'NOMINAL';
+  healthState.textContent = state;
+  operationsHealth.dataset.state = state.toLowerCase();
+}
+
+function renderDebugPanel(): void {
+  const renderer = world.diagnostics();
+  const diagnostics = simulation.diagnostics();
+  debugPanel.textContent = [
+    `${config.code} · ${simulation.state.mode.toUpperCase()} · ${simulation.state.station.toUpperCase()}`,
+    `${measuredFps.toFixed(1)} fps · ${renderer.drawCalls} draws · ${renderer.triangles.toLocaleString()} tris`,
+    `${simulation.state.flights.length} aircraft · ${diagnostics.runwayReservations.length} runway reservations`,
+    `${diagnostics.metrics.collisionAlerts} conflicts · ${diagnostics.metrics.runwayIncursions} incursions · ${diagnostics.metrics.unexplainedPauses} pauses`,
+  ].join('\n');
+}
+
 function updateReplayUi(): void {
   replaySlider.max = String(Math.max(0, replayFrames.length - 1));
   replaySlider.disabled = !replayMode || replayFrames.length === 0;
@@ -842,20 +1025,26 @@ function formatTime(seconds: number): string {
 let lastTelemetrySecond = -1;
 
 function updateModeControl(): void {
-  const automatic = simulation.state.mode === 'auto';
+  const mode = simulation.state.mode;
+  const automatic = mode === 'auto' || mode === 'watch';
   modeButton.setAttribute('aria-pressed', String(automatic));
   modeButton.classList.toggle('control--active', automatic);
-  modeIcon.textContent = automatic ? 'A' : 'M';
-  modeLabel.textContent = automatic ? 'Auto' : 'Manual';
+  modeIcon.textContent = mode === 'auto' ? 'A' : mode === 'assisted' ? '✓' : mode === 'manual' ? 'M' : '◌';
+  modeLabel.textContent = mode === 'auto' ? 'Auto' : mode === 'assisted' ? 'Assist' : mode === 'manual' ? 'Manual' : 'Watch';
   const zoomHint = ' · scroll to zoom';
-  instructionCopy.innerHTML = automatic
-    ? `Continuous Auto tower${zoomHint} · <b>select a flight to follow</b>`
-    : `Full Manual ATC${zoomHint} · <b>select a flight for live clearances</b>`;
-  canvas.setAttribute('aria-label', automatic
-    ? `Automatic live traffic at ${config.name}. Select a flight card to follow it.`
-    : `Manual air traffic control at ${config.name}. Select a flight card for clearances.`);
-  controlSelect.value = simulation.state.mode;
-  introControlSelect.value = simulation.state.mode;
+  instructionCopy.innerHTML = mode === 'watch'
+    ? `Watch mode · calm continuous traffic${zoomHint} · <b>select a flight to follow</b>`
+    : mode === 'assisted'
+      ? `Assisted ATC${zoomHint} · <b>approve the advisor’s safe clearances</b>`
+      : mode === 'manual'
+        ? `Full Manual ATC${zoomHint} · <b>select a flight for live clearances</b>`
+        : `Continuous Auto tower${zoomHint} · <b>select a flight to follow</b>`;
+  canvas.setAttribute('aria-label', mode === 'manual' || mode === 'assisted'
+    ? `${mode === 'assisted' ? 'Assisted' : 'Manual'} air traffic control at ${config.name}. Select a flight card for clearances.`
+    : `${mode === 'watch' ? 'Watch-only' : 'Automatic'} live traffic at ${config.name}. Select a flight card to follow it.`);
+  controlSelect.value = mode;
+  introControlSelect.value = mode;
+  document.body.classList.toggle('watch-mode', mode === 'watch');
 }
 
 function setControlPanelOpen(open: boolean): void {
@@ -905,6 +1094,8 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   updateAirportUi();
   clearRoute();
   replayFrames.length = 0;
+  commandHistory.length = 0;
+  initialReplayState = cloneAirportState(simulation.state);
   focusedFlightId = null;
   renderFlightStrip();
   renderFlightActions();
@@ -921,12 +1112,32 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
 
 function setExclusiveModal(modal: HTMLElement | null): void {
   const app = $<HTMLElement>('#app');
+  if (modal) modalReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   for (const child of [...app.children]) {
     if (!(child instanceof HTMLElement)) continue;
     child.toggleAttribute('inert', Boolean(modal && child !== modal));
   }
   if (!modal && !controlPanel.classList.contains('control-panel--open')) controlPanel.setAttribute('inert', '');
+  if (!modal && modalReturnFocus && document.contains(modalReturnFocus)) modalReturnFocus.focus({ preventScroll: true });
+  if (!modal) modalReturnFocus = null;
 }
+
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Tab') return;
+  const modal = [intro, gameOver].find((candidate) => !candidate.hidden && !candidate.classList.contains('modal--hidden'));
+  if (!modal) return;
+  const focusable = [...modal.querySelectorAll<HTMLElement>('button:not(:disabled), select:not(:disabled), input:not(:disabled), [href], [tabindex]:not([tabindex="-1"])')];
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+});
 
 function updateAirportUi(): void {
   airportName.textContent = config.name;
@@ -960,8 +1171,14 @@ function selectAirport(code: string, paused: boolean): void {
 function selectControl(mode: ControlMode): void {
   simulation.setMode(mode);
   updateModeControl();
-  if (mode === 'manual') setFlightStripCollapsed(false);
-  setStatus(`${mode === 'auto' ? 'Full auto' : 'Full manual'} selected`, mode === 'auto' ? 'the tower manages every phase continuously' : 'you own approach, runway, and ground clearances');
+  if (mode === 'manual' || mode === 'assisted') setFlightStripCollapsed(false);
+  if (mode === 'watch') {
+    setFlightStripCollapsed(true);
+    audioPreset.value = 'calm';
+    audio.setPreset('calm');
+  }
+  renderFlightStrip();
+  setStatus(modeName(mode), modeDescription(mode));
 }
 
 function setScenario(scenario: TrafficScenario): void {
@@ -975,7 +1192,24 @@ function setStation(station: ControllerStation): void {
   simulation.setStation(station);
   stationSelect.value = station;
   const labels: Record<ControllerStation, string> = { supervisor: 'Supervisor', approach: 'Approach', tower: 'Tower', ground: 'Ground' };
+  focusedFlightId = null;
+  world.selectFlight(null);
+  renderFlightStrip();
   setStatus(`${labels[station]} station`, station === 'supervisor' ? 'full picture · all clearances available' : `${labels[station].toLowerCase()} frequency selected`);
+}
+
+function modeName(mode: ControlMode): string {
+  return mode === 'auto' ? 'Full auto' : mode === 'assisted' ? 'Assisted ATC' : mode === 'manual' ? 'Full manual' : 'Watch / ASMR';
+}
+
+function modeDescription(mode: ControlMode): string {
+  return mode === 'auto'
+    ? 'the tower manages every phase continuously'
+    : mode === 'assisted'
+      ? 'the advisor explains and proposes each safe clearance for approval'
+      : mode === 'manual'
+        ? 'you own approach, runway, and ground clearances'
+        : 'hands-off flow · minimal chrome · calm alert policy';
 }
 
 function trafficDescription(): string {
@@ -1037,11 +1271,13 @@ function airportSnapshot() {
   const diagnostics = simulation.diagnostics();
   const movingPhases = new Set(['approach', 'landing', 'taxi-in', 'taxi-out', 'takeoff']);
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     airport: {
       code: config.code,
       name: config.name,
       scope: config.scope,
+      fidelity: config.code === 'LOCAL' ? 'procedural' : 'schematic',
+      navigationUse: false,
       operationsPerYear: config.annualOperations,
     },
     clock: Number(simulation.state.elapsed.toFixed(2)),
@@ -1068,6 +1304,7 @@ function airportSnapshot() {
       durationSeconds: replayFrames.length ? replayFrames[replayFrames.length - 1].clock - replayFrames[0].clock : 0,
     },
     traffic: diagnostics,
+    proposals: simulation.clearanceProposals(),
     renderer: world.diagnostics(),
     runways: config.runways.map((runway) => ({
       id: runway.id,
@@ -1165,6 +1402,7 @@ function airportSnapshot() {
         accelerationMps2: Number(flight.kinematics.accelerationMps2.toFixed(2)),
         fuelPercent: Number(flight.kinematics.fuelPercent.toFixed(2)),
       },
+      motion: { ...flight.motion },
       trajectory: flightTrajectorySnapshot(flight),
       gateSlot: flight.gateSlot,
       stand: flight.standId,
@@ -1210,7 +1448,11 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
     if (accepted) setSimulationSpeed(command.value);
     else reason = 'speed must be a finite number';
   }
-  if (command.action === 'setMode') selectControl(command.value);
+  if (command.action === 'setMode') {
+    accepted = ['auto', 'assisted', 'manual', 'watch'].includes(command.value);
+    if (accepted) selectControl(command.value);
+    else reason = 'mode must be auto, assisted, manual, or watch';
+  }
   if (command.action === 'setNightMode') {
     simulation.setNightMode(command.enabled);
     updateNightControl();
@@ -1228,24 +1470,24 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
   }
   if (command.action === 'clearFlight') {
     accepted = simulation.clearFlight(command.flightId, command.runway);
-    if (!accepted) reason = 'flight is not awaiting an approach clearance, runway does not match, or station lacks authority';
+    reason = simulation.lastCommandReason();
   }
   if (command.action === 'clearRunwayEntry') {
     accepted = simulation.clearRunwayEntry(command.flightId);
-    if (!accepted) reason = 'flight is not at the hold-short point or tower authority is unavailable';
+    reason = simulation.lastCommandReason();
   }
   if (command.action === 'clearTakeoff') {
     accepted = simulation.clearTakeoff(command.flightId);
-    if (!accepted) reason = 'flight is not lined up or tower authority is unavailable';
+    reason = simulation.lastCommandReason();
   }
   if (command.action === 'clearRunwayCrossing') {
     accepted = simulation.clearRunwayCrossing(command.flightId, command.runway);
-    if (!accepted) reason = 'crossing is not on the route or ground authority is unavailable';
+    reason = simulation.lastCommandReason();
   }
   if (command.action === 'controlFlights') {
     const controlled = simulation.controlFlights(command.flightIds, command.instruction);
     accepted = controlled.length > 0;
-    if (!accepted) reason = 'no requested flight accepts that instruction at the selected station';
+    reason = simulation.lastCommandReason();
     const callsigns = simulation.state.flights.filter((flight) => controlled.includes(flight.id)).map((flight) => flight.callsign);
     if (callsigns.length) setStatus(`${command.instruction.toUpperCase()} command`, callsigns.join(' · '));
   }
@@ -1259,27 +1501,43 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
       renderFlightActions();
     }
   }
-  if (command.action === 'setScenario') setScenario(command.scenario);
-  if (command.action === 'setStation') setStation(command.station);
+  if (command.action === 'setScenario') {
+    accepted = ['normal', 'rush', 'storm', 'closure', 'training', 'emergency'].includes(command.scenario);
+    if (accepted) setScenario(command.scenario);
+    else reason = 'unknown scenario';
+  }
+  if (command.action === 'setStation') {
+    accepted = ['supervisor', 'approach', 'tower', 'ground'].includes(command.station);
+    if (accepted) setStation(command.station);
+    else reason = 'unknown controller station';
+  }
   if (command.action === 'triggerEmergency') {
     accepted = simulation.triggerEmergency(command.flightId, command.type);
     if (!accepted) reason = 'flight is not available for that instruction';
   }
-  if (command.action === 'setWeather') simulation.setWeather(command.condition, aviationDegreesToMathAngle(command.directionDegrees), command.windSpeed);
+  if (command.action === 'setWeather') {
+    accepted = ['clear', 'rain', 'fog'].includes(command.condition) && Number.isFinite(command.directionDegrees) && Number.isFinite(command.windSpeed);
+    if (accepted) simulation.setWeather(command.condition, aviationDegreesToMathAngle(command.directionDegrees), command.windSpeed);
+    else reason = 'weather requires a valid condition, direction, and wind speed';
+  }
   if (command.action === 'setWeatherEnabled') simulation.setWeatherEnabled(command.enabled);
   if (command.action === 'setWindEnabled') simulation.setWindEnabled(command.enabled);
   if (command.action === 'restart') newSession(false, config.code === 'LOCAL' ? generateAirportConfig() : generateHubConfig(hubIndex));
   recordTelemetry(`command:${command.action}`, undefined, undefined, undefined, { accepted, detail: reason, payload: command });
-  const result = { accepted, reason, sequence: telemetrySequence, snapshot: airportSnapshot() };
+  const snapshot = airportSnapshot();
+  const result = { accepted, reason, sequence: telemetrySequence, eventId: telemetrySequence, snapshot, resultingState: snapshot };
+  commandHistory.push({ sequence: telemetrySequence, elapsed: Number(simulation.state.elapsed.toFixed(3)), command: { ...command } as AirportControlCommand, accepted, reason });
+  if (commandHistory.length > 2_000) commandHistory.splice(0, commandHistory.length - 2_000);
   airportChannel?.postMessage({ type: 'command-result', command, result });
   return result;
 }
 
 window.airportControl = {
-  version: '2.0.0',
+  version: '2.1.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },
+  recording: replayRecording,
   command: executeAirportCommand,
   request: executeAirportRequest,
   help() {
@@ -1307,6 +1565,7 @@ window.airportControl = {
       aircraft: 'airportControl.snapshot().flights[0].aircraft',
       surfaceGraph: 'airportControl.snapshot().surfaceGraph',
       replay: 'airportControl.replay()',
+      recording: 'airportControl.recording() // seed + commands + weather + full-state frames',
       zigzag: "airportControl.command({ action: 'controlFlights', flightIds: [1], instruction: 'zigzag' })",
       weather: "airportControl.command({ action: 'setWeather', condition: 'rain', directionDegrees: 270, windSpeed: 18 })",
       weatherToggle: "airportControl.command({ action: 'setWeatherEnabled', enabled: false })",
@@ -1324,11 +1583,10 @@ airportChannel?.addEventListener('message', (event: MessageEvent) => {
 });
 airportChannel?.postMessage({ type: 'ready', version: window.airportControl.version, snapshot: airportSnapshot() });
 
-function flightTrajectorySnapshot(flight: Parameters<typeof sampleFlightTrajectory>[1]) {
-  const trajectory = sampleFlightTrajectory(config, flight);
-  if (!trajectory) return null;
+function flightTrajectorySnapshot(flight: Flight) {
+  const trajectory = flight.motion;
   return {
-    stage: trajectory.stage,
+    stage: trajectory.stage ?? flight.phase,
     stageProgress: Number(trajectory.stageProgress.toFixed(3)),
     position: {
       x: Number(trajectory.x.toFixed(3)),
@@ -1340,8 +1598,8 @@ function flightTrajectorySnapshot(flight: Parameters<typeof sampleFlightTrajecto
     bankDegrees: Number((trajectory.bank * 180 / Math.PI).toFixed(2)),
     onGround: trajectory.onGround,
     protectedRunway: trajectory.protectedRunway,
-    distanceAlong: Number(trajectory.distanceAlong.toFixed(2)),
-    totalDistance: Number(trajectory.totalDistance.toFixed(2)),
+    distanceAlongMeters: Number(trajectory.distanceAlongM.toFixed(2)),
+    totalDistanceMeters: Number(trajectory.totalDistanceM.toFixed(2)),
   };
 }
 
@@ -1358,12 +1616,14 @@ function mathAngleToAviationDegrees(angle: number): number {
 }
 
 if (telemetryEnabled) telemetryPanel.hidden = false;
-const launchAirport = launchOptions.get('airport');
-if (launchAirport) selectAirport(launchAirport.toUpperCase(), launchOptions.get('autostart') !== '1');
+const launchAirport = launchOptions.get('airport') ?? (soakEnabled ? 'ORD' : null);
+if (launchAirport) selectAirport(launchAirport.toUpperCase(), true);
 const launchSpeed = Number(launchOptions.get('speed'));
 if (Number.isFinite(launchSpeed) && launchOptions.has('speed')) setSimulationSpeed(launchSpeed);
+else if (soakEnabled) setSimulationSpeed(3);
 const launchMode = launchOptions.get('mode');
-if (launchMode === 'auto' || launchMode === 'manual') selectControl(launchMode);
+if (launchMode === 'auto' || launchMode === 'assisted' || launchMode === 'manual' || launchMode === 'watch') selectControl(launchMode);
+else if (soakEnabled) selectControl('auto');
 if (launchOptions.get('night') === '1') {
   simulation.setNightMode(true);
   updateNightControl();
@@ -1372,7 +1632,7 @@ if (launchOptions.get('radar') === '1') {
   radarVisible = true;
   updateRadarControl();
 }
-const launchScenario = launchOptions.get('scenario') as TrafficScenario | null;
+const launchScenario = (launchOptions.get('scenario') ?? (soakEnabled ? 'rush' : null)) as TrafficScenario | null;
 if (launchScenario && ['normal', 'rush', 'storm', 'closure', 'training', 'emergency'].includes(launchScenario)) setScenario(launchScenario);
 const launchStation = launchOptions.get('station') as ControllerStation | null;
 if (launchStation && ['supervisor', 'approach', 'tower', 'ground'].includes(launchStation)) setStation(launchStation);
@@ -1386,7 +1646,7 @@ if ((launchWeather === 'clear' || launchWeather === 'rain' || launchWeather === 
 }
 if (launchWeatherValue === 'off') simulation.setWeatherEnabled(false);
 if (launchWindValue === 'off') simulation.setWindEnabled(false);
-if (launchOptions.get('autostart') === '1') startShift();
+if (launchOptions.get('autostart') === '1' || soakEnabled) startShift();
 
 requestAnimationFrame(frame);
 window.addEventListener('beforeunload', () => {

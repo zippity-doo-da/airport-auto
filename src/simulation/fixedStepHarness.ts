@@ -374,6 +374,9 @@ function snapshotMetrics(metrics: ShiftMetrics): ShiftMetrics {
     emergencyResponses: metrics.emergencyResponses,
     safetyHolds: metrics.safetyHolds,
     collisionAlerts: metrics.collisionAlerts,
+    runwayIncursions: metrics.runwayIncursions,
+    unexplainedPauses: metrics.unexplainedPauses,
+    longestHoldSeconds: round(metrics.longestHoldSeconds),
   };
 }
 

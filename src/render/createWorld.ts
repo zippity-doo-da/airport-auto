@@ -2,11 +2,10 @@ import * as THREE from 'three';
 import type { AirportConfig, FlightColor, RunwayConfig } from '../simulation/airportConfig';
 import { aircraftProfile } from '../simulation/aircraftProfiles';
 import { airlineProfile } from '../simulation/airlineProfiles';
-import type { AirportState, Flight } from '../simulation/types';
-import { sampleFlightTrajectory } from '../simulation/flightTrajectory';
-import { sampleSurfaceRoute } from '../simulation/surfaceGraph';
+import type { AirportState, Flight, FlightMotionState } from '../simulation/types';
 
 type FlightVisual = {
+  poolKey: string;
   root: THREE.Group;
   baseScale: number;
   shadow: THREE.Mesh;
@@ -61,7 +60,7 @@ export interface AirportWorld {
   zoomOut(): void;
   resetCamera(): void;
   setRunwayLabelsVisible(visible: boolean): void;
-  diagnostics(): { drawCalls: number; triangles: number; geometries: number; textures: number };
+  diagnostics(): { drawCalls: number; triangles: number; geometries: number; textures: number; detail: 'low' | 'high'; pooledAircraft: number };
   resize(): void;
   dispose(): void;
 }
@@ -91,9 +90,12 @@ const PALETTE_COLOR: Record<FlightColor, number> = {
 };
 
 export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): AirportWorld {
+  const requestedDetail = new URLSearchParams(window.location.search).get('detail');
+  const deviceMemory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8;
+  const lowDetail = requestedDetail === 'low' || (requestedDetail !== 'high' && (window.innerWidth < 720 || deviceMemory <= 4));
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
-  renderer.shadowMap.enabled = true;
+  renderer.setPixelRatio(Math.min(devicePixelRatio, lowDetail ? 1.2 : 1.75));
+  renderer.shadowMap.enabled = !lowDetail;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -130,12 +132,13 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   buildLandscape(world, config);
   const airportBuild = buildAirport(world, config);
   const runwayLights = airportBuild.runwayLights;
-  const swayingObjects = buildDetails(world, config);
-  const clouds = buildClouds(scene);
-  const rain = buildRain(scene, config.seed);
+  const swayingObjects = buildDetails(world, config, lowDetail);
+  const clouds = buildClouds(scene, lowDetail);
+  const rain = buildRain(scene, config.seed, lowDetail);
   const ripples = buildRipples(world, config);
 
   const flightVisuals = new Map<number, FlightVisual>();
+  const flightPool = new Map<string, FlightVisual[]>();
   let selectedFlightId: number | null = null;
   let viewIndex = 0;
   let cameraTime = 0;
@@ -157,6 +160,9 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   let currentState: AirportState | null = null;
   let runwayLabelsVisible = false;
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const touchPoints = new Map<number, { x: number; y: number }>();
+  let previousPinchDistance = 0;
+  let previousPinchGround: THREE.Vector3 | null = null;
 
   function updateProjection(): void {
     const aspect = viewportWidth / Math.max(1, viewportHeight);
@@ -209,7 +215,10 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     for (const flight of state.flights) {
       let visual = flightVisuals.get(flight.id);
       if (!visual) {
-        visual = createPlane(flight);
+        const poolKey = planePoolKey(flight);
+        visual = flightPool.get(poolKey)?.pop() ?? createPlane(flight);
+        visual.root.visible = true;
+        visual.poseInitialized = false;
         if (config.scope === 'center') {
           visual.baseScale = 0.72;
         } else {
@@ -234,7 +243,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
       visual.landingLamp.visible = landingLightsOn && nightMix > 0.02;
       visual.landingLight.intensity = landingLightsOn ? 3.8 * nightMix : 0;
       visual.beacon.intensity = (strobe ? 3.4 : 0.12) * THREE.MathUtils.lerp(0.45, 1.35, nightMix);
-      updateContrail(visual, flight, config, state.elapsed);
+      updateContrail(visual, flight, state.elapsed);
       visual.halo.visible = selectedFlightId === flight.id;
       visual.halo.scale.setScalar(1 + Math.sin(state.elapsed * 5) * 0.08);
     }
@@ -242,7 +251,12 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     for (const [id, visual] of flightVisuals) {
       if (!visual.active) {
         world.remove(visual.root);
-        disposeObject(visual.root);
+        visual.root.visible = false;
+        const pool = flightPool.get(visual.poolKey) ?? [];
+        if (pool.length < 3) {
+          pool.push(visual);
+          flightPool.set(visual.poolKey, pool);
+        } else disposeObject(visual.root);
         flightVisuals.delete(id);
       }
     }
@@ -369,6 +383,46 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     }
   };
 
+  const onPointerDown = (event: PointerEvent): void => {
+    if (event.pointerType !== 'touch') return;
+    touchPoints.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (touchPoints.size === 2) {
+      const [first, second] = [...touchPoints.values()];
+      previousPinchDistance = Math.max(1, Math.hypot(first.x - second.x, first.y - second.y));
+      previousPinchGround = groundPointAt((first.x + second.x) / 2, (first.y + second.y) / 2);
+    }
+  };
+
+  const onPointerMove = (event: PointerEvent): void => {
+    if (event.pointerType !== 'touch' || !touchPoints.has(event.pointerId)) return;
+    touchPoints.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (touchPoints.size !== 2) return;
+    event.preventDefault();
+    const [first, second] = [...touchPoints.values()];
+    const distance = Math.max(1, Math.hypot(first.x - second.x, first.y - second.y));
+    const midpoint = { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 };
+    const minimumZoom = config.scope === 'center' ? 0.08 : 0.12;
+    manualZoom = THREE.MathUtils.clamp(manualZoom * previousPinchDistance / distance, minimumZoom, 3);
+    updateProjection();
+    const nextGround = groundPointAt(midpoint.x, midpoint.y);
+    if (previousPinchGround && nextGround) {
+      const focusLimit = config.scope === 'center' ? 170 : 110;
+      cameraFocus.x = THREE.MathUtils.clamp(cameraFocus.x + previousPinchGround.x - nextGround.x, -focusLimit, focusLimit);
+      cameraFocus.y = THREE.MathUtils.clamp(cameraFocus.y + previousPinchGround.y - nextGround.y, -focusLimit, focusLimit);
+    }
+    previousPinchDistance = distance;
+    previousPinchGround = groundPointAt(midpoint.x, midpoint.y);
+  };
+
+  const onPointerUp = (event: PointerEvent): void => {
+    if (event.pointerType !== 'touch') return;
+    touchPoints.delete(event.pointerId);
+    if (touchPoints.size < 2) {
+      previousPinchDistance = 0;
+      previousPinchGround = null;
+    }
+  };
+
   function changeZoom(factor: number): void {
     const minimumZoom = config.scope === 'center' ? 0.08 : 0.12;
     manualZoom = THREE.MathUtils.clamp(manualZoom * factor, minimumZoom, 3);
@@ -391,6 +445,10 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   resize();
   window.addEventListener('resize', resize);
   canvas.addEventListener('wheel', onWheel, { passive: false });
+  canvas.addEventListener('pointerdown', onPointerDown);
+  canvas.addEventListener('pointermove', onPointerMove, { passive: false });
+  canvas.addEventListener('pointerup', onPointerUp);
+  canvas.addEventListener('pointercancel', onPointerUp);
   canvas.addEventListener('webglcontextlost', onContextLost);
   canvas.addEventListener('webglcontextrestored', onContextRestored);
 
@@ -414,14 +472,22 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
         triangles: renderer.info.render.triangles,
         geometries: renderer.info.memory.geometries,
         textures: renderer.info.memory.textures,
+        detail: lowDetail ? 'low' : 'high',
+        pooledAircraft: [...flightPool.values()].reduce((sum, pool) => sum + pool.length, 0),
       };
     },
     resize,
     dispose() {
       window.removeEventListener('resize', resize);
       canvas.removeEventListener('wheel', onWheel);
+      canvas.removeEventListener('pointerdown', onPointerDown);
+      canvas.removeEventListener('pointermove', onPointerMove);
+      canvas.removeEventListener('pointerup', onPointerUp);
+      canvas.removeEventListener('pointercancel', onPointerUp);
       canvas.removeEventListener('webglcontextlost', onContextLost);
       canvas.removeEventListener('webglcontextrestored', onContextRestored);
+      for (const pool of flightPool.values()) for (const visual of pool) disposeObject(visual.root);
+      flightPool.clear();
       disposeObject(scene);
       renderer.dispose();
     },
@@ -668,46 +734,61 @@ function createRunwayLabel(label: string): THREE.Sprite {
   return sprite;
 }
 
-function buildDetails(root: THREE.Group, config: AirportConfig): THREE.Object3D[] {
+function buildDetails(root: THREE.Group, config: AirportConfig, lowDetail: boolean): THREE.Object3D[] {
   const sway: THREE.Object3D[] = [];
   const treeDark = config.terrain === 'woodland' ? 0x3f604c : config.terrain === 'highland' ? 0x666b55 : 0x698169;
   const treeLight = config.terrain === 'woodland' ? 0x5e7958 : config.terrain === 'highland' ? 0x85866a : 0x8fa079;
   const treeMaterial = new THREE.MeshStandardMaterial({ color: treeDark, roughness: 1 });
   const treeLightMaterial = new THREE.MeshStandardMaterial({ color: treeLight, roughness: 1 });
   const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x7d6351, roughness: 1 });
+  const treeCount = lowDetail ? Math.max(8, Math.floor(config.treeCount * 0.45)) : config.treeCount;
+  const trunkInstances = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.34, 0.52, 3.5, 6), trunkMaterial, treeCount);
+  const darkCount = Math.floor(treeCount * 2 / 3);
+  const lightCount = treeCount - darkCount;
+  const crownGeometry = new THREE.IcosahedronGeometry(1, lowDetail ? 0 : 1);
+  const darkCrowns = new THREE.InstancedMesh(crownGeometry, treeMaterial, darkCount);
+  const lightCrowns = new THREE.InstancedMesh(crownGeometry.clone(), treeLightMaterial, lightCount);
+  const dummy = new THREE.Object3D();
+  let darkIndex = 0;
+  let lightIndex = 0;
 
-  for (let index = 0; index < config.treeCount; index += 1) {
-    const angle = (index / config.treeCount) * Math.PI * 2 + Math.sin(index * 4.7 + config.seed) * 0.13;
+  for (let index = 0; index < treeCount; index += 1) {
+    const angle = (index / treeCount) * Math.PI * 2 + Math.sin(index * 4.7 + config.seed) * 0.13;
     const radiusX = (config.code === 'ORD' ? 142 : 70) + (index % 5) * 3.5;
     const radiusY = (config.code === 'ORD' ? 112 : 50) + (index % 4) * 3.5;
-    const tree = new THREE.Group();
-    tree.position.set(Math.cos(angle) * radiusX, Math.sin(angle) * radiusY, 1.2);
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.52, 3.5, 6), trunkMaterial);
-    trunk.rotation.x = Math.PI / 2;
-    trunk.position.z = 1.75;
-    tree.add(trunk);
-    const crown = new THREE.Mesh(new THREE.IcosahedronGeometry(2.4 + (index % 3) * 0.35, 1), index % 3 ? treeMaterial : treeLightMaterial);
-    crown.position.z = 4.4;
-    crown.scale.set(1, 1, 1.22);
-    crown.castShadow = true;
-    tree.add(crown);
-    root.add(tree);
-    sway.push(crown);
+    const x = Math.cos(angle) * radiusX;
+    const y = Math.sin(angle) * radiusY;
+    dummy.position.set(x, y, 2.95);
+    dummy.rotation.set(Math.PI / 2, 0, 0);
+    dummy.scale.set(1, 1, 1);
+    dummy.updateMatrix();
+    trunkInstances.setMatrixAt(index, dummy.matrix);
+    const crownScale = 2.4 + (index % 3) * 0.35;
+    dummy.position.set(x, y, 5.6);
+    dummy.rotation.set(0, 0, 0);
+    dummy.scale.set(crownScale, crownScale, crownScale * 1.22);
+    dummy.updateMatrix();
+    if (index % 3) darkCrowns.setMatrixAt(darkIndex++, dummy.matrix);
+    else lightCrowns.setMatrixAt(lightIndex++, dummy.matrix);
   }
+  darkCrowns.castShadow = !lowDetail;
+  lightCrowns.castShadow = !lowDetail;
+  root.add(trunkInstances, darkCrowns, lightCrowns);
 
-  const reedCount = config.code === 'ORD' ? 0 : 70;
+  const reedCount = config.code === 'ORD' ? 0 : lowDetail ? 18 : 70;
+  const reedMaterial = new THREE.MeshStandardMaterial({ color: 0x8b916d, roughness: 1 });
+  const reeds = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.04, 0.08, 1, 4), reedMaterial, reedCount);
   for (let index = 0; index < reedCount; index += 1) {
     const angle = index * 2.399;
     const radius = 74 + (index % 10) * 1.5;
-    const reed = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.04, 0.08, 1.8 + (index % 3) * 0.4, 4),
-      new THREE.MeshStandardMaterial({ color: index % 2 ? 0x7f916d : 0xb19d68, roughness: 1 }),
-    );
-    reed.rotation.x = Math.PI / 2;
-    reed.position.set(Math.cos(angle) * radius, Math.sin(angle) * radius * 0.74, 0.7);
-    root.add(reed);
-    sway.push(reed);
+    const height = 1.8 + (index % 3) * 0.4;
+    dummy.position.set(Math.cos(angle) * radius, Math.sin(angle) * radius * 0.74, 0.7 + height / 2);
+    dummy.rotation.set(Math.PI / 2, 0, 0);
+    dummy.scale.set(1, height, 1);
+    dummy.updateMatrix();
+    reeds.setMatrixAt(index, dummy.matrix);
   }
+  root.add(reeds);
 
   const windsock = new THREE.Group();
   windsock.position.set(45, 28, 2);
@@ -725,9 +806,9 @@ function buildDetails(root: THREE.Group, config: AirportConfig): THREE.Object3D[
   return sway;
 }
 
-function buildClouds(scene: THREE.Scene): THREE.Group[] {
+function buildClouds(scene: THREE.Scene, lowDetail: boolean): THREE.Group[] {
   const clouds: THREE.Group[] = [];
-  for (let index = 0; index < 4; index += 1) {
+  for (let index = 0; index < (lowDetail ? 2 : 4); index += 1) {
     const cloud = new THREE.Group();
     const material = new THREE.MeshBasicMaterial({ color: 0xf4f0e8, transparent: true, opacity: 0.12, depthWrite: false });
     for (let part = 0; part < 5; part += 1) {
@@ -743,8 +824,8 @@ function buildClouds(scene: THREE.Scene): THREE.Group[] {
   return clouds;
 }
 
-function buildRain(scene: THREE.Scene, seed: number): THREE.Points {
-  const count = 420;
+function buildRain(scene: THREE.Scene, seed: number, lowDetail: boolean): THREE.Points {
+  const count = lowDetail ? 180 : 420;
   const positions = new Float32Array(count * 3);
   for (let index = 0; index < count; index += 1) {
     const first = Math.sin(seed * 0.17 + index * 12.9898) * 43758.5453;
@@ -788,6 +869,10 @@ function buildRipples(root: THREE.Group, config: AirportConfig): THREE.Mesh[] {
   void root;
   void config;
   return [];
+}
+
+function planePoolKey(flight: Flight): string {
+  return `${flight.aircraft}:${flight.airline}:${flight.palette}`;
 }
 
 function createPlane(flight: Flight): FlightVisual {
@@ -964,6 +1049,7 @@ function createPlane(flight: Flight): FlightVisual {
     });
   }
   return {
+    poolKey: planePoolKey(flight),
     root,
     baseScale: 1,
     shadow,
@@ -1006,24 +1092,17 @@ function positionFlight(
       ? THREE.MathUtils.lerp(visual.baseScale, visual.baseScale * 1.22, takeoffClimb)
       : visual.baseScale;
   visual.root.scale.setScalar(presentationScale);
-  const trajectory = sampleFlightTrajectory(config, flight);
+  const motion = flight.motion;
   const point = visual.routePoint;
   const tangent = visual.routeTangent;
-  if (trajectory) {
-    point.set(trajectory.x, trajectory.y, trajectory.z);
-    tangent.set(Math.cos(trajectory.heading), Math.sin(trajectory.heading), 0);
-  } else {
-    const surface = sampleSurfaceRoute(config.surfaceGraph, flight.surfaceRoute, flight.progress);
-    if (!surface) return;
-    point.set(surface.x, surface.y, 2);
-    tangent.set(Math.cos(surface.heading), Math.sin(surface.heading), 0);
-  }
+  point.set(motion.x, motion.y, motion.z);
+  tangent.set(Math.cos(motion.heading), Math.sin(motion.heading), 0);
   visual.root.position.copy(point);
   const modelScale = visual.root.scale.x;
   const wheelOnSurfaceLift = Math.max(0.3, 1.29 * modelScale - 0.32);
   const isTaxiing = flight.phase === 'taxi-in' || flight.phase === 'resting' || flight.phase === 'taxi-out';
-  const groundFactor = trajectory?.groundBlend ?? (isTaxiing ? 1 : 0);
-  const presentationPitch = flightPresentationPitch(flight, trajectory);
+  const groundFactor = motion.groundBlend;
+  const presentationPitch = flightPresentationPitch(flight, motion);
   if (isTaxiing) {
     // Taxi route points describe the pavement centerline, not aircraft altitude.
     // Clamp the lowest wheel to the taxi/apron surface so a taxiing plane can
@@ -1040,15 +1119,15 @@ function positionFlight(
     // flare and the aircraft can read as if it is rotating nose-down.
     visual.root.position.z += mainGearContactLift(flight, presentationPitch, modelScale) * groundFactor;
   }
-  const targetHeading = trajectory?.heading ?? Math.atan2(tangent.y, tangent.x);
+  const targetHeading = motion.heading;
   if (!visual.poseInitialized) {
     visual.renderedHeading = targetHeading;
     visual.poseInitialized = true;
   } else {
-    visual.renderedHeading = dampAngle(visual.renderedHeading, targetHeading, trajectory ? 8 : 10, delta);
+    visual.renderedHeading = dampAngle(visual.renderedHeading, targetHeading, motion.onGround ? 10 : 8, delta);
   }
   visual.root.rotation.z = visual.renderedHeading;
-  const airborne = trajectory ? !trajectory.onGround : false;
+  const airborne = !motion.onGround;
   for (const caster of visual.shadowCasters) caster.castShadow = airborne;
   visual.gear.visible = (flight.phase === 'approach' && flight.progress > 0.72)
     || flight.phase === 'landing'
@@ -1056,13 +1135,13 @@ function positionFlight(
     || flight.phase === 'resting'
     || flight.phase === 'taxi-out'
     || (flight.phase === 'takeoff' && (
-      trajectory?.stage === 'lineup'
-      || trajectory?.stage === 'takeoff-roll'
-      || trajectory?.stage === 'rotation'
-      || (trajectory?.stage === 'climbout' && trajectory.stageProgress < 0.28)
+      motion.stage === 'lineup'
+      || motion.stage === 'takeoff-roll'
+      || motion.stage === 'rotation'
+      || (motion.stage === 'climbout' && motion.stageProgress < 0.28)
     ));
   const airMotion = airborne ? Math.sin(elapsed * 0.8 + flight.id) * 0.018 : 0;
-  visual.root.rotation.x = (trajectory?.bank ?? 0) + airMotion;
+  visual.root.rotation.x = motion.bank + airMotion;
   visual.root.rotation.y = -presentationPitch;
   const visualAltitude = visual.root.position.z;
   const shadowSurface = isTaxiing ? 1.64 : 1.82;
@@ -1079,27 +1158,26 @@ function positionFlight(
 
 function flightPresentationPitch(
   flight: Flight,
-  trajectory: ReturnType<typeof sampleFlightTrajectory>,
+  motion: FlightMotionState,
 ): number {
-  if (!trajectory) return 0;
   if (flight.phase === 'approach') {
     // Preserve the simulated flare curve, but give its six-degree endpoint a
     // clearly readable ten-degree attitude in the distant ATC camera.
-    return trajectory.pitch * (APPROACH_PRESENTATION_PITCH / 0.105);
+    return motion.pitch * (APPROACH_PRESENTATION_PITCH / 0.105);
   }
-  if (flight.phase !== 'landing') return trajectory.pitch;
-  if (trajectory.stage === 'flare') {
+  if (flight.phase !== 'landing') return motion.pitch;
+  if (motion.stage === 'flare') {
     return THREE.MathUtils.lerp(
       APPROACH_PRESENTATION_PITCH,
       TOUCHDOWN_PRESENTATION_PITCH,
-      THREE.MathUtils.smootherstep(trajectory.stageProgress, 0, 1),
+      THREE.MathUtils.smootherstep(motion.stageProgress, 0, 1),
     );
   }
-  if (trajectory.stage === 'touchdown') return TOUCHDOWN_PRESENTATION_PITCH;
-  if (trajectory.stage === 'rollout') {
+  if (motion.stage === 'touchdown') return TOUCHDOWN_PRESENTATION_PITCH;
+  if (motion.stage === 'rollout') {
     // Hold the nose off for a beat after the mains touch, then lower the nose
     // wheel progressively as braking settles the aircraft onto the runway.
-    const noseGearContact = THREE.MathUtils.smootherstep(trajectory.stageProgress, 0.14, 0.56);
+    const noseGearContact = THREE.MathUtils.smootherstep(motion.stageProgress, 0.14, 0.56);
     return TOUCHDOWN_PRESENTATION_PITCH * (1 - noseGearContact);
   }
   return 0;
@@ -1116,12 +1194,11 @@ function mainGearContactLift(flight: Flight, pitch: number, modelScale: number):
   return Math.max(0, (-pitchedWheelBottom - levelContactDepth) * modelScale);
 }
 
-function updateContrail(visual: FlightVisual, flight: Flight, config: AirportConfig, elapsed: number): void {
-  const trajectory = sampleFlightTrajectory(config, flight);
-  const airborne = trajectory ? !trajectory.onGround : false;
+function updateContrail(visual: FlightVisual, flight: Flight, elapsed: number): void {
+  const airborne = !flight.motion.onGround;
   visual.contrail.visible = airborne && (
     flight.phase === 'approach'
-    || (flight.phase === 'takeoff' && trajectory?.stage === 'climbout' && trajectory.stageProgress > 0.62)
+    || (flight.phase === 'takeoff' && flight.motion.stage === 'climbout' && flight.motion.stageProgress > 0.62)
   );
   if (!visual.contrail.visible) return;
   const material = visual.contrail.material as THREE.LineBasicMaterial;

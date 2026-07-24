@@ -4,7 +4,7 @@ import type { FlightColor } from './airportConfig';
 import type { AircraftModel } from './aircraftProfiles';
 import type { AirlineCode } from './airlineProfiles';
 
-export type ControlMode = 'auto' | 'manual';
+export type ControlMode = 'auto' | 'assisted' | 'manual' | 'watch';
 export type WeatherCondition = 'clear' | 'rain' | 'fog';
 export type TrafficScenario = 'normal' | 'rush' | 'storm' | 'closure' | 'training' | 'emergency';
 export type ControllerStation = 'tower' | 'ground' | 'approach' | 'supervisor';
@@ -31,6 +31,39 @@ export interface FlightKinematics {
   verticalSpeedFpm: number;
   accelerationMps2: number;
   fuelPercent: number;
+}
+
+/**
+ * Authoritative world pose owned by the fixed-step simulation. The renderer
+ * may interpolate this state, but it must never invent a separate route.
+ */
+export interface FlightMotionState {
+  x: number;
+  y: number;
+  z: number;
+  heading: number;
+  pitch: number;
+  bank: number;
+  onGround: boolean;
+  groundBlend: number;
+  protectedRunway: boolean;
+  distanceAlongM: number;
+  totalDistanceM: number;
+  stage?: string;
+  stageProgress: number;
+}
+
+export type ClearanceProposalAction = 'land' | 'go-around' | 'cross' | 'line-up' | 'takeoff' | 'resume';
+
+export interface ClearanceProposal {
+  id: string;
+  flightId: number;
+  action: ClearanceProposalAction;
+  runway?: number;
+  station: ControllerStation;
+  label: string;
+  reason: string;
+  priority: 'routine' | 'attention' | 'urgent';
 }
 
 export interface Flight {
@@ -79,6 +112,7 @@ export interface Flight {
   squawk: string;
   emergency?: EmergencyType;
   kinematics: FlightKinematics;
+  motion: FlightMotionState;
 }
 
 export interface ConflictPrediction {
@@ -103,6 +137,9 @@ export interface ShiftMetrics {
   emergencyResponses: number;
   safetyHolds: number;
   collisionAlerts: number;
+  runwayIncursions: number;
+  unexplainedPauses: number;
+  longestHoldSeconds: number;
 }
 
 export interface ReplayFrame {

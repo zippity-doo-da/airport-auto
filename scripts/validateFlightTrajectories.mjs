@@ -210,7 +210,14 @@ for (let tick = 0; tick < 7_000; tick += 1) {
         flight.kinematics.airspeedKts >= profile.approachKts * 0.98 && flight.kinematics.airspeedKts <= profile.approachKts + 30,
         'ORD live motion: ' + flight.callsign + ' approach airspeed departed the model envelope: ' + flight.kinematics.airspeedKts,
       );
-      assert(Math.abs(flight.kinematics.accelerationMps2) < 0.1, 'ORD live motion: ' + flight.callsign + ' approach speed stuttered: ' + flight.kinematics.accelerationMps2 + ' m/s²');
+      assert(
+        Math.abs(flight.kinematics.accelerationMps2) <= Math.max(profile.accelerationMps2, profile.brakingMps2) + 0.25,
+        'ORD live motion: ' + flight.callsign + ' exceeded its acceleration envelope: ' + flight.kinematics.accelerationMps2 + ' m/s²',
+      );
+      assert(
+        Math.hypot(flight.motion.x - motion.x, flight.motion.y - motion.y, flight.motion.z - motion.z) < 1e-6,
+        'ORD live motion: renderer trajectory diverged from authoritative simulation pose',
+      );
       totals.approachSpeedChecks += 1;
     }
     const previous = previousMotion.get(flight.id);

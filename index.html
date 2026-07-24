@@ -39,7 +39,9 @@
         </select></label>
         <label><span>Control</span><select id="control-select">
           <option value="auto">Full auto</option>
+          <option value="assisted">Assisted ATC</option>
           <option value="manual">Full manual</option>
+          <option value="watch">Watch / ASMR</option>
         </select></label>
         <label><span>Scenario</span><select id="scenario-select">
           <option value="normal">Normal flow</option>
@@ -60,7 +62,7 @@
           <span id="weather-condition">WX off</span><b id="weather-wind">calm · wind off</b><small id="weather-visibility">10 mi visibility</small>
           <div class="weather-readout__switches"><button id="weather-toggle" type="button" aria-pressed="false">WX OFF</button><button id="wind-toggle" type="button" aria-pressed="false">WIND OFF</button></div>
         </div>
-        <label class="audio-preset"><span>Soundscape</span><select id="audio-preset"><option value="full">Full field</option><option value="calm">Calm</option><option value="radio">Radio focus</option></select></label>
+        <label class="audio-preset"><span>Soundscape</span><select id="audio-preset"><option value="full">Full field</option><option value="calm">Calm</option><option value="radio">Radio focus</option><option value="engines">Engines only</option><option value="silent">Silent simulation</option></select></label>
         </section>
 
         <nav class="controls" aria-label="Game controls">
@@ -82,6 +84,18 @@
             <output id="replay-time">LIVE</output>
             <button id="replay-export" type="button">Export</button>
           </div>
+          <fieldset class="audio-mixer" aria-label="Sound levels">
+            <legend>Sound mixer</legend>
+            <label><span>Ambience</span><input data-audio-level="ambience" type="range" min="0" max="1" step="0.05" value="1" /></label>
+            <label><span>Aircraft</span><input data-audio-level="aircraft" type="range" min="0" max="1" step="0.05" value="1" /></label>
+            <label><span>Weather</span><input data-audio-level="weather" type="range" min="0" max="1" step="0.05" value="1" /></label>
+            <label><span>Radio</span><input data-audio-level="radio" type="range" min="0" max="1" step="0.05" value="1" /></label>
+            <label><span>UI</span><input data-audio-level="ui" type="range" min="0" max="1" step="0.05" value="0.7" /></label>
+          </fieldset>
+          <section id="operations-health" class="operations-health" aria-label="Live simulation health">
+            <header><b>Simulation health</b><span id="health-state">WARMING UP</span></header>
+            <div><span><b id="health-throughput">0.0</b><small>ops/hr</small></span><span><b id="health-conflicts">0</b><small>conflicts</small></span><span><b id="health-incursions">0</b><small>incursions</small></span><span><b id="health-pauses">0</b><small>pauses</small></span><span><b id="health-hold">0s</b><small>longest hold</small></span><span><b id="health-delay">0m</b><small>queue delay</small></span><span><b id="health-fps">—</b><small>fps</small></span></div>
+          </section>
           <p class="agent-note"><b>Live agent channel ready</b><span>window.airportControl · BroadcastChannel “airport-auto”</span></p>
         </details>
       </aside>
@@ -92,6 +106,7 @@
           <i aria-hidden="true">−</i>
         </button>
         <section id="flight-actions" class="flight-actions" aria-live="polite" hidden></section>
+        <section id="clearance-advisor" class="clearance-advisor" aria-live="polite" hidden></section>
         <div id="flight-chips" class="flight-chips" role="list"></div>
       </aside>
 
@@ -144,7 +159,9 @@
             </select></label>
             <label><span>Control</span><select id="intro-control-select">
               <option value="auto">Full auto</option>
+              <option value="assisted">Assisted ATC</option>
               <option value="manual">Full manual</option>
+              <option value="watch">Watch / ASMR</option>
             </select></label>
           </div>
           <div class="runway-key"><span><i class="key key--rose"></i>Landing threshold</span><span><i class="key key--blue"></i>Departure chevrons</span></div>
@@ -162,6 +179,7 @@
           <button id="restart" class="primary" type="button">Restart shift <span aria-hidden="true">↻</span></button>
         </div>
       </div>
+      <aside id="debug-panel" class="debug-panel" aria-label="Runtime diagnostics" hidden></aside>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>

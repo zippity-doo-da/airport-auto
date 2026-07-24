@@ -19,14 +19,14 @@ Useful real-world references for future fidelity work:
 
 - Arrivals enter at the map boundary and use a continuous approach, flare, threshold touchdown zone, rollout, and runway exit.
 - Departures taxi to a hold-short point, line up, accelerate down a model-appropriate runway distance, rotate, and climb out.
-- Aircraft centers follow the same graph or trajectory samples used by the renderer and collision system.
+- Physical speed and acceleration advance path distance; the fixed-step simulation owns the resulting pose consumed by both the renderer and collision system.
 - Ground aircraft remain on modeled runway, taxiway, apron, or stand pavement.
 - Active-runway ends follow wind when it is enabled, but do not flip underneath protected traffic.
 - Runway entry, crossing, and takeoff are distinct clearances.
 - Runway reservations protect intersecting and occupied runways while still permitting independent parallel operations.
 - Physical envelopes and broader airborne/surface separation envelopes are checked before movement is committed.
 - Gate slots cannot be reused while occupied, and converging or opposing surface routes reserve their next node/edge.
-- Auto mode issues the same discrete clearances that a manual controller must issue.
+- Auto and Watch issue the same discrete clearances that a Manual controller must issue; Assisted proposes and explains those commands without silently executing them.
 - Simulation speed advances one shared clock; taxiing does not secretly run at a different multiplier.
 
 ## Deliberate simplifications
@@ -34,7 +34,7 @@ Useful real-world references for future fidelity work:
 - Layouts preserve the operational impression of each hub rather than survey-grade geometry.
 - Taxiway naming is partial and schematic; terminal ramp-control jurisdictions are abstracted.
 - Approach and departure procedure names are descriptive placeholders, not published SID/STAR data.
-- Wake class affects spacing, but the game does not reproduce every FAA separation category or local waiver.
+- Wake class affects spacing, but the game does not reproduce every FAA separation category or local waiver. The E175 and Q400 use the medium game category, not the former misleading light label.
 - Pushback tugs, service vehicles, deicing queues, NOTAM ingestion, and live METAR/traffic feeds are not yet modeled.
 - Surrounding roads, terrain, and buildings are procedural scenery; no OpenStreetMap layer is currently shipped.
 

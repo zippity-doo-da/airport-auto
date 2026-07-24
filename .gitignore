@@ -1,5 +1,7 @@
 node_modules/
 dist/
+playwright-report/
+test-results/
 *.zip
 
 # Local design captures and scratch research are not part of the source repo.

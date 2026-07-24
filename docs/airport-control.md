@@ -4,13 +4,14 @@ Airport Auto exposes a local, versioned interface for playtests, scripted contro
 
 ## Browser API
 
-The current schema version is `2.0.0`.
+The current API version is `2.1.0`; snapshots use schema version `3`.
 
 ```js
 airportControl.version
 airportControl.snapshot()
 airportControl.events(100)
 airportControl.replay()
+airportControl.recording()
 airportControl.help()
 ```
 
@@ -24,9 +25,11 @@ const result = airportControl.request({
 
 // {
 //   accepted: true,
-//   reason: 'accepted',
+//   reason: 'takeoff clearance accepted for 27L',
 //   sequence: 418,
-//   snapshot: { ... }
+//   eventId: 418,
+//   snapshot: { ... },              // compatibility field
+//   resultingState: { ... }
 // }
 ```
 
@@ -83,9 +86,11 @@ In manual mode, the normal departure sequence is: clear every required crossing,
 
 ## Snapshot and events
 
-Snapshots include the airport and seed, simulation clock, mode, speed, station, scenario, weather, active runway ends, closure, runway roles and reservations, the complete surface graph, renderer diagnostics, safety metrics, and every flight's route, clearances, model data, kinematics, fuel, trajectory, and hold reason.
+Snapshots include the airport and seed, simulation clock, mode, speed, station, scenario, weather, active runway ends, closure, runway roles and reservations, proposed Assisted clearances, the complete surface graph, renderer diagnostics, safety metrics, and every flight's route, clearances, model data, authoritative pose, kinematics, fuel, trajectory stage, and hold reason.
 
 Events have a monotonic sequence number and include command payloads and acceptance, flight/runway/taxiway context, and safety-hold or go-around details. The in-page log retains the latest 500 events.
+
+`recording()` returns a portable replay bundle containing the airport seed, initial state, accepted and rejected commands, weather events, complete event log, and immutable full-state frames. The visible replay scrubber is read-only and drives the 3D world from those recorded frames.
 
 ## BroadcastChannel bridge
 
@@ -116,4 +121,6 @@ The game publishes `ready`, event, command-result, and request-correlated `respo
 http://127.0.0.1:5173/?airport=ORD&mode=auto&scenario=rush&speed=3&autostart=1&telemetry=1
 ```
 
-Supported airports are `LOCAL`, `ATL`, `ORD`, `DXB`, `HND`, `DFW`, `LHR`, `IST`, `DEN`, `LAX`, and `JFK`. Modes are `auto` and `manual`; stations are `supervisor`, `approach`, `tower`, and `ground`; scenarios are `normal`, `rush`, `storm`, `closure`, `training`, and `emergency`.
+Supported airports are `LOCAL`, `ATL`, `ORD`, `DXB`, `HND`, `DFW`, `LHR`, `IST`, `DEN`, `LAX`, and `JFK`. Modes are `auto`, `assisted`, `manual`, and `watch`; stations are `supervisor`, `approach`, `tower`, and `ground`; scenarios are `normal`, `rush`, `storm`, `closure`, `training`, and `emergency`.
+
+`?soak=1` starts an ORD Rush session at 3× for long-run health monitoring. Add `debug=1` for renderer/simulation probes and `detail=low` to force the mobile rendering tier.

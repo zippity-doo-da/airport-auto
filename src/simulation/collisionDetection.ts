@@ -4,6 +4,8 @@ import type { Flight, FlightPhase, WakeClass } from './types';
 import { sampleSurfaceRoute } from './surfaceGraph';
 import { distanceToObstacleBoundary, type AirportObstacleEnvelope } from './airportObstacles';
 import { sampleFlightTrajectory } from './flightTrajectory';
+import { runwaysConflict } from './runwayConflict';
+import { sampleFlightMotion } from './flightMotion';
 
 /**
  * Safety samples the same renderer-independent trajectory used by the view.
@@ -102,15 +104,18 @@ export function aircraftCollisionEnvelope(config: AirportConfig, flight: Flight,
     // The orthographic renderer compresses altitude for readability. Expand
     // airborne Z for safety math so an aircraft hundreds of feet above an
     // apron is not treated as physically touching ground traffic below it.
-    const safetyAltitude = trajectory.onGround ? trajectory.z : 2 + (trajectory.z - 2) * 3;
+    const motion = Math.abs(p - flight.progress) < 1e-9 && flight.motion
+      ? flight.motion
+      : sampleFlightMotion(config, flight, p);
+    const safetyAltitude = motion.onGround ? motion.z : 2 + (motion.z - 2) * 3;
     return envelope({
-      x: trajectory.x,
-      y: trajectory.y,
+      x: motion.x,
+      y: motion.y,
       altitude: safetyAltitude,
-      heading: trajectory.heading,
-      airborne: !trajectory.onGround,
-      surface: trajectory.onGround,
-      protectedSurface: trajectory.protectedRunway,
+      heading: motion.heading,
+      airborne: !motion.onGround,
+      surface: motion.onGround,
+      protectedSurface: motion.protectedRunway,
       runway: flight.runway,
     });
   }
@@ -135,12 +140,15 @@ export function aircraftCollisionEnvelope(config: AirportConfig, flight: Flight,
 
   const routeSample = sampleSurfaceRoute(config.surfaceGraph, flight.surfaceRoute, p);
   if (routeSample) {
+    const motion = Math.abs(p - flight.progress) < 1e-9 && flight.motion
+      ? flight.motion
+      : sampleFlightMotion(config, flight, p);
     const protectedSurface = routeSample.edge?.kind === 'runway' || routeSample.edge?.kind === 'runway-access';
     return envelope({
-      x: routeSample.x,
-      y: routeSample.y,
+      x: motion.x,
+      y: motion.y,
       altitude: 2.1,
-      heading: surfaceRouteHeading(config, flight, p),
+      heading: motion.heading,
       airborne: false,
       surface: true,
       protectedSurface,
@@ -383,15 +391,6 @@ export function findProposedConflict(
   return null;
 }
 
-function surfaceRouteHeading(config: AirportConfig, flight: Flight, progress: number): number {
-  const before = sampleSurfaceRoute(config.surfaceGraph, flight.surfaceRoute, clamp(progress - 0.002, 0, 1));
-  const after = sampleSurfaceRoute(config.surfaceGraph, flight.surfaceRoute, clamp(progress + 0.002, 0, 1));
-  if (!before || !after) return 0;
-  const x = after.x - before.x;
-  const y = after.y - before.y;
-  return Math.hypot(x, y) > 1e-6 ? Math.atan2(y, x) : 0;
-}
-
 function airbornePriority(phase: FlightPhase): number {
   // Arrivals get the right-of-way over departures when their protected air
   // volumes converge. This mirrors the game's ATC intent: stop a takeoff
@@ -436,24 +435,4 @@ function clamp(value: number, minimum: number, maximum: number): number {
 
 export function phaseIsMoving(phase: FlightPhase): boolean {
   return phase !== 'resting';
-}
-
-function runwaysConflict(config: AirportConfig, firstId: number, secondId: number): boolean {
-  if (firstId === secondId) return true;
-  const first = config.runways[firstId];
-  const second = config.runways[secondId];
-  if (!first || !second || first.role === 'inactive' || second.role === 'inactive') return false;
-  const firstDirection = { x: Math.cos(first.heading), y: Math.sin(first.heading) };
-  const secondDirection = { x: Math.cos(second.heading), y: Math.sin(second.heading) };
-  const delta = { x: second.center[0] - first.center[0], y: second.center[1] - first.center[1] };
-  const cross = firstDirection.x * secondDirection.y - firstDirection.y * secondDirection.x;
-  const clearance = (first.width + second.width) / 2 + 2.5;
-  if (Math.abs(cross) < 0.08) {
-    const lateral = Math.abs(delta.x * -firstDirection.y + delta.y * firstDirection.x);
-    const longitudinal = Math.abs(delta.x * firstDirection.x + delta.y * firstDirection.y);
-    return lateral < clearance && longitudinal < (first.length + second.length) / 2;
-  }
-  const firstDistance = (delta.x * secondDirection.y - delta.y * secondDirection.x) / cross;
-  const secondDistance = (delta.x * firstDirection.y - delta.y * firstDirection.x) / cross;
-  return Math.abs(firstDistance) <= first.length / 2 + clearance && Math.abs(secondDistance) <= second.length / 2 + clearance;
 }
