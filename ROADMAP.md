@@ -1,7 +1,7 @@
 # Airport Auto — Forward Roadmap
 
 Last reconciled: July 24, 2026
-Baseline: Airport Auto 2.2
+Baseline: Airport Auto 2.3
 
 Airport Auto is an **ASMR-first web airport simulation with an optional serious ATC layer**. The simulation should remain enjoyable as a calm, hands-off miniature world while also supporting increasingly authentic controller work when the player asks for it.
 
@@ -65,7 +65,9 @@ This document contains only unfinished, still-valid work. Shipped behavior belon
 
 Turn the safe surface graph into a believable airport lifecycle.
 
-- [ ] Add explicit pushback clearance, tug attachment, push direction, engine-start state, and tug release.
+**Status: in progress.** The first lifecycle slice shipped in 2.3.
+
+- [x] Add explicit pushback clearance, tug attachment, push direction, engine-start state, and tug release.
 - [ ] Add aircraft-specific taxi speed, turn-radius, stopping-distance, and wingtip-clearance behavior on the imported graph.
 - [ ] Add ramp-control zones, alley conflicts, one-way restrictions, stand lead-in/lead-out paths, and congestion-aware routing.
 - [ ] Add gate assignment by airline, terminal, aircraft size, service type, arrival time, and next departure.
@@ -125,7 +127,7 @@ Make each controller position a complete, satisfying job rather than a filtered 
 
 ## Milestone 5 — Agents and multi-controller operation
 
-Use the 2.2 local control API as the safety boundary for live human and agent controllers.
+Use the 2.3 local control API as the safety boundary for live human and agent controllers.
 
 - [ ] Publish a formal command/event schema with parameters, results, causal event IDs, authority, and compatibility rules.
 - [ ] Add deterministic scripted controllers for Approach, Tower, Ground, Ramp, and Supervisor before introducing LLM decisions.

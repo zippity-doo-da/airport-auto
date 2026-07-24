@@ -1,7 +1,7 @@
 import type { AirportConfig } from './airportConfig';
 import { sampleFlightTrajectory } from './flightTrajectory';
 import { WORLD_METERS_PER_UNIT } from './runwayPerformance';
-import { sampleSurfaceRouteWithEdges } from './surfaceGraph';
+import { sampleSurfaceRouteWithEdges, surfacePushbackPlan } from './surfaceGraph';
 import type { Flight, FlightMotionState } from './types';
 
 /** Convert the shared path definition into the simulation-owned world pose. */
@@ -30,13 +30,28 @@ export function sampleFlightMotion(
     };
   }
 
+  const stand = config.surfaceGraph.stands.find((item) => item.slot === flight.gateSlot);
   const surface = sampleSurfaceRouteWithEdges(config.surfaceGraph, flight.surfaceRoute, flight.surfaceRouteEdges, amount);
   if (surface) {
+    let heading = flight.phase === 'resting' ? stand?.heading ?? surface.heading : surface.heading;
+    let stage: string = flight.phase;
+    let stageProgress = amount;
+    if (flight.phase === 'taxi-out') {
+      const pushback = surfacePushbackPlan(config.surfaceGraph, flight.surfaceRoute, flight.surfaceRouteEdges, stand);
+      if (pushback && amount <= pushback.releaseProgress + 1e-8) {
+        const pushed = clamp(amount / pushback.releaseProgress, 0, 1);
+        heading = lerpAngle(pushback.parkedHeading, pushback.releaseHeading, smoothstep(pushed));
+        stage = 'pushback';
+        stageProgress = pushed;
+      } else if (pushback) {
+        stageProgress = clamp((amount - pushback.releaseProgress) / (1 - pushback.releaseProgress), 0, 1);
+      }
+    }
     return {
       x: surface.x,
       y: surface.y,
       z: 2,
-      heading: surface.heading,
+      heading,
       pitch: 0,
       bank: 0,
       onGround: true,
@@ -44,12 +59,11 @@ export function sampleFlightMotion(
       protectedRunway: surface.edge?.kind === 'runway' || surface.edge?.kind === 'runway-access',
       distanceAlongM: surface.distanceAlong * WORLD_METERS_PER_UNIT,
       totalDistanceM: surface.totalDistance * WORLD_METERS_PER_UNIT,
-      stage: flight.phase,
-      stageProgress: amount,
+      stage,
+      stageProgress,
     };
   }
 
-  const stand = config.surfaceGraph.stands.find((item) => item.slot === flight.gateSlot);
   const standNode = stand ? config.surfaceGraph.nodes.find((node) => node.id === stand.nodeId) : undefined;
   return {
     x: standNode?.position[0] ?? config.terminal[0],
@@ -101,4 +115,13 @@ export function progressAfterDistance(
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value));
+}
+
+function smoothstep(value: number): number {
+  const amount = clamp(value, 0, 1);
+  return amount * amount * (3 - 2 * amount);
+}
+
+function lerpAngle(first: number, second: number, amount: number): number {
+  return first + Math.atan2(Math.sin(second - first), Math.cos(second - first)) * amount;
 }

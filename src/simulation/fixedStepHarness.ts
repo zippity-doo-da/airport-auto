@@ -48,6 +48,12 @@ export interface FixedStepFlightSnapshot {
   cleared: boolean;
   taxiway?: string;
   standId?: string;
+  pushbackCleared: boolean;
+  pushbackDirection: Flight['pushbackDirection'];
+  pushbackProgress: number;
+  pushbackReleaseProgress: number;
+  tugAttached: boolean;
+  engineState: Flight['engineState'];
   surfaceNode?: string;
   surfaceEdge?: string;
   surfaceRoute: string[];
@@ -66,6 +72,8 @@ export interface FixedStepFlightSnapshot {
   altitudeFt: number;
   verticalSpeedFpm: number;
   fuelPercent: number;
+  motionStage?: string;
+  motionStageProgress: number;
   trajectory: {
     stage: FlightTrajectoryStage;
     stageProgress: number;
@@ -81,7 +89,7 @@ export interface FixedStepFlightSnapshot {
 }
 
 export interface FixedStepSimulationSnapshot {
-  schemaVersion: 3;
+  schemaVersion: 4;
   seed: number;
   airportCode: string;
   stepSeconds: number;
@@ -231,7 +239,7 @@ export class FixedStepSimulationHarness {
   snapshot(): FixedStepSimulationSnapshot {
     const diagnostics = this.simulation.diagnostics();
     return {
-      schemaVersion: 3,
+      schemaVersion: 4,
       seed: this.config.seed,
       airportCode: this.config.code,
       stepSeconds: round(this.stepSeconds),
@@ -346,6 +354,12 @@ function snapshotFlight(config: AirportConfig, flight: Flight): FixedStepFlightS
     cleared: flight.cleared,
     taxiway: flight.taxiway,
     standId: flight.standId,
+    pushbackCleared: flight.pushbackCleared,
+    pushbackDirection: flight.pushbackDirection,
+    pushbackProgress: round(flight.pushbackProgress),
+    pushbackReleaseProgress: round(flight.pushbackReleaseProgress),
+    tugAttached: flight.tugAttached,
+    engineState: flight.engineState,
     surfaceNode: flight.surfaceNode,
     surfaceEdge: flight.surfaceEdge,
     surfaceRoute: [...(flight.surfaceRoute ?? [])],
@@ -364,6 +378,8 @@ function snapshotFlight(config: AirportConfig, flight: Flight): FixedStepFlightS
     altitudeFt: round(flight.kinematics.altitudeFt),
     verticalSpeedFpm: round(flight.kinematics.verticalSpeedFpm),
     fuelPercent: round(flight.kinematics.fuelPercent),
+    motionStage: flight.motion.stage,
+    motionStageProgress: round(flight.motion.stageProgress),
     trajectory: trajectory ? {
       stage: trajectory.stage,
       stageProgress: round(trajectory.stageProgress),

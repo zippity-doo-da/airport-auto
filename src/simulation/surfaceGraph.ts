@@ -1,5 +1,5 @@
 import type { AirportConfig, RunwayConfig } from './airportConfig';
-import type { AircraftCategory } from './types';
+import type { AircraftCategory, PushbackDirection } from './types';
 
 export type SurfaceNodeKind =
   | 'runway-threshold'
@@ -251,6 +251,13 @@ export interface SurfaceRouteCrossingWindow {
   distanceToHold: number;
   holdPointId?: string;
   crossingPointId?: string;
+}
+
+export interface SurfacePushbackPlan {
+  releaseProgress: number;
+  parkedHeading: number;
+  releaseHeading: number;
+  direction: PushbackDirection;
 }
 
 interface SurfaceRouteGeometry {
@@ -559,6 +566,44 @@ export function surfaceRouteForFlight(
   const from = phase === 'taxi-in' ? access.exitNodeId : stand.nodeId;
   const to = phase === 'taxi-in' ? stand.nodeId : access.holdShortNodeId;
   return findSurfaceRoute(graph, from, to);
+}
+
+/**
+ * Derive the portion of a departure route that is towed from the stand to its
+ * ramp-release node. Aircraft heading is independent from travel direction
+ * during this portion: the tug moves away from the gate while the aircraft
+ * remains nose-in, then turns it toward the first taxi segment.
+ */
+export function surfacePushbackPlan(
+  graph: AirportSurfaceGraph,
+  nodeIds: string[] | undefined,
+  edgeIds: string[] | undefined,
+  stand: SurfaceStand | undefined,
+): SurfacePushbackPlan | null {
+  if (!stand || !nodeIds || nodeIds.length < 2) return null;
+  const geometry = surfaceRouteGeometry(graph, nodeIds, edgeIds);
+  if (geometry.totalDistance <= 0 || geometry.segments.length === 0) return null;
+  const rampIndex = nodeIds.indexOf(stand.rampNodeId);
+  const releaseNodeIndex = clamp(rampIndex > 0 ? rampIndex : 1, 1, nodeIds.length - 1);
+  const releaseSegment = geometry.segments[Math.min(releaseNodeIndex - 1, geometry.segments.length - 1)];
+  const releaseDistance = releaseSegment.startDistance + releaseSegment.length;
+  const taxiSegment = geometry.segments[Math.min(releaseNodeIndex, geometry.segments.length - 1)];
+  const releaseHeading = Math.atan2(
+    taxiSegment.to.position[1] - taxiSegment.from.position[1],
+    taxiSegment.to.position[0] - taxiSegment.from.position[0],
+  );
+  const headingChange = normalizeAngle(releaseHeading - stand.heading);
+  const direction: PushbackDirection = Math.abs(headingChange) < Math.PI / 12
+    ? 'straight'
+    : headingChange > 0
+      ? 'left'
+      : 'right';
+  return {
+    releaseProgress: clamp(releaseDistance / geometry.totalDistance, 0.001, 0.95),
+    parkedHeading: stand.heading,
+    releaseHeading,
+    direction,
+  };
 }
 
 export function surfaceStandSupportsAircraft(
@@ -1096,6 +1141,7 @@ function dot(first: Point, second: Point): number { return first[0] * second[0] 
 function distance(first: Point, second: Point): number { return Math.hypot(first[0] - second[0], first[1] - second[1]); }
 function lerp(first: number, second: number, amount: number): number { return first + (second - first) * amount; }
 function clamp(value: number, minimum: number, maximum: number): number { return Math.max(minimum, Math.min(maximum, value)); }
+function normalizeAngle(value: number): number { return Math.atan2(Math.sin(value), Math.cos(value)); }
 function round(value: number): number { return Math.round(value * ROUNDING) / ROUNDING; }
 
 function pushRouteNode(heap: Array<{ nodeId: string; distance: number }>, value: { nodeId: string; distance: number }): void {

@@ -13,7 +13,10 @@ type FlightVisual = {
   baseScale: number;
   shadow: THREE.Mesh;
   gear: THREE.Group;
+  tug: THREE.Group;
+  tugBeacon: THREE.Mesh;
   propellers: THREE.Object3D[];
+  engineIndicators: THREE.Mesh[];
   navLights: THREE.Mesh[];
   landingLamp: THREE.Mesh;
   landingLight: THREE.PointLight;
@@ -64,6 +67,8 @@ export type WorldDiagnostics = {
   textures: number;
   detail: 'low' | 'high';
   pooledAircraft: number;
+  attachedTugs: number;
+  startingEngines: number;
   passengerFacilities: number;
   surfaceLayers: Record<SurfaceLayer, boolean>;
   runways: Array<{
@@ -275,18 +280,44 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
       visual.active = true;
       positionFlight(visual, flight, config, state.elapsed, delta, nightMix);
       visual.root.visible = flight.phase !== 'approach' || isNearViewportEdge(visual.root.position);
-      const spool = flight.phase === 'takeoff' ? 28 : flight.phase === 'approach' || flight.phase === 'landing' ? 16 : 8;
+      visual.root.userData.engineState = flight.engineState;
+      visual.tug.visible = flight.tugAttached;
+      const tugPulse = 0.78 + Math.sin(state.elapsed * 8.2 + flight.id) * 0.22;
+      visual.tugBeacon.scale.setScalar(0.82 + tugPulse * 0.5);
+      (visual.tugBeacon.material as THREE.MeshBasicMaterial).opacity = tugPulse;
+      const operationalSpool = flight.phase === 'takeoff' ? 28 : flight.phase === 'approach' || flight.phase === 'landing' ? 16 : 8;
+      const spool = flight.engineState === 'off'
+        ? 0
+        : flight.engineState === 'starting'
+          ? 3 + (0.5 + Math.sin(state.elapsed * 3.2 + flight.id) * 0.5) * 6
+          : operationalSpool;
       for (const propeller of visual.propellers) propeller.rotation.z += delta * spool;
-      const strobe = Math.sin(state.elapsed * 5.4 + flight.id * 0.7) > 0.72;
+      const enginePulse = 0.5 + Math.sin(state.elapsed * 4.6 + flight.id * 0.8) * 0.5;
+      for (const indicator of visual.engineIndicators) {
+        const material = indicator.material as THREE.MeshBasicMaterial;
+        indicator.visible = flight.engineState !== 'off';
+        material.color.setHex(flight.engineState === 'starting' ? 0xffb45f : 0x789c9a);
+        material.opacity = flight.engineState === 'starting' ? 0.2 + enginePulse * 0.48 : 0.22;
+        indicator.scale.setScalar(flight.engineState === 'starting' ? 0.88 + enginePulse * 0.18 : 1);
+      }
+      const strobe = flight.engineState !== 'off' && Math.sin(state.elapsed * 5.4 + flight.id * 0.7) > 0.72;
       for (const light of visual.navLights) {
         light.visible = nightMix > 0.02 || strobe;
         (light.material as THREE.MeshBasicMaterial).opacity = THREE.MathUtils.lerp(strobe ? 0.72 : 0.32, strobe ? 1 : 0.86, nightMix);
         light.scale.setScalar(strobe ? 1.55 : 1);
       }
-      const landingLightsOn = flight.phase === 'approach' || flight.phase === 'landing' || flight.phase === 'taxi-out' || flight.phase === 'takeoff';
+      const aircraftBeacon = visual.navLights[visual.navLights.length - 1];
+      aircraftBeacon.visible = flight.engineState !== 'off';
+      (aircraftBeacon.material as THREE.MeshBasicMaterial).opacity = flight.engineState === 'starting' ? 0.45 + enginePulse * 0.55 : strobe ? 1 : 0.42;
+      const landingLightsOn = flight.phase === 'approach'
+        || flight.phase === 'landing'
+        || (flight.phase === 'taxi-out' && flight.engineState === 'running' && !flight.tugAttached)
+        || flight.phase === 'takeoff';
       visual.landingLamp.visible = landingLightsOn && nightMix > 0.02;
       visual.landingLight.intensity = landingLightsOn ? 3.8 * nightMix : 0;
-      visual.beacon.intensity = (strobe ? 3.4 : 0.12) * THREE.MathUtils.lerp(0.45, 1.35, nightMix);
+      visual.beacon.intensity = flight.engineState === 'off'
+        ? 0
+        : (strobe ? 3.4 : flight.engineState === 'starting' ? 0.55 + enginePulse * 0.85 : 0.12) * THREE.MathUtils.lerp(0.45, 1.35, nightMix);
       updateContrail(visual, flight, state.elapsed);
       visual.halo.visible = selectedFlightId === flight.id;
       visual.halo.scale.setScalar(1 + Math.sin(state.elapsed * 5) * 0.08);
@@ -557,6 +588,8 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
         textures: renderer.info.memory.textures,
         detail: lowDetail ? 'low' : 'high',
         pooledAircraft: [...flightPool.values()].reduce((sum, pool) => sum + pool.length, 0),
+        attachedTugs: [...flightVisuals.values()].filter((visual) => visual.tug.visible).length,
+        startingEngines: [...flightVisuals.values()].filter((visual) => visual.root.userData.engineState === 'starting').length,
         passengerFacilities: config.surfaceGraph.passengerFacilities.length,
         surfaceLayers: {
           'taxiway-labels': airportBuild.surfaceLayers['taxiway-labels'].visible,
@@ -1126,12 +1159,22 @@ function createPlane(flight: Flight): FlightVisual {
     ? [-visual.engineOffset, -visual.engineOffset * 0.5, visual.engineOffset * 0.5, visual.engineOffset]
     : [-visual.engineOffset, visual.engineOffset];
   const propellers: THREE.Object3D[] = [];
+  const engineIndicators: THREE.Mesh[] = [];
   for (const offset of engineOffsets) {
     const engine = new THREE.Mesh(new THREE.CylinderGeometry(visual.engineRadius, visual.engineRadius * 1.04, visual.engineLength, 12), engineMaterial);
     engine.rotation.z = -Math.PI / 2;
     engine.position.set(visual.bodyLength * 0.04, offset, -visual.bodyRadius * 0.85);
     engine.castShadow = true;
     body.add(engine);
+    const engineIndicator = new THREE.Mesh(
+      new THREE.CircleGeometry(visual.engineRadius * 0.72, 12),
+      new THREE.MeshBasicMaterial({ color: 0xffc77c, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false }),
+    );
+    engineIndicator.rotation.y = Math.PI / 2;
+    engineIndicator.position.set(visual.bodyLength * 0.04 + visual.engineLength * 0.525, offset, -visual.bodyRadius * 0.85);
+    engineIndicator.visible = false;
+    body.add(engineIndicator);
+    engineIndicators.push(engineIndicator);
     const pylon = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.18, 0.42), strutMaterial);
     pylon.position.set(visual.bodyLength * 0.04, offset, -visual.bodyRadius * 0.48);
     body.add(pylon);
@@ -1143,6 +1186,47 @@ function createPlane(flight: Flight): FlightVisual {
       propellers.push(prop);
     }
   }
+
+  const tug = new THREE.Group();
+  const tugScale = Math.max(0.72, visual.bodyRadius * 0.72);
+  const tugBody = new THREE.Mesh(
+    new THREE.BoxGeometry(1.8 * tugScale, 1.05 * tugScale, 0.62 * tugScale),
+    new THREE.MeshStandardMaterial({ color: 0xd9a441, roughness: 0.72, metalness: 0.08 }),
+  );
+  tugBody.position.z = -0.84;
+  tugBody.castShadow = true;
+  tug.add(tugBody);
+  const tugCab = new THREE.Mesh(
+    new THREE.BoxGeometry(0.72 * tugScale, 0.92 * tugScale, 0.48 * tugScale),
+    new THREE.MeshStandardMaterial({ color: 0x5d7776, roughness: 0.46, metalness: 0.12 }),
+  );
+  tugCab.position.set(-0.34 * tugScale, 0, -0.34);
+  tug.add(tugCab);
+  const tugWheelMaterial = new THREE.MeshStandardMaterial({ color: 0x202a2b, roughness: 0.92 });
+  for (const [x, y] of [[-0.56, -0.54], [-0.56, 0.54], [0.56, -0.54], [0.56, 0.54]] as Array<[number, number]>) {
+    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.2 * tugScale, 0.2 * tugScale, 0.16 * tugScale, 10), tugWheelMaterial);
+    wheel.rotation.x = Math.PI / 2;
+    wheel.position.set(x * tugScale, y * tugScale, -1.08);
+    tug.add(wheel);
+  }
+  const tugX = visual.bodyLength * 0.52 + visual.bodyRadius * 1.25 + 1.1 * tugScale;
+  const noseGearX = visual.bodyLength * 0.29;
+  const towLength = Math.max(1, tugX - noseGearX);
+  const towbar = new THREE.Mesh(
+    new THREE.BoxGeometry(towLength, 0.13, 0.12),
+    new THREE.MeshStandardMaterial({ color: 0xe4dbc8, roughness: 0.65, metalness: 0.18 }),
+  );
+  towbar.position.set(-towLength / 2, 0, -1.02);
+  tug.add(towbar);
+  const tugBeacon = new THREE.Mesh(
+    new THREE.SphereGeometry(0.16 * tugScale, 8, 6),
+    new THREE.MeshBasicMaterial({ color: 0xffb22e, transparent: true, opacity: 0.9, depthWrite: false, toneMapped: false }),
+  );
+  tugBeacon.position.set(-0.34 * tugScale, 0, 0.02);
+  tug.add(tugBeacon);
+  tug.position.x = tugX;
+  tug.visible = false;
+  root.add(tug);
 
   const gear = new THREE.Group();
   const wheelMaterial = new THREE.MeshStandardMaterial({ color: 0x202a2b, roughness: 0.9 });
@@ -1186,7 +1270,7 @@ function createPlane(flight: Flight): FlightVisual {
   contrail.visible = false;
   root.add(contrail);
   const shadowCasters: THREE.Mesh[] = [];
-  for (const part of [body, gear]) {
+  for (const part of [body, gear, tug]) {
     part.traverse((object) => {
       if (object instanceof THREE.Mesh && object.castShadow) shadowCasters.push(object);
     });
@@ -1197,7 +1281,10 @@ function createPlane(flight: Flight): FlightVisual {
     baseScale: 1,
     shadow,
     gear,
+    tug,
+    tugBeacon,
     propellers,
+    engineIndicators,
     navLights,
     landingLamp,
     landingLight,

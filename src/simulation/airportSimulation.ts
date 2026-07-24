@@ -3,7 +3,7 @@ import type { AirportEvent, AirportState, ClearanceProposal, ConflictPrediction,
 import { AIRCRAFT_ROSTER, aircraftProfile, type AircraftModel } from './aircraftProfiles';
 import { AIRPORT_AIRLINES, airlineProfile, type AirlineCode } from './airlineProfiles';
 import { aircraftCollisionEnvelope, findFlightConflicts, findObstacleConflicts, findProposedConflict } from './collisionDetection';
-import { sampleSurfaceRouteWithEdges, surfaceRouteCrossingWindows, surfaceRouteForFlight, surfaceRouteReservationKeys, surfaceRouteRunwayCrossings, surfaceStandSupportsAircraft, validateAirportSurfaceGraph, type SurfaceGraphValidation, type SurfaceRoute, type SurfaceRouteCrossingWindow } from './surfaceGraph';
+import { sampleSurfaceRouteWithEdges, surfacePushbackPlan, surfaceRouteCrossingWindows, surfaceRouteForFlight, surfaceRouteReservationKeys, surfaceRouteRunwayCrossings, surfaceStandSupportsAircraft, validateAirportSurfaceGraph, type SurfaceGraphValidation, type SurfaceRoute, type SurfaceRouteCrossingWindow } from './surfaceGraph';
 import { validateAirportObstacleEnvelopes, type AirportObstacleValidation } from './airportObstacles';
 import { departureTrajectoryTiming, landingTrajectoryTiming } from './flightTrajectory';
 import { runwaySupportsAircraft, WORLD_METERS_PER_UNIT } from './runwayPerformance';
@@ -240,6 +240,14 @@ export class AirportSimulation {
           label: 'Issue go-around', reason: flight.safetyHoldReason ?? 'Protected approach spacing cannot be maintained.', priority: 'urgent',
         });
       }
+      if (flight.phase === 'resting' && flight.progress >= 0.999 && !flight.pushbackCleared) {
+        proposals.push({
+          id: `${flight.id}:pushback`, flightId: flight.id, action: 'pushback', station: 'ground',
+          label: `Push ${flight.pushbackDirection}`,
+          reason: `Turnaround is complete; tug and engine-start sequence are ready for a ${flight.pushbackDirection} push to the ramp lane.`,
+          priority: 'attention',
+        });
+      }
       const nextCrossing = this.nextUnclearedCrossing(flight);
       for (const crossing of nextCrossing && nextCrossing.distanceToHold * WORLD_METERS_PER_UNIT <= CROSSING_CLEARANCE_RANGE_M
         ? [nextCrossing]
@@ -341,6 +349,20 @@ export class AirportSimulation {
     flight.clearanceLeft = 99;
     this.decisionReason = `landing clearance accepted for runway ${this.activeRunwayDesignation(runway)}`;
     this.events.push({ type: 'clear', flight });
+    return true;
+  }
+
+  clearPushback(id: number): boolean {
+    if (this.state.gameOver) return this.rejectDecision('shift is closed');
+    if (this.state.paused) return this.rejectDecision('resume the simulation before issuing a clearance');
+    if (!this.canIssue('ground')) return this.rejectDecision(`${this.state.station} station has no pushback authority`);
+    const flight = this.state.flights.find((item) => item.id === id && item.phase === 'resting');
+    if (!flight) return this.rejectDecision('flight is not at a stand awaiting pushback');
+    if (flight.progress < 0.999) return this.rejectDecision('turnaround and boarding are not complete', flight);
+    if (flight.pushbackCleared) return this.rejectDecision('pushback is already cleared', flight);
+    if (this.state.runwayConfigurationTransition) return this.rejectDecision('pushback held while the runway plan changes', flight);
+    if (this.selectDepartureRunway(flight) === null) return this.rejectDecision('no compatible departure runway is available', flight);
+    this.grantPushbackClearance(flight, false);
     return true;
   }
 
@@ -580,6 +602,7 @@ export class AirportSimulation {
         if (flight.phase === 'resting') flight.phaseElapsed += delta;
       }
       flight.progress = nextProgress;
+      this.updatePushbackState(flight);
       const surfaceClock = flight.phase === 'taxi-in' || flight.phase === 'resting' || flight.phase === 'taxi-out';
       if (surfaceClock) this.updateSurfaceRouteState(flight);
       syncFlightMotion(this.config, flight);
@@ -665,9 +688,10 @@ export class AirportSimulation {
       const compatible = departureRunways.filter((runway) => runwaySupportsAircraft(runway, aircraft, 'takeoff'));
       if (!flight || !compatible.length) continue;
       const runway = compatible[index % compatible.length];
-      // Start two independent departures in motion, avoiding a duplicate
-      // heavy-jet startup queue on 27L before the scheduler is established.
-      const taxiing = index < Math.min(2, departureTarget);
+      // Start one departure already taxiing and one push-ready at a stand. The
+      // first preserves an immediate arrival/departure picture; the second
+      // exposes the complete tug and engine-start lifecycle from session start.
+      const taxiing = index === 0;
       flight.runway = runway.id;
       flight.departureRunway = runway.id;
       flight.operatingEnd = this.preferredOperatingEnd(runway.id);
@@ -686,6 +710,10 @@ export class AirportSimulation {
       flight.kinematics.groundSpeedKts = 0;
       flight.runwayEntryCleared = false;
       flight.takeoffCleared = false;
+      flight.pushbackCleared = taxiing;
+      flight.pushbackProgress = taxiing ? 1 : 0;
+      flight.tugAttached = false;
+      flight.engineState = taxiing ? 'running' : 'off';
       flight.holdShortRunway = taxiing ? runway.id : undefined;
       this.assignSurfaceRoute(flight, flight.phase);
       if (taxiing) {
@@ -711,7 +739,13 @@ export class AirportSimulation {
         flight.crossingClearanceIds = completedCrossings.map((crossing) => crossing.id);
         flight.crossingClearances = [...new Set(completedCrossings.map((crossing) => crossing.runwayId))];
         flight.phaseElapsed = flight.duration * flight.progress;
+        flight.pushbackProgress = Math.max(0, Math.min(1, flight.progress / Math.max(0.001, flight.pushbackReleaseProgress)));
+        flight.tugAttached = flight.pushbackProgress < 1;
+        flight.engineState = flight.pushbackProgress < 0.62 ? 'starting' : 'running';
         this.updateSurfaceRouteState(flight);
+      } else {
+        flight.progress = 1;
+        flight.phaseElapsed = flight.duration;
       }
       syncFlightMotion(this.config, flight);
       this.events = this.events.filter((event) => !(event.flight.id === flight.id && event.type === 'auto-clear'));
@@ -767,6 +801,12 @@ export class AirportSimulation {
       cleared: automatic,
       clearanceLeft: automatic ? 99 : approachDuration * 0.96,
       gateSlot,
+      pushbackCleared: false,
+      pushbackDirection: this.config.surfaceGraph.stands.find((stand) => stand.slot === gateSlot)?.pushbackDirection ?? 'straight',
+      pushbackProgress: 0,
+      pushbackReleaseProgress: 0,
+      tugAttached: false,
+      engineState: 'running',
       aircraft,
       airline: airlineCode,
       flightNumber,
@@ -817,6 +857,11 @@ export class AirportSimulation {
       this.state.flights = this.state.flights.filter((item) => item !== flight);
       this.stationarySeconds.delete(flight.id);
       return;
+    }
+
+    if (flight.phase === 'resting' && !flight.pushbackCleared) {
+      if (!this.isAutomaticMode()) return;
+      this.grantPushbackClearance(flight, true);
     }
 
     const next = NEXT_PHASE[flight.phase];
@@ -878,6 +923,26 @@ export class AirportSimulation {
     if (next === 'taxi-in' || next === 'resting' || next === 'taxi-out') {
       this.assignSurfaceRoute(flight, next);
       if (next === 'taxi-out') flight.requiredCrossings = surfaceRouteRunwayCrossings(this.config.surfaceGraph, flight.surfaceRouteEdges, flight.runway);
+    }
+
+    if (next === 'taxi-in') {
+      flight.pushbackCleared = false;
+      flight.pushbackProgress = 0;
+      flight.tugAttached = false;
+      flight.engineState = 'running';
+    }
+    if (next === 'resting') {
+      flight.pushbackCleared = false;
+      flight.pushbackProgress = 0;
+      flight.tugAttached = false;
+      flight.engineState = 'off';
+    }
+    if (next === 'taxi-out') {
+      flight.pushbackProgress = 0;
+      flight.tugAttached = true;
+      flight.engineState = 'starting';
+      this.events.push({ type: 'pushback-start', flight, taxiway: flight.taxiway, detail: `tug attached · push ${flight.pushbackDirection}` });
+      this.events.push({ type: 'engine-start', flight, taxiway: flight.taxiway, detail: 'engine start during pushback' });
     }
 
     if (next === 'taxi-in') {
@@ -1243,6 +1308,10 @@ export class AirportSimulation {
     const pace = Math.max(0.55, Math.min(flight.phase === 'taxi-in' || flight.phase === 'taxi-out' ? 1 : 1.28, flight.controlPace ?? 1));
     const surfaceWeather = this.state.weather.condition === 'fog' ? 0.78 : this.state.weather.condition === 'rain' ? 0.88 : 1;
     let target = profile.taxiKts;
+    if (flight.phase === 'taxi-out' && flight.motion.stage === 'pushback') {
+      target = (flight.wakeClass === 'heavy' ? 2.6 : flight.category === 'regional' ? 3.6 : 3.2) * surfaceWeather;
+      return target * pace;
+    }
     if (flight.phase === 'approach') target = profile.approachKts + this.lerp(18, 2, flight.progress);
     if (flight.phase === 'landing') {
       if (flight.motion.stage === 'flare') target = profile.approachKts;
@@ -1322,12 +1391,37 @@ export class AirportSimulation {
   }
 
   private assignSurfaceRoute(flight: Flight, phase: 'taxi-in' | 'resting' | 'taxi-out'): void {
+    const stand = this.config.surfaceGraph.stands.find((item) => item.slot === flight.gateSlot);
     const route = surfaceRouteForFlight(this.config.surfaceGraph, flight.runway, flight.operatingEnd, phase, flight.gateSlot);
     flight.surfaceRoute = route?.nodeIds;
     flight.surfaceRouteEdges = route?.edgeIds;
-    flight.standId = this.config.surfaceGraph.stands.find((stand) => stand.slot === flight.gateSlot)?.id;
+    flight.standId = stand?.id;
     flight.surfaceNode = route?.nodeIds[0];
     flight.surfaceEdge = route?.edgeIds[0];
+    const prospectiveRoute = phase === 'resting'
+      ? surfaceRouteForFlight(
+          this.config.surfaceGraph,
+          flight.departureRunway,
+          this.preferredOperatingEnd(flight.departureRunway),
+          'taxi-out',
+          flight.gateSlot,
+        )
+      : phase === 'taxi-out'
+        ? route
+        : null;
+    const pushback = surfacePushbackPlan(
+      this.config.surfaceGraph,
+      prospectiveRoute?.nodeIds,
+      prospectiveRoute?.edgeIds,
+      stand,
+    );
+    if (pushback) {
+      flight.pushbackDirection = pushback.direction;
+      flight.pushbackReleaseProgress = pushback.releaseProgress;
+    } else if (stand) {
+      flight.pushbackDirection = stand.pushbackDirection;
+      flight.pushbackReleaseProgress = 0;
+    }
     if (phase === 'resting') flight.duration = this.turnaroundDuration(flight);
     else if (route) {
       flight.duration = this.surfaceRouteDuration(flight, route);
@@ -1346,7 +1440,6 @@ export class AirportSimulation {
         .map((crossing) => crossing.runwayId))];
     }
     if (phase === 'resting') {
-      const stand = this.config.surfaceGraph.stands.find((item) => item.slot === flight.gateSlot);
       const apron = this.config.surfaceGraph.taxiways.find((taxiway) => taxiway.id === stand?.apronTaxiwayId);
       flight.taxiway = apron?.name ?? 'Terminal Apron';
       return;
@@ -1396,6 +1489,35 @@ export class AirportSimulation {
         && flight.progress <= crossing.exitProgress + 0.002
       ))
       .map((crossing) => crossing.runwayId);
+  }
+
+  private grantPushbackClearance(flight: Flight, automatic: boolean): void {
+    flight.pushbackCleared = true;
+    this.decisionReason = `${automatic ? 'automatic ' : ''}${flight.pushbackDirection} pushback clearance accepted`;
+    this.events.push({
+      type: 'pushback-clearance',
+      flight,
+      taxiway: flight.taxiway,
+      detail: `${automatic ? 'automatic' : 'ground'} · push ${flight.pushbackDirection}`,
+    });
+  }
+
+  private updatePushbackState(flight: Flight): void {
+    if (flight.phase !== 'taxi-out') return;
+    const release = Math.max(0.001, flight.pushbackReleaseProgress);
+    const pushbackProgress = Math.max(0, Math.min(1, flight.progress / release));
+    flight.pushbackProgress = pushbackProgress;
+    if (pushbackProgress < 1) {
+      flight.tugAttached = true;
+      if (flight.engineState === 'off') flight.engineState = 'starting';
+      if (pushbackProgress >= 0.62) flight.engineState = 'running';
+      return;
+    }
+    if (flight.tugAttached) {
+      flight.tugAttached = false;
+      this.events.push({ type: 'tug-release', flight, taxiway: flight.taxiway, detail: 'tug clear · taxi power available' });
+    }
+    flight.engineState = 'running';
   }
 
   private grantCrossingClearance(flight: Flight, crossing: SurfaceRouteCrossingWindow): void {

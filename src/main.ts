@@ -18,6 +18,7 @@ type AirportControlCommand =
   | { action: 'setMapOrientationVisible'; enabled: boolean }
   | { action: 'selectAirport'; code: string }
   | { action: 'clearFlight'; flightId: number; runway: number }
+  | { action: 'clearPushback'; flightId: number }
   | { action: 'clearRunwayEntry'; flightId: number }
   | { action: 'clearTakeoff'; flightId: number }
   | { action: 'clearRunwayCrossing'; flightId: number; runway: number }
@@ -220,6 +221,7 @@ let replayIndex = -1;
 let replayMode = false;
 let pausedBeforeReplay = false;
 let focusedFlightId: number | null = null;
+let flightActionsRenderKey = '';
 let runwayLabelsVisible = false;
 const surfaceLayerVisibility: Record<SurfaceLayer, boolean> = {
   'taxiway-labels': false,
@@ -612,6 +614,13 @@ function frame(now: number): void {
       audio.radio();
       setStatus(`${event.flight.callsign} cleared by the tower`, 'automatic approach is established');
     }
+    if (event.type === 'pushback-clearance') {
+      audio.radio();
+      setStatus(`${event.flight.callsign} pushback approved`, event.detail ?? `push ${event.flight.pushbackDirection}`);
+    }
+    if (event.type === 'pushback-start') setStatus(`${event.flight.callsign} tug connected`, event.detail ?? 'pushback beginning');
+    if (event.type === 'engine-start') setStatus(`${event.flight.callsign} starting engines`, 'tug remains attached through the ramp release');
+    if (event.type === 'tug-release') setStatus(`${event.flight.callsign} tug released`, event.detail ?? 'taxi power available');
     if (event.type === 'land') setStatus(`${event.flight.callsign} touched down`, `${simulation.state.arrivals} safe arrival${simulation.state.arrivals === 1 ? '' : 's'}`);
     if (event.type === 'hold-short') {
       audio.radio();
@@ -728,7 +737,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
 function replayRecording(): ReplayRecording {
   return {
     schemaVersion: 1,
-    simulationVersion: window.airportControl?.version ?? '2.2.0',
+    simulationVersion: window.airportControl?.version ?? '2.3.0',
     recordedAt: new Date().toISOString(),
     seed: config.seed,
     airport: { code: config.code, name: config.name, scope: config.scope },
@@ -791,7 +800,8 @@ function updateFlightChip(item: HTMLElement, flight: Flight): void {
   const acceleration = kinematics.accelerationMps2;
   const motionText = acceleration > 0.06 ? `ACC +${acceleration.toFixed(1)} M/S²` : acceleration < -0.06 ? `BRAKE ${acceleration.toFixed(1)} M/S²` : 'SPEED STABLE';
   const fuel = Math.max(0, Math.min(100, kinematics.fuelPercent));
-  const phase = held ? 'Hold' : formatPhase(flight.phase);
+  const operation = flightOperationLabel(flight);
+  const phase = held ? 'Hold' : operation;
   const stand = config.surfaceGraph.stands.find((candidate) => candidate.slot === flight.gateSlot);
   const gateLabel = stand?.gateRef ? `Gate ${stand.gateRef}` : stand?.id ? `Stand ${stand.id}` : null;
   button.dataset.flightChip = String(flight.id);
@@ -808,12 +818,21 @@ function updateFlightChip(item: HTMLElement, flight: Flight): void {
   metrics[1].querySelector('b')!.innerHTML = `${Math.round(speed)}<em>KT</em>`;
   metrics[2].querySelector('b')!.innerHTML = `${altitude.toLocaleString()}<em>FT</em>`;
   const detail = button.querySelector('.flight-chip__detail')!;
-  detail.children[0].textContent = `${flight.aircraft} · ${formatPhase(flight.phase)} · ${gateLabel ?? `RWY ${runwayDesignation(flight.runway)}`}`;
-  detail.children[1].textContent = `${verticalText} · ${motionText}`;
+  detail.children[0].textContent = `${flight.aircraft} · ${operation} · ${gateLabel ?? `RWY ${runwayDesignation(flight.runway)}`}`;
+  detail.children[1].textContent = `${surface ? flight.engineState.toUpperCase() + ' ENGINES · ' : ''}${verticalText} · ${motionText}`;
 }
 
 function formatPhase(phase: FlightPhase): string {
   return phase.replace('-', ' ');
+}
+
+function flightOperationLabel(flight: Flight): string {
+  if (flight.phase === 'resting') {
+    if (flight.progress < 0.999) return 'Turnaround';
+    return flight.pushbackCleared ? 'Push cleared' : 'Ready push';
+  }
+  if (flight.phase === 'taxi-out' && flight.tugAttached) return `Pushback ${flight.pushbackDirection}`;
+  return formatPhase(flight.phase);
 }
 
 function setFlightStripCollapsed(collapsed: boolean): void {
@@ -855,6 +874,29 @@ function updateMapOrientation(): void {
 
 function renderFlightActions(): void {
   const flight = focusedFlightId === null ? null : displayState().flights.find((item) => item.id === focusedFlightId);
+  const renderKey = flight
+    ? [
+        flight.id,
+        flight.callsign,
+        flight.phase,
+        flight.cleared,
+        flight.progress >= 0.999,
+        flight.progress >= 0.985,
+        flight.pushbackCleared,
+        flight.pushbackDirection,
+        flight.controlHold,
+        flight.crossingHoldRunway ?? 'none',
+        flight.runwayEntryCleared,
+        flight.takeoffCleared,
+        simulation.state.station,
+        replayMode,
+      ].join('|')
+    : `none|${simulation.state.station}|${replayMode}`;
+  if (flightActionsRenderKey === renderKey) {
+    flightActions.hidden = !flight;
+    return;
+  }
+  flightActionsRenderKey = renderKey;
   flightActions.replaceChildren();
   flightActions.hidden = !flight;
   if (!flight) return;
@@ -879,6 +921,7 @@ function renderFlightActions(): void {
   const ground = flight.phase === 'taxi-in' || flight.phase === 'taxi-out';
   if (flight.phase === 'approach' && !flight.cleared) add('clear', `Land ${runwayDesignation(flight.runway)}`, !simulation.canIssue('approach'));
   if (flight.phase === 'approach' || flight.phase === 'landing') add('go-around', 'Go around', !simulation.canIssue('approach'));
+  if (flight.phase === 'resting' && flight.progress >= 0.999 && !flight.pushbackCleared) add('pushback', `Push ${flight.pushbackDirection}`, !simulation.canIssue('ground'));
   if (ground) add('hold-toggle', flight.controlHold ? 'Resume taxi' : 'Hold position', !simulation.canIssue('ground'));
   for (const runway of flight.crossingHoldRunway === undefined ? [] : [flight.crossingHoldRunway]) {
     add('cross', `Cross ${runwayDesignation(runway)}`, !simulation.canIssue('ground'), runway);
@@ -934,6 +977,7 @@ function applyClearanceProposal(proposal: ClearanceProposal): void {
   let result: AirportControlResult;
   if (proposal.action === 'land') result = executeAirportRequest({ action: 'clearFlight', flightId: proposal.flightId, runway: proposal.runway! });
   else if (proposal.action === 'go-around') result = executeAirportRequest({ action: 'triggerEmergency', flightId: proposal.flightId, type: 'go-around' });
+  else if (proposal.action === 'pushback') result = executeAirportRequest({ action: 'clearPushback', flightId: proposal.flightId });
   else if (proposal.action === 'cross') result = executeAirportRequest({ action: 'clearRunwayCrossing', flightId: proposal.flightId, runway: proposal.runway! });
   else if (proposal.action === 'line-up') result = executeAirportRequest({ action: 'clearRunwayEntry', flightId: proposal.flightId });
   else if (proposal.action === 'takeoff') result = executeAirportRequest({ action: 'clearTakeoff', flightId: proposal.flightId });
@@ -951,6 +995,7 @@ function handleFlightAction(flightId: number, action: string, runwayValue?: stri
   if (!flight) return;
   if (action === 'clear') executeAirportRequest({ action: 'clearFlight', flightId, runway: flight.runway });
   if (action === 'go-around') executeAirportRequest({ action: 'triggerEmergency', flightId, type: 'go-around' });
+  if (action === 'pushback') executeAirportRequest({ action: 'clearPushback', flightId });
   if (action === 'entry') executeAirportRequest({ action: 'clearRunwayEntry', flightId });
   if (action === 'takeoff') executeAirportRequest({ action: 'clearTakeoff', flightId });
   if (action === 'cross') executeAirportRequest({ action: 'clearRunwayCrossing', flightId, runway: Number(runwayValue) });
@@ -964,6 +1009,7 @@ telemetryControls.addEventListener('click', (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-action][data-flight]');
   if (!button) return;
   const flightId = Number(button.dataset.flight);
+  if (button.dataset.action === 'pushback') executeAirportCommand({ action: 'clearPushback', flightId });
   if (button.dataset.action === 'entry') executeAirportCommand({ action: 'clearRunwayEntry', flightId });
   if (button.dataset.action === 'takeoff') executeAirportCommand({ action: 'clearTakeoff', flightId });
   if (button.dataset.action === 'cross') executeAirportCommand({ action: 'clearRunwayCrossing', flightId, runway: Number(button.dataset.runway) });
@@ -993,6 +1039,7 @@ function renderTelemetryControls(): void {
       ...(flight.phase === 'approach' && flight.controlPattern !== 'zigzag' ? [`<button data-action="zigzag" data-flight="${flight.id}">Zigzag</button>`] : []),
       ...(surface ? [`<button data-action="${flight.controlHold ? 'resume' : 'hold'}" data-flight="${flight.id}">${flight.controlHold ? 'Release' : 'Hold'}</button>`] : []),
       ...(flight.phase === 'approach' && !flight.cleared ? [`<button data-action="clear" data-flight="${flight.id}">Clear ${runwayDesignation(flight.runway)}</button>`] : []),
+      ...(flight.phase === 'resting' && flight.progress >= 0.999 && !flight.pushbackCleared ? [`<button data-action="pushback" data-flight="${flight.id}">Push ${flight.pushbackDirection}</button>`] : []),
       ...(flight.phase === 'approach' || flight.phase === 'landing' ? [`<button data-action="go-around" data-flight="${flight.id}">Go around</button>`] : []),
       ...(flight.emergency ? [`<button data-action="medical" data-flight="${flight.id}">Medical</button>`] : [`<button data-action="emergency" data-flight="${flight.id}">Emergency</button>`]),
     ].join('');
@@ -1018,7 +1065,7 @@ function renderTelemetryControls(): void {
               : '';
     const profile = aircraftProfile(flight.aircraft);
     const airline = airlineProfile(flight.airline);
-    return `<div class="telemetry__flight"><strong>${flight.callsign} · ${flight.aircraft} · ${flight.phase.toUpperCase()}${flight.taxiway ? ` · ${flight.taxiway}` : ''}${directive}</strong><small>${airline.name} · ${flight.registration} · ${flight.service} · ${profile.name} · ${profile.wakeClass} wake · ${profile.approachKts} kt approach</small>${flightControls}${crossings}${entry}${takeoff}</div>`;
+    return `<div class="telemetry__flight"><strong>${flight.callsign} · ${flight.aircraft} · ${flightOperationLabel(flight).toUpperCase()}${flight.taxiway ? ` · ${flight.taxiway}` : ''}${directive}</strong><small>${airline.name} · ${flight.registration} · ${flight.service} · ${profile.name} · ${profile.wakeClass} wake · ${flight.engineState} engines${flight.tugAttached ? ` · tug attached · ${Math.round(flight.pushbackProgress * 100)}% push` : ''}</small>${flightControls}${crossings}${entry}${takeoff}</div>`;
   }).join('');
 }
 
@@ -1188,6 +1235,7 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   commandHistory.length = 0;
   initialReplayState = cloneAirportState(simulation.state);
   focusedFlightId = null;
+  flightActionsRenderKey = '';
   renderFlightStrip();
   renderFlightActions();
   lastPredictionKey = '';
@@ -1471,7 +1519,7 @@ function airportSnapshot() {
   const diagnostics = simulation.diagnostics();
   const movingPhases = new Set(['approach', 'landing', 'taxi-in', 'taxi-out', 'takeoff']);
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     airport: {
       code: config.code,
       name: config.name,
@@ -1642,7 +1690,7 @@ function airportSnapshot() {
       })),
     },
     surface: simulation.state.flights
-      .filter((flight) => flight.phase === 'taxi-in' || flight.phase === 'taxi-out')
+      .filter((flight) => flight.phase === 'taxi-in' || flight.phase === 'resting' || flight.phase === 'taxi-out')
       .map((flight) => ({
         id: flight.id,
         callsign: flight.callsign,
@@ -1654,6 +1702,15 @@ function airportSnapshot() {
         node: flight.surfaceNode,
         edge: flight.surfaceEdge,
         progress: Number(flight.progress.toFixed(3)),
+        operation: flightOperationLabel(flight),
+        pushback: {
+          cleared: flight.pushbackCleared,
+          direction: flight.pushbackDirection,
+          progress: Number(flight.pushbackProgress.toFixed(3)),
+          releaseProgress: Number(flight.pushbackReleaseProgress.toFixed(3)),
+          tugAttached: flight.tugAttached,
+        },
+        engineState: flight.engineState,
         holdingShortOf: flight.holdShortRunway,
         runwayEntryCleared: flight.runwayEntryCleared,
         takeoffCleared: flight.takeoffCleared,
@@ -1735,6 +1792,15 @@ function airportSnapshot() {
       })(),
       cleared: flight.cleared,
       taxiway: flight.taxiway,
+      groundOperation: {
+        label: flightOperationLabel(flight),
+        pushbackCleared: flight.pushbackCleared,
+        pushbackDirection: flight.pushbackDirection,
+        pushbackProgress: Number(flight.pushbackProgress.toFixed(3)),
+        pushbackReleaseProgress: Number(flight.pushbackReleaseProgress.toFixed(3)),
+        tugAttached: flight.tugAttached,
+        engineState: flight.engineState,
+      },
       surfaceRoute: flight.surfaceRoute ?? [],
       surfaceRouteEdges: flight.surfaceRouteEdges ?? [],
       surfaceNode: flight.surfaceNode,
@@ -1806,6 +1872,10 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
     accepted = simulation.clearFlight(command.flightId, command.runway);
     reason = simulation.lastCommandReason();
   }
+  if (command.action === 'clearPushback') {
+    accepted = simulation.clearPushback(command.flightId);
+    reason = simulation.lastCommandReason();
+  }
   if (command.action === 'clearRunwayEntry') {
     accepted = simulation.clearRunwayEntry(command.flightId);
     reason = simulation.lastCommandReason();
@@ -1872,7 +1942,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
 }
 
 window.airportControl = {
-  version: '2.2.0',
+  version: '2.3.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },
@@ -1893,6 +1963,7 @@ window.airportControl = {
       mapLayer: "airportControl.command({ action: 'setSurfaceLayerVisible', layer: 'hotspots', enabled: true })",
       mapOrientation: "airportControl.command({ action: 'setMapOrientationVisible', enabled: true })",
       clearance: "airportControl.command({ action: 'clearFlight', flightId: 1, runway: 0 })",
+      pushback: "airportControl.request({ action: 'clearPushback', flightId: 1 }) // Ground or Supervisor",
       runwayEntry: "airportControl.command({ action: 'clearRunwayEntry', flightId: 1 })",
       takeoff: "airportControl.request({ action: 'clearTakeoff', flightId: 1 })",
       runwayCrossing: "airportControl.command({ action: 'clearRunwayCrossing', flightId: 1, runway: 4 })",

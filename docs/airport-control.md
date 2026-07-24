@@ -4,7 +4,7 @@ Airport Auto exposes a local, versioned interface for playtests, scripted contro
 
 ## Browser API
 
-The current API version is `2.2.0`; snapshots use schema version `4`.
+The current API version is `2.3.0`; snapshots use schema version `5`.
 
 ```js
 airportControl.version
@@ -64,6 +64,7 @@ Flight commands:
 ```js
 airportControl.request({ action: 'focusFlight', flightId: 12 })
 airportControl.request({ action: 'clearFlight', flightId: 12, runway: 1 })
+airportControl.request({ action: 'clearPushback', flightId: 12 })
 airportControl.request({ action: 'clearRunwayCrossing', flightId: 12, runway: 4 })
 airportControl.request({ action: 'clearRunwayEntry', flightId: 12 })
 airportControl.request({ action: 'clearTakeoff', flightId: 12 })
@@ -94,13 +95,13 @@ airportControl.request({ action: 'setRunwayConfiguration', configurationId: null
 
 An accepted plan may be queued rather than switched immediately. `resultingState.runwayConfiguration.transition` names the target, affected runways, and blocking flights while existing protected traffic drains. Operating ends and roles then change together in one fixed step; arrivals and new taxi-out releases are metered during the transition.
 
-In manual mode, the normal departure sequence is: clear every required crossing, clear runway entry / line-up, wait until the aircraft is lined up, then clear takeoff. Rejected commands return a plain-language reason.
+In Manual mode, the normal departure sequence is: wait until turnaround is complete, issue Ground pushback clearance, monitor tug/engine start and tug release, clear every required crossing, clear runway entry / line-up, wait until the aircraft is lined up, then clear takeoff. Assisted mode proposes the same pushback command. Auto and Watch issue it through the same simulation method. Rejected commands return a plain-language reason.
 
 ## Snapshot and events
 
-Snapshots include the airport and seed, simulation clock, mode, speed, station, scenario, weather, active runway configuration, selection mode, transition queue, ends, dynamic roles, eligibility/restriction reasons, closure, runway reservations, proposed Assisted clearances, the complete surface graph, renderer/map-layer diagnostics, safety metrics, and every flight's route, clearances, model data, authoritative pose, rendered nose-up attitude, kinematics, fuel, trajectory stage, hold reason, and assigned gate/terminal/concourse. Surface graph schema v3 includes stand compatibility, sourced parking/gate references, passenger facilities and official gate-count provenance, pushback/ramp metadata, named routes, bridge/tunnel semantics, explicit control points, operational zones, and FAA hot spots. A taxiing flight reports its exact `crossingHoldPointId` when stopped for a runway crossing.
+Snapshots include the airport and seed, simulation clock, mode, speed, station, scenario, weather, active runway configuration, selection mode, transition queue, ends, dynamic roles, eligibility/restriction reasons, closure, runway reservations, proposed Assisted clearances, the complete surface graph, renderer/map-layer diagnostics, safety metrics, and every flight's route, clearances, model data, authoritative pose, rendered nose-up attitude, kinematics, fuel, trajectory stage, hold reason, and assigned gate/terminal/concourse. Ground-operation state reports `pushbackCleared`, left/right/straight `pushbackDirection`, normalized `pushbackProgress`, graph-derived `pushbackReleaseProgress`, `tugAttached`, and `engineState` (`off`, `starting`, or `running`). Surface graph schema v3 includes stand compatibility, sourced parking/gate references, passenger facilities and official gate-count provenance, pushback/ramp metadata, named routes, bridge/tunnel semantics, explicit control points, operational zones, and FAA hot spots. A taxiing flight reports its exact `crossingHoldPointId` when stopped for a runway crossing.
 
-Events have a monotonic sequence number and include command payloads and acceptance, flight/runway/taxiway context, and safety-hold or go-around details. The in-page log retains the latest 500 events.
+Events have a monotonic sequence number and include command payloads and acceptance, flight/runway/taxiway context, and safety-hold or go-around details. Pushback adds `pushback-clearance`, `pushback-start`, `engine-start`, and `tug-release` events. The in-page log retains the latest 500 events.
 
 `recording()` returns a portable replay bundle containing the airport seed, initial state, accepted and rejected commands, weather events, complete event log, and immutable full-state frames. The visible replay scrubber is read-only and drives the 3D world from those recorded frames.
 

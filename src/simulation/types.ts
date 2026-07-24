@@ -12,6 +12,8 @@ export type FlightInstruction = 'slow' | 'normal' | 'expedite' | 'hold' | 'resum
 export type AircraftCategory = 'regional' | 'narrowbody' | 'widebody' | 'cargo';
 export type WakeClass = 'light' | 'medium' | 'heavy';
 export type EmergencyType = 'medical' | 'disabled' | 'birdstrike' | 'go-around';
+export type EngineState = 'off' | 'starting' | 'running';
+export type PushbackDirection = 'left' | 'right' | 'straight';
 
 export interface WeatherState {
   weatherEnabled: boolean;
@@ -53,7 +55,7 @@ export interface FlightMotionState {
   stageProgress: number;
 }
 
-export type ClearanceProposalAction = 'land' | 'go-around' | 'cross' | 'line-up' | 'takeoff' | 'resume';
+export type ClearanceProposalAction = 'land' | 'go-around' | 'pushback' | 'cross' | 'line-up' | 'takeoff' | 'resume';
 
 export interface ClearanceProposal {
   id: string;
@@ -81,6 +83,12 @@ export interface Flight {
   clearanceLeft: number;
   taxiway?: string;
   standId?: string;
+  pushbackCleared: boolean;
+  pushbackDirection: PushbackDirection;
+  pushbackProgress: number;
+  pushbackReleaseProgress: number;
+  tugAttached: boolean;
+  engineState: EngineState;
   surfaceRoute?: string[];
   surfaceRouteEdges?: string[];
   surfaceNode?: string;
@@ -155,7 +163,7 @@ export interface ReplayFrame {
 }
 
 export interface AirportEvent {
-  type: 'spawn' | 'land' | 'chime' | 'depart' | 'clear' | 'auto-clear' | 'reject' | 'conflict' | 'safety-hold' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'takeoff-clearance' | 'go-around' | 'emergency';
+  type: 'spawn' | 'land' | 'chime' | 'depart' | 'clear' | 'auto-clear' | 'pushback-clearance' | 'pushback-start' | 'engine-start' | 'tug-release' | 'reject' | 'conflict' | 'safety-hold' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'takeoff-clearance' | 'go-around' | 'emergency';
   flight: Flight;
   runway?: number;
   taxiway?: string;

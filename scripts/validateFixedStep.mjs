@@ -53,6 +53,8 @@ const totals = {
   runwayConfigurationsVerified: false,
   runwayTransitionQueueVerified: false,
   runwayConfigurationSoaks: 0,
+  pushbackLifecycleVerified: false,
+  assistedPushbackProposalVerified: false,
 };
 
 const seeds = [1, 17, 991, 42_424];
@@ -211,6 +213,44 @@ for (let tick = 0; tick < 40; tick += 1) {
 }
 assert(concurrentMovers >= 2, 'ORD: independent surface routes did not move concurrently');
 totals.concurrentSurfaceMovers = concurrentMovers;
+
+const pushback = createHubSimulationHarness('ORD', { stepSeconds: 0.05 });
+pushback.simulation.setMode('manual');
+const pushReady = pushback.simulation.state.flights.find((flight) => flight.phase === 'resting' && flight.progress >= 0.999);
+assert(pushReady, 'ORD pushback: startup has no push-ready departure');
+assert(pushReady.engineState === 'off' && !pushReady.tugAttached && !pushReady.pushbackCleared, 'ORD pushback: gate state was not cold and uncleared');
+assert(['left', 'right', 'straight'].includes(pushReady.pushbackDirection), 'ORD pushback: route has no declared push direction');
+pushback.simulation.setStation('tower');
+assert(!pushback.simulation.clearPushback(pushReady.id), 'ORD pushback: tower issued a ground pushback clearance');
+assert(pushback.simulation.lastCommandReason().includes('no pushback authority'), 'ORD pushback: rejected authority had no structured reason');
+pushback.simulation.setStation('ground');
+assert(pushback.simulation.clearPushback(pushReady.id), 'ORD pushback: ground clearance was rejected');
+pushback.advanceTicks(1);
+let pushing = pushback.simulation.state.flights.find((flight) => flight.id === pushReady.id);
+assert(pushing?.phase === 'taxi-out', 'ORD pushback: cleared departure did not leave the stand lifecycle');
+assert(pushing.tugAttached && pushing.engineState === 'starting', 'ORD pushback: tug or engine-start state was missing at movement start');
+const stand = pushback.config.surfaceGraph.stands.find((candidate) => candidate.slot === pushing.gateSlot);
+assert(stand, 'ORD pushback: departure stand disappeared');
+assert(pushback.runUntil((snapshot) => snapshot.flights.some((flight) => flight.id === pushReady.id && flight.pushbackProgress >= 0.12), 90), 'ORD pushback: tug never moved the aircraft');
+pushing = pushback.simulation.state.flights.find((flight) => flight.id === pushReady.id);
+assert(pushing?.motion.stage === 'pushback' && pushing.motion.onGround, 'ORD pushback: authoritative motion did not identify an on-ground push');
+const travelHeading = Math.atan2(pushing.motion.y - stand.position[1], pushing.motion.x - stand.position[0]);
+assert(Math.cos(pushing.motion.heading - travelHeading) < 0.25, 'ORD pushback: aircraft moved forward out of a nose-in stand');
+assert(pushback.runUntil((snapshot) => snapshot.flights.some((flight) => flight.id === pushReady.id && flight.pushbackProgress === 1 && !flight.tugAttached), 300), 'ORD pushback: tug never released at the ramp node');
+pushing = pushback.simulation.state.flights.find((flight) => flight.id === pushReady.id);
+assert(pushing?.engineState === 'running' && pushing.motion.stage === 'taxi-out', 'ORD pushback: taxi power did not replace tug movement smoothly');
+const pushbackSnapshot = pushback.snapshot();
+assert(pushbackSnapshot.events.some((event) => event.type === 'pushback-clearance' && event.flightId === pushReady.id), 'ORD pushback: clearance event missing');
+assert(pushbackSnapshot.events.some((event) => event.type === 'pushback-start' && event.flightId === pushReady.id), 'ORD pushback: tug-attachment event missing');
+assert(pushbackSnapshot.events.some((event) => event.type === 'engine-start' && event.flightId === pushReady.id), 'ORD pushback: engine-start event missing');
+assert(pushbackSnapshot.events.some((event) => event.type === 'tug-release' && event.flightId === pushReady.id), 'ORD pushback: tug-release event missing');
+assert(pushbackSnapshot.diagnostics.collisionPairs.length === 0 && pushbackSnapshot.diagnostics.obstacleCollisions.length === 0, 'ORD pushback: lifecycle breached a protected envelope');
+totals.pushbackLifecycleVerified = true;
+
+const assistedPushback = createHubSimulationHarness('ORD', { stepSeconds: 0.05, mode: 'assisted' });
+assistedPushback.simulation.setStation('ground');
+assert(assistedPushback.simulation.clearanceProposals().some((proposal) => proposal.action === 'pushback'), 'ORD pushback: Assisted mode did not propose the ready push');
+totals.assistedPushbackProposalVerified = true;
 
 const manual = createHubSimulationHarness('ORD', { stepSeconds: 0.05 });
 manual.simulation.setMode('manual');

@@ -98,6 +98,17 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Import validation proves every FAA runway and all authoritative pavement remain within the airport cover by at least 128.7 m; collision validation checks 143,637 high/low-detail ORD scenery clearances against the largest rendered aircraft envelope.
 - [x] Desktop and mobile browser tests verify context loading, attribution, bounded context draw groups, boundary/orientation controls, and the clean Watch presentation.
 
+## Airport Auto 2.3 — authoritative pushback lifecycle
+
+- [x] Ground or Supervisor must explicitly clear a push-ready aircraft in Manual; Assisted proposes the same clearance, while Auto and Watch issue it through the same safety boundary.
+- [x] Every departure route derives a left, right, or straight push and ramp-release point from its assigned stand and authoritative stand-to-runway graph route.
+- [x] Pushback remains inside the fixed-step `taxi-out` movement: the aircraft moves backward, turns smoothly toward its outbound taxi heading, stays on the apron lead-out, and remains covered by reservations and collision envelopes.
+- [x] Serializable aircraft state records pushback clearance/progress/direction, tug attachment, and off/starting/running engine state; the 2.3 control API and schema-5 snapshot expose the same lifecycle.
+- [x] A compact procedural tug, towbar, amber beacon, engine-start cues, and tug release render directly from simulation state without creating a second visual path.
+- [x] `pushback-clearance`, `pushback-start`, `engine-start`, and `tug-release` events support replay, telemetry, human status messages, and future controller agents.
+- [x] The selected-flight action panel is keyed by actionable state, so HUD refreshes no longer detach a pushback or clearance button while a player is pressing it.
+- [x] Deterministic Manual and Assisted tests prove authority, backward on-ground motion, lifecycle events, smooth release into taxi, and zero aircraft/obstacle conflicts; desktop and mobile browser tests cover the normal flight-strip command and rendered tug state.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.
