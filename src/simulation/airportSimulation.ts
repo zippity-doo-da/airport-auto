@@ -12,6 +12,7 @@ import { progressAfterDistance, syncFlightMotion } from './flightMotion';
 import { intersectingRunways, runwaysConflict } from './runwayConflict';
 import { SurfaceReservationLedger, surfaceCongestionPlanning, surfaceRouteOperationalState, surfaceRouteReservationClaims, type SurfaceReservationClaim, type SurfaceTrafficMovement } from './surfaceOperations';
 import { GATE_TURN_BUFFER_SECONDS, gateReservationsOverlap, planGateAssignment, type GateReservation } from './gateAssignment';
+import { advanceTurnaround, completeTurnaround, createTurnaroundPlan, releaseTurnaround, scheduleTurnaround, startTurnaround, turnaroundBlockingServices, turnaroundFuelPercent, type TurnaroundTransition } from './turnaroundOperations';
 
 const PHASE_DURATION: Record<FlightPhase, number> = {
   approach: 38,
@@ -244,7 +245,7 @@ export class AirportSimulation {
           label: 'Issue go-around', reason: flight.safetyHoldReason ?? 'Protected approach spacing cannot be maintained.', priority: 'urgent',
         });
       }
-      if (flight.phase === 'resting' && flight.progress >= 0.999 && !flight.pushbackCleared) {
+      if (flight.phase === 'resting' && flight.turnaround.status === 'ready' && !flight.pushbackCleared) {
         proposals.push({
           id: `${flight.id}:pushback`, flightId: flight.id, action: 'pushback', station: 'ground',
           label: `Push ${flight.pushbackDirection}`,
@@ -362,7 +363,10 @@ export class AirportSimulation {
     if (!this.canIssue('ground')) return this.rejectDecision(`${this.state.station} station has no pushback authority`);
     const flight = this.state.flights.find((item) => item.id === id && item.phase === 'resting');
     if (!flight) return this.rejectDecision('flight is not at a stand awaiting pushback');
-    if (flight.progress < 0.999) return this.rejectDecision('turnaround and boarding are not complete', flight);
+    if (flight.turnaround.status !== 'ready') {
+      const blocking = turnaroundBlockingServices(flight.turnaround);
+      return this.rejectDecision(`pushback held: ${blocking.length ? `${blocking.join(', ')} incomplete` : 'turnaround is not ready'}`, flight);
+    }
     if (flight.pushbackCleared) return this.rejectDecision('pushback is already cleared', flight);
     if (this.state.runwayConfigurationTransition) return this.rejectDecision('pushback held while the runway plan changes', flight);
     if (this.selectDepartureRunway(flight) === null) return this.rejectDecision('no compatible departure runway is available', flight);
@@ -515,6 +519,10 @@ export class AirportSimulation {
     this.coordinateAutomaticRunwayCrossings();
     this.coordinateAutomaticSurfaceTraffic();
 
+    for (const flight of this.state.flights) {
+      if (flight.phase === 'resting') this.updateTurnaround(flight);
+    }
+
     const proposedProgressById = new Map<number, number>(this.state.flights.map((flight) => [flight.id, flight.progress]));
     const requestedProgressById = new Map<number, number>();
     const requestedSpeedById = new Map<number, number>();
@@ -545,7 +553,7 @@ export class AirportSimulation {
       const nextSpeed = hardHold ? 0 : this.acceleratedSpeedKts(flight, targetSpeed, delta);
       const travelMeters = (flight.kinematics.groundSpeedKts + nextSpeed) * 0.5 * KNOT_TO_MPS * delta;
       const requestedProgress = flight.phase === 'resting'
-        ? Math.min(1, (flight.phaseElapsed + delta) / flight.duration)
+        ? flight.turnaround.progress
         : hardHold
           ? flight.progress
           : progressAfterDistance(this.config, flight, travelMeters);
@@ -605,7 +613,6 @@ export class AirportSimulation {
       } else {
         const waitingForTakeoff = flight.phase === 'takeoff' && !flight.takeoffCleared && flight.motion.stage !== 'lineup';
         if (!waitingForTakeoff && flight.phase !== 'resting' && moved) flight.phaseElapsed += delta;
-        if (flight.phase === 'resting') flight.phaseElapsed += delta;
       }
       flight.progress = nextProgress;
       this.updatePushbackState(flight);
@@ -710,7 +717,7 @@ export class AirportSimulation {
       flight.origin = this.config.code === 'LOCAL' ? 'LOCAL' : this.config.code;
       flight.destination = this.originFor(flight.id + 5);
       flight.procedure = this.departureProcedure(runway.id);
-      flight.kinematics.fuelPercent = 74 + flight.id % 17;
+      flight.kinematics.fuelPercent = flight.turnaround.targetFuelPercent;
       flight.kinematics.altitudeFt = 0;
       flight.kinematics.airspeedKts = 0;
       flight.kinematics.groundSpeedKts = 0;
@@ -723,6 +730,8 @@ export class AirportSimulation {
       flight.holdShortRunway = taxiing ? runway.id : undefined;
       this.assignSurfaceRoute(flight, flight.phase);
       if (taxiing) {
+        completeTurnaround(flight.turnaround, this.state.elapsed);
+        releaseTurnaround(flight.turnaround, this.state.elapsed);
         flight.requiredCrossings = surfaceRouteRunwayCrossings(this.config.surfaceGraph, flight.surfaceRouteEdges, flight.runway);
         flight.crossingClearances = [];
         flight.crossingClearanceIds = [];
@@ -749,17 +758,18 @@ export class AirportSimulation {
         flight.tugAttached = flight.pushbackProgress < 1;
         flight.engineState = flight.pushbackProgress < 0.62 ? 'starting' : 'running';
         if (flight.gateAssignment && flight.pushbackProgress >= 1) {
-          flight.gateAssignment.actualGateInSeconds ??= Math.max(0, this.state.elapsed - this.plannedTurnaroundDuration(flight.id));
+          flight.gateAssignment.actualGateInSeconds ??= flight.turnaround.actualStartSeconds ?? 0;
           flight.gateAssignment.scheduledGateInSeconds = flight.gateAssignment.actualGateInSeconds;
           flight.gateAssignment.actualGateOutSeconds = this.state.elapsed;
           flight.gateAssignment.scheduledDepartureSeconds = this.state.elapsed;
         }
         this.updateSurfaceRouteState(flight);
       } else {
+        completeTurnaround(flight.turnaround, this.state.elapsed);
         flight.progress = 1;
         flight.phaseElapsed = flight.duration;
         if (flight.gateAssignment) {
-          flight.gateAssignment.actualGateInSeconds = Math.max(0, this.state.elapsed - flight.duration);
+          flight.gateAssignment.actualGateInSeconds = flight.turnaround.actualStartSeconds ?? this.state.elapsed - flight.duration;
           flight.gateAssignment.scheduledGateInSeconds = flight.gateAssignment.actualGateInSeconds;
           flight.gateAssignment.scheduledDepartureSeconds = this.state.elapsed + 8;
         }
@@ -801,9 +811,19 @@ export class AirportSimulation {
     const flightNumber = 100 + ((id * 37 + Math.abs(this.config.seed)) % 890);
     const registration = this.registrationFor(airlineCode, id);
     const service = airline.cargo || profile.category === 'cargo' ? 'cargo' : 'passenger';
+    const initialFuelPercent = 38 + ((id * 17 + Math.abs(this.config.seed)) % 34);
     const approachDuration = this.phaseDuration(aircraft, 'approach', runway);
     const operatingEnd = this.preferredOperatingEnd(runway);
     const nextDestination = this.originFor(id + 5);
+    const turnaround = createTurnaroundPlan({
+      flightId: id,
+      airportSeed: this.config.seed,
+      aircraft,
+      service,
+      fuelPercent: initialFuelPercent,
+      scope: this.config.scope,
+      scheduledGateInSeconds: 0,
+    });
     const gateAssignment = planGateAssignment({
       config: this.config,
       flightId: id,
@@ -815,12 +835,13 @@ export class AirportSimulation {
       departureRunway,
       departureOperatingEnd: this.preferredOperatingEnd(departureRunway),
       readyForTaxiAtSeconds: this.state.elapsed + approachDuration + this.phaseDuration(aircraft, 'landing', runway),
-      turnaroundSeconds: this.plannedTurnaroundDuration(id),
+      turnaroundSeconds: turnaround.plannedDurationSeconds,
       nextDestination,
       assignedAtSeconds: this.state.elapsed,
       reservations: this.gateReservations(),
     });
     if (!gateAssignment) return null;
+    scheduleTurnaround(turnaround, gateAssignment.scheduledGateInSeconds);
     const gateSlot = gateAssignment.gateSlot;
     const stand = this.config.surfaceGraph.stands.find((candidate) => candidate.id === gateAssignment.standId);
     const flight: Flight = {
@@ -849,6 +870,7 @@ export class AirportSimulation {
       flightNumber,
       registration,
       service,
+      turnaround,
       category: profile.category,
       wakeClass: profile.wakeClass,
       procedure: this.arrivalProcedure(runway),
@@ -861,7 +883,7 @@ export class AirportSimulation {
         altitudeFt: this.approachStartAltitude(aircraft),
         verticalSpeedFpm: -profile.descentFpm,
         accelerationMps2: 0,
-        fuelPercent: 38 + ((id * 17 + Math.abs(this.config.seed)) % 34),
+        fuelPercent: initialFuelPercent,
       },
       motion: {
         x: 0, y: 0, z: 2, heading: 0, pitch: 0, bank: 0,
@@ -988,6 +1010,7 @@ export class AirportSimulation {
       this.confirmGateArrival(flight);
     }
     if (next === 'taxi-out') {
+      releaseTurnaround(flight.turnaround, this.state.elapsed);
       flight.pushbackProgress = 0;
       flight.tugAttached = true;
       flight.engineState = 'starting';
@@ -1121,7 +1144,7 @@ export class AirportSimulation {
       } else if (flight.phase === 'taxi-in') {
         const remainingTaxi = Math.max(0, flight.duration * (1 - flight.progress));
         startSeconds = Math.min(startSeconds, now + remainingTaxi);
-        endSeconds = Math.max(endSeconds, now + remainingTaxi + this.plannedTurnaroundDuration(flight.id));
+        endSeconds = Math.max(endSeconds, now + remainingTaxi + flight.turnaround.plannedDurationSeconds);
       } else if (flight.phase === 'resting') {
         const remainingTurn = Math.max(0, flight.duration * (1 - flight.progress));
         startSeconds = Math.min(startSeconds, assignment.actualGateInSeconds ?? now);
@@ -1173,7 +1196,7 @@ export class AirportSimulation {
       departureRunway: flight.departureRunway,
       departureOperatingEnd: this.preferredOperatingEnd(flight.departureRunway),
       readyForTaxiAtSeconds: this.gateReadyForTaxiAt(flight),
-      turnaroundSeconds: this.plannedTurnaroundDuration(flight.id),
+      turnaroundSeconds: flight.turnaround.plannedDurationSeconds,
       nextDestination,
       assignedAtSeconds: this.state.elapsed,
       reservations: this.gateReservations(flight.id),
@@ -1183,6 +1206,7 @@ export class AirportSimulation {
     if (!decision) return false;
     const stand = this.config.surfaceGraph.stands.find((candidate) => candidate.id === decision.standId);
     flight.gateAssignment = decision;
+    scheduleTurnaround(flight.turnaround, decision.scheduledGateInSeconds);
     flight.gateSlot = decision.gateSlot;
     flight.standId = decision.standId;
     flight.pushbackDirection = stand?.pushbackDirection ?? 'straight';
@@ -1207,9 +1231,20 @@ export class AirportSimulation {
   private confirmGateArrival(flight: Flight): void {
     const assignment = flight.gateAssignment;
     if (!assignment) return;
+    const transitions = startTurnaround(flight.turnaround, this.state.elapsed, flight.kinematics.fuelPercent);
+    flight.duration = flight.turnaround.plannedDurationSeconds;
+    flight.phaseElapsed = 0;
+    flight.progress = 0;
     assignment.actualGateInSeconds = this.state.elapsed;
     assignment.scheduledGateInSeconds = this.state.elapsed;
-    assignment.scheduledDepartureSeconds = this.state.elapsed + flight.duration;
+    assignment.scheduledDepartureSeconds = flight.turnaround.scheduledReadySeconds;
+    this.events.push({
+      type: 'turnaround-start',
+      flight,
+      taxiway: flight.taxiway,
+      detail: `${flight.service} turn started · ${flight.turnaround.tasks.filter((task) => task.required).length} required services`,
+    });
+    this.emitTurnaroundTransitions(flight, transitions);
     const occupiedWindow = {
       startSeconds: this.state.elapsed,
       endSeconds: assignment.scheduledDepartureSeconds,
@@ -1477,12 +1512,9 @@ export class AirportSimulation {
     telemetry.altitudeFt = currentAltitude;
     telemetry.verticalSpeedFpm = (currentAltitude - previousAltitude) / delta * 60;
 
-    if (flight.phase === 'resting') {
-      const dispatchFuel = 74 + ((flight.id * 11 + Math.abs(this.config.seed)) % 18);
-      telemetry.fuelPercent = Math.min(dispatchFuel, telemetry.fuelPercent + delta * 0.45);
-    } else {
+    if (flight.phase !== 'resting') {
       const burnPerMinute = flight.phase === 'takeoff' ? 2.4 : flight.phase === 'approach' ? 0.72 : flight.phase === 'landing' ? 0.55 : 0.2;
-    telemetry.fuelPercent = Math.max(0, telemetry.fuelPercent - burnPerMinute / 60 * delta);
+      telemetry.fuelPercent = Math.max(0, telemetry.fuelPercent - burnPerMinute / 60 * delta);
     }
     void measuredSpeed;
     void previousProgress;
@@ -1654,7 +1686,7 @@ export class AirportSimulation {
       flight.pushbackDirection = stand.pushbackDirection;
       flight.pushbackReleaseProgress = 0;
     }
-    if (phase === 'resting') flight.duration = this.turnaroundDuration(flight);
+    if (phase === 'resting') flight.duration = flight.turnaround.plannedDurationSeconds;
     else if (route) {
       flight.duration = this.surfaceRouteDuration(flight, route);
       flight.requiredCrossings = surfaceRouteRunwayCrossings(this.config.surfaceGraph, route.edgeIds, flight.runway);
@@ -1697,13 +1729,30 @@ export class AirportSimulation {
     return Math.max(18, distance * WORLD_METERS_PER_UNIT / Math.max(1, taxiMps) * weatherFactor);
   }
 
-  private turnaroundDuration(flight: Flight): number {
-    return this.plannedTurnaroundDuration(flight.id);
+  private updateTurnaround(flight: Flight): void {
+    const transitions = advanceTurnaround(flight.turnaround, this.state.elapsed);
+    flight.phaseElapsed = flight.turnaround.elapsedSeconds;
+    flight.progress = flight.turnaround.progress;
+    flight.kinematics.fuelPercent = turnaroundFuelPercent(flight.turnaround);
+    this.emitTurnaroundTransitions(flight, transitions);
   }
 
-  private plannedTurnaroundDuration(flightId: number): number {
-    const base = this.config.scope === 'center' ? 55 : 36;
-    return base + (flightId % 5) * 7;
+  private emitTurnaroundTransitions(flight: Flight, transitions: TurnaroundTransition[]): void {
+    for (const transition of transitions) {
+      const task = transition.service
+        ? flight.turnaround.tasks.find((candidate) => candidate.type === transition.service)
+        : undefined;
+      const detail = transition.type === 'turnaround-ready'
+        ? 'all required services complete · pushback eligible'
+        : `${task?.label ?? transition.service} ${transition.type === 'service-start' ? 'started' : 'complete'}`;
+      this.events.push({
+        type: transition.type,
+        flight,
+        taxiway: flight.taxiway,
+        detail,
+        turnaroundService: transition.service,
+      });
+    }
   }
 
   private updateSurfaceRouteState(flight: Flight): void {

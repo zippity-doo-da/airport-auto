@@ -65,13 +65,13 @@ This document contains only unfinished, still-valid work. Shipped behavior belon
 
 Turn the safe surface graph into a believable airport lifecycle.
 
-**Status: in progress.** Pushback shipped in 2.3, aircraft-specific ground handling in 2.4, ramp/alley flow control in 2.5, and scheduled gate assignment in 2.6.
+**Status: in progress.** Pushback shipped in 2.3, aircraft-specific ground handling in 2.4, ramp/alley flow control in 2.5, scheduled gate assignment in 2.6, and explicit turnaround services in 2.7.
 
 - [x] Add explicit pushback clearance, tug attachment, push direction, engine-start state, and tug release.
 - [x] Add aircraft-specific taxi speed, turn-radius, stopping-distance, and wingtip-clearance behavior on the imported graph.
 - [x] Add ramp-control zones, alley conflicts, one-way restrictions, stand lead-in/lead-out paths, and congestion-aware routing.
 - [x] Add gate assignment by airline, terminal, aircraft size, service type, arrival time, and next departure.
-- [ ] Replace the simple turnaround timer with optional fueling, baggage, cargo, catering, cleaning, boarding, and maintenance states.
+- [x] Replace the simple turnaround timer with optional fueling, baggage, cargo, catering, cleaning, boarding, and maintenance states.
 - [ ] Add service vehicles with reserved routes that never cross protected movement areas without authorization.
 - [ ] Add deicing pads, queues, treatment time, holdover time, and winter routing.
 - [ ] Select runway exits from touchdown point, braking action, aircraft performance, traffic, and destination stand.

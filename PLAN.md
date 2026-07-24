@@ -139,6 +139,16 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Flight strips show planned/from-gate state and schedule; API 2.6 / snapshot schema 8 exposes policy factors, fit, timing, next flight, route distances, score, rationale, revision, and structured assignment/reassignment/release events.
 - [x] A dedicated validation gate proves home-concourse and cargo-ramp selection, aircraft compatibility, overlapping-window rejection, safe future stand reuse, departure-route influence, next-flight identity, physical stand exclusivity, and a zero-collision ORD Rush soak.
 
+## Airport Auto 2.7 — explicit turnaround services
+
+- [x] Replace the stand countdown with seven deterministic task states: fueling, baggage, cargo, catering, cleaning, boarding, and optional maintenance.
+- [x] Run independent services concurrently while boarding waits for required cleaning/catering; passenger and freighter turns receive different task plans.
+- [x] Tie the fuel chip to the fueling task's actual progress and dispatch target instead of an unrelated resting-phase ease.
+- [x] Gate pushback readiness on completion of every required service and return named blockers for an early Ground command.
+- [x] Show compact live service progress in flight chips and a selected-flight turnaround panel; preserve the full task schedule, evidence, and actual timestamps in replay and API state.
+- [x] API 2.7 / snapshot schema 9 emits structured turnaround/service lifecycle events and exposes planned, servicing, ready, and released states.
+- [x] A dedicated validation gate proves dependency order, passenger/freighter task selection, optional maintenance, partition invariance, fuel completion, early-push rejection, lifecycle events, and zero protected-envelope breaches.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.

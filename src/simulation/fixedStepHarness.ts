@@ -33,6 +33,7 @@ export interface FixedStepHarnessEvent {
   runway: number;
   taxiway?: string;
   detail?: string;
+  turnaroundService?: AirportEvent['turnaroundService'];
 }
 
 export interface FixedStepFlightSnapshot {
@@ -62,6 +63,28 @@ export interface FixedStepFlightSnapshot {
     serviceFit: 'preferred' | 'compatible' | 'fallback';
     score: number;
     revision: number;
+  };
+  turnaround: {
+    status: Flight['turnaround']['status'];
+    progress: number;
+    elapsedSeconds: number;
+    plannedDurationSeconds: number;
+    scheduledStartSeconds: number;
+    scheduledReadySeconds: number;
+    actualStartSeconds?: number;
+    actualReadySeconds?: number;
+    releasedAtSeconds?: number;
+    initialFuelPercent: number;
+    targetFuelPercent: number;
+    tasks: Array<{
+      type: Flight['turnaround']['tasks'][number]['type'];
+      required: boolean;
+      status: Flight['turnaround']['tasks'][number]['status'];
+      durationSeconds: number;
+      scheduledStartOffsetSeconds: number;
+      elapsedSeconds: number;
+      dependencies: Flight['turnaround']['tasks'][number]['dependencies'];
+    }>;
   };
   pushbackCleared: boolean;
   pushbackDirection: Flight['pushbackDirection'];
@@ -104,7 +127,7 @@ export interface FixedStepFlightSnapshot {
 }
 
 export interface FixedStepSimulationSnapshot {
-  schemaVersion: 4;
+  schemaVersion: 5;
   seed: number;
   airportCode: string;
   stepSeconds: number;
@@ -254,7 +277,7 @@ export class FixedStepSimulationHarness {
   snapshot(): FixedStepSimulationSnapshot {
     const diagnostics = this.simulation.diagnostics();
     return {
-      schemaVersion: 4,
+      schemaVersion: 5,
       seed: this.config.seed,
       airportCode: this.config.code,
       stepSeconds: round(this.stepSeconds),
@@ -334,6 +357,7 @@ export class FixedStepSimulationHarness {
         runway: event.runway ?? event.flight.runway,
         taxiway: event.taxiway ?? event.flight.taxiway,
         detail: event.detail,
+        turnaroundService: event.turnaroundService,
       });
     }
   }
@@ -384,6 +408,28 @@ function snapshotFlight(config: AirportConfig, flight: Flight): FixedStepFlightS
       score: round(flight.gateAssignment.score),
       revision: flight.gateAssignment.revision,
     } : undefined,
+    turnaround: {
+      status: flight.turnaround.status,
+      progress: round(flight.turnaround.progress),
+      elapsedSeconds: round(flight.turnaround.elapsedSeconds),
+      plannedDurationSeconds: round(flight.turnaround.plannedDurationSeconds),
+      scheduledStartSeconds: round(flight.turnaround.scheduledStartSeconds),
+      scheduledReadySeconds: round(flight.turnaround.scheduledReadySeconds),
+      actualStartSeconds: flight.turnaround.actualStartSeconds === undefined ? undefined : round(flight.turnaround.actualStartSeconds),
+      actualReadySeconds: flight.turnaround.actualReadySeconds === undefined ? undefined : round(flight.turnaround.actualReadySeconds),
+      releasedAtSeconds: flight.turnaround.releasedAtSeconds === undefined ? undefined : round(flight.turnaround.releasedAtSeconds),
+      initialFuelPercent: round(flight.turnaround.initialFuelPercent),
+      targetFuelPercent: round(flight.turnaround.targetFuelPercent),
+      tasks: flight.turnaround.tasks.map((task) => ({
+        type: task.type,
+        required: task.required,
+        status: task.status,
+        durationSeconds: round(task.durationSeconds),
+        scheduledStartOffsetSeconds: round(task.scheduledStartOffsetSeconds),
+        elapsedSeconds: round(task.elapsedSeconds),
+        dependencies: [...task.dependencies],
+      })),
+    },
     pushbackCleared: flight.pushbackCleared,
     pushbackDirection: flight.pushbackDirection,
     pushbackProgress: round(flight.pushbackProgress),

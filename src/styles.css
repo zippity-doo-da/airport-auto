@@ -264,6 +264,18 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
 .flight-actions button:hover { border-color: var(--amber); background: rgba(239, 199, 117, 0.17); }
 .flight-actions button:disabled { opacity: 0.38; cursor: not-allowed; }
 .flight-actions p { margin: 4px 0 0; color: rgba(244, 232, 206, 0.58); font-size: 10px; }
+.turnaround-panel { display: grid; gap: 7px; margin: 0 0 9px; border: 1px solid rgba(244, 232, 206, 0.14); padding: 8px; background: rgba(121, 200, 232, 0.055); }
+.turnaround-panel__summary { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.turnaround-panel__summary b { font: 400 11px/1.2 Georgia, serif; }
+.turnaround-panel__summary span { color: var(--amber); font-size: 8px; font-weight: 900; letter-spacing: 0.1em; }
+.turnaround-panel__progress { display: block; overflow: hidden; height: 3px; background: rgba(244, 232, 206, 0.1); }
+.turnaround-panel__progress > i { display: block; height: 100%; background: linear-gradient(90deg, var(--blue), var(--amber)); transition: width 220ms linear; }
+.turnaround-panel__tasks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 10px; margin: 0; padding: 0; list-style: none; }
+.turnaround-panel__tasks li { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 5px; color: rgba(244, 232, 206, 0.56); font-size: 8px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
+.turnaround-panel__tasks li[data-status="active"] { color: var(--ivory); }
+.turnaround-panel__tasks li[data-status="complete"] { color: #9bc8a0; }
+.turnaround-panel__tasks span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.turnaround-panel__tasks em { flex: none; color: inherit; font-size: 7px; font-style: normal; letter-spacing: 0.07em; }
 
 .camera-tools { position: absolute; right: max(18px, env(safe-area-inset-right)); bottom: max(24px, env(safe-area-inset-bottom)); z-index: 5; display: flex; gap: 5px; }
 .camera-tools button { display: grid; width: 44px; height: 44px; place-items: center; border: 1px solid rgba(244, 232, 206, 0.32); color: var(--ivory); background: rgba(9, 33, 36, 0.72); font: 18px/1 Georgia, serif; cursor: pointer; backdrop-filter: blur(14px); }

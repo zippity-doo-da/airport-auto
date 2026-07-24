@@ -6,7 +6,7 @@ import { airlineProfile } from './simulation/airlineProfiles';
 import { sampleAircraftSurfaceMotion, surfaceStoppingDistanceM } from './simulation/surfaceMotion';
 import { surfaceRampControlZones, surfaceStandFlow } from './simulation/surfaceOperations';
 import { GATE_TURN_BUFFER_SECONDS } from './simulation/gateAssignment';
-import type { ClearanceProposal, ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, ReplayFrame, TrafficScenario, WeatherCondition } from './simulation/types';
+import type { ClearanceProposal, ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, ReplayFrame, TrafficScenario, TurnaroundServiceType, WeatherCondition } from './simulation/types';
 import { AmbientAudio, type AudioChannel, type AudioPreset } from './audio/ambientAudio';
 import { createWorld, type SurfaceLayer } from './render/createWorld';
 
@@ -597,6 +597,7 @@ function frame(now: number): void {
 
   for (const event of simulation.drainEvents()) {
     const gateEvent = event.type === 'gate-assignment' || event.type === 'gate-reassignment' || event.type === 'gate-release';
+    const turnaroundEvent = event.type === 'turnaround-start' || event.type === 'service-start' || event.type === 'service-complete' || event.type === 'turnaround-ready';
     recordTelemetry(event.type, event.flight, event.runway, event.taxiway, {
       detail: event.detail ?? (event.type === 'safety-hold' ? event.flight.safetyHoldReason : undefined),
       payload: gateEvent && event.flight.gateAssignment ? {
@@ -609,6 +610,12 @@ function frame(now: number): void {
         scheduledDepartureSeconds: event.flight.gateAssignment.scheduledDepartureSeconds,
         nextDestination: event.flight.gateAssignment.nextDestination,
         revision: event.flight.gateAssignment.revision,
+      } : turnaroundEvent ? {
+        service: event.turnaroundService ?? null,
+        status: event.flight.turnaround.status,
+        progress: Number(event.flight.turnaround.progress.toFixed(3)),
+        scheduledReadySeconds: event.flight.turnaround.scheduledReadySeconds,
+        actualReadySeconds: event.flight.turnaround.actualReadySeconds ?? null,
       } : undefined,
     });
     if (event.type === 'spawn') audio.traffic(event.flight.category, 'spawn');
@@ -624,6 +631,7 @@ function frame(now: number): void {
     if (event.type === 'gate-assignment') setStatus(`${event.flight.callsign} gate planned`, event.detail ?? 'stand schedule confirmed');
     if (event.type === 'gate-reassignment') setStatus(`${event.flight.callsign} gate changed`, event.detail ?? 'stand conflict resolved');
     if (event.type === 'gate-release') setStatus(`${event.flight.callsign} clear of stand`, event.detail ?? 'gate available');
+    if (event.type === 'turnaround-ready') setStatus(`${event.flight.callsign} ready for push`, event.detail ?? 'all required services complete');
     if (event.type === 'clear') {
       audio.radio();
       setStatus(`${event.flight.callsign} cleared to land`, 'route accepted · runway lights are yours');
@@ -748,6 +756,10 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
         ...flight.gateAssignment,
         rationale: [...flight.gateAssignment.rationale],
       } : undefined,
+      turnaround: {
+        ...flight.turnaround,
+        tasks: flight.turnaround.tasks.map((task) => ({ ...task, dependencies: [...task.dependencies] })),
+      },
       requiredCrossings: flight.requiredCrossings ? [...flight.requiredCrossings] : undefined,
       crossingClearances: flight.crossingClearances ? [...flight.crossingClearances] : undefined,
       crossingClearanceIds: flight.crossingClearanceIds ? [...flight.crossingClearanceIds] : undefined,
@@ -760,7 +772,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
 function replayRecording(): ReplayRecording {
   return {
     schemaVersion: 1,
-    simulationVersion: window.airportControl?.version ?? '2.6.0',
+    simulationVersion: window.airportControl?.version ?? '2.7.0',
     recordedAt: new Date().toISOString(),
     seed: config.seed,
     airport: { code: config.code, name: config.name, scope: config.scope },
@@ -855,7 +867,7 @@ function updateFlightChip(item: HTMLElement, flight: Flight): void {
   button.style.setProperty('--fuel', `${fuel.toFixed(1)}%`);
   const holdDetail = flight.automaticHoldReason ?? flight.safetyHoldReason;
   button.setAttribute('aria-label', `${flight.callsign}, ${flight.aircraft}, ${phase}${holdDetail ? `, ${holdDetail}` : ''}${gateDisplay ? `, ${gateDisplay}` : ''}${gateTime ? `, ${gateTime}` : ''}, fuel ${fuel.toFixed(0)} percent, ${speedLabel} ${speed.toFixed(0)} knots, altitude ${altitude} feet`);
-  button.title = assignment?.rationale.join(' · ') ?? '';
+  button.title = [assignment?.rationale.join(' · '), flight.phase === 'resting' ? turnaroundLongSummary(flight) : ''].filter(Boolean).join(' · ');
   const identity = button.querySelector('.flight-chip__identity')!;
   identity.querySelector('strong')!.textContent = flight.callsign;
   identity.querySelector('span')!.textContent = phase;
@@ -868,7 +880,9 @@ function updateFlightChip(item: HTMLElement, flight: Flight): void {
   detail.children[0].textContent = `${flight.aircraft} · ${operation} · ${gateDisplay ?? `RWY ${runwayDesignation(flight.runway)}`}${gateTime ? ` · ${gateTime}` : ''}`;
   detail.children[1].textContent = held && holdDetail
     ? `HOLD · ${holdDetail.toUpperCase()}`
-    : `${surface ? flight.engineState.toUpperCase() + ' ENGINES · ' : ''}${verticalText} · ${motionText}`;
+    : flight.phase === 'resting'
+      ? turnaroundChipSummary(flight)
+      : `${surface ? flight.engineState.toUpperCase() + ' ENGINES · ' : ''}${verticalText} · ${motionText}`;
 }
 
 function formatPhase(phase: FlightPhase): string {
@@ -877,11 +891,41 @@ function formatPhase(phase: FlightPhase): string {
 
 function flightOperationLabel(flight: Flight): string {
   if (flight.phase === 'resting') {
-    if (flight.progress < 0.999) return 'Turnaround';
+    if (flight.turnaround.status !== 'ready') return `Turnaround ${Math.round(flight.turnaround.progress * 100)}%`;
     return flight.pushbackCleared ? 'Push cleared' : 'Ready push';
   }
   if (flight.phase === 'taxi-out' && flight.tugAttached) return `Pushback ${flight.pushbackDirection}`;
   return formatPhase(flight.phase);
+}
+
+const TURNAROUND_SHORT_LABEL: Record<TurnaroundServiceType, string> = {
+  fueling: 'fuel',
+  baggage: 'bags',
+  cargo: 'cargo',
+  catering: 'catering',
+  cleaning: 'cleaning',
+  boarding: 'boarding',
+  maintenance: 'maintenance',
+};
+
+function turnaroundChipSummary(flight: Flight): string {
+  const turnaround = flight.turnaround;
+  if (turnaround.status === 'ready') return 'ALL SERVICES COMPLETE';
+  if (turnaround.status === 'released') return 'TURNAROUND RELEASED';
+  if (turnaround.status === 'planned') return 'SERVICES PLANNED';
+  const active = turnaround.tasks.filter((task) => task.status === 'active');
+  const waiting = turnaround.tasks.filter((task) => task.status === 'waiting');
+  const labels = active.slice(0, 2).map((task) => (
+    `${TURNAROUND_SHORT_LABEL[task.type]} ${Math.round(task.elapsedSeconds / Math.max(0.1, task.durationSeconds) * 100)}%`
+  ));
+  if (active.length > 2) labels.push(`+${active.length - 2}`);
+  if (!labels.length && waiting.length) labels.push(`${TURNAROUND_SHORT_LABEL[waiting[0].type]} waiting`);
+  return labels.join(' · ').toUpperCase();
+}
+
+function turnaroundLongSummary(flight: Flight): string {
+  const required = flight.turnaround.tasks.filter((task) => task.required);
+  return required.map((task) => `${task.label}: ${task.status}`).join(' · ');
 }
 
 function setFlightStripCollapsed(collapsed: boolean): void {
@@ -933,6 +977,9 @@ function renderFlightActions(): void {
         flight.progress >= 0.985,
         flight.pushbackCleared,
         flight.pushbackDirection,
+        flight.turnaround.status,
+        Math.floor(flight.turnaround.progress * 20),
+        flight.turnaround.tasks.map((task) => task.status).join(','),
         flight.controlHold,
         flight.crossingHoldRunway ?? 'none',
         flight.runwayEntryCleared,
@@ -958,6 +1005,7 @@ function renderFlightActions(): void {
   heading.querySelector('small')!.textContent = `${flight.aircraft} · ${flight.origin} → ${flight.destination}${standLabel ? ` · ${standLabel}` : ''}`;
   heading.querySelector('span')!.textContent = simulation.state.station.toUpperCase();
   flightActions.append(heading);
+  if (flight.phase === 'resting') flightActions.append(createTurnaroundPanel(flight));
   const controls = document.createElement('div');
   controls.className = 'flight-actions__buttons';
   const add = (action: string, label: string, disabled = false, runway?: number): void => {
@@ -972,7 +1020,7 @@ function renderFlightActions(): void {
   const ground = flight.phase === 'taxi-in' || flight.phase === 'taxi-out';
   if (flight.phase === 'approach' && !flight.cleared) add('clear', `Land ${runwayDesignation(flight.runway)}`, !simulation.canIssue('approach'));
   if (flight.phase === 'approach' || flight.phase === 'landing') add('go-around', 'Go around', !simulation.canIssue('approach'));
-  if (flight.phase === 'resting' && flight.progress >= 0.999 && !flight.pushbackCleared) add('pushback', `Push ${flight.pushbackDirection}`, !simulation.canIssue('ground'));
+  if (flight.phase === 'resting' && flight.turnaround.status === 'ready' && !flight.pushbackCleared) add('pushback', `Push ${flight.pushbackDirection}`, !simulation.canIssue('ground'));
   if (ground) add('hold-toggle', flight.controlHold ? 'Resume taxi' : 'Hold position', !simulation.canIssue('ground'));
   for (const runway of flight.crossingHoldRunway === undefined ? [] : [flight.crossingHoldRunway]) {
     add('cross', `Cross ${runwayDesignation(runway)}`, !simulation.canIssue('ground'), runway);
@@ -987,9 +1035,49 @@ function renderFlightActions(): void {
   flightActions.append(controls);
   if (!controls.children.length) {
     const note = document.createElement('p');
-    note.textContent = replayMode ? 'Replay is read-only.' : 'No clearance required at this point.';
+    const blocking = flight.turnaround.tasks.filter((task) => task.required && task.status !== 'complete').map((task) => task.label.toLowerCase());
+    note.textContent = replayMode
+      ? 'Replay is read-only.'
+      : flight.phase === 'resting' && blocking.length
+        ? `Pushback waits for ${blocking.join(', ')}.`
+        : 'No clearance required at this point.';
     flightActions.append(note);
   }
+}
+
+function createTurnaroundPanel(flight: Flight): HTMLElement {
+  const turnaround = flight.turnaround;
+  const panel = document.createElement('section');
+  panel.className = 'turnaround-panel';
+  panel.setAttribute('aria-label', `Turnaround ${Math.round(turnaround.progress * 100)} percent complete`);
+  const summary = document.createElement('div');
+  summary.className = 'turnaround-panel__summary';
+  const title = document.createElement('b');
+  title.textContent = `Turnaround ${Math.round(turnaround.progress * 100)}%`;
+  const status = document.createElement('span');
+  status.textContent = turnaround.status === 'servicing' ? 'IN SERVICE' : turnaround.status.toUpperCase();
+  summary.append(title, status);
+  const progress = document.createElement('i');
+  progress.className = 'turnaround-panel__progress';
+  progress.setAttribute('aria-hidden', 'true');
+  const fill = document.createElement('i');
+  fill.style.width = `${(turnaround.progress * 100).toFixed(1)}%`;
+  progress.append(fill);
+  const tasks = document.createElement('ul');
+  tasks.className = 'turnaround-panel__tasks';
+  for (const task of turnaround.tasks.filter((candidate) => candidate.required)) {
+    const item = document.createElement('li');
+    item.dataset.status = task.status;
+    const label = document.createElement('span');
+    label.textContent = task.label;
+    const taskStatus = document.createElement('em');
+    const taskProgress = task.durationSeconds <= 0 ? 1 : task.elapsedSeconds / task.durationSeconds;
+    taskStatus.textContent = task.status === 'active' ? `${Math.round(taskProgress * 100)}%` : task.status;
+    item.append(label, taskStatus);
+    tasks.append(item);
+  }
+  panel.append(summary, progress, tasks);
+  return panel;
 }
 
 function renderClearanceAdvisor(): void {
@@ -1090,7 +1178,7 @@ function renderTelemetryControls(): void {
       ...(flight.phase === 'approach' && flight.controlPattern !== 'zigzag' ? [`<button data-action="zigzag" data-flight="${flight.id}">Zigzag</button>`] : []),
       ...(surface ? [`<button data-action="${flight.controlHold ? 'resume' : 'hold'}" data-flight="${flight.id}">${flight.controlHold ? 'Release' : 'Hold'}</button>`] : []),
       ...(flight.phase === 'approach' && !flight.cleared ? [`<button data-action="clear" data-flight="${flight.id}">Clear ${runwayDesignation(flight.runway)}</button>`] : []),
-      ...(flight.phase === 'resting' && flight.progress >= 0.999 && !flight.pushbackCleared ? [`<button data-action="pushback" data-flight="${flight.id}">Push ${flight.pushbackDirection}</button>`] : []),
+      ...(flight.phase === 'resting' && flight.turnaround.status === 'ready' && !flight.pushbackCleared ? [`<button data-action="pushback" data-flight="${flight.id}">Push ${flight.pushbackDirection}</button>`] : []),
       ...(flight.phase === 'approach' || flight.phase === 'landing' ? [`<button data-action="go-around" data-flight="${flight.id}">Go around</button>`] : []),
       ...(flight.emergency ? [`<button data-action="medical" data-flight="${flight.id}">Medical</button>`] : [`<button data-action="emergency" data-flight="${flight.id}">Emergency</button>`]),
     ].join('');
@@ -1120,7 +1208,10 @@ function renderTelemetryControls(): void {
     const gateDetail = gate
       ? ` · ${gate.gateRef ?? gate.zoneName ?? gate.standId} · ${gate.airlineFit} airline fit · in ${formatTime(gate.scheduledGateInSeconds)} / out ${formatTime(gate.scheduledDepartureSeconds)}`
       : '';
-    return `<div class="telemetry__flight"><strong>${flight.callsign} · ${flight.aircraft} · ${flightOperationLabel(flight).toUpperCase()}${flight.taxiway ? ` · ${flight.taxiway}` : ''}${directive}</strong><small>${airline.name} · ${flight.registration} · ${flight.service} · ${profile.name} · ${profile.wakeClass} wake · ${flight.engineState} engines${flight.tugAttached ? ` · tug attached · ${Math.round(flight.pushbackProgress * 100)}% push` : ''}${gateDetail}</small>${flightControls}${crossings}${entry}${takeoff}</div>`;
+    const turnaroundDetail = flight.phase === 'resting'
+      ? ` · turn ${Math.round(flight.turnaround.progress * 100)}% · ${flight.turnaround.tasks.filter((task) => task.status === 'active').map((task) => task.label).join(' + ') || flight.turnaround.status}`
+      : '';
+    return `<div class="telemetry__flight"><strong>${flight.callsign} · ${flight.aircraft} · ${flightOperationLabel(flight).toUpperCase()}${flight.taxiway ? ` · ${flight.taxiway}` : ''}${directive}</strong><small>${airline.name} · ${flight.registration} · ${flight.service} · ${profile.name} · ${profile.wakeClass} wake · ${flight.engineState} engines${flight.tugAttached ? ` · tug attached · ${Math.round(flight.pushbackProgress * 100)}% push` : ''}${gateDetail}${turnaroundDetail}</small>${flightControls}${crossings}${entry}${takeoff}</div>`;
   }).join('');
 }
 
@@ -1574,7 +1665,7 @@ function airportSnapshot() {
   const diagnostics = simulation.diagnostics();
   const movingPhases = new Set(['approach', 'landing', 'taxi-in', 'taxi-out', 'takeoff']);
   return {
-    schemaVersion: 8,
+    schemaVersion: 9,
     airport: {
       code: config.code,
       name: config.name,
@@ -1789,6 +1880,11 @@ function airportSnapshot() {
           releaseProgress: Number(flight.pushbackReleaseProgress.toFixed(3)),
           tugAttached: flight.tugAttached,
         },
+        turnaround: {
+          status: flight.turnaround.status,
+          progress: Number(flight.turnaround.progress.toFixed(3)),
+          blockingServices: flight.turnaround.tasks.filter((task) => task.required && task.status !== 'complete').map((task) => task.type),
+        },
         engineState: flight.engineState,
         holdingShortOf: flight.holdShortRunway,
         runwayEntryCleared: flight.runwayEntryCleared,
@@ -1857,6 +1953,34 @@ function airportSnapshot() {
         verticalSpeedFpm: Math.round(flight.kinematics.verticalSpeedFpm),
         accelerationMps2: Number(flight.kinematics.accelerationMps2.toFixed(2)),
         fuelPercent: Number(flight.kinematics.fuelPercent.toFixed(2)),
+      },
+      turnaround: {
+        status: flight.turnaround.status,
+        progress: Number(flight.turnaround.progress.toFixed(3)),
+        elapsedSeconds: Number(flight.turnaround.elapsedSeconds.toFixed(2)),
+        plannedDurationSeconds: flight.turnaround.plannedDurationSeconds,
+        scheduledStartSeconds: Number(flight.turnaround.scheduledStartSeconds.toFixed(2)),
+        scheduledReadySeconds: Number(flight.turnaround.scheduledReadySeconds.toFixed(2)),
+        actualStartSeconds: flight.turnaround.actualStartSeconds === undefined ? null : Number(flight.turnaround.actualStartSeconds.toFixed(2)),
+        actualReadySeconds: flight.turnaround.actualReadySeconds === undefined ? null : Number(flight.turnaround.actualReadySeconds.toFixed(2)),
+        releasedAtSeconds: flight.turnaround.releasedAtSeconds === undefined ? null : Number(flight.turnaround.releasedAtSeconds.toFixed(2)),
+        initialFuelPercent: Number(flight.turnaround.initialFuelPercent.toFixed(2)),
+        targetFuelPercent: Number(flight.turnaround.targetFuelPercent.toFixed(2)),
+        activeServices: flight.turnaround.tasks.filter((task) => task.status === 'active').map((task) => task.type),
+        blockingServices: flight.turnaround.tasks.filter((task) => task.required && task.status !== 'complete').map((task) => task.type),
+        tasks: flight.turnaround.tasks.map((task) => ({
+          type: task.type,
+          label: task.label,
+          required: task.required,
+          status: task.status,
+          durationSeconds: task.durationSeconds,
+          scheduledStartOffsetSeconds: task.scheduledStartOffsetSeconds,
+          elapsedSeconds: Number(task.elapsedSeconds.toFixed(2)),
+          dependencies: [...task.dependencies],
+          reason: task.reason,
+          actualStartSeconds: task.actualStartSeconds === undefined ? null : Number(task.actualStartSeconds.toFixed(2)),
+          actualCompleteSeconds: task.actualCompleteSeconds === undefined ? null : Number(task.actualCompleteSeconds.toFixed(2)),
+        })),
       },
       motion: { ...flight.motion },
       renderedAttitude: world.flightAttitude(flight.id),
@@ -2108,7 +2232,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
 }
 
 window.airportControl = {
-  version: '2.6.0',
+  version: '2.7.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },

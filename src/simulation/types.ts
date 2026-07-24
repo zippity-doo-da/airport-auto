@@ -14,6 +14,38 @@ export type WakeClass = 'light' | 'medium' | 'heavy';
 export type EmergencyType = 'medical' | 'disabled' | 'birdstrike' | 'go-around';
 export type EngineState = 'off' | 'starting' | 'running';
 export type FlightService = 'passenger' | 'cargo';
+export type TurnaroundServiceType = 'fueling' | 'baggage' | 'cargo' | 'catering' | 'cleaning' | 'boarding' | 'maintenance';
+export type TurnaroundTaskStatus = 'not-required' | 'waiting' | 'active' | 'complete';
+export type TurnaroundStatus = 'planned' | 'servicing' | 'ready' | 'released';
+
+export interface TurnaroundTaskState {
+  type: TurnaroundServiceType;
+  label: string;
+  required: boolean;
+  status: TurnaroundTaskStatus;
+  durationSeconds: number;
+  scheduledStartOffsetSeconds: number;
+  elapsedSeconds: number;
+  dependencies: TurnaroundServiceType[];
+  reason: string;
+  actualStartSeconds?: number;
+  actualCompleteSeconds?: number;
+}
+
+export interface FlightTurnaroundState {
+  status: TurnaroundStatus;
+  plannedDurationSeconds: number;
+  elapsedSeconds: number;
+  progress: number;
+  scheduledStartSeconds: number;
+  scheduledReadySeconds: number;
+  actualStartSeconds?: number;
+  actualReadySeconds?: number;
+  releasedAtSeconds?: number;
+  initialFuelPercent: number;
+  targetFuelPercent: number;
+  tasks: TurnaroundTaskState[];
+}
 
 export type GateServiceArea = 'passenger-terminal' | 'cargo-ramp' | 'remote-ramp' | 'maintenance' | 'general-aviation' | 'other';
 
@@ -156,6 +188,7 @@ export interface Flight {
   flightNumber: number;
   registration: string;
   service: FlightService;
+  turnaround: FlightTurnaroundState;
   category: AircraftCategory;
   wakeClass: WakeClass;
   procedure: string;
@@ -204,11 +237,12 @@ export interface ReplayFrame {
 }
 
 export interface AirportEvent {
-  type: 'spawn' | 'gate-assignment' | 'gate-reassignment' | 'gate-release' | 'land' | 'chime' | 'depart' | 'clear' | 'auto-clear' | 'pushback-clearance' | 'pushback-start' | 'engine-start' | 'tug-release' | 'reject' | 'conflict' | 'safety-hold' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'takeoff-clearance' | 'go-around' | 'emergency';
+  type: 'spawn' | 'gate-assignment' | 'gate-reassignment' | 'gate-release' | 'turnaround-start' | 'service-start' | 'service-complete' | 'turnaround-ready' | 'land' | 'chime' | 'depart' | 'clear' | 'auto-clear' | 'pushback-clearance' | 'pushback-start' | 'engine-start' | 'tug-release' | 'reject' | 'conflict' | 'safety-hold' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'takeoff-clearance' | 'go-around' | 'emergency';
   flight: Flight;
   runway?: number;
   taxiway?: string;
   detail?: string;
+  turnaroundService?: TurnaroundServiceType;
 }
 
 export interface RunwayConfigurationTransition {
