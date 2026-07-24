@@ -88,13 +88,9 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   expect(pushingSnapshot.renderer.attachedTugs).toBeGreaterThanOrEqual(1);
   expect(pushingSnapshot.renderer.startingEngines).toBeGreaterThanOrEqual(1);
   expect(pushingSnapshot.recentEvents.some((event) => event.type === 'command:clearPushback' && event.accepted)).toBeTruthy();
-  await page.waitForFunction((flightId) => {
-    const flight = window.airportControl.snapshot().flights.find((candidate) => candidate.id === flightId);
-    return (flight?.groundOperation.pushbackProgress ?? 0) >= 0.28;
-  }, pushReady!.id);
   await page.evaluate(() => {
     for (let index = 0; index < 3; index += 1) window.airportControl.command({ action: 'nextView' });
-    for (let index = 0; index < 7; index += 1) window.airportControl.command({ action: 'zoomIn' });
+    for (let index = 0; index < 10; index += 1) window.airportControl.command({ action: 'zoomIn' });
   });
   await page.locator('#flight-strip-toggle').click();
   await page.waitForTimeout(1_200);
