@@ -1,7 +1,10 @@
 import { expect, test } from '@playwright/test';
 
 test('Assisted ORD shift exposes proposals, station workload, and structured control', async ({ page }, testInfo) => {
-  test.setTimeout(120_000);
+  // Hosted software WebGL can take more than two minutes to traverse this
+  // intentionally broad end-to-end scenario even though local Chromium is
+  // much faster. Keep waits individually bounded and allow the full sequence.
+  test.setTimeout(240_000);
   await page.goto('/?airport=ORD&mode=assisted&station=supervisor&autostart=1&detail=low');
   await expect(page.locator('#airport-name')).toContainText('O’Hare');
   await expect(page.locator('#flight-strip-count')).toContainText('aircraft');
