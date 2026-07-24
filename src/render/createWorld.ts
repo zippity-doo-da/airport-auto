@@ -3,6 +3,7 @@ import type { AirportConfig, FlightColor, RunwayConfig } from '../simulation/air
 import { aircraftProfile } from '../simulation/aircraftProfiles';
 import { airlineProfile } from '../simulation/airlineProfiles';
 import type { AirportState, Flight, FlightMotionState } from '../simulation/types';
+import { applyAircraftOrientation } from './aircraftOrientation';
 
 type FlightVisual = {
   poolKey: string;
@@ -56,6 +57,7 @@ export interface AirportWorld {
   pickRunway(clientX: number, clientY: number): number | null;
   selectFlight(id: number | null): void;
   flightScreenPosition(id: number): { x: number; y: number } | null;
+  flightAttitude(id: number): { headingDegrees: number; noseUpDegrees: number } | null;
   zoomIn(): void;
   zoomOut(): void;
   resetCamera(): void;
@@ -161,6 +163,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   let runwayLabelsVisible = false;
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const touchPoints = new Map<number, { x: number; y: number }>();
+  const attitudeNose = new THREE.Vector3();
   let previousPinchDistance = 0;
   let previousPinchGround: THREE.Vector3 | null = null;
 
@@ -436,6 +439,16 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     updateProjection();
   }
 
+  function flightAttitude(id: number): { headingDegrees: number; noseUpDegrees: number } | null {
+    const visual = flightVisuals.get(id);
+    if (!visual) return null;
+    const nose = attitudeNose.set(1, 0, 0).applyQuaternion(visual.root.quaternion);
+    return {
+      headingDegrees: (THREE.MathUtils.radToDeg(Math.atan2(nose.y, nose.x)) + 360) % 360,
+      noseUpDegrees: THREE.MathUtils.radToDeg(Math.atan2(nose.z, Math.hypot(nose.x, nose.y))),
+    };
+  }
+
   const onContextLost = (event: Event): void => {
     event.preventDefault();
     canvas.dataset.rendererState = 'lost';
@@ -459,6 +472,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     pickRunway,
     selectFlight(id) { selectedFlightId = id; },
     flightScreenPosition,
+    flightAttitude,
     zoomIn() { changeZoom(0.78); },
     zoomOut() { changeZoom(1.28); },
     resetCamera,
@@ -1126,7 +1140,6 @@ function positionFlight(
   } else {
     visual.renderedHeading = dampAngle(visual.renderedHeading, targetHeading, motion.onGround ? 10 : 8, delta);
   }
-  visual.root.rotation.z = visual.renderedHeading;
   const airborne = !motion.onGround;
   for (const caster of visual.shadowCasters) caster.castShadow = airborne;
   visual.gear.visible = (flight.phase === 'approach' && flight.progress > 0.72)
@@ -1141,8 +1154,7 @@ function positionFlight(
       || (motion.stage === 'climbout' && motion.stageProgress < 0.28)
     ));
   const airMotion = airborne ? Math.sin(elapsed * 0.8 + flight.id) * 0.018 : 0;
-  visual.root.rotation.x = motion.bank + airMotion;
-  visual.root.rotation.y = -presentationPitch;
+  applyAircraftOrientation(visual.root, visual.renderedHeading, presentationPitch, motion.bank + airMotion);
   const visualAltitude = visual.root.position.z;
   const shadowSurface = isTaxiing ? 1.64 : 1.82;
   const heightAboveSurface = Math.max(0, visualAltitude - shadowSurface);

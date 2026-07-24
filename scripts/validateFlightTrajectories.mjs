@@ -11,6 +11,8 @@ import {
 import { runwaySupportsAircraft } from './src/simulation/runwayPerformance.ts';
 import { surfaceRouteForFlight } from './src/simulation/surfaceGraph.ts';
 import { FixedStepSimulationHarness } from './src/simulation/fixedStepHarness.ts';
+import { applyAircraftOrientation } from './src/render/aircraftOrientation.ts';
+import * as THREE from 'three';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -78,11 +80,28 @@ const totals = {
   boundaryChecks: 0,
   touchdownChecks: 0,
   rotationChecks: 0,
+  orientationChecks: 0,
   liveMotionTicks: 0,
   approachSpeedChecks: 0,
   liveArrivals: 0,
   liveDepartures: 0,
 };
+
+for (const pitch of [THREE.MathUtils.degToRad(8), THREE.MathUtils.degToRad(12)]) {
+  for (const bank of [-0.12, 0, 0.12]) {
+    for (let headingDegrees = 0; headingDegrees < 360; headingDegrees += 15) {
+      const aircraft = new THREE.Object3D();
+      applyAircraftOrientation(aircraft, THREE.MathUtils.degToRad(headingDegrees), pitch, bank);
+      const nose = new THREE.Vector3(1, 0, 0).applyQuaternion(aircraft.quaternion);
+      const renderedPitch = Math.atan2(nose.z, Math.hypot(nose.x, nose.y));
+      assert(
+        Math.abs(renderedPitch - pitch) < 1e-10,
+        'aircraft orientation: positive pitch was not nose-up at heading ' + headingDegrees + '°, bank ' + bank,
+      );
+      totals.orientationChecks += 1;
+    }
+  }
+}
 
 for (const config of configs) {
   for (const runway of config.runways.filter((item) => item.role !== 'inactive')) {

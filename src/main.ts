@@ -1406,6 +1406,7 @@ function airportSnapshot() {
         fuelPercent: Number(flight.kinematics.fuelPercent.toFixed(2)),
       },
       motion: { ...flight.motion },
+      renderedAttitude: world.flightAttitude(flight.id),
       trajectory: flightTrajectorySnapshot(flight),
       gateSlot: flight.gateSlot,
       stand: flight.standId,

@@ -86,7 +86,7 @@ In manual mode, the normal departure sequence is: clear every required crossing,
 
 ## Snapshot and events
 
-Snapshots include the airport and seed, simulation clock, mode, speed, station, scenario, weather, active runway ends, closure, runway roles and reservations, proposed Assisted clearances, the complete surface graph, renderer diagnostics, safety metrics, and every flight's route, clearances, model data, authoritative pose, kinematics, fuel, trajectory stage, and hold reason.
+Snapshots include the airport and seed, simulation clock, mode, speed, station, scenario, weather, active runway ends, closure, runway roles and reservations, proposed Assisted clearances, the complete surface graph, renderer diagnostics, safety metrics, and every flight's route, clearances, model data, authoritative pose, rendered nose-up attitude, kinematics, fuel, trajectory stage, and hold reason.
 
 Events have a monotonic sequence number and include command payloads and acceptance, flight/runway/taxiway context, and safety-hold or go-around details. The in-page log retains the latest 500 events.
 
