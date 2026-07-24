@@ -36,3 +36,5 @@ Diagnostics report current vehicle/vehicle and vehicle/aircraft separation confl
 Snapshot schema 10 exposes every vehicle's task, type, lifecycle state, stand/zone/bay, depot, graph routes, stand path, dispatch time, progress, authoritative position and heading, actual/max speed, current edge/node, hold reason, and protected-area authorization state. Lifecycle events are `service-vehicle-dispatch`, `service-vehicle-arrive`, `service-vehicle-hold`, `service-vehicle-release`, `service-vehicle-return`, and `service-vehicle-clear`.
 
 Full vehicle routes and poses are cloned into replay frames. Browser presentation interpolation includes vehicle position, heading, progress, and speed so fixed-step safety does not create visible 20 Hz stutter.
+
+Winter deicing currently uses an exclusive pad-lane reservation and a pooled spray presentation, not independently routed treatment trucks. Aircraft still share the same graph and safety ledger on the trip to and from the pad. See [deicing-operations.md](deicing-operations.md).

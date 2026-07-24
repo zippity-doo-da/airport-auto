@@ -5,7 +5,7 @@ import type { AircraftModel } from './aircraftProfiles';
 import type { AirlineCode } from './airlineProfiles';
 
 export type ControlMode = 'auto' | 'assisted' | 'manual' | 'watch';
-export type WeatherCondition = 'clear' | 'rain' | 'fog';
+export type WeatherCondition = 'clear' | 'rain' | 'fog' | 'snow';
 export type TrafficScenario = 'normal' | 'rush' | 'storm' | 'closure' | 'training' | 'emergency';
 export type ControllerStation = 'tower' | 'ground' | 'approach' | 'supervisor';
 export type FlightInstruction = 'slow' | 'normal' | 'expedite' | 'hold' | 'resume' | 'zigzag';
@@ -17,6 +17,37 @@ export type FlightService = 'passenger' | 'cargo';
 export type TurnaroundServiceType = 'fueling' | 'baggage' | 'cargo' | 'catering' | 'cleaning' | 'boarding' | 'maintenance';
 export type TurnaroundTaskStatus = 'not-required' | 'waiting' | 'active' | 'complete';
 export type TurnaroundStatus = 'planned' | 'servicing' | 'ready' | 'released';
+export type DeicingStatus = 'not-required' | 'planned' | 'enroute' | 'queued' | 'positioning' | 'treating' | 'protected' | 'expired' | 'unavailable';
+export type DeicingFluid = 'Type I' | 'Type I + Type IV';
+
+/**
+ * Fixed-step winter ground-operation state. Route progress values refer to the
+ * aircraft's authoritative taxi-out route, so queueing, treatment, rendering,
+ * collision checks, replay, and the agent interface all observe one position.
+ */
+export interface FlightDeicingState {
+  required: boolean;
+  status: DeicingStatus;
+  facilityId?: string;
+  facilityName?: string;
+  laneId?: string;
+  laneNumber?: number;
+  queuePosition: number;
+  queueHoldProgress: number;
+  treatmentProgress: number;
+  padExitProgress: number;
+  treatmentDurationSeconds: number;
+  treatmentElapsedSeconds: number;
+  holdoverSeconds: number;
+  holdoverRemainingSeconds: number;
+  fluid: DeicingFluid;
+  cycle: number;
+  reason: string;
+  queueEnteredSeconds?: number;
+  treatmentStartedSeconds?: number;
+  treatmentCompletedSeconds?: number;
+  holdoverExpiresSeconds?: number;
+}
 
 export type ServiceVehicleType = 'fuel-truck' | 'baggage-cart' | 'cargo-loader' | 'catering-truck' | 'cleaning-van' | 'maintenance-van' | 'passenger-bus';
 export type ServiceVehicleStatus = 'scheduled' | 'dispatching' | 'staged' | 'approaching' | 'servicing' | 'clearing' | 'returning' | 'complete';
@@ -127,6 +158,8 @@ export interface WeatherState {
   windSpeed: number;
   gustSpeed: number;
   visibility: number;
+  temperatureC: number;
+  surfaceCondition: 'dry' | 'wet' | 'contaminated';
 }
 
 export interface FlightKinematics {
@@ -231,6 +264,7 @@ export interface Flight {
   registration: string;
   service: FlightService;
   turnaround: FlightTurnaroundState;
+  deicing: FlightDeicingState;
   category: AircraftCategory;
   wakeClass: WakeClass;
   procedure: string;
@@ -279,7 +313,7 @@ export interface ReplayFrame {
 }
 
 export interface AirportEvent {
-  type: 'spawn' | 'gate-assignment' | 'gate-reassignment' | 'gate-release' | 'turnaround-start' | 'service-start' | 'service-complete' | 'turnaround-ready' | 'service-vehicle-dispatch' | 'service-vehicle-arrive' | 'service-vehicle-hold' | 'service-vehicle-release' | 'service-vehicle-return' | 'service-vehicle-clear' | 'land' | 'chime' | 'depart' | 'clear' | 'auto-clear' | 'pushback-clearance' | 'pushback-start' | 'engine-start' | 'tug-release' | 'reject' | 'conflict' | 'safety-hold' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'takeoff-clearance' | 'go-around' | 'emergency';
+  type: 'spawn' | 'gate-assignment' | 'gate-reassignment' | 'gate-release' | 'turnaround-start' | 'service-start' | 'service-complete' | 'turnaround-ready' | 'service-vehicle-dispatch' | 'service-vehicle-arrive' | 'service-vehicle-hold' | 'service-vehicle-release' | 'service-vehicle-return' | 'service-vehicle-clear' | 'deicing-planned' | 'deicing-queue' | 'deicing-pad-entry' | 'deicing-start' | 'deicing-complete' | 'deicing-expired' | 'deicing-return' | 'land' | 'chime' | 'depart' | 'clear' | 'auto-clear' | 'pushback-clearance' | 'pushback-start' | 'engine-start' | 'tug-release' | 'reject' | 'conflict' | 'safety-hold' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'takeoff-clearance' | 'go-around' | 'emergency';
   flight: Flight;
   runway?: number;
   taxiway?: string;

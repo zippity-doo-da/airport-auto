@@ -89,6 +89,7 @@ export interface FixedStepFlightSnapshot {
       dependencies: Flight['turnaround']['tasks'][number]['dependencies'];
     }>;
   };
+  deicing: Flight['deicing'];
   pushbackCleared: boolean;
   pushbackDirection: Flight['pushbackDirection'];
   pushbackProgress: number;
@@ -130,7 +131,7 @@ export interface FixedStepFlightSnapshot {
 }
 
 export interface FixedStepSimulationSnapshot {
-  schemaVersion: 6;
+  schemaVersion: 7;
   seed: number;
   airportCode: string;
   stepSeconds: number;
@@ -158,6 +159,8 @@ export interface FixedStepSimulationSnapshot {
       windSpeed: number;
       gustSpeed: number;
       visibility: number;
+      temperatureC: number;
+      surfaceCondition: 'dry' | 'wet' | 'contaminated';
     };
   };
   flights: FixedStepFlightSnapshot[];
@@ -187,6 +190,14 @@ export interface FixedStepSimulationSnapshot {
     obstacleCollisions: Array<[number, string]>;
     collisionEnvelopeCounts: { aircraft: number; obstacles: number };
     metrics: ShiftMetrics;
+    deicing: {
+      facilities: number;
+      required: number;
+      queued: number;
+      treating: number;
+      protected: number;
+      expired: number;
+    };
   };
   events: FixedStepHarnessEvent[];
 }
@@ -297,7 +308,7 @@ export class FixedStepSimulationHarness {
   snapshot(): FixedStepSimulationSnapshot {
     const diagnostics = this.simulation.diagnostics();
     return {
-      schemaVersion: 6,
+      schemaVersion: 7,
       seed: this.config.seed,
       airportCode: this.config.code,
       stepSeconds: round(this.stepSeconds),
@@ -329,6 +340,8 @@ export class FixedStepSimulationHarness {
           windSpeed: round(this.simulation.state.weather.windSpeed),
           gustSpeed: round(this.simulation.state.weather.gustSpeed),
           visibility: round(this.simulation.state.weather.visibility),
+          temperatureC: round(this.simulation.state.weather.temperatureC),
+          surfaceCondition: this.simulation.state.weather.surfaceCondition,
         },
       },
       flights: [...this.simulation.state.flights]
@@ -370,6 +383,14 @@ export class FixedStepSimulationHarness {
           obstacles: diagnostics.collisionEnvelopes.obstacles.length,
         },
         metrics: snapshotMetrics(diagnostics.metrics),
+        deicing: {
+          facilities: diagnostics.deicing.facilities.length,
+          required: diagnostics.deicing.required,
+          queued: diagnostics.deicing.queued,
+          treating: diagnostics.deicing.treating,
+          protected: diagnostics.deicing.protected,
+          expired: diagnostics.deicing.expired,
+        },
       },
       events: this.eventLog.map((event) => ({ ...event })),
     };
@@ -472,6 +493,7 @@ function snapshotFlight(config: AirportConfig, flight: Flight): FixedStepFlightS
         dependencies: [...task.dependencies],
       })),
     },
+    deicing: { ...flight.deicing },
     pushbackCleared: flight.pushbackCleared,
     pushbackDirection: flight.pushbackDirection,
     pushbackProgress: round(flight.pushbackProgress),

@@ -22,6 +22,7 @@ type FlightVisual = {
   landingLight: THREE.PointLight;
   shadowCasters: THREE.Mesh[];
   contrail: THREE.Line;
+  deicingSpray: THREE.Group;
   beacon: THREE.PointLight;
   halo: THREE.Mesh;
   routePoint: THREE.Vector3;
@@ -246,11 +247,11 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   function update(state: AirportState, delta: number): void {
     currentState = state;
     cameraTime += delta;
-    const weatherFog = state.weather.condition === 'fog' ? 0.0074 : state.weather.condition === 'rain' ? 0.0052 : 0.0032;
+    const weatherFog = state.weather.condition === 'fog' ? 0.0074 : state.weather.condition === 'snow' ? 0.0064 : state.weather.condition === 'rain' ? 0.0052 : 0.0032;
     fog.density = THREE.MathUtils.lerp(fog.density, weatherFog, Math.min(1, delta * 0.9));
     nightMix = THREE.MathUtils.lerp(nightMix, state.nightMode ? 1 : 0, Math.min(1, delta * 2.2));
-    const skyTarget = new THREE.Color(state.weather.condition === 'rain' ? 0x627675 : state.weather.condition === 'fog' ? 0x89938c : COLORS.sky);
-    skyTarget.lerp(new THREE.Color(state.weather.condition === 'fog' ? 0x28343b : 0x091b29), nightMix);
+    const skyTarget = new THREE.Color(state.weather.condition === 'snow' ? 0x96a4a1 : state.weather.condition === 'rain' ? 0x627675 : state.weather.condition === 'fog' ? 0x89938c : COLORS.sky);
+    skyTarget.lerp(new THREE.Color(state.weather.condition === 'fog' || state.weather.condition === 'snow' ? 0x28343b : 0x091b29), nightMix);
     (scene.background as THREE.Color).lerp(skyTarget, Math.min(1, delta * 0.6));
     fog.color.lerp(skyTarget, Math.min(1, delta * 0.6));
     sun.intensity = THREE.MathUtils.lerp(2.25, 0.5, nightMix);
@@ -344,6 +345,12 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
         ? 0
         : (strobe ? 3.4 : flight.engineState === 'starting' ? 0.55 + enginePulse * 0.85 : 0.12) * THREE.MathUtils.lerp(0.45, 1.35, nightMix);
       updateContrail(visual, flight, state.elapsed);
+      visual.deicingSpray.visible = flight.deicing.status === 'treating';
+      if (visual.deicingSpray.visible) {
+        const sprayPulse = 0.86 + Math.sin(state.elapsed * 7.2 + flight.id) * 0.14;
+        visual.deicingSpray.scale.set(1, sprayPulse, sprayPulse);
+        visual.deicingSpray.rotation.x = Math.sin(state.elapsed * 2.4 + flight.id) * 0.08;
+      }
       visual.halo.visible = selectedFlightId === flight.id;
       visual.halo.scale.setScalar(1 + Math.sin(state.elapsed * 5) * 0.08);
     }
@@ -1141,14 +1148,19 @@ function buildRain(scene: THREE.Scene, seed: number, lowDetail: boolean): THREE.
 }
 
 function updateRain(rain: THREE.Points, state: AirportState, delta: number): void {
-  rain.visible = state.weather.condition === 'rain';
+  const snow = state.weather.condition === 'snow';
+  rain.visible = state.weather.condition === 'rain' || snow;
   if (!rain.visible) return;
+  const material = rain.material as THREE.PointsMaterial;
+  material.color.setHex(snow ? 0xf1f3ed : 0xc9e1e4);
+  material.size = snow ? 1.15 : 0.75;
+  material.opacity = snow ? 0.72 : 0.5;
   const positions = rain.geometry.getAttribute('position') as THREE.BufferAttribute;
   const windTo = state.weather.windDirection + Math.PI;
   for (let index = 0; index < positions.count; index += 1) {
-    let x = positions.getX(index) + Math.cos(windTo) * state.weather.windSpeed * delta * 0.16;
-    let y = positions.getY(index) + Math.sin(windTo) * state.weather.windSpeed * delta * 0.16;
-    let z = positions.getZ(index) - delta * 34;
+    let x = positions.getX(index) + Math.cos(windTo) * state.weather.windSpeed * delta * (snow ? 0.25 : 0.16);
+    let y = positions.getY(index) + Math.sin(windTo) * state.weather.windSpeed * delta * (snow ? 0.25 : 0.16);
+    let z = positions.getZ(index) - delta * (snow ? 8 : 34);
     if (z < 0) z += 95;
     if (x > 250) x -= 500;
     if (x < -250) x += 500;
@@ -1387,6 +1399,23 @@ function createPlane(flight: Flight): FlightVisual {
   const contrail = new THREE.Line(contrailGeometry, new THREE.LineBasicMaterial({ color: 0xeaf2ef, transparent: true, opacity: 0.16, depthWrite: false }));
   contrail.visible = false;
   root.add(contrail);
+  const deicingSpray = new THREE.Group();
+  const sprayMaterial = new THREE.MeshBasicMaterial({
+    color: 0xc9edf2,
+    transparent: true,
+    opacity: 0.28,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+  });
+  for (const side of [-1, 1]) {
+    const spray = new THREE.Mesh(new THREE.ConeGeometry(0.75, Math.max(3.6, visual.wingSpan * 0.26), 12, 1, true), sprayMaterial);
+    spray.rotation.z = side * (Math.PI / 2 - 0.28);
+    spray.position.set(-visual.bodyLength * 0.06, side * visual.wingSpan * 0.36, visual.bodyRadius * 0.72);
+    deicingSpray.add(spray);
+  }
+  deicingSpray.visible = false;
+  root.add(deicingSpray);
   const shadowCasters: THREE.Mesh[] = [];
   for (const part of [body, gear, tug]) {
     part.traverse((object) => {
@@ -1408,6 +1437,7 @@ function createPlane(flight: Flight): FlightVisual {
     landingLight,
     shadowCasters,
     contrail,
+    deicingSpray,
     beacon,
     halo,
     routePoint: new THREE.Vector3(),

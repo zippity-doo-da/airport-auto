@@ -22,7 +22,7 @@ export interface RunwayConfig {
 }
 
 export interface RunwayConfigurationRestrictions {
-  conditions: Array<'clear' | 'rain' | 'fog'>;
+  conditions: Array<'clear' | 'rain' | 'fog' | 'snow'>;
   minimumVisibilityMiles?: number;
   minimumWindSpeedKts?: number;
   preferredWindDirectionDegrees?: number;
@@ -302,7 +302,7 @@ function buildRunwayConfigurations(code: string, runways: RunwayConfig[]): Airpo
     operatingEnds: Object.fromEntries(runways.map((runway) => [runway.id, end])) as Record<number, -1 | 1>,
     runwayRoles: Object.fromEntries(runways.map((runway) => [runway.id, runway.role])) as Record<number, RunwayOperationalRole>,
     restrictions: {
-      conditions: ['clear', 'rain', 'fog'],
+      conditions: ['clear', 'rain', 'fog', 'snow'],
       autoSelectable: true,
       note: 'Schematic configuration available in all simulated weather.',
     },
@@ -360,7 +360,7 @@ function buildRunwayConfigurations(code: string, runways: RunwayConfig[]): Airpo
         [0, 1, 4],
         [2, 3, 7],
         'parallel',
-        { conditions: ['clear', 'rain', 'fog'], autoSelectable: true, note: 'Preferred O’Hare flow and the robust option in marginal weather.' },
+        { conditions: ['clear', 'rain', 'fog', 'snow'], autoSelectable: true, note: 'Preferred O’Hare flow and the robust option in marginal and winter weather.' },
         0.08,
       ),
       ordConfiguration(
@@ -416,7 +416,7 @@ function buildRunwayConfigurations(code: string, runways: RunwayConfig[]): Airpo
         [7],
         'crosswind-contingency',
         {
-          conditions: ['clear', 'rain', 'fog'],
+          conditions: ['clear', 'rain', 'fog', 'snow'],
           minimumWindSpeedKts: 18,
           preferredWindDirectionDegrees: 220,
           windDirectionToleranceDegrees: 55,

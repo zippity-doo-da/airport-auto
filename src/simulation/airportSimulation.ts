@@ -14,6 +14,7 @@ import { SurfaceReservationLedger, surfaceCongestionPlanning, surfaceRouteOperat
 import { GATE_TURN_BUFFER_SECONDS, gateReservationsOverlap, planGateAssignment, type GateReservation } from './gateAssignment';
 import { advanceTurnaround, completeTurnaround, createTurnaroundPlan, releaseTurnaround, scheduleTurnaround, startTurnaround, turnaroundBlockingServices, turnaroundFuelPercent, type TurnaroundTransition } from './turnaroundOperations';
 import { advanceServiceVehicleMotion, availableVehicleServices, createServiceVehiclePlans, findServiceVehicleConflicts, serviceVehicleOwnerId, serviceVehicleReservationClaims, serviceVehicleRouteViolations, serviceVehiclesBlockingPushback, setServiceVehicleStatus, syncServiceVehiclePose } from './serviceVehicleOperations';
+import { applyDeicingRoutePlan, createDeicingState, deicingFacilities, deicingMovementLimit, deicingReleaseValid, markDeicingNotRequired, markStartupPretreated, planDeicingTaxiRoute, winterDeicingRequired } from './deicingOperations';
 
 const PHASE_DURATION: Record<FlightPhase, number> = {
   approach: 38,
@@ -73,7 +74,7 @@ export class AirportSimulation {
     mode: 'auto',
     nightMode: false,
     station: 'supervisor',
-    weather: { weatherEnabled: false, windEnabled: false, condition: 'clear', windDirection: Math.PI, windSpeed: 0, gustSpeed: 0, visibility: 10 },
+    weather: { weatherEnabled: false, windEnabled: false, condition: 'clear', windDirection: Math.PI, windSpeed: 0, gustSpeed: 0, visibility: 10, temperatureC: 18, surfaceCondition: 'dry' },
     scenario: 'normal',
     runwayConfigurationId: '',
     runwayConfigurationMode: 'automatic',
@@ -292,7 +293,7 @@ export class AirportSimulation {
           priority: crossing.distanceToHold <= 0.05 ? 'urgent' : 'attention',
         });
       }
-      if (flight.phase === 'taxi-out' && flight.progress >= 0.985 && !flight.runwayEntryCleared) {
+      if (flight.phase === 'taxi-out' && flight.progress >= 0.985 && !flight.runwayEntryCleared && deicingReleaseValid(flight, this.state.weather, this.state.elapsed)) {
         proposals.push({
           id: `${flight.id}:line-up:${flight.runway}`, flightId: flight.id, action: 'line-up', runway: flight.runway, station: 'tower',
           label: `Line up ${this.activeRunwayDesignation(flight.runway)}`,
@@ -344,10 +345,13 @@ export class AirportSimulation {
     this.state.weather.windDirection = this.normalizeAngle(windDirection);
     this.state.weather.windSpeed = Math.max(0, Math.min(40, windSpeed));
     this.state.weather.gustSpeed = this.state.weather.windSpeed + (condition === 'clear' ? 3 : 7);
-    this.state.weather.visibility = condition === 'fog' ? 2.5 : condition === 'rain' ? 5 : 10;
+    this.state.weather.visibility = condition === 'fog' ? 2.5 : condition === 'snow' ? 3 : condition === 'rain' ? 5 : 10;
+    this.state.weather.temperatureC = condition === 'snow' ? -4 : condition === 'rain' ? 9 : condition === 'fog' ? 7 : 18;
+    this.state.weather.surfaceCondition = condition === 'snow' ? 'contaminated' : condition === 'rain' || condition === 'fog' ? 'wet' : 'dry';
     this.baseWindDirection = this.state.weather.windDirection;
     this.baseWindSpeed = this.state.weather.windSpeed;
-    this.weatherOverrideUntil = this.state.elapsed + 180;
+    this.weatherOverrideUntil = this.state.elapsed + (condition === 'snow' ? 900 : 180);
+    this.refreshDeicingPlansForWeather();
     this.updateActiveRunwayConfiguration();
   }
 
@@ -356,10 +360,13 @@ export class AirportSimulation {
     if (!enabled) {
       this.state.weather.condition = 'clear';
       this.state.weather.visibility = 10;
+      this.state.weather.temperatureC = 18;
+      this.state.weather.surfaceCondition = 'dry';
     } else {
       this.weatherOverrideUntil = 0;
     }
     this.updateWeather();
+    this.refreshDeicingPlansForWeather();
   }
 
   setWindEnabled(enabled: boolean): void {
@@ -401,6 +408,9 @@ export class AirportSimulation {
     if (flight.pushbackCleared) return this.rejectDecision('pushback is already cleared', flight);
     if (this.state.runwayConfigurationTransition) return this.rejectDecision('pushback held while the runway plan changes', flight);
     if (this.selectDepartureRunway(flight) === null) return this.rejectDecision('no compatible departure runway is available', flight);
+    if (winterDeicingRequired(this.state.weather) && flight.deicing.status === 'unavailable') {
+      return this.rejectDecision('pushback held: no compatible winter route to a deicing pad', flight);
+    }
     this.grantPushbackClearance(flight, false);
     return true;
   }
@@ -410,6 +420,12 @@ export class AirportSimulation {
     const flight = this.state.flights.find((item) => item.id === id && item.phase === 'taxi-out');
     if (!flight) return this.rejectDecision('flight is not taxiing for departure');
     if (flight.progress < 0.985) return this.rejectDecision('flight has not reached the hold-short point', flight);
+    if (!deicingReleaseValid(flight, this.state.weather, this.state.elapsed)) {
+      const detail = flight.deicing.status === 'expired'
+        ? 'holdover protection expired; return to the deicing pad'
+        : `winter departure requires completed deicing (${flight.deicing.status})`;
+      return this.rejectDecision(detail, flight);
+    }
     const missingCrossing = this.nextUnclearedCrossing(flight);
     if (missingCrossing) return this.rejectDecision(`crossing clearance for ${this.activeRunwayDesignation(missingCrossing.runwayId)} is still required`, flight);
     const blocker = this.runwayBlocker(flight.runway, flight.id);
@@ -548,6 +564,7 @@ export class AirportSimulation {
       this.spawnIn = spawnedAircraft ? this.arrivalSpacing(aircraftProfile(spawnedAircraft)) : 0.6;
     }
     this.metrics.maxConcurrent = Math.max(this.metrics.maxConcurrent, this.state.flights.length);
+    this.updateDeicingOperations(delta);
     this.coordinateAutomaticRunwayCrossings();
     this.coordinateAutomaticSurfaceTraffic();
     this.updateServiceVehicles(delta);
@@ -568,19 +585,25 @@ export class AirportSimulation {
       const crossing = onSurface ? this.nextUnclearedCrossing(flight) : null;
       const crossingDistanceM = Math.max(0, (crossing?.distanceToHold ?? Infinity) * WORLD_METERS_PER_UNIT);
       const crossingHold = Boolean(crossing && crossing.distanceToHold <= 0.002);
+      const deicingLimit = onSurface ? deicingMovementLimit(flight) : null;
+      const deicingDistanceM = deicingLimit === null
+        ? Infinity
+        : Math.max(0, deicingLimit - flight.progress) * Math.max(0, motion.totalDistanceM);
+      const deicingHold = deicingLimit !== null && flight.progress >= deicingLimit - 0.0002;
       flight.crossingHoldRunway = crossingHold ? crossing?.runwayId : undefined;
       flight.crossingHoldPointId = crossingHold ? crossing?.holdPointId : undefined;
       const awaitingTakeoffClearance = flight.phase === 'takeoff'
         && !flight.takeoffCleared
         && motion.stage !== 'lineup';
       const disabledOnSurface = onSurface && flight.emergency === 'disabled';
-      const hardHold = crossingHold || awaitingTakeoffClearance || disabledOnSurface;
+      const hardHold = crossingHold || deicingHold || awaitingTakeoffClearance || disabledOnSurface;
       const commandedStop = onSurface && Boolean(flight.automaticHold || flight.controlHold);
       let targetSpeed = hardHold || commandedStop ? 0 : this.targetGroundSpeedKts(flight);
-      if (crossing && Number.isFinite(crossingDistanceM)) {
+      const stopDistanceM = Math.min(crossingDistanceM, deicingDistanceM);
+      if (Number.isFinite(stopDistanceM)) {
         const braking = aircraftProfile(flight.aircraft).taxiBrakingMps2
-          * (this.state.weather.condition === 'rain' ? 0.76 : this.state.weather.condition === 'fog' ? 0.9 : 1);
-        const maximumStoppingSpeedKts = Math.sqrt(Math.max(0, 2 * braking * crossingDistanceM)) / KNOT_TO_MPS;
+          * (this.state.weather.condition === 'snow' ? 0.58 : this.state.weather.condition === 'rain' ? 0.76 : this.state.weather.condition === 'fog' ? 0.9 : 1);
+        const maximumStoppingSpeedKts = Math.sqrt(Math.max(0, 2 * braking * stopDistanceM)) / KNOT_TO_MPS;
         targetSpeed = Math.min(targetSpeed, maximumStoppingSpeedKts);
       }
       const nextSpeed = hardHold ? 0 : this.acceleratedSpeedKts(flight, targetSpeed, delta);
@@ -590,8 +613,12 @@ export class AirportSimulation {
         : hardHold
           ? flight.progress
           : progressAfterDistance(this.config, flight, travelMeters);
-      const clearanceLimitedProgress = crossing ? Math.min(requestedProgress, crossing.holdProgress) : requestedProgress;
-      requestedSpeedById.set(flight.id, clearanceLimitedProgress >= (crossing?.holdProgress ?? Infinity) - 1e-6 ? 0 : nextSpeed);
+      const clearanceLimitedProgress = Math.min(
+        crossing ? Math.min(requestedProgress, crossing.holdProgress) : requestedProgress,
+        deicingLimit ?? Infinity,
+      );
+      const reachedStop = clearanceLimitedProgress >= Math.min(crossing?.holdProgress ?? Infinity, deicingLimit ?? Infinity) - 1e-6;
+      requestedSpeedById.set(flight.id, reachedStop ? 0 : nextSpeed);
       requestedProgressById.set(flight.id, clearanceLimitedProgress);
     }
 
@@ -694,6 +721,7 @@ export class AirportSimulation {
   diagnostics(): { flow: 'continuous'; approachCapacity: number; nextArrivalIn: number; activeFlights: number; runwayReservations: Array<{ runway: number; flight: number }>; scenario: TrafficScenario; closedRunway: number | null; predictions: ConflictPrediction[]; collisions: ReturnType<typeof findFlightConflicts>; obstacleCollisions: ReturnType<typeof findObstacleConflicts>;
     serviceVehicleConflicts: ReturnType<typeof findServiceVehicleConflicts>;
     serviceVehicleRouteViolations: ReturnType<typeof serviceVehicleRouteViolations>;
+    deicing: { facilities: ReturnType<typeof deicingFacilities>; required: number; queued: number; treating: number; protected: number; expired: number };
     collisionEnvelopes: { aircraft: ReturnType<typeof aircraftCollisionEnvelope>[]; obstacles: AirportConfig['obstacles'] }; metrics: ShiftMetrics; surfaceGraph: SurfaceGraphValidation; obstacleEnvelopes: AirportObstacleValidation } {
     return {
       flow: 'continuous',
@@ -708,6 +736,14 @@ export class AirportSimulation {
       obstacleCollisions: findObstacleConflicts(this.config, this.state.flights),
       serviceVehicleConflicts: findServiceVehicleConflicts(this.config, this.state.serviceVehicles, this.state.flights),
       serviceVehicleRouteViolations: serviceVehicleRouteViolations(this.config.surfaceGraph, this.state.serviceVehicles),
+      deicing: {
+        facilities: deicingFacilities(this.config.surfaceGraph),
+        required: this.state.flights.filter((flight) => flight.deicing.required).length,
+        queued: this.state.flights.filter((flight) => flight.deicing.status === 'queued').length,
+        treating: this.state.flights.filter((flight) => flight.deicing.status === 'treating').length,
+        protected: this.state.flights.filter((flight) => flight.deicing.status === 'protected').length,
+        expired: this.state.flights.filter((flight) => flight.deicing.status === 'expired').length,
+      },
       collisionEnvelopes: {
         aircraft: this.state.flights.map((flight) => aircraftCollisionEnvelope(this.config, flight)),
         obstacles: this.config.obstacles.map((obstacle) => ({ ...obstacle })),
@@ -918,6 +954,7 @@ export class AirportSimulation {
       registration,
       service,
       turnaround,
+      deicing: createDeicingState(),
       category: profile.category,
       wakeClass: profile.wakeClass,
       procedure: this.arrivalProcedure(runway),
@@ -974,6 +1011,7 @@ export class AirportSimulation {
     if (flight.phase === 'resting' && !flight.pushbackCleared) {
       if (!this.isAutomaticMode()) return;
       if (serviceVehiclesBlockingPushback(this.state.serviceVehicles, flight.id).length) return;
+      if (winterDeicingRequired(this.state.weather) && flight.deicing.status === 'unavailable') return;
       this.grantPushbackClearance(flight, true);
     }
 
@@ -1002,6 +1040,10 @@ export class AirportSimulation {
       this.taxiOutReleaseIn = this.config.scope === 'center' ? 12 : 16;
     }
     if (next === 'takeoff') {
+      if (!deicingReleaseValid(flight, this.state.weather, this.state.elapsed)) {
+        if (flight.deicing.status === 'expired') this.returnForDeicing(flight);
+        return;
+      }
       if (!flight.holdNotified) {
         flight.holdNotified = true;
         this.events.push({ type: 'hold-short', flight, runway: flight.runway, taxiway: flight.taxiway });
@@ -1065,6 +1107,16 @@ export class AirportSimulation {
       flight.engineState = 'starting';
       this.events.push({ type: 'pushback-start', flight, taxiway: flight.taxiway, detail: `tug attached · push ${flight.pushbackDirection}` });
       this.events.push({ type: 'engine-start', flight, taxiway: flight.taxiway, detail: 'engine start during pushback' });
+      if (flight.deicing.required) {
+        this.events.push({
+          type: 'deicing-planned',
+          flight,
+          taxiway: flight.taxiway,
+          detail: flight.deicing.status === 'unavailable'
+            ? flight.deicing.reason
+            : `${flight.deicing.facilityName} lane ${flight.deicing.laneNumber} · ${flight.deicing.fluid}`,
+        });
+      }
     }
 
     if (next === 'taxi-in') {
@@ -1372,6 +1424,7 @@ export class AirportSimulation {
       requiredCrossings: flight.requiredCrossings ? [...flight.requiredCrossings] : undefined,
       crossingClearances: flight.crossingClearances ? [...flight.crossingClearances] : undefined,
       crossingClearanceIds: flight.crossingClearanceIds ? [...flight.crossingClearanceIds] : undefined,
+      deicing: { ...flight.deicing },
       kinematics: { ...flight.kinematics },
     };
     if (next === 'taxi-in' || next === 'resting' || next === 'taxi-out') this.assignSurfaceRoute(preview, next);
@@ -1460,6 +1513,7 @@ export class AirportSimulation {
     if (this.state.scenario === 'training') return 1;
     if (this.state.scenario === 'rush') return Math.min(approachCapacity + 1, this.state.weather.condition === 'clear' ? 5 : approachCapacity);
     if (this.state.scenario === 'storm') return Math.min(2, approachCapacity);
+    if (this.state.weather.condition === 'snow') return Math.min(2, approachCapacity);
     if (this.state.weather.condition === 'fog') return Math.min(2, approachCapacity);
     if (this.state.weather.condition === 'rain') return Math.min(3, approachCapacity);
     return approachCapacity;
@@ -1473,6 +1527,7 @@ export class AirportSimulation {
     const wakeMultiplier = profile ? profile.wakeSeparationSeconds / 4.2 : 1;
     const scenarioBase = base * scenarioMultiplier * wakeMultiplier * this.trafficBankFactor();
     if (this.state.weather.condition === 'fog') return scenarioBase * 1.55;
+    if (this.state.weather.condition === 'snow') return scenarioBase * 1.42;
     if (this.state.weather.condition === 'rain') return scenarioBase * 1.2;
     return scenarioBase;
   }
@@ -1614,7 +1669,7 @@ export class AirportSimulation {
     if (flight.phase === 'resting') return 0;
     const profile = aircraftProfile(flight.aircraft);
     const pace = Math.max(0.55, Math.min(flight.phase === 'taxi-in' || flight.phase === 'taxi-out' ? 1 : 1.28, flight.controlPace ?? 1));
-    const surfaceWeather = this.state.weather.condition === 'fog' ? 0.78 : this.state.weather.condition === 'rain' ? 0.88 : 1;
+    const surfaceWeather = this.state.weather.condition === 'snow' ? 0.68 : this.state.weather.condition === 'fog' ? 0.78 : this.state.weather.condition === 'rain' ? 0.88 : 1;
     let target = profile.taxiKts;
     const surfaceMotion = flight.phase === 'taxi-in' || flight.phase === 'taxi-out'
       ? sampleAircraftSurfaceMotion(
@@ -1652,7 +1707,7 @@ export class AirportSimulation {
   private acceleratedSpeedKts(flight: Flight, targetSpeedKts: number, delta: number): number {
     const profile = aircraftProfile(flight.aircraft);
     const current = Math.max(0, flight.kinematics.groundSpeedKts);
-    const brakingWeather = this.state.weather.condition === 'rain' ? 0.76 : this.state.weather.condition === 'fog' ? 0.9 : 1;
+    const brakingWeather = this.state.weather.condition === 'snow' ? 0.58 : this.state.weather.condition === 'rain' ? 0.76 : this.state.weather.condition === 'fog' ? 0.9 : 1;
     const onTaxiway = flight.phase === 'taxi-in' || flight.phase === 'taxi-out';
     const acceleration = targetSpeedKts >= current
       ? onTaxiway ? profile.taxiAccelerationMps2 : profile.accelerationMps2
@@ -1675,6 +1730,7 @@ export class AirportSimulation {
       flight.controlHold
       || flight.automaticHold
       || flight.crossingHoldRunway !== undefined
+      || deicingMovementLimit(flight) !== null
       || flight.safetyHold
       || (flight.phase === 'takeoff' && !flight.takeoffCleared)
     );
@@ -1714,6 +1770,182 @@ export class AirportSimulation {
     return centerY >= 8 ? 'NORTH PERIMETER' : centerY <= -8 ? 'SOUTH PERIMETER' : 'EAST PERIMETER';
   }
 
+  private refreshDeicingPlansForWeather(): void {
+    const winter = winterDeicingRequired(this.state.weather);
+    for (const flight of this.state.flights) {
+      if (!winter) {
+        if (flight.phase === 'resting' || (
+          flight.phase === 'taxi-out'
+          && ['planned', 'enroute', 'queued', 'positioning', 'treating', 'unavailable'].includes(flight.deicing.status)
+        )) markDeicingNotRequired(flight, 'Frozen precipitation ended; treatment is no longer required.');
+        continue;
+      }
+      if (flight.phase === 'resting') {
+        if (flight.deicing.status === 'planned' || flight.deicing.status === 'unavailable') continue;
+        this.assignSurfaceRoute(flight, 'resting');
+        this.events.push({
+          type: 'deicing-planned',
+          flight,
+          taxiway: flight.taxiway,
+          detail: flight.deicing.facilityName
+            ? `${flight.deicing.facilityName} lane ${flight.deicing.laneNumber} reserved after pushback`
+            : flight.deicing.reason,
+        });
+        continue;
+      }
+      if (flight.phase === 'taxi-out' && flight.deicing.status === 'not-required') {
+        // A weather override is applied after startup traffic is seeded. A
+        // departure already well clear of its stand is recorded as pretreated
+        // instead of being teleported onto a newly generated route.
+        markStartupPretreated(flight, this.state.elapsed, this.config);
+        this.events.push({
+          type: 'deicing-complete',
+          flight,
+          taxiway: flight.taxiway,
+          detail: `pre-entry treatment recorded · ${Math.round(flight.deicing.holdoverSeconds)} s holdover`,
+        });
+      }
+    }
+  }
+
+  private updateDeicingOperations(delta: number): void {
+    if (!winterDeicingRequired(this.state.weather)) return;
+    const taxiOut = this.state.flights
+      .filter((flight) => flight.phase === 'taxi-out' && flight.deicing.required)
+      .sort((first, second) => first.id - second.id);
+
+    for (const flight of taxiOut) {
+      const deicing = flight.deicing;
+      if (deicing.status === 'protected') {
+        deicing.holdoverRemainingSeconds = Math.max(0, (deicing.holdoverExpiresSeconds ?? this.state.elapsed) - this.state.elapsed);
+        if (deicing.holdoverRemainingSeconds <= 1e-6) {
+          deicing.status = 'expired';
+          deicing.reason = 'Holdover protection expired before runway entry; return treatment is required.';
+          this.events.push({ type: 'deicing-expired', flight, taxiway: flight.taxiway, detail: deicing.reason });
+        }
+      }
+      if (deicing.status === 'enroute' && flight.progress >= deicing.queueHoldProgress - 0.0002) {
+        deicing.status = 'queued';
+        deicing.queueEnteredSeconds = this.state.elapsed;
+        deicing.reason = `Waiting for ${deicing.facilityName} lane ${deicing.laneNumber}.`;
+        this.events.push({ type: 'deicing-queue', flight, taxiway: flight.taxiway, detail: deicing.reason });
+      }
+      if (deicing.status === 'positioning' && flight.progress >= deicing.treatmentProgress - 0.0002) {
+        deicing.status = 'treating';
+        deicing.treatmentStartedSeconds = this.state.elapsed;
+        deicing.treatmentElapsedSeconds = 0;
+        deicing.reason = `${deicing.fluid} treatment in progress.`;
+        this.events.push({
+          type: 'deicing-start',
+          flight,
+          taxiway: flight.taxiway,
+          detail: `${deicing.facilityName} lane ${deicing.laneNumber} · ${deicing.fluid}`,
+        });
+      }
+      if (deicing.status === 'treating') {
+        deicing.treatmentElapsedSeconds = Math.min(
+          deicing.treatmentDurationSeconds,
+          deicing.treatmentElapsedSeconds + delta,
+        );
+        if (deicing.treatmentElapsedSeconds >= deicing.treatmentDurationSeconds - 1e-6) {
+          deicing.status = 'protected';
+          deicing.treatmentCompletedSeconds = this.state.elapsed;
+          deicing.holdoverExpiresSeconds = this.state.elapsed + deicing.holdoverSeconds;
+          deicing.holdoverRemainingSeconds = deicing.holdoverSeconds;
+          deicing.queuePosition = 0;
+          deicing.reason = `Treatment complete; ${Math.round(deicing.holdoverSeconds)} seconds of holdover protection.`;
+          this.events.push({
+            type: 'deicing-complete',
+            flight,
+            taxiway: flight.taxiway,
+            detail: `${deicing.fluid} complete · holdover expires ${Math.round(deicing.holdoverExpiresSeconds)} s`,
+          });
+        }
+      }
+    }
+
+    const queues = new Map<string, Flight[]>();
+    for (const flight of taxiOut.filter((candidate) => candidate.deicing.status === 'queued')) {
+      const laneId = flight.deicing.laneId;
+      if (!laneId) continue;
+      const queue = queues.get(laneId) ?? [];
+      queue.push(flight);
+      queues.set(laneId, queue);
+    }
+    for (const [laneId, queue] of queues) {
+      queue.sort((first, second) => (
+        (first.deicing.queueEnteredSeconds ?? Infinity) - (second.deicing.queueEnteredSeconds ?? Infinity)
+        || first.id - second.id
+      ));
+      queue.forEach((flight, index) => { flight.deicing.queuePosition = index + 1; });
+      const occupied = taxiOut.some((flight) => (
+        flight.deicing.laneId === laneId
+        && (
+          flight.deicing.status === 'positioning'
+          || flight.deicing.status === 'treating'
+          || (flight.deicing.status === 'protected' && flight.progress < flight.deicing.padExitProgress - 0.0002)
+        )
+      ));
+      if (occupied || !queue.length) continue;
+      const released = queue[0];
+      // Preserve an observable queue state for at least one fixed step. This
+      // also prevents a newly arrived aircraft from claiming a lane in the
+      // same arbitration pass that detected the stop line.
+      if ((released.deicing.queueEnteredSeconds ?? this.state.elapsed) >= this.state.elapsed - 1e-6) continue;
+      released.deicing.status = 'positioning';
+      released.deicing.queuePosition = 0;
+      released.deicing.reason = `Lane ${released.deicing.laneNumber} released; taxi into treatment position.`;
+      this.events.push({ type: 'deicing-pad-entry', flight: released, taxiway: released.taxiway, detail: released.deicing.reason });
+    }
+  }
+
+  private returnForDeicing(flight: Flight): void {
+    const holdShortNode = flight.surfaceRoute?.at(-1);
+    flight.deicing.cycle = Math.max(1, flight.deicing.cycle) + 1;
+    const congestionPlanning = surfaceCongestionPlanning(
+      this.config.surfaceGraph,
+      this.surfaceTrafficMovements(),
+      flight.id,
+    );
+    const plan = planDeicingTaxiRoute(this.config, flight, congestionPlanning, holdShortNode);
+    if (!plan) {
+      flight.deicing.status = 'unavailable';
+      flight.deicing.reason = 'Holdover expired and no compatible return route to a deicing pad is available.';
+      return;
+    }
+    applyDeicingRoutePlan(flight, plan, 'enroute');
+    flight.surfaceRoute = plan.route.nodeIds;
+    flight.surfaceRouteEdges = plan.route.edgeIds;
+    flight.surfaceRoutingCost = plan.route.routingCost;
+    flight.surfaceCongestionPenalty = plan.route.congestionPenalty;
+    flight.surfaceCongestedEdgeIds = plan.route.congestedEdgeIds;
+    flight.progress = 0;
+    flight.phaseElapsed = 0;
+    flight.duration = this.surfaceRouteDuration(flight, plan.route);
+    flight.pushbackProgress = 1;
+    flight.pushbackReleaseProgress = 0;
+    flight.tugAttached = false;
+    flight.engineState = 'running';
+    flight.holdNotified = false;
+    flight.runwayEntryCleared = false;
+    flight.takeoffCleared = false;
+    flight.requiredCrossings = surfaceRouteRunwayCrossings(this.config.surfaceGraph, plan.route.edgeIds, flight.runway);
+    flight.crossingClearances = [];
+    flight.crossingClearanceIds = [];
+    flight.crossingHoldRunway = undefined;
+    flight.crossingHoldPointId = undefined;
+    flight.surfaceNode = plan.route.nodeIds[0];
+    flight.surfaceEdge = plan.route.edgeIds[0];
+    this.updateSurfaceRouteState(flight);
+    syncFlightMotion(this.config, flight);
+    this.events.push({
+      type: 'deicing-return',
+      flight,
+      taxiway: flight.taxiway,
+      detail: `holdover expired · returning to ${plan.facility.name} lane ${plan.lane.number} for cycle ${flight.deicing.cycle}`,
+    });
+  }
+
   private assignSurfaceRoute(flight: Flight, phase: 'taxi-in' | 'resting' | 'taxi-out'): void {
     const stand = this.config.surfaceGraph.stands.find((item) => item.slot === flight.gateSlot);
     const profile = aircraftProfile(flight.aircraft);
@@ -1726,7 +1958,7 @@ export class AirportSimulation {
       this.surfaceTrafficMovements(),
       flight.id,
     );
-    const route = surfaceRouteForFlight(
+    let route = surfaceRouteForFlight(
       this.config.surfaceGraph,
       flight.runway,
       flight.operatingEnd,
@@ -1735,6 +1967,22 @@ export class AirportSimulation {
       routeRequirements,
       congestionPlanning,
     );
+    if (phase === 'taxi-out' && winterDeicingRequired(this.state.weather)) {
+      const deicingPlan = planDeicingTaxiRoute(this.config, flight, congestionPlanning);
+      if (deicingPlan) {
+        route = deicingPlan.route;
+        applyDeicingRoutePlan(flight, deicingPlan, 'enroute');
+      } else {
+        flight.deicing = {
+          ...createDeicingState('No compatible route to an available deicing facility.'),
+          required: true,
+          status: 'unavailable',
+          cycle: Math.max(1, flight.deicing.cycle),
+        };
+      }
+    } else if (phase === 'taxi-out' && !winterDeicingRequired(this.state.weather)) {
+      markDeicingNotRequired(flight);
+    }
     flight.surfaceRoute = route?.nodeIds;
     flight.surfaceRouteEdges = route?.edgeIds;
     flight.surfaceRoutingCost = route?.routingCost;
@@ -1743,8 +1991,32 @@ export class AirportSimulation {
     flight.standId = stand?.id;
     flight.surfaceNode = route?.nodeIds[0];
     flight.surfaceEdge = route?.edgeIds[0];
+    const prospectiveDeicingFlight = phase === 'resting'
+      ? {
+          ...flight,
+          runway: flight.departureRunway,
+          operatingEnd: this.preferredOperatingEnd(flight.departureRunway),
+          deicing: { ...flight.deicing },
+        }
+      : flight;
+    const prospectiveDeicingPlan = phase === 'resting' && winterDeicingRequired(this.state.weather)
+      ? planDeicingTaxiRoute(this.config, prospectiveDeicingFlight, congestionPlanning)
+      : null;
+    if (phase === 'resting' && winterDeicingRequired(this.state.weather)) {
+      if (prospectiveDeicingPlan) applyDeicingRoutePlan(flight, prospectiveDeicingPlan, 'planned');
+      else {
+        flight.deicing = {
+          ...createDeicingState('No compatible route to an available deicing facility.'),
+          required: true,
+          status: 'unavailable',
+          cycle: Math.max(1, flight.deicing.cycle),
+        };
+      }
+    } else if (phase === 'resting' && !winterDeicingRequired(this.state.weather)) {
+      markDeicingNotRequired(flight);
+    }
     const prospectiveRoute = phase === 'resting'
-      ? surfaceRouteForFlight(
+      ? prospectiveDeicingPlan?.route ?? surfaceRouteForFlight(
           this.config.surfaceGraph,
           flight.departureRunway,
           this.preferredOperatingEnd(flight.departureRunway),
@@ -1977,6 +2249,12 @@ export class AirportSimulation {
 
   private updatePushbackState(flight: Flight): void {
     if (flight.phase !== 'taxi-out') return;
+    if (flight.pushbackReleaseProgress <= 0) {
+      flight.pushbackProgress = 1;
+      flight.tugAttached = false;
+      flight.engineState = 'running';
+      return;
+    }
     const release = Math.max(0.001, flight.pushbackReleaseProgress);
     const pushbackProgress = Math.max(0, Math.min(1, flight.progress / release));
     flight.pushbackProgress = pushbackProgress;
@@ -2015,11 +2293,16 @@ export class AirportSimulation {
   }
 
   private updateWeather(): void {
+    const previousCondition = this.state.weather.condition;
     const overridden = this.state.elapsed < this.weatherOverrideUntil;
     if (!this.state.weather.weatherEnabled) {
       this.state.weather.condition = 'clear';
     } else if (!overridden) {
-      const pattern: WeatherCondition[] = ['clear', 'rain', 'clear', 'fog', 'clear', 'rain'];
+      const pattern: WeatherCondition[] = deicingFacilities(this.config.surfaceGraph).length
+        // A winter bank must last long enough for an ORD departure to reach
+        // the remote pad, queue, receive treatment, and use its holdover time.
+        ? ['clear', 'rain', 'clear', 'fog', 'clear', 'snow', 'snow', 'snow', 'snow', 'snow', 'snow']
+        : ['clear', 'rain', 'clear', 'fog', 'clear', 'rain'];
       this.state.weather.condition = pattern[Math.floor((this.state.elapsed + this.config.seed % 60) / 60) % pattern.length];
     }
     if (!this.state.weather.windEnabled) {
@@ -2034,7 +2317,16 @@ export class AirportSimulation {
       this.state.weather.gustSpeed = this.state.weather.windSpeed + (condition === 'clear' ? 3 : 6 + Math.sin(this.state.elapsed * 0.11) * 2);
     }
     const condition = this.state.weather.condition;
-    this.state.weather.visibility = condition === 'fog' ? 2.5 : condition === 'rain' ? 4.5 : 10;
+    this.state.weather.visibility = condition === 'fog' ? 2.5 : condition === 'snow' ? 3 : condition === 'rain' ? 4.5 : 10;
+    this.state.weather.temperatureC = condition === 'snow'
+      ? -5 + Math.sin(this.state.elapsed * 0.015 + this.config.seed) * 1.5
+      : condition === 'rain'
+        ? 9
+        : condition === 'fog'
+          ? 7
+          : 18;
+    this.state.weather.surfaceCondition = condition === 'snow' ? 'contaminated' : condition === 'rain' || condition === 'fog' ? 'wet' : 'dry';
+    if (condition !== previousCondition) this.refreshDeicingPlansForWeather();
     this.updateActiveRunwayConfiguration();
   }
 
@@ -2188,6 +2480,7 @@ export class AirportSimulation {
     const condition = this.state.weather.condition;
     if (condition === 'clear' || phase === 'resting') return 1;
     if (condition === 'rain') return phase === 'taxi-in' || phase === 'taxi-out' ? 1.2 : phase === 'landing' || phase === 'takeoff' ? 1.12 : 1.08;
+    if (condition === 'snow') return phase === 'taxi-in' || phase === 'taxi-out' ? 1.5 : phase === 'landing' || phase === 'takeoff' ? 1.35 : 1.22;
     return phase === 'taxi-in' || phase === 'taxi-out' ? 1.35 : phase === 'landing' || phase === 'approach' ? 1.25 : 1.12;
   }
 

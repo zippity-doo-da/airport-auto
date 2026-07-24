@@ -60,7 +60,7 @@
         <label class="speed-control"><span>Speed <output id="speed-output" for="speed-control">1×</output></span><input id="speed-control" type="range" min="0.5" max="3" step="0.25" value="1" aria-label="Simulation speed" /></label>
         <div class="weather-readout" aria-label="Current weather">
           <span id="weather-condition">WX off</span><b id="weather-wind">calm · wind off</b><small id="weather-visibility">10 mi visibility</small><small id="runway-configuration">Primary flow</small>
-          <div class="weather-readout__switches"><button id="weather-toggle" type="button" aria-pressed="false">WX OFF</button><button id="wind-toggle" type="button" aria-pressed="false">WIND OFF</button></div>
+          <div class="weather-readout__switches"><button id="weather-toggle" type="button" aria-pressed="false">WX OFF</button><button id="wind-toggle" type="button" aria-pressed="false">WIND OFF</button><select id="weather-condition-select" aria-label="Weather condition"><option value="auto">Auto cycle</option><option value="clear">Clear</option><option value="rain">Rain</option><option value="fog">Fog</option><option value="snow">Snow / deicing</option></select></div>
           <label class="runway-configuration-control"><span>Runway plan</span><select id="runway-configuration-select" aria-label="Runway configuration"><option value="auto">Automatic</option></select></label>
         </div>
         <label class="audio-preset"><span>Soundscape</span><select id="audio-preset"><option value="full">Full field</option><option value="calm">Calm</option><option value="radio">Radio focus</option><option value="engines">Engines only</option><option value="silent">Silent simulation</option></select></label>
@@ -165,7 +165,7 @@
         <div class="modal__panel intro__panel">
           <span class="intro__rule" aria-hidden="true"></span>
           <h1 id="intro-title">Airport Auto.<br />The whole field, alive.</h1>
-          <p>Watch a continuous living airport in Full Auto, or take the frequency in Full Manual. Major hubs use schematic real-world runway patterns, traffic scale, weather, and named ground routes.</p>
+          <p>Watch a continuous living airport in Full Auto, or take the frequency in Full Manual. Major hubs use schematic real-world runway patterns, traffic scale, named ground routes, and winter operations.</p>
           <div class="intro-setup" aria-label="Choose your airport and mode">
             <label><span>Airport</span><select id="intro-airport-select">
               <option value="LOCAL">Random local airfield</option>

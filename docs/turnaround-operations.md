@@ -24,4 +24,4 @@ The flight chip shows live task progress. Selecting a flight at a stand opens a 
 
 The API exposes full task definitions, dependency and selection reasons, planned and actual timestamps, fuel target, active/blocking service lists, assigned vehicle state, and structured turnaround, service, and vehicle lifecycle events.
 
-Vehicle routes and protection are detailed in [service-vehicle-operations.md](service-vehicle-operations.md). Deicing equipment, lavatory/water service, multiple-cart consists, and airline-specific fleet choreography remain outside this release.
+Vehicle routes and protection are detailed in [service-vehicle-operations.md](service-vehicle-operations.md). After stand servicing, snow may add a separate pad queue, treatment, and holdover gate before runway entry; see [deicing-operations.md](deicing-operations.md). Individually routed deicing rigs, lavatory/water service, multiple-cart consists, and airline-specific fleet choreography remain outside this release.

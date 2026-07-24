@@ -8,11 +8,11 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await page.goto('/?airport=ORD&mode=assisted&station=supervisor&autostart=1&detail=low');
   await expect(page.locator('#airport-name')).toContainText('O’Hare');
   await expect(page.locator('#flight-strip-count')).toContainText('aircraft');
-  await page.waitForFunction(() => window.airportControl?.version === '2.8.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.9.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
-  expect(initial.schemaVersion).toBe(10);
+  expect(initial.schemaVersion).toBe(11);
   expect(initial.mode).toBe('assisted');
   expect(initial.airport.code).toBe('ORD');
   expect(initial.renderer.camera).toMatchObject({ panningEnabled: true, groundWidth: 4000, groundHeight: 3000 });
@@ -54,6 +54,17 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   expect(initial.surfaceGraph.serviceVehiclePolicy).toMatchObject({
     model: 'shared-surface-reservations',
     pushbackRequiresStandClear: true,
+  });
+  expect(initial.surfaceGraph.deicingFacilities).toHaveLength(1);
+  expect(initial.surfaceGraph.deicingFacilities[0]).toMatchObject({
+    name: 'Central Deicing Facility',
+    capacity: 4,
+    classification: 'published',
+  });
+  expect(initial.surfaceGraph.deicingPolicy).toMatchObject({
+    model: 'fixed-step-pad-queue-and-holdover',
+    requiredCondition: 'snow',
+    expiredHoldoverAction: 'return-to-pad-before-runway-entry',
   });
   const zoneKinds = new Set(initial.surfaceGraph.zones.map((zone) => zone.kind));
   for (const kind of ['terminal-complex', 'terminal-apron', 'cargo-ramp', 'general-aviation', 'deicing-pad', 'holding-pad', 'maintenance', 'remote-ramp', 'perimeter-route']) {
@@ -97,6 +108,7 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
     && flight.turnaround.targetFuelPercent >= flight.turnaround.initialFuelPercent
   ))).toBeTruthy();
   expect(initial.flights.filter((flight) => flight.phase === 'approach').every((flight) => flight.turnaround.status === 'planned')).toBeTruthy();
+  expect(initial.flights.every((flight) => flight.deicing.status === 'not-required')).toBeTruthy();
   expect(initial.serviceVehicles.length).toBeGreaterThanOrEqual(2);
   expect(initial.serviceVehicles.every((vehicle) => !vehicle.protectedMovementAuthorized && !vehicle.protectedMovementArea && vehicle.outboundRoute.length > 0 && vehicle.returnRoute.length > 0)).toBeTruthy();
   expect(initial.flights.some((flight) => flight.gate?.assignment?.airlineFit === 'preferred')).toBeTruthy();
@@ -275,9 +287,59 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await page.screenshot({ path: testInfo.outputPath('assisted-ord.png') });
 });
 
+test('ORD snow exposes the deicing route and holdover model in the normal UI', async ({ page }, testInfo) => {
+  test.setTimeout(120_000);
+  await page.goto('/?airport=ORD&mode=auto&autostart=1&detail=low&weather=snow&windDir=270&wind=12');
+  await page.waitForFunction(() => window.airportControl?.version === '2.9.0');
+  await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
+
+  await page.locator('#menu-toggle').click();
+  await expect(page.locator('#weather-condition-select')).toBeVisible();
+  await expect(page.locator('#weather-condition-select')).toHaveValue('snow');
+  await expect(page.locator('#weather-condition-select option')).toHaveCount(5);
+  await page.locator('#wind-toggle').click();
+  await expect(page.locator('#wind-toggle')).toHaveText('WIND OFF');
+  await page.locator('#weather-toggle').click();
+  await expect(page.locator('#weather-toggle')).toHaveText('WX OFF');
+  await page.locator('#weather-toggle').click();
+  await expect(page.locator('#weather-toggle')).toHaveText('WX ON');
+
+  const initial = await page.evaluate(() => window.airportControl.snapshot());
+  expect(initial.weather).toMatchObject({
+    condition: 'snow',
+    enabled: true,
+    surfaceCondition: 'contaminated',
+  });
+  expect(initial.weather.windEnabled).toBeFalsy();
+  expect(initial.weather.temperatureC).toBeLessThan(0);
+  expect(initial.surfaceGraph.deicingFacilities).toHaveLength(1);
+  const planned = initial.flights.find((flight) => flight.phase === 'resting' && flight.deicing.status === 'planned');
+  expect(planned?.deicing).toMatchObject({
+    required: true,
+    facilityName: 'Central Deicing Facility',
+    laneNumber: expect.any(Number),
+    fluid: 'Type I + Type IV',
+  });
+
+  await page.locator('#menu-toggle').click();
+  if (await page.locator('#flight-strip').evaluate((element) => element.classList.contains('flight-strip--collapsed'))) {
+    await page.locator('#flight-strip-toggle').click();
+  }
+  await page.evaluate((flightId) => window.airportControl.request({ action: 'focusFlight', flightId }), planned!.id);
+  await expect(page.locator('.deicing-panel')).toBeVisible();
+  await expect(page.locator('.deicing-panel')).toContainText('Central Deicing Facility');
+  await expect(page.locator('.deicing-panel__detail')).toContainText(/Lane \d/);
+  await expect(page.locator('.flight-chip__detail').filter({ hasText: 'Central Deicing Facility' }).first()).toBeVisible();
+
+  const diagnostics = await page.evaluate(() => window.airportControl.snapshot());
+  expect(diagnostics.traffic.collisions).toHaveLength(0);
+  expect(diagnostics.traffic.obstacleCollisions).toHaveLength(0);
+  await page.screenshot({ path: testInfo.outputPath('ord-winter-deicing.png') });
+});
+
 test('Mobile Watch mode keeps controls readable and uses low-detail rendering', async ({ page }, testInfo) => {
   await page.goto('/?airport=ORD&mode=watch&autostart=1&detail=low');
-  await page.waitForFunction(() => window.airportControl?.version === '2.8.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.9.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
   await expect(page.locator('body')).toHaveClass(/watch-mode/);
   await expect(page.locator('#menu-toggle')).toBeVisible();

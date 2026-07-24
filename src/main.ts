@@ -148,6 +148,7 @@ const runwayConfiguration = $<HTMLElement>('#runway-configuration');
 const runwayConfigurationSelect = $<HTMLSelectElement>('#runway-configuration-select');
 const weatherToggle = $<HTMLButtonElement>('#weather-toggle');
 const windToggle = $<HTMLButtonElement>('#wind-toggle');
+const weatherConditionSelect = $<HTMLSelectElement>('#weather-condition-select');
 const audioPreset = $<HTMLSelectElement>('#audio-preset');
 const status = $<HTMLElement>('.status');
 const statusLabel = $<HTMLElement>('#status-label');
@@ -218,6 +219,7 @@ let simulationSpeed = 1;
 let radarVisible = false;
 let telemetrySequence = 0;
 let lastWeatherCondition: WeatherCondition | null = null;
+let weatherSelection: 'auto' | WeatherCondition = 'auto';
 let runwayConfigurationOptionsKey = '';
 let lastPredictionKey = '';
 let replayIndex = -1;
@@ -359,8 +361,34 @@ stationSelect.addEventListener('change', () => setStation(stationSelect.value as
 introControlSelect.addEventListener('change', () => selectControl(introControlSelect.value as ControlMode));
 speedControl.addEventListener('input', () => setSimulationSpeed(Number(speedControl.value)));
 weatherToggle.addEventListener('click', () => {
-  simulation.setWeatherEnabled(!simulation.state.weather.weatherEnabled);
+  const enabling = !simulation.state.weather.weatherEnabled;
+  if (!enabling || weatherSelection === 'auto') simulation.setWeatherEnabled(enabling);
+  else {
+    const preserveWindOff = !simulation.state.weather.windEnabled;
+    simulation.setWeather(
+      weatherSelection,
+      simulation.state.weather.windDirection,
+      Math.max(4, simulation.state.weather.windSpeed || 12),
+    );
+    if (preserveWindOff) simulation.setWindEnabled(false);
+  }
   updateWeatherUi();
+});
+weatherConditionSelect.addEventListener('change', () => {
+  const selection = weatherConditionSelect.value as 'auto' | WeatherCondition;
+  weatherSelection = selection;
+  if (selection === 'auto') simulation.setWeatherEnabled(true);
+  else {
+    const preserveWindOff = !simulation.state.weather.windEnabled;
+    simulation.setWeather(
+      selection,
+      simulation.state.weather.windDirection,
+      Math.max(4, simulation.state.weather.windSpeed || 12),
+    );
+    if (preserveWindOff) simulation.setWindEnabled(false);
+  }
+  updateWeatherUi();
+  renderFlightStrip();
 });
 windToggle.addEventListener('click', () => {
   simulation.setWindEnabled(!simulation.state.weather.windEnabled);
@@ -600,6 +628,7 @@ function frame(now: number): void {
     const gateEvent = event.type === 'gate-assignment' || event.type === 'gate-reassignment' || event.type === 'gate-release';
     const turnaroundEvent = event.type === 'turnaround-start' || event.type === 'service-start' || event.type === 'service-complete' || event.type === 'turnaround-ready';
     const serviceVehicleEvent = event.type.startsWith('service-vehicle-');
+    const deicingEvent = event.type.startsWith('deicing-');
     recordTelemetry(event.type, event.flight, event.runway, event.taxiway, {
       detail: event.detail ?? (event.type === 'safety-hold' ? event.flight.safetyHoldReason : undefined),
       payload: gateEvent && event.flight.gateAssignment ? {
@@ -617,6 +646,8 @@ function frame(now: number): void {
         type: event.serviceVehicleType ?? null,
         status: event.serviceVehicleStatus ?? null,
         service: event.turnaroundService ?? null,
+      } : deicingEvent ? {
+        ...event.flight.deicing,
       } : turnaroundEvent ? {
         service: event.turnaroundService ?? null,
         status: event.flight.turnaround.status,
@@ -654,6 +685,13 @@ function frame(now: number): void {
     if (event.type === 'pushback-start') setStatus(`${event.flight.callsign} tug connected`, event.detail ?? 'pushback beginning');
     if (event.type === 'engine-start') setStatus(`${event.flight.callsign} starting engines`, 'tug remains attached through the ramp release');
     if (event.type === 'tug-release') setStatus(`${event.flight.callsign} tug released`, event.detail ?? 'taxi power available');
+    if (event.type === 'deicing-planned') setStatus(`${event.flight.callsign} winter route planned`, event.detail ?? 'deicing pad assigned');
+    if (event.type === 'deicing-queue') setStatus(`${event.flight.callsign} in deicing queue`, event.detail ?? 'holding before the pad');
+    if (event.type === 'deicing-pad-entry') setStatus(`${event.flight.callsign} entering deicing`, event.detail ?? 'treatment lane released');
+    if (event.type === 'deicing-start') setStatus(`${event.flight.callsign} treatment started`, event.detail ?? 'deicing in progress');
+    if (event.type === 'deicing-complete') setStatus(`${event.flight.callsign} deicing complete`, event.detail ?? 'holdover protection active');
+    if (event.type === 'deicing-expired') setStatus(`${event.flight.callsign} holdover expired`, event.detail ?? 'return to deicing before runway entry');
+    if (event.type === 'deicing-return') setStatus(`${event.flight.callsign} returning to deicing`, event.detail ?? 'new treatment cycle required');
     if (event.type === 'land') setStatus(`${event.flight.callsign} touched down`, `${simulation.state.arrivals} safe arrival${simulation.state.arrivals === 1 ? '' : 's'}`);
     if (event.type === 'hold-short') {
       audio.radio();
@@ -801,6 +839,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
         ...flight.turnaround,
         tasks: flight.turnaround.tasks.map((task) => ({ ...task, dependencies: [...task.dependencies] })),
       },
+      deicing: { ...flight.deicing },
       requiredCrossings: flight.requiredCrossings ? [...flight.requiredCrossings] : undefined,
       crossingClearances: flight.crossingClearances ? [...flight.crossingClearances] : undefined,
       crossingClearanceIds: flight.crossingClearanceIds ? [...flight.crossingClearanceIds] : undefined,
@@ -813,7 +852,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
 function replayRecording(): ReplayRecording {
   return {
     schemaVersion: 1,
-    simulationVersion: window.airportControl?.version ?? '2.8.0',
+    simulationVersion: window.airportControl?.version ?? '2.9.0',
     recordedAt: new Date().toISOString(),
     seed: config.seed,
     airport: { code: config.code, name: config.name, scope: config.scope },
@@ -921,9 +960,10 @@ function updateFlightChip(item: HTMLElement, flight: Flight): void {
   detail.children[0].textContent = `${flight.aircraft} · ${operation} · ${gateDisplay ?? `RWY ${runwayDesignation(flight.runway)}`}${gateTime ? ` · ${gateTime}` : ''}`;
   detail.children[1].textContent = held && holdDetail
     ? `HOLD · ${holdDetail.toUpperCase()}`
-    : flight.phase === 'resting'
-      ? turnaroundChipSummary(flight)
-      : `${surface ? flight.engineState.toUpperCase() + ' ENGINES · ' : ''}${verticalText} · ${motionText}`;
+    : deicingChipSummary(flight)
+      ?? (flight.phase === 'resting'
+        ? turnaroundChipSummary(flight)
+        : `${surface ? flight.engineState.toUpperCase() + ' ENGINES · ' : ''}${verticalText} · ${motionText}`);
 }
 
 function formatPhase(phase: FlightPhase): string {
@@ -933,10 +973,33 @@ function formatPhase(phase: FlightPhase): string {
 function flightOperationLabel(flight: Flight): string {
   if (flight.phase === 'resting') {
     if (flight.turnaround.status !== 'ready') return `Turnaround ${Math.round(flight.turnaround.progress * 100)}%`;
-    return flight.pushbackCleared ? 'Push cleared' : 'Ready push';
+    if (flight.deicing.status === 'unavailable') return 'Winter route unavailable';
+    return flight.pushbackCleared ? 'Push cleared' : flight.deicing.status === 'planned' ? 'Ready · deice planned' : 'Ready push';
   }
   if (flight.phase === 'taxi-out' && flight.tugAttached) return `Pushback ${flight.pushbackDirection}`;
+  if (flight.phase === 'taxi-out' && flight.deicing.required) {
+    if (flight.deicing.status === 'enroute') return 'Taxi to deice';
+    if (flight.deicing.status === 'queued') return `Deice queue ${flight.deicing.queuePosition || ''}`.trim();
+    if (flight.deicing.status === 'positioning') return 'Entering deice';
+    if (flight.deicing.status === 'treating') return `Deicing ${Math.round(flight.deicing.treatmentElapsedSeconds / Math.max(0.1, flight.deicing.treatmentDurationSeconds) * 100)}%`;
+    if (flight.deicing.status === 'protected') return `Deiced · ${Math.ceil(flight.deicing.holdoverRemainingSeconds)}s`;
+    if (flight.deicing.status === 'expired') return 'Deice expired';
+    if (flight.deicing.status === 'unavailable') return 'Winter route unavailable';
+  }
   return formatPhase(flight.phase);
+}
+
+function deicingChipSummary(flight: Flight): string | null {
+  const deicing = flight.deicing;
+  if (!deicing.required) return null;
+  if (deicing.status === 'planned') return `${deicing.facilityName} · LANE ${deicing.laneNumber} PLANNED`;
+  if (deicing.status === 'enroute') return `${deicing.facilityName} · TAXI TO LANE ${deicing.laneNumber}`;
+  if (deicing.status === 'queued') return `${deicing.facilityName} · QUEUE ${deicing.queuePosition}`;
+  if (deicing.status === 'positioning') return `${deicing.facilityName} · ENTERING LANE ${deicing.laneNumber}`;
+  if (deicing.status === 'treating') return `${deicing.fluid.toUpperCase()} · ${Math.round(deicing.treatmentElapsedSeconds / Math.max(0.1, deicing.treatmentDurationSeconds) * 100)}%`;
+  if (deicing.status === 'protected') return `HOLDOVER ${Math.ceil(deicing.holdoverRemainingSeconds)} SEC · CYCLE ${deicing.cycle}`;
+  if (deicing.status === 'expired') return 'HOLDOVER EXPIRED · RETURN TO PAD';
+  return deicing.reason.toUpperCase();
 }
 
 const TURNAROUND_SHORT_LABEL: Record<TurnaroundServiceType, string> = {
@@ -1038,6 +1101,9 @@ function renderFlightActions(): void {
         flight.turnaround.status,
         Math.floor(flight.turnaround.progress * 20),
         flight.turnaround.tasks.map((task) => task.status).join(','),
+        flight.deicing.status,
+        Math.floor(flight.deicing.treatmentElapsedSeconds),
+        Math.ceil(flight.deicing.holdoverRemainingSeconds),
         serviceVehiclesForFlight(flight.id)
           .map((vehicle) => `${vehicle.id}:${vehicle.status}:${vehicle.held}`)
           .join(','),
@@ -1067,6 +1133,7 @@ function renderFlightActions(): void {
   heading.querySelector('span')!.textContent = simulation.state.station.toUpperCase();
   flightActions.append(heading);
   if (flight.phase === 'resting') flightActions.append(createTurnaroundPanel(flight));
+  if (flight.deicing.required) flightActions.append(createDeicingPanel(flight));
   const controls = document.createElement('div');
   controls.className = 'flight-actions__buttons';
   const add = (action: string, label: string, disabled = false, runway?: number): void => {
@@ -1081,12 +1148,16 @@ function renderFlightActions(): void {
   const ground = flight.phase === 'taxi-in' || flight.phase === 'taxi-out';
   if (flight.phase === 'approach' && !flight.cleared) add('clear', `Land ${runwayDesignation(flight.runway)}`, !simulation.canIssue('approach'));
   if (flight.phase === 'approach' || flight.phase === 'landing') add('go-around', 'Go around', !simulation.canIssue('approach'));
-  if (flight.phase === 'resting' && flight.turnaround.status === 'ready' && !flight.pushbackCleared && !serviceVehiclesBlockingPush(flight.id).length) add('pushback', `Push ${flight.pushbackDirection}`, !simulation.canIssue('ground'));
+  if (flight.phase === 'resting' && flight.turnaround.status === 'ready' && !flight.pushbackCleared && !serviceVehiclesBlockingPush(flight.id).length) add('pushback', `Push ${flight.pushbackDirection}`, !simulation.canIssue('ground') || flight.deicing.status === 'unavailable');
   if (ground) add('hold-toggle', flight.controlHold ? 'Resume taxi' : 'Hold position', !simulation.canIssue('ground'));
   for (const runway of flight.crossingHoldRunway === undefined ? [] : [flight.crossingHoldRunway]) {
     add('cross', `Cross ${runwayDesignation(runway)}`, !simulation.canIssue('ground'), runway);
   }
-  if (flight.phase === 'taxi-out' && flight.progress >= 0.985 && !flight.runwayEntryCleared) add('entry', `Line up ${runwayDesignation(flight.runway)}`, !simulation.canIssue('tower'));
+  if (flight.phase === 'taxi-out' && flight.progress >= 0.985 && !flight.runwayEntryCleared) {
+    const winterProtected = simulation.state.weather.condition !== 'snow'
+      || (flight.deicing.status === 'protected' && flight.deicing.holdoverRemainingSeconds > 0);
+    add('entry', winterProtected ? `Line up ${runwayDesignation(flight.runway)}` : 'Await deicing', !simulation.canIssue('tower') || !winterProtected);
+  }
   if (flight.phase === 'takeoff' && !flight.takeoffCleared) add('takeoff', `Take off ${runwayDesignation(flight.runway)}`, !simulation.canIssue('tower'));
   if (flight.phase !== 'resting') {
     add('slow', 'Slow');
@@ -1142,6 +1213,38 @@ function createTurnaroundPanel(flight: Flight): HTMLElement {
     tasks.append(item);
   }
   panel.append(summary, progress, tasks);
+  return panel;
+}
+
+function createDeicingPanel(flight: Flight): HTMLElement {
+  const deicing = flight.deicing;
+  const panel = document.createElement('section');
+  panel.className = 'turnaround-panel deicing-panel';
+  panel.setAttribute('aria-label', `Deicing ${deicing.status}`);
+  const summary = document.createElement('div');
+  summary.className = 'turnaround-panel__summary';
+  const title = document.createElement('b');
+  title.textContent = deicing.facilityName ?? 'Winter treatment';
+  const status = document.createElement('span');
+  status.textContent = deicing.status.replace('-', ' ').toUpperCase();
+  summary.append(title, status);
+  const progress = document.createElement('i');
+  progress.className = 'turnaround-panel__progress';
+  progress.setAttribute('aria-hidden', 'true');
+  const fill = document.createElement('i');
+  const amount = deicing.status === 'protected'
+    ? deicing.holdoverRemainingSeconds / Math.max(1, deicing.holdoverSeconds)
+    : deicing.treatmentElapsedSeconds / Math.max(1, deicing.treatmentDurationSeconds);
+  fill.style.width = `${Math.max(0, Math.min(100, amount * 100)).toFixed(1)}%`;
+  progress.append(fill);
+  const detail = document.createElement('p');
+  detail.className = 'deicing-panel__detail';
+  const lane = deicing.laneNumber ? `Lane ${deicing.laneNumber}` : 'No lane';
+  const queue = deicing.queuePosition ? ` · queue ${deicing.queuePosition}` : '';
+  const holdover = deicing.status === 'protected' ? ` · ${Math.ceil(deicing.holdoverRemainingSeconds)} s holdover` : '';
+  detail.textContent = `${lane}${queue} · ${deicing.fluid}${holdover} · cycle ${deicing.cycle || 1}`;
+  detail.title = deicing.reason;
+  panel.append(summary, progress, detail);
   return panel;
 }
 
@@ -1425,6 +1528,7 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   setControlPanelOpen(false);
   world.dispose();
   config = nextConfig;
+  weatherSelection = 'auto';
   simulation = new AirportSimulation(config);
   simulation.setMode(mode);
   simulation.setNightMode(nightMode);
@@ -1659,9 +1763,9 @@ function updateWeatherUi(): void {
   const direction = Math.round(mathAngleToAviationDegrees(weather.windDirection) / 10) * 10 % 360;
   const speed = Math.round(weather.windSpeed);
   const gust = Math.round(weather.gustSpeed);
-  weatherCondition.textContent = weather.weatherEnabled ? weather.condition : 'wx off';
+  weatherCondition.textContent = weather.weatherEnabled ? `${weather.condition} · ${Math.round(weather.temperatureC)}°C` : 'wx off';
   weatherWind.textContent = weather.windEnabled ? `${String(direction || 360).padStart(3, '0')}° ${speed}G${gust} kt` : 'calm · wind off';
-  weatherVisibility.textContent = `${weather.visibility.toFixed(weather.visibility % 1 ? 1 : 0)} mi visibility`;
+  weatherVisibility.textContent = `${weather.visibility.toFixed(weather.visibility % 1 ? 1 : 0)} mi visibility · ${weather.surfaceCondition} surface`;
   const activeConfiguration = config.runwayConfigurations.find(
     (configuration) => configuration.id === simulation.state.runwayConfigurationId,
   );
@@ -1679,8 +1783,9 @@ function updateWeatherUi(): void {
   weatherToggle.textContent = weather.weatherEnabled ? 'WX ON' : 'WX OFF';
   windToggle.setAttribute('aria-pressed', String(weather.windEnabled));
   windToggle.textContent = weather.windEnabled ? 'WIND ON' : 'WIND OFF';
+  weatherConditionSelect.value = weatherSelection;
   if (lastWeatherCondition !== null && weather.condition !== lastWeatherCondition) {
-    setStatus(`${weather.condition === 'clear' ? 'Weather improving' : `${weather.condition} moving onto the field`}`, weather.condition === 'fog' ? 'reduced arrival rate · slower taxi' : weather.condition === 'rain' ? 'wet runway spacing is active' : 'normal spacing restored');
+    setStatus(`${weather.condition === 'clear' ? 'Weather improving' : `${weather.condition} moving onto the field`}`, weather.condition === 'snow' ? 'deicing routes active · contaminated-surface performance' : weather.condition === 'fog' ? 'reduced arrival rate · slower taxi' : weather.condition === 'rain' ? 'wet runway spacing is active' : 'normal spacing restored');
   }
   lastWeatherCondition = weather.condition;
 }
@@ -1730,7 +1835,7 @@ function airportSnapshot() {
   const diagnostics = simulation.diagnostics();
   const movingPhases = new Set(['approach', 'landing', 'taxi-in', 'taxi-out', 'takeoff']);
   return {
-    schemaVersion: 10,
+    schemaVersion: 11,
     airport: {
       code: config.code,
       name: config.name,
@@ -1809,6 +1914,8 @@ function airportSnapshot() {
       windSpeed: Number(simulation.state.weather.windSpeed.toFixed(1)),
       gustSpeed: Number(simulation.state.weather.gustSpeed.toFixed(1)),
       visibilityMiles: simulation.state.weather.visibility,
+      temperatureC: Number(simulation.state.weather.temperatureC.toFixed(1)),
+      surfaceCondition: simulation.state.weather.surfaceCondition,
     },
     runwayConfiguration: {
       ...cloneRunwayConfiguration(config.runwayConfigurations.find(
@@ -1879,6 +1986,13 @@ function airportSnapshot() {
         protectedMovementAreas: 'blocked unless explicitly authorized',
         routeResources: ['edge', 'node', 'ramp-zone', 'staging-position', 'stand-side-lane', 'service-bay'],
         pushbackRequiresStandClear: true,
+      },
+      deicingFacilities: diagnostics.deicing.facilities,
+      deicingPolicy: {
+        model: 'fixed-step-pad-queue-and-holdover',
+        requiredCondition: 'snow',
+        routing: 'stand-to-pad-to-runway-hold-short',
+        expiredHoldoverAction: 'return-to-pad-before-runway-entry',
       },
       passengerFacilities: config.surfaceGraph.passengerFacilities.map((facility) => ({
         ...facility,
@@ -1956,6 +2070,7 @@ function airportSnapshot() {
           progress: Number(flight.turnaround.progress.toFixed(3)),
           blockingServices: flight.turnaround.tasks.filter((task) => task.required && task.status !== 'complete').map((task) => task.type),
         },
+        deicing: { ...flight.deicing },
         engineState: flight.engineState,
         holdingShortOf: flight.holdShortRunway,
         runwayEntryCleared: flight.runwayEntryCleared,
@@ -2087,6 +2202,14 @@ function airportSnapshot() {
           actualCompleteSeconds: task.actualCompleteSeconds === undefined ? null : Number(task.actualCompleteSeconds.toFixed(2)),
         })),
       },
+      deicing: {
+        ...flight.deicing,
+        queueHoldProgress: Number(flight.deicing.queueHoldProgress.toFixed(3)),
+        treatmentProgress: Number(flight.deicing.treatmentProgress.toFixed(3)),
+        padExitProgress: Number(flight.deicing.padExitProgress.toFixed(3)),
+        treatmentElapsedSeconds: Number(flight.deicing.treatmentElapsedSeconds.toFixed(2)),
+        holdoverRemainingSeconds: Number(flight.deicing.holdoverRemainingSeconds.toFixed(2)),
+      },
       motion: { ...flight.motion },
       renderedAttitude: world.flightAttitude(flight.id),
       trajectory: flightTrajectorySnapshot(flight),
@@ -2163,11 +2286,13 @@ function airportSnapshot() {
           flight.progress,
           profile,
         );
-        const brakingMultiplier = simulation.state.weather.condition === 'rain'
-          ? 0.76
-          : simulation.state.weather.condition === 'fog'
-            ? 0.9
-            : 1;
+        const brakingMultiplier = simulation.state.weather.condition === 'snow'
+          ? 0.58
+          : simulation.state.weather.condition === 'rain'
+            ? 0.76
+            : simulation.state.weather.condition === 'fog'
+              ? 0.9
+              : 1;
         const finite = (value: number | undefined): number | null => (
           value !== undefined && Number.isFinite(value) ? Number(value.toFixed(2)) : null
         );
@@ -2315,8 +2440,11 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
     if (!accepted) reason = 'flight is not available for that instruction';
   }
   if (command.action === 'setWeather') {
-    accepted = ['clear', 'rain', 'fog'].includes(command.condition) && Number.isFinite(command.directionDegrees) && Number.isFinite(command.windSpeed);
-    if (accepted) simulation.setWeather(command.condition, aviationDegreesToMathAngle(command.directionDegrees), command.windSpeed);
+    accepted = ['clear', 'rain', 'fog', 'snow'].includes(command.condition) && Number.isFinite(command.directionDegrees) && Number.isFinite(command.windSpeed);
+    if (accepted) {
+      weatherSelection = command.condition;
+      simulation.setWeather(command.condition, aviationDegreesToMathAngle(command.directionDegrees), command.windSpeed);
+    }
     else reason = 'weather requires a valid condition, direction, and wind speed';
   }
   if (command.action === 'setWeatherEnabled') simulation.setWeatherEnabled(command.enabled);
@@ -2337,7 +2465,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
 }
 
 window.airportControl = {
-  version: '2.8.0',
+  version: '2.9.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },
@@ -2449,7 +2577,8 @@ const launchWeather = launchWeatherValue as WeatherCondition | null;
 const launchWindDirection = Number(launchOptions.get('windDir') ?? 270);
 const launchWindValue = launchOptions.get('wind');
 const launchWindSpeed = Number(launchWindValue ?? 12);
-if ((launchWeather === 'clear' || launchWeather === 'rain' || launchWeather === 'fog') && Number.isFinite(launchWindDirection) && Number.isFinite(launchWindSpeed)) {
+if ((launchWeather === 'clear' || launchWeather === 'rain' || launchWeather === 'fog' || launchWeather === 'snow') && Number.isFinite(launchWindDirection) && Number.isFinite(launchWindSpeed)) {
+  weatherSelection = launchWeather;
   simulation.setWeather(launchWeather, aviationDegreesToMathAngle(launchWindDirection), launchWindSpeed);
 }
 if (launchWeatherValue === 'off') simulation.setWeatherEnabled(false);

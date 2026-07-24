@@ -48,7 +48,13 @@ export class AmbientAudio {
     const heavy = state.flights.filter((flight) => flight.category === 'widebody' || flight.category === 'cargo').length;
     this.windGain.gain.setTargetAtTime(wind, now, 0.9);
     this.fieldGain.gain.setTargetAtTime(0.012 + state.breeze * 0.008, now, 1.8);
-    this.rainGain.gain.setTargetAtTime(state.weather.weatherEnabled && state.weather.condition === 'rain' ? 0.052 : 0, now, 0.7);
+    this.rainGain.gain.setTargetAtTime(
+      state.weather.weatherEnabled
+        ? state.weather.condition === 'rain' ? 0.052 : state.weather.condition === 'snow' ? 0.014 : 0
+        : 0,
+      now,
+      0.7,
+    );
     this.engineGain.gain.setTargetAtTime(Math.min(0.055, moving * 0.003 + heavy * 0.0035), now, 0.55);
     if (this.enginePan) {
       const audible = state.flights.filter((flight) => flight.phase !== 'resting');

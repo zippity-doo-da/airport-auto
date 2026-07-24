@@ -160,6 +160,17 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Seed ORD sessions with a live turn so ramp activity is visible immediately without forcing smaller hub schematics to reuse a stand; validate concurrent movement/servicing, shared-ledger exclusion, lifecycle events, zero protected-route entries, and zero vehicle separation conflicts.
 - [x] Let desktop and touch users drag the map, preserve middle-button panning over traffic, expand camera bounds, and extend a low-detail ground plane well beyond sourced scenery so the airport perimeter and inbound paths remain explorable without exposing empty world space.
 
+## Airport Auto 2.9 — winter deicing operations
+
+- [x] Add `snow` as a normal UI, launch-URL, replay, and local-control weather state with winter temperature, contaminated-surface telemetry, lower taxi/braking performance, longer runway phases, and reduced arrival capacity.
+- [x] Derive four compatible treatment lanes from ORD's sourced Central Deicing Facility zone and plan a pavement-only stand-to-pad-to-runway route for every winter departure.
+- [x] Model planned, enroute, queued, positioning, treating, protected, expired, and return-to-pad states on the authoritative fixed-step aircraft route.
+- [x] Keep aircraft stopped at queue and treatment points, arbitrate one occupant per lane, expose an ordered queue, and render treatment spray without creating a separate visual movement path.
+- [x] Gate runway entry on unexpired holdover protection and route an expired aircraft from its current hold-short point through a new treatment cycle without teleporting.
+- [x] Show pad, lane, queue, treatment, fluid, cycle, and holdover state in flight chips and the selected-flight panel; emit the complete lifecycle as structured events.
+- [x] API 2.9 / snapshot schema 11 exposes temperature, surface condition, deicing facilities/policy, per-flight treatment state, and diagnostic counts; recordings and replay preserve the same state.
+- [x] A dedicated deterministic gate verifies published facility metadata, authoritative queue/treatment stops, holdover expiry rejection, the return route, and zero aircraft/obstacle conflicts.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.
@@ -186,7 +197,7 @@ The prioritized implementation order, acceptance gates, and reconciled pre-2.1 b
 - Real recorded engine/ramp/radio libraries after licensing, normalization, and long-loop repetition review.
 - Authenticated remote WebSocket control; static GitHub Pages intentionally exposes local-only control today.
 - Live METAR, NOTAM, schedule, and traffic feeds with caching and offline fallback.
-- Detailed tug types, deicing queues, diversions, and deeper gate-service choreography.
+- Detailed tug types, diversions, and deeper gate-service choreography.
 - Server-validated leaderboards, shared replay URLs, daily challenges, and classroom accounts.
 - Optional generated or recorded ATC voice; captions and event telemetry remain the accessible source of truth.
 

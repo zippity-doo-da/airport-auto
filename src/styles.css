@@ -125,9 +125,10 @@ body.center-scope .brand__mark { font-size: 11px; letter-spacing: -0.04em; }
 .weather-readout span { color: var(--amber); font-size: 7px; font-weight: 900; letter-spacing: 0.17em; }
 .weather-readout b { color: var(--ivory); font-size: 10px; letter-spacing: 0.07em; }
 .weather-readout small { grid-column: 1 / -1; color: rgba(244, 232, 206, 0.55); font-size: 7px; letter-spacing: 0.08em; }
-.weather-readout__switches { grid-column: 1 / -1; display: flex; gap: 4px; margin-top: 3px; }
+.weather-readout__switches { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
 .weather-readout__switches button { border: 1px solid rgba(244, 232, 206, 0.28); padding: 2px 5px; color: rgba(244, 232, 206, 0.68); background: rgba(16, 46, 48, 0.5); font: 800 6px/1.2 "Segoe UI", sans-serif; letter-spacing: 0.09em; cursor: pointer; }
 .weather-readout__switches button[aria-pressed="false"] { color: var(--amber); border-color: rgba(239, 199, 117, 0.6); }
+.weather-readout__switches select { min-width: 92px; border: 1px solid rgba(244, 232, 206, 0.28); color: var(--ivory); background: rgba(16, 46, 48, 0.72); padding: 2px 18px 2px 5px; font: 800 6px/1.2 "Segoe UI", sans-serif; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; }
 .runway-configuration-control { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; margin-top: 4px; }
 .runway-configuration-control span { color: rgba(244, 232, 206, 0.55); font-size: 7px; font-weight: 800; letter-spacing: 0.12em; }
 .runway-configuration-control select { min-width: 0; height: 28px; border: 1px solid rgba(244, 232, 206, 0.28); color: var(--ivory); background: rgba(16, 46, 48, 0.72); padding: 0 7px; font: 800 8px/1 "Segoe UI", sans-serif; letter-spacing: 0.04em; cursor: pointer; }
@@ -277,6 +278,9 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
 .turnaround-panel__tasks li[data-status="complete"] { color: #9bc8a0; }
 .turnaround-panel__tasks span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .turnaround-panel__tasks em { flex: none; color: inherit; font-size: 7px; font-style: normal; letter-spacing: 0.07em; }
+.deicing-panel { border-color: rgba(151, 207, 228, 0.28); background: linear-gradient(135deg, rgba(121, 200, 232, 0.1), rgba(244, 232, 206, 0.035)); }
+.deicing-panel .turnaround-panel__progress > i { background: linear-gradient(90deg, #a8d6e5, #f4e8ce); }
+.deicing-panel__detail { margin: 0; color: rgba(244, 232, 206, 0.64); font-size: 8px; font-weight: 700; letter-spacing: 0.045em; line-height: 1.35; text-transform: uppercase; }
 
 .camera-tools { position: absolute; right: max(18px, env(safe-area-inset-right)); bottom: max(24px, env(safe-area-inset-bottom)); z-index: 5; display: flex; gap: 5px; }
 .camera-tools button { display: grid; width: 44px; height: 44px; place-items: center; border: 1px solid rgba(244, 232, 206, 0.32); color: var(--ivory); background: rgba(9, 33, 36, 0.72); font: 18px/1 Georgia, serif; cursor: pointer; backdrop-filter: blur(14px); }
@@ -299,6 +303,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
 .quick-setup label > span, .intro-setup label > span, .menu-toggle small, .control small, .weather-readout span, .weather-readout small { font-size: 10px; }
 .quick-setup select, .intro-setup select { font-size: 11px; }
 .weather-readout__switches button { min-height: 36px; padding: 6px 9px; font-size: 9px; }
+.weather-readout__switches select { min-height: 36px; font-size: 9px; }
 .runway-configuration-control span { font-size: 9px; }
 .runway-configuration-control select { min-height: 36px; font-size: 10px; }
 .scoreboard span { font-size: 8px; }
