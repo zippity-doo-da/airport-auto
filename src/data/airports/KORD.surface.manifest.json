@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "airport": {
     "faaId": "ORD",
     "icaoId": "KORD",
@@ -9,9 +9,9 @@
   },
   "assetPath": "data/airports/KORD.osm-surface.json",
   "graphPath": "src/data/airports/KORD.surfaceGraph.json",
-  "assetSha256": "d9d1fd34b172b6a33b2d867bae02ddfe9dcb93bf531d3a2b656072deade68464",
-  "graphSha256": "5eea5970ba2a53e0fb29f03234d6b6ac3be663cf396e82b86f208832590d5b21",
-  "retrievedOn": "2026-07-23",
+  "assetSha256": "0dfeffa8c14e40577ef60d0eeb1ef705e97b213ef7ada89be8bd3a4460896880",
+  "graphSha256": "9ed462ab45bf68559799b4ed8dcc3e540dc27fcc0e95d714545bce2563e356a3",
+  "retrievedOn": "2026-07-24",
   "coordinateSystem": {
     "source": "EPSG:4326",
     "local": "local-tangent-plane",
@@ -49,6 +49,10 @@
     "taxiways": 939,
     "stands": 25,
     "runwayAccess": 16,
+    "controlPoints": 248,
+    "operationalZones": 35,
+    "hotspots": 2,
+    "gradeSeparatedEdges": 2,
     "runwayCrossingEdges": 315
   },
   "license": "Open Data Commons Open Database License 1.0",

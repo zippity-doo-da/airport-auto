@@ -1,6 +1,6 @@
 # Airport Auto — Forward Roadmap
 
-Last reconciled: July 23, 2026  
+Last reconciled: July 24, 2026
 Baseline: Airport Auto 2.1
 
 Airport Auto is an **ASMR-first web airport simulation with an optional serious ATC layer**. The simulation should remain enjoyable as a calm, hands-off miniature world while also supporting increasingly authentic controller work when the player asks for it.
@@ -33,24 +33,27 @@ This document contains only unfinished, still-valid work. Shipped behavior belon
 ### Airfield topology
 
 - [x] Model all current ORD runway thresholds, declared operating ends, exits, touchdown zones, rollout regions, and runway-protection areas.
-- [ ] Import the major named taxiways, direction-aware segments, intersections, bridges/tunnels where relevant, and published hot spots.
-- [ ] Generate explicit hold-short, runway-entry, crossing, line-up, and departure-release points from the graph.
-- [ ] Model the terminal complexes, concourses, ramps, cargo areas, maintenance areas, deicing pads, and perimeter routes as separate operational zones.
-- [ ] Add unique stands with aircraft-size compatibility, pushback direction, ramp access, and occupancy constraints.
+- [x] Import the major named taxiways, direction-aware segments, intersections, bridges/tunnels where relevant, and published hot spots.
+- [x] Generate explicit hold-short, runway-entry, crossing, line-up, and departure-release points from the graph.
+- [x] Model the terminal complex, terminal/remote ramps, cargo areas, maintenance area, deicing pads, holding pads, and perimeter routes as separate operational zones.
+- [ ] Split ORD passenger facilities into distinct terminals and concourses and associate sourced gate/stand positions with them.
+- [x] Add unique stands with aircraft-size compatibility, pushback direction, ramp access, and occupancy constraints.
 - [x] Derive actual route-crossing clearances from the imported route and protected runway zones.
-- [ ] Support common ORD runway configurations and operating directions without moving visual markers to the wrong threshold.
+- [x] Support coherent ORD east-flow and west-flow runway configurations without moving visual markers to the wrong threshold.
+- [ ] Add less-common ORD runway configurations, mixed-mode runway-role changes, configuration transition queues, and weather/procedure restrictions.
 
 ### Chicago context and presentation
 
 - [ ] Replace repeated district tiles with recognizable airport-adjacent ground, highways, major roads, rail corridors, and development patterns.
 - [x] Keep the airport on continuous land and show a credible airport boundary; do not present O’Hare as an island.
-- [ ] Add optional north arrow, map scale, airport boundary, taxiway labels, runway labels, and clean-map layer controls.
+- [x] Add optional taxiway IDs, runway labels, operational areas, FAA hot spots, and clean-map layer controls that default off.
+- [ ] Add an optional north arrow, map scale, and sourced airport-boundary layer.
 - [ ] Keep terminals, scenery, roads, and props outside every protected movement-surface envelope.
 - [x] Preserve the original muted miniature visual language instead of copying chart or satellite aesthetics.
 
 ### ORD v1 acceptance gate
 
-- [ ] Every active stand can reach at least one compatible departure runway using pavement-only routes.
+- [x] Every active stand can reach at least one compatible departure runway using pavement-only routes.
 - [x] Every landing runway can reach a compatible free stand without an unexplained teleport, grass segment, or unmodeled crossing.
 - [x] Every runway crossing on a route maps to a specific hold-short point and explicit clearance.
 - [ ] No building, scenery object, or road overlaps a protected runway or taxiway envelope.

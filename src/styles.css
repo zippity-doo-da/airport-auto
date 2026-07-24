@@ -326,6 +326,13 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
 .audio-mixer label { display: grid; grid-template-columns: 1fr 58px; align-items: center; gap: 6px; color: rgba(244, 232, 206, 0.72); font-size: 9px; }
 .audio-mixer input { width: 100%; min-height: 28px; accent-color: var(--amber); }
 
+.map-layers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin: 10px 0; border: 1px solid rgba(244, 232, 206, 0.18); padding: 10px; }
+.map-layers legend { padding: 0 5px; color: rgba(244, 232, 206, 0.66); font-size: 9px; font-weight: 900; letter-spacing: 0.1em; text-transform: uppercase; }
+.map-layers label { display: flex; min-height: 30px; align-items: center; gap: 6px; color: rgba(244, 232, 206, 0.72); font-size: 9px; cursor: pointer; }
+.map-layers input { width: 15px; height: 15px; margin: 0; accent-color: var(--amber); }
+.map-layers label:has(input:disabled) { opacity: 0.38; cursor: not-allowed; }
+.map-layers small { grid-column: 1 / -1; color: rgba(244, 232, 206, 0.48); font-size: 8px; line-height: 1.4; }
+
 .operations-health { margin: 10px 0; border: 1px solid rgba(121, 200, 232, 0.28); padding: 10px; background: rgba(8, 29, 31, 0.48); }
 .operations-health header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .operations-health header b { font: 400 12px/1 Georgia, serif; }
@@ -354,5 +361,7 @@ body.watch-mode .brand { opacity: 0.75; }
   .scoreboard strong { font-size: 14px; }
   .scoreboard span { font-size: 7px; }
   .audio-mixer { grid-template-columns: 1fr; }
+  .map-layers { grid-template-columns: 1fr; }
+  .map-layers small { grid-column: 1; }
   .operations-health > div { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

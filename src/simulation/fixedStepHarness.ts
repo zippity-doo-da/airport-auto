@@ -95,6 +95,8 @@ export interface FixedStepSimulationSnapshot {
     paused: boolean;
     mode: ControlMode;
     scenario: TrafficScenario;
+    runwayConfigurationId: string;
+    activeRunwayEnds: Record<number, -1 | 1>;
     weather: {
       enabled: boolean;
       windEnabled: boolean;
@@ -240,6 +242,8 @@ export class FixedStepSimulationHarness {
         paused: this.simulation.state.paused,
         mode: this.simulation.state.mode,
         scenario: this.simulation.state.scenario,
+        runwayConfigurationId: this.simulation.state.runwayConfigurationId,
+        activeRunwayEnds: { ...this.simulation.state.activeRunwayEnds },
         weather: {
           enabled: this.simulation.state.weather.weatherEnabled,
           windEnabled: this.simulation.state.weather.windEnabled,

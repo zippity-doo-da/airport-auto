@@ -1,4 +1,5 @@
 import type { AirportConfig, RunwayConfig } from './airportConfig';
+import type { AircraftCategory } from './types';
 
 export type SurfaceNodeKind =
   | 'runway-threshold'
@@ -11,6 +12,18 @@ export type SurfaceNodeKind =
 
 export type SurfaceEdgeKind = 'runway' | 'runway-access' | 'taxiway' | 'apron' | 'stand-lead-in';
 export type SurfaceEdgeDirection = 'both' | 'forward';
+export type SurfaceGradeSeparation = 'bridge' | 'tunnel';
+export type SurfaceControlPointKind = 'hold-short' | 'runway-entry' | 'runway-crossing' | 'line-up' | 'departure-release';
+export type SurfaceOperationalZoneKind =
+  | 'terminal-complex'
+  | 'terminal-apron'
+  | 'cargo-ramp'
+  | 'general-aviation'
+  | 'deicing-pad'
+  | 'holding-pad'
+  | 'maintenance'
+  | 'remote-ramp'
+  | 'perimeter-route';
 
 export interface SurfaceNode {
   id: string;
@@ -35,12 +48,16 @@ export interface SurfaceEdge {
   crossedRunwayIds?: number[];
   sourceWayId?: number;
   sourceWayIds?: number[];
+  gradeSeparation?: SurfaceGradeSeparation;
+  crossingIds?: string[];
 }
 
 export interface SurfaceTaxiway {
   id: string;
   name: string;
   edgeIds: string[];
+  reference?: string;
+  sourceKind?: 'taxiway' | 'taxilane' | 'procedural';
 }
 
 export interface SurfaceStand {
@@ -48,9 +65,49 @@ export interface SurfaceStand {
   slot: number;
   nodeId: string;
   apronTaxiwayId: string;
-  terminal: 'MAIN';
+  terminal: string;
   position: [number, number];
   heading: number;
+  zoneId: string;
+  maximumWingspanM: number;
+  supportedCategories: AircraftCategory[];
+  pushbackDirection: 'left' | 'right' | 'straight';
+  pushbackHeading: number;
+  rampNodeId: string;
+  sourceParkingNodeId?: number;
+}
+
+export interface SurfaceControlPoint {
+  id: string;
+  kind: SurfaceControlPointKind;
+  position: [number, number];
+  runwayId: number;
+  nodeId?: string;
+  edgeId?: string;
+  crossingId?: string;
+  end?: -1 | 1;
+  source: 'generated' | 'faa';
+}
+
+export interface SurfaceOperationalZone {
+  id: string;
+  name: string;
+  kind: SurfaceOperationalZoneKind;
+  sourceFeatureIds: string[];
+  rings: Array<Array<[number, number]>>;
+  edgeIds: string[];
+  standIds: string[];
+  classification: 'published' | 'derived';
+}
+
+export interface SurfaceHotspot {
+  id: string;
+  label: string;
+  description: string;
+  sourceFeatureId: string;
+  rings: Array<Array<[number, number]>>;
+  nodeIds: string[];
+  edgeIds: string[];
 }
 
 export interface RunwaySurfaceAccess {
@@ -63,7 +120,7 @@ export interface RunwaySurfaceAccess {
 }
 
 export interface AirportSurfaceGraph {
-  schemaVersion: 1;
+  schemaVersion: 2;
   airportCode: string;
   seed: number;
   source?: {
@@ -76,6 +133,9 @@ export interface AirportSurfaceGraph {
   taxiways: SurfaceTaxiway[];
   stands: SurfaceStand[];
   runwayAccess: RunwaySurfaceAccess[];
+  controlPoints: SurfaceControlPoint[];
+  zones: SurfaceOperationalZone[];
+  hotspots: SurfaceHotspot[];
 }
 
 export interface SurfaceRoute {
@@ -109,6 +169,10 @@ export interface SurfaceGraphValidation {
     stands: number;
     intersections: number;
     holdShorts: number;
+    controlPoints: number;
+    zones: number;
+    hotspots: number;
+    gradeSeparatedEdges: number;
   };
 }
 
@@ -120,6 +184,7 @@ interface SurfaceGraphIndex {
   edgeById: Map<string, SurfaceEdge>;
   edgeByTraversal: Map<string, SurfaceEdge>;
   adjacency: Map<string, Array<{ nodeId: string; edge: SurfaceEdge; cost: number }>>;
+  controlPointsByCrossing: Map<string, SurfaceControlPoint[]>;
   routeGeometry: WeakMap<string[], SurfaceRouteGeometry>;
 }
 
@@ -133,6 +198,7 @@ interface SurfaceRouteSegment {
 
 export interface SurfaceRouteCrossingWindow {
   id: string;
+  crossingId?: string;
   runwayId: number;
   edgeId: string;
   edgeIndex: number;
@@ -141,6 +207,8 @@ export interface SurfaceRouteCrossingWindow {
   entryProgress: number;
   exitProgress: number;
   distanceToHold: number;
+  holdPointId?: string;
+  crossingPointId?: string;
 }
 
 interface SurfaceRouteGeometry {
@@ -158,6 +226,23 @@ export function buildAirportSurfaceGraph(config: SurfaceGraphConfig): AirportSur
   const edges: SurfaceEdge[] = [];
   const stands: SurfaceStand[] = [];
   const runwayAccess: RunwaySurfaceAccess[] = [];
+  const controlPoints: SurfaceControlPoint[] = [];
+  const zones: SurfaceOperationalZone[] = [{
+    id: 'ZONE-TERMINAL',
+    name: 'Main terminal complex',
+    kind: 'terminal-complex',
+    sourceFeatureIds: [],
+    rings: [[
+      [config.terminal[0] - 8, config.terminal[1] - 5],
+      [config.terminal[0] + 8, config.terminal[1] - 5],
+      [config.terminal[0] + 8, config.terminal[1] + 5],
+      [config.terminal[0] - 8, config.terminal[1] + 5],
+      [config.terminal[0] - 8, config.terminal[1] - 5],
+    ]],
+    edgeIds: [],
+    standIds: [],
+    classification: 'derived',
+  }];
   const nodeById = new Map<string, SurfaceNode>();
   const nodeByCoordinate = new Map<string, SurfaceNode>();
   const edgeByKey = new Map<string, SurfaceEdge>();
@@ -189,7 +274,7 @@ export function buildAirportSurfaceGraph(config: SurfaceGraphConfig): AirportSur
   const ensureTaxiway = (id: string, name: string): SurfaceTaxiway => {
     const existing = taxiwayById.get(id);
     if (existing) return existing;
-    const taxiway: SurfaceTaxiway = { id, name, edgeIds: [] };
+    const taxiway: SurfaceTaxiway = { id, name, edgeIds: [], sourceKind: 'procedural' };
     taxiwayById.set(id, taxiway);
     return taxiway;
   };
@@ -259,6 +344,17 @@ export function buildAirportSurfaceGraph(config: SurfaceGraphConfig): AirportSur
     ensureTaxiway(apronId, apronName);
     const gateY = config.terminal[1] + side * gateLayout.sideOffset;
     const laneY = gateY + side * gateLayout.laneOffset;
+    const zone: SurfaceOperationalZone = {
+      id: `ZONE-${apronId}`,
+      name: apronName,
+      kind: 'terminal-apron',
+      sourceFeatureIds: [],
+      rings: [],
+      edgeIds: [],
+      standIds: [],
+      classification: 'derived',
+    };
+    zones.push(zone);
     const apronEntry = addNode(`APRON-ENTRY-${side === -1 ? 'S' : 'N'}`, 'apron-entry', [config.terminal[0], laneY]);
     const laneNodes: SurfaceNode[] = [apronEntry];
     for (let column = 0; column < gateLayout.columns; column += 1) {
@@ -277,12 +373,31 @@ export function buildAirportSurfaceGraph(config: SurfaceGraphConfig): AirportSur
         terminal: 'MAIN',
         position: standNode.position,
         heading: side === -1 ? Math.PI / 2 : -Math.PI / 2,
+        zoneId: zone.id,
+        maximumWingspanM: 72,
+        supportedCategories: ['regional', 'narrowbody', 'widebody', 'cargo'],
+        pushbackDirection: 'straight',
+        pushbackHeading: side === -1 ? -Math.PI / 2 : Math.PI / 2,
+        rampNodeId: laneNode.id,
       });
+      zone.standIds.push(standId);
     }
     laneNodes.sort((first, second) => first.position[0] - second.position[0]);
     for (let index = 0; index < laneNodes.length - 1; index += 1) {
       addEdge(laneNodes[index], laneNodes[index + 1], { kind: 'apron', name: apronName, width: 8, taxiwayId: apronId });
     }
+    const xs = laneNodes.map((node) => node.position[0]);
+    const minimumX = Math.min(...xs) - 3;
+    const maximumX = Math.max(...xs) + 3;
+    const minimumY = Math.min(gateY, laneY) - 3;
+    const maximumY = Math.max(gateY, laneY) + 3;
+    zone.rings = [[
+      [minimumX, minimumY],
+      [maximumX, minimumY],
+      [maximumX, maximumY],
+      [minimumX, maximumY],
+      [minimumX, minimumY],
+    ]];
     apronEntries.set(side, apronEntry);
   }
 
@@ -343,8 +458,27 @@ export function buildAirportSurfaceGraph(config: SurfaceGraphConfig): AirportSur
     node.taxiwayIds.sort();
   }
 
+  for (const zone of zones) {
+    if (zone.kind === 'terminal-apron') {
+      const apronId = zone.id.replace(/^ZONE-/, '');
+      zone.edgeIds = edges.filter((edge) => edge.taxiwayId === apronId).map((edge) => edge.id);
+    }
+  }
+  for (const access of runwayAccess) {
+    const hold = nodeById.get(access.holdShortNodeId);
+    const threshold = nodeById.get(access.thresholdNodeId);
+    if (!hold || !threshold) continue;
+    const suffix = access.end === -1 ? 'NEG' : 'POS';
+    controlPoints.push(
+      { id: `CP-RWY-${access.runwayId}-${suffix}-HOLD`, kind: 'hold-short', position: [...hold.position], runwayId: access.runwayId, nodeId: hold.id, end: access.end, source: 'generated' },
+      { id: `CP-RWY-${access.runwayId}-${suffix}-RELEASE`, kind: 'departure-release', position: [...hold.position], runwayId: access.runwayId, nodeId: hold.id, end: access.end, source: 'generated' },
+      { id: `CP-RWY-${access.runwayId}-${suffix}-ENTRY`, kind: 'runway-entry', position: [...threshold.position], runwayId: access.runwayId, nodeId: threshold.id, end: access.end, source: 'generated' },
+      { id: `CP-RWY-${access.runwayId}-${suffix}-LINEUP`, kind: 'line-up', position: [...threshold.position], runwayId: access.runwayId, nodeId: threshold.id, end: access.end, source: 'generated' },
+    );
+  }
+
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     airportCode: config.code,
     seed: config.seed,
     nodes,
@@ -352,6 +486,9 @@ export function buildAirportSurfaceGraph(config: SurfaceGraphConfig): AirportSur
     taxiways: [...taxiwayById.values()],
     stands: stands.sort((first, second) => first.slot - second.slot),
     runwayAccess,
+    controlPoints,
+    zones,
+    hotspots: [],
   };
 
   function registerTaxiwayEdge(taxiwayId: string, name: string, edge: SurfaceEdge, from: SurfaceNode, to: SurfaceNode): void {
@@ -379,6 +516,14 @@ export function surfaceRouteForFlight(
   const from = phase === 'taxi-in' ? access.exitNodeId : stand.nodeId;
   const to = phase === 'taxi-in' ? stand.nodeId : access.holdShortNodeId;
   return findSurfaceRoute(graph, from, to);
+}
+
+export function surfaceStandSupportsAircraft(
+  stand: SurfaceStand,
+  category: AircraftCategory,
+  wingspanM: number,
+): boolean {
+  return stand.supportedCategories.includes(category) && stand.maximumWingspanM + 1e-6 >= wingspanM;
 }
 
 export function findSurfaceRoute(graph: AirportSurfaceGraph, fromNodeId: string, toNodeId: string): SurfaceRoute | null {
@@ -509,8 +654,8 @@ export function surfaceRouteRunwayCrossings(
 
 /**
  * Return the physical windows where a route crosses protected runway
- * pavement. The hold point is kept one center-view aircraft radius before
- * the source segment so the rendered nose remains behind the protection line.
+ * pavement. Imported graphs use their generated physical hold/crossing
+ * points; procedural and legacy data retain the conservative buffer fallback.
  */
 export function surfaceRouteCrossingWindows(
   graph: AirportSurfaceGraph,
@@ -522,6 +667,7 @@ export function surfaceRouteCrossingWindows(
   if (!nodeIds?.length) return [];
   const geometry = surfaceRouteGeometry(graph, nodeIds, edgeIds);
   if (geometry.totalDistance <= 0) return [];
+  const graphIndex = surfaceGraphIndex(graph);
   const currentDistance = clamp(progress, 0, 1) * geometry.totalDistance;
   const windows: SurfaceRouteCrossingWindow[] = [];
   for (let edgeIndex = 0; edgeIndex < geometry.segments.length; edgeIndex += 1) {
@@ -531,24 +677,57 @@ export function surfaceRouteCrossingWindows(
     const runwayIds = edge.crossedRunwayIds ?? (edge.runwayId === undefined ? [] : [edge.runwayId]);
     for (const runwayId of runwayIds) {
       if (runwayId === assignedRunway) continue;
-      const holdDistance = Math.max(0, segment.startDistance - HOLD_SHORT_BUFFER);
+      const crossingId = edge.crossingIds?.find((id) =>
+        graphIndex.controlPointsByCrossing.get(id)?.some((point) => point.runwayId === runwayId),
+      );
+      const controlPoints = crossingId ? graphIndex.controlPointsByCrossing.get(crossingId) ?? [] : [];
+      const controlPair = controlPoints
+        .filter((point) => point.kind === 'hold-short' && point.runwayId === runwayId)
+        .map((holdPoint) => {
+          const pairId = holdPoint.id.replace(/-HOLD$/, '');
+          const crossingPoint = controlPoints.find((point) => point.id === `${pairId}-CROSS`);
+          if (!crossingPoint) return null;
+          const holdProjection = routeProjectionForPoint(geometry, holdPoint.position, edgeIndex);
+          const crossingProjection = routeProjectionForPoint(geometry, crossingPoint.position, edgeIndex);
+          if (holdProjection.routeDistance > crossingProjection.routeDistance + 1e-6) return null;
+          return {
+            holdPoint,
+            crossingPoint,
+            holdProjection,
+            crossingProjection,
+            score: holdProjection.offset + crossingProjection.offset
+              + Math.abs(crossingProjection.routeDistance - segment.startDistance),
+          };
+        })
+        .filter((pair): pair is NonNullable<typeof pair> => Boolean(pair))
+        .sort((first, second) => first.score - second.score)[0];
+      const holdDistance = controlPair?.holdProjection.routeDistance
+        ?? Math.max(0, segment.startDistance - HOLD_SHORT_BUFFER);
+      const entryDistance = controlPair?.crossingProjection.routeDistance ?? segment.startDistance;
       windows.push({
-        id: `${runwayId}:${edgeIndex}`,
+        id: crossingId ?? `${runwayId}:${edgeIndex}`,
+        crossingId,
         runwayId,
         edgeId: edge.id,
         edgeIndex,
         exitEdgeIndex: edgeIndex,
         holdProgress: holdDistance / geometry.totalDistance,
-        entryProgress: segment.startDistance / geometry.totalDistance,
+        entryProgress: entryDistance / geometry.totalDistance,
         exitProgress: (segment.startDistance + segment.length) / geometry.totalDistance,
         distanceToHold: holdDistance - currentDistance,
+        holdPointId: controlPair?.holdPoint.id,
+        crossingPointId: controlPair?.crossingPoint.id,
       });
     }
   }
   const merged: SurfaceRouteCrossingWindow[] = [];
   for (const window of windows.sort((first, second) => first.edgeIndex - second.edgeIndex || first.runwayId - second.runwayId)) {
     const previous = [...merged].reverse().find((candidate) => candidate.runwayId === window.runwayId);
-    if (previous && window.edgeIndex <= previous.exitEdgeIndex + 1) {
+    if (
+      previous
+      && previous.crossingId === window.crossingId
+      && window.edgeIndex <= previous.exitEdgeIndex + 1
+    ) {
       previous.exitEdgeIndex = window.exitEdgeIndex;
       previous.exitProgress = Math.max(previous.exitProgress, window.exitProgress);
       continue;
@@ -557,7 +736,10 @@ export function surfaceRouteCrossingWindows(
   }
   return merged
     .sort((first, second) => first.entryProgress - second.entryProgress || first.runwayId - second.runwayId)
-    .map((window) => ({ ...window, id: `${window.runwayId}:${window.edgeIndex}-${window.exitEdgeIndex}` }));
+    .map((window) => ({
+      ...window,
+      id: `${window.crossingId ?? window.runwayId}:${window.edgeIndex}-${window.exitEdgeIndex}`,
+    }));
 }
 
 export function sampleSurfaceRouteWithEdges(
@@ -578,6 +760,13 @@ function surfaceGraphIndex(graph: AirportSurfaceGraph): SurfaceGraphIndex {
   const edgeById = new Map(graph.edges.map((edge) => [edge.id, edge]));
   const edgeByTraversal = new Map<string, SurfaceEdge>();
   const adjacency = new Map<string, Array<{ nodeId: string; edge: SurfaceEdge; cost: number }>>();
+  const controlPointsByCrossing = new Map<string, SurfaceControlPoint[]>();
+  for (const point of graph.controlPoints) {
+    if (!point.crossingId) continue;
+    const points = controlPointsByCrossing.get(point.crossingId) ?? [];
+    points.push(point);
+    controlPointsByCrossing.set(point.crossingId, points);
+  }
   for (const edge of graph.edges) {
     edgeByTraversal.set(surfaceTraversalKey(edge.from, edge.to), edge);
     if (edge.direction === 'both') edgeByTraversal.set(surfaceTraversalKey(edge.to, edge.from), edge);
@@ -601,6 +790,7 @@ function surfaceGraphIndex(graph: AirportSurfaceGraph): SurfaceGraphIndex {
     edgeById,
     edgeByTraversal,
     adjacency,
+    controlPointsByCrossing,
     routeGeometry: new WeakMap<string[], SurfaceRouteGeometry>(),
   };
   surfaceGraphIndexes.set(graph, index);
@@ -635,6 +825,30 @@ function surfaceRouteGeometry(graph: AirportSurfaceGraph, nodeIds: string[], edg
   return geometry;
 }
 
+function routeProjectionForPoint(
+  geometry: SurfaceRouteGeometry,
+  point: Point,
+  maximumSegmentIndex: number,
+): { routeDistance: number; offset: number } {
+  let nearestDistance = Infinity;
+  let routeDistance = 0;
+  for (let index = 0; index <= Math.min(maximumSegmentIndex, geometry.segments.length - 1); index += 1) {
+    const segment = geometry.segments[index];
+    const dx = segment.to.position[0] - segment.from.position[0];
+    const dy = segment.to.position[1] - segment.from.position[1];
+    const lengthSquared = dx * dx + dy * dy;
+    const amount = lengthSquared > 0
+      ? clamp(((point[0] - segment.from.position[0]) * dx + (point[1] - segment.from.position[1]) * dy) / lengthSquared, 0, 1)
+      : 0;
+    const projected: Point = [segment.from.position[0] + dx * amount, segment.from.position[1] + dy * amount];
+    const offset = distance(point, projected);
+    if (offset >= nearestDistance) continue;
+    nearestDistance = offset;
+    routeDistance = segment.startDistance + segment.length * amount;
+  }
+  return { routeDistance, offset: nearestDistance };
+}
+
 function surfaceTraversalKey(fromNodeId: string, toNodeId: string): string {
   return `${fromNodeId}>${toNodeId}`;
 }
@@ -662,6 +876,28 @@ export function validateAirportSurfaceGraph(config: SurfaceGraphConfig & { surfa
   for (const stand of graph.stands) {
     const node = graph.nodes.find((item) => item.id === stand.nodeId);
     if (!node || node.kind !== 'stand') errors.push(`stand ${stand.id} has no stand node`);
+    if (!nodeIds.has(stand.rampNodeId)) errors.push(`stand ${stand.id} has no ramp-access node`);
+    if (!graph.zones.some((zone) => zone.id === stand.zoneId)) errors.push(`stand ${stand.id} references missing zone ${stand.zoneId}`);
+    if (stand.maximumWingspanM <= 0 || !stand.supportedCategories.length) errors.push(`stand ${stand.id} has no aircraft compatibility`);
+  }
+  const controlPointIds = new Set<string>();
+  for (const point of graph.controlPoints) {
+    if (controlPointIds.has(point.id)) errors.push(`duplicate control point ${point.id}`);
+    controlPointIds.add(point.id);
+    if (point.nodeId && !nodeIds.has(point.nodeId)) errors.push(`control point ${point.id} references missing node ${point.nodeId}`);
+    if (point.edgeId && !edgeIds.has(point.edgeId)) errors.push(`control point ${point.id} references missing edge ${point.edgeId}`);
+    if (!config.runways.some((runway) => runway.id === point.runwayId)) errors.push(`control point ${point.id} references missing runway ${point.runwayId}`);
+  }
+  const zoneIds = new Set<string>();
+  for (const zone of graph.zones) {
+    if (zoneIds.has(zone.id)) errors.push(`duplicate zone ${zone.id}`);
+    zoneIds.add(zone.id);
+    for (const edgeId of zone.edgeIds) if (!edgeIds.has(edgeId)) errors.push(`zone ${zone.id} references missing edge ${edgeId}`);
+    for (const standId of zone.standIds) if (!graph.stands.some((stand) => stand.id === standId)) errors.push(`zone ${zone.id} references missing stand ${standId}`);
+  }
+  for (const hotspot of graph.hotspots) {
+    for (const nodeId of hotspot.nodeIds) if (!nodeIds.has(nodeId)) errors.push(`hot spot ${hotspot.id} references missing node ${nodeId}`);
+    for (const edgeId of hotspot.edgeIds) if (!edgeIds.has(edgeId)) errors.push(`hot spot ${hotspot.id} references missing edge ${edgeId}`);
   }
   for (const runway of config.runways.filter((item) => item.role !== 'inactive')) {
     for (const end of [-1, 1] as const) {
@@ -692,6 +928,10 @@ export function validateAirportSurfaceGraph(config: SurfaceGraphConfig & { surfa
       stands: graph.stands.length,
       intersections: graph.nodes.filter((node) => node.kind === 'intersection').length,
       holdShorts: graph.nodes.filter((node) => node.kind === 'hold-short').length,
+      controlPoints: graph.controlPoints.length,
+      zones: graph.zones.length,
+      hotspots: graph.hotspots.length,
+      gradeSeparatedEdges: graph.edges.filter((edge) => edge.gradeSeparation).length,
     },
   };
 }

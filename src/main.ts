@@ -5,7 +5,7 @@ import { aircraftProfile } from './simulation/aircraftProfiles';
 import { airlineProfile } from './simulation/airlineProfiles';
 import type { ClearanceProposal, ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, ReplayFrame, TrafficScenario, WeatherCondition } from './simulation/types';
 import { AmbientAudio, type AudioChannel, type AudioPreset } from './audio/ambientAudio';
-import { createWorld } from './render/createWorld';
+import { createWorld, type SurfaceLayer } from './render/createWorld';
 
 type AirportControlCommand =
   | { action: 'pause' | 'resume' | 'nextView' | 'zoomIn' | 'zoomOut' | 'resetCamera' | 'restart' }
@@ -14,6 +14,7 @@ type AirportControlCommand =
   | { action: 'setNightMode'; enabled: boolean }
   | { action: 'setRadarVisible'; enabled: boolean }
   | { action: 'setRunwayLabelsVisible'; enabled: boolean }
+  | { action: 'setSurfaceLayerVisible'; layer: SurfaceLayer; enabled: boolean }
   | { action: 'selectAirport'; code: string }
   | { action: 'clearFlight'; flightId: number; runway: number }
   | { action: 'clearRunwayEntry'; flightId: number }
@@ -136,6 +137,7 @@ const speedOutput = $<HTMLOutputElement>('#speed-output');
 const weatherCondition = $<HTMLElement>('#weather-condition');
 const weatherWind = $<HTMLElement>('#weather-wind');
 const weatherVisibility = $<HTMLElement>('#weather-visibility');
+const runwayConfiguration = $<HTMLElement>('#runway-configuration');
 const weatherToggle = $<HTMLButtonElement>('#weather-toggle');
 const windToggle = $<HTMLButtonElement>('#wind-toggle');
 const audioPreset = $<HTMLSelectElement>('#audio-preset');
@@ -187,6 +189,7 @@ const healthDelay = $<HTMLElement>('#health-delay');
 const healthFps = $<HTMLElement>('#health-fps');
 const debugPanel = $<HTMLElement>('#debug-panel');
 const audioLevelControls = [...document.querySelectorAll<HTMLInputElement>('[data-audio-level]')];
+const surfaceLayerControls = [...document.querySelectorAll<HTMLInputElement>('[data-surface-layer]')];
 
 let lastTime = performance.now();
 let simulationAccumulator = 0;
@@ -208,6 +211,11 @@ let replayMode = false;
 let pausedBeforeReplay = false;
 let focusedFlightId: number | null = null;
 let runwayLabelsVisible = false;
+const surfaceLayerVisibility: Record<SurfaceLayer, boolean> = {
+  'taxiway-labels': false,
+  'operational-zones': false,
+  hotspots: false,
+};
 let previousPresentation = capturePresentation(simulation.state);
 let lastFlightStripRender = -Infinity;
 let renderedFrames = 0;
@@ -279,6 +287,11 @@ cameraResetButton.addEventListener('click', () => {
   renderFlightActions();
 });
 runwayLabelButton.addEventListener('click', () => setRunwayLabelsVisible(!runwayLabelsVisible));
+for (const control of surfaceLayerControls) {
+  control.addEventListener('change', () => {
+    setSurfaceLayerVisible(control.dataset.surfaceLayer as SurfaceLayer, control.checked);
+  });
+}
 menuButton.addEventListener('click', (event) => {
   event.stopPropagation();
   setControlPanelOpen(!controlPanel.classList.contains('control-panel--open'));
@@ -784,6 +797,13 @@ function setRunwayLabelsVisible(visible: boolean): void {
   world.setRunwayLabelsVisible(visible);
 }
 
+function setSurfaceLayerVisible(layer: SurfaceLayer, visible: boolean): void {
+  surfaceLayerVisibility[layer] = visible;
+  const control = surfaceLayerControls.find((item) => item.dataset.surfaceLayer === layer);
+  if (control) control.checked = visible;
+  world.setSurfaceLayerVisible(layer, visible);
+}
+
 function renderFlightActions(): void {
   const flight = focusedFlightId === null ? null : displayState().flights.find((item) => item.id === focusedFlightId);
   flightActions.replaceChildren();
@@ -1106,6 +1126,9 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   simulation.setPaused(paused);
   world = createWorld(canvas, config);
   world.setRunwayLabelsVisible(runwayLabelsVisible);
+  for (const [layer, visible] of Object.entries(surfaceLayerVisibility) as Array<[SurfaceLayer, boolean]>) {
+    world.setSurfaceLayerVisible(layer, visible);
+  }
   simulationAccumulator = 0;
   previousPresentation = capturePresentation(simulation.state);
   updateAirportUi();
@@ -1171,7 +1194,7 @@ function updateAirportUi(): void {
       ? `FAA geometry + OSM surface graph · ${effective}`
       : `FAA vector foundation · ${effective}`;
     mapDataAttribution.textContent = config.surfaceData
-      ? `${config.vectorData.attribution} ${config.surfaceData.attribution}. Retrieved ${config.vectorData.retrievedOn} · not for navigation.`
+      ? `${config.vectorData.attribution} Retrieved ${config.vectorData.retrievedOn}. ${config.surfaceData.attribution} Retrieved ${config.surfaceData.retrievedOn} · not for navigation.`
       : `${config.vectorData.attribution} Retrieved ${config.vectorData.retrievedOn} · imported geometry staged · not for navigation.`;
     mapDataSource.hidden = false;
     mapSurfaceSource.hidden = !config.surfaceData;
@@ -1190,6 +1213,17 @@ function updateAirportUi(): void {
   airportSelect.value = config.code;
   introAirportSelect.value = config.code;
   document.body.classList.toggle('center-scope', center);
+  for (const control of surfaceLayerControls) {
+    const layer = control.dataset.surfaceLayer as SurfaceLayer;
+    const available = layer === 'hotspots'
+      ? config.surfaceGraph.hotspots.length > 0
+      : layer === 'operational-zones'
+        ? config.surfaceGraph.zones.length > 0
+        : config.surfaceGraph.taxiways.some((taxiway) => Boolean(taxiway.reference));
+    control.disabled = !available;
+    control.checked = available && surfaceLayerVisibility[layer];
+    world.setSurfaceLayerVisible(layer, available && surfaceLayerVisibility[layer]);
+  }
 }
 
 function selectAirport(code: string, paused: boolean): void {
@@ -1267,6 +1301,12 @@ function updateWeatherUi(): void {
   weatherCondition.textContent = weather.weatherEnabled ? weather.condition : 'wx off';
   weatherWind.textContent = weather.windEnabled ? `${String(direction || 360).padStart(3, '0')}° ${speed}G${gust} kt` : 'calm · wind off';
   weatherVisibility.textContent = `${weather.visibility.toFixed(weather.visibility % 1 ? 1 : 0)} mi visibility`;
+  const activeConfiguration = config.runwayConfigurations.find(
+    (configuration) => configuration.id === simulation.state.runwayConfigurationId,
+  );
+  runwayConfiguration.textContent = activeConfiguration
+    ? `${activeConfiguration.name} · ${activeConfiguration.description}`
+    : 'Runway flow transitioning';
   weatherToggle.setAttribute('aria-pressed', String(weather.weatherEnabled));
   weatherToggle.textContent = weather.weatherEnabled ? 'WX ON' : 'WX OFF';
   windToggle.setAttribute('aria-pressed', String(weather.windEnabled));
@@ -1361,6 +1401,17 @@ function airportSnapshot() {
       gustSpeed: Number(simulation.state.weather.gustSpeed.toFixed(1)),
       visibilityMiles: simulation.state.weather.visibility,
     },
+    runwayConfiguration: {
+      ...(config.runwayConfigurations.find(
+        (configuration) => configuration.id === simulation.state.runwayConfigurationId,
+      ) ?? config.runwayConfigurations[0]),
+    },
+    runwayConfigurations: config.runwayConfigurations.map((configuration) => ({
+      ...configuration,
+      arrivalRunwayIds: [...configuration.arrivalRunwayIds],
+      departureRunwayIds: [...configuration.departureRunwayIds],
+      operatingEnds: { ...configuration.operatingEnds },
+    })),
     score: { landed: simulation.state.arrivals, departed: simulation.state.departures },
     replay: {
       frames: replayFrames.length,
@@ -1391,10 +1442,29 @@ function airportSnapshot() {
         ...edge,
         crossedRunwayIds: edge.crossedRunwayIds ? [...edge.crossedRunwayIds] : undefined,
         sourceWayIds: edge.sourceWayIds ? [...edge.sourceWayIds] : undefined,
+        crossingIds: edge.crossingIds ? [...edge.crossingIds] : undefined,
       })),
       taxiways: config.surfaceGraph.taxiways.map((taxiway) => ({ ...taxiway, edgeIds: [...taxiway.edgeIds] })),
-      stands: config.surfaceGraph.stands.map((stand) => ({ ...stand, position: [...stand.position] })),
+      stands: config.surfaceGraph.stands.map((stand) => ({
+        ...stand,
+        position: [...stand.position],
+        supportedCategories: [...stand.supportedCategories],
+      })),
       runwayAccess: config.surfaceGraph.runwayAccess.map((access) => ({ ...access })),
+      controlPoints: config.surfaceGraph.controlPoints.map((point) => ({ ...point, position: [...point.position] })),
+      zones: config.surfaceGraph.zones.map((zone) => ({
+        ...zone,
+        sourceFeatureIds: [...zone.sourceFeatureIds],
+        rings: zone.rings.map((ring) => ring.map((point) => [...point])),
+        edgeIds: [...zone.edgeIds],
+        standIds: [...zone.standIds],
+      })),
+      hotspots: config.surfaceGraph.hotspots.map((hotspot) => ({
+        ...hotspot,
+        rings: hotspot.rings.map((ring) => ring.map((point) => [...point])),
+        nodeIds: [...hotspot.nodeIds],
+        edgeIds: [...hotspot.edgeIds],
+      })),
     },
     surface: simulation.state.flights
       .filter((flight) => flight.phase === 'taxi-in' || flight.phase === 'taxi-out')
@@ -1415,6 +1485,7 @@ function airportSnapshot() {
         requiredCrossings: flight.requiredCrossings ?? [],
         crossingClearances: flight.crossingClearances ?? [],
         crossingClearanceIds: flight.crossingClearanceIds ?? [],
+        crossingHoldPointId: flight.crossingHoldPointId,
       })),
     flights: simulation.state.flights.map((flight) => ({
       id: flight.id,
@@ -1533,6 +1604,11 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
     updateRadarControl();
   }
   if (command.action === 'setRunwayLabelsVisible') setRunwayLabelsVisible(command.enabled);
+  if (command.action === 'setSurfaceLayerVisible') {
+    accepted = ['taxiway-labels', 'operational-zones', 'hotspots'].includes(command.layer);
+    if (accepted) setSurfaceLayerVisible(command.layer, command.enabled);
+    else reason = 'surface layer must be taxiway-labels, operational-zones, or hotspots';
+  }
   if (command.action === 'selectAirport') {
     const code = command.code.toUpperCase();
     accepted = code === 'LOCAL' || HUB_AIRPORTS.some((airport) => airport.code === code);
@@ -1622,6 +1698,7 @@ window.airportControl = {
       mode: "airportControl.command({ action: 'setMode', value: 'auto' })",
       nightMode: "airportControl.command({ action: 'setNightMode', enabled: true })",
       radar: "airportControl.command({ action: 'setRadarVisible', enabled: true })",
+      mapLayer: "airportControl.command({ action: 'setSurfaceLayerVisible', layer: 'hotspots', enabled: true })",
       clearance: "airportControl.command({ action: 'clearFlight', flightId: 1, runway: 0 })",
       runwayEntry: "airportControl.command({ action: 'clearRunwayEntry', flightId: 1 })",
       takeoff: "airportControl.request({ action: 'clearTakeoff', flightId: 1 })",

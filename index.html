@@ -59,7 +59,7 @@
         </select></label>
         <label class="speed-control"><span>Speed <output id="speed-output" for="speed-control">1×</output></span><input id="speed-control" type="range" min="0.5" max="3" step="0.25" value="1" aria-label="Simulation speed" /></label>
         <div class="weather-readout" aria-label="Current weather">
-          <span id="weather-condition">WX off</span><b id="weather-wind">calm · wind off</b><small id="weather-visibility">10 mi visibility</small>
+          <span id="weather-condition">WX off</span><b id="weather-wind">calm · wind off</b><small id="weather-visibility">10 mi visibility</small><small id="runway-configuration">Primary flow</small>
           <div class="weather-readout__switches"><button id="weather-toggle" type="button" aria-pressed="false">WX OFF</button><button id="wind-toggle" type="button" aria-pressed="false">WIND OFF</button></div>
         </div>
         <label class="audio-preset"><span>Soundscape</span><select id="audio-preset"><option value="full">Full field</option><option value="calm">Calm</option><option value="radio">Radio focus</option><option value="engines">Engines only</option><option value="silent">Silent simulation</option></select></label>
@@ -91,6 +91,13 @@
             <label><span>Weather</span><input data-audio-level="weather" type="range" min="0" max="1" step="0.05" value="1" /></label>
             <label><span>Radio</span><input data-audio-level="radio" type="range" min="0" max="1" step="0.05" value="1" /></label>
             <label><span>UI</span><input data-audio-level="ui" type="range" min="0" max="1" step="0.05" value="0.7" /></label>
+          </fieldset>
+          <fieldset class="map-layers" aria-label="Optional airport map layers">
+            <legend>Map layers</legend>
+            <label><input data-surface-layer="taxiway-labels" type="checkbox" />Taxiway IDs</label>
+            <label><input data-surface-layer="operational-zones" type="checkbox" />Operational areas</label>
+            <label><input data-surface-layer="hotspots" type="checkbox" />FAA hot spots</label>
+            <small>All overlays start hidden to preserve the clean field view.</small>
           </fieldset>
           <section id="operations-health" class="operations-health" aria-label="Live simulation health">
             <header><b>Simulation health</b><span id="health-state">WARMING UP</span></header>

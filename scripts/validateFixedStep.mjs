@@ -50,6 +50,7 @@ const totals = {
   concurrentSurfaceMovers: 0,
   manualDepartureCleared: false,
   repeatedCrossingClearances: false,
+  runwayConfigurationsVerified: false,
 };
 
 const seeds = [1, 17, 991, 42_424];
@@ -110,6 +111,21 @@ totals.simulatedMinutes += ordSnapshot.simulationTimeSeconds / 60 * 2;
 totals.events += ordSnapshot.events.length * 2;
 totals.hubArrivals = ordSnapshot.state.arrivals;
 totals.hubDepartures = ordSnapshot.state.departures;
+
+const westFlow = createHubSimulationHarness('ORD', { stepSeconds: 0.05 });
+westFlow.simulation.state.flights = [];
+westFlow.simulation.setWeather('clear', Math.PI, 14);
+westFlow.advanceTicks(1);
+assert(westFlow.simulation.state.runwayConfigurationId === 'ORD-WEST-FLOW', 'ORD: west wind did not select west flow');
+assert(Object.values(westFlow.simulation.state.activeRunwayEnds).every((end) => end === 1), 'ORD: west flow changed runway ends incoherently');
+
+const eastFlow = createHubSimulationHarness('ORD', { stepSeconds: 0.05 });
+eastFlow.simulation.state.flights = [];
+eastFlow.simulation.setWeather('clear', 0, 14);
+eastFlow.advanceTicks(1);
+assert(eastFlow.simulation.state.runwayConfigurationId === 'ORD-EAST-FLOW', 'ORD: east wind did not select east flow');
+assert(Object.values(eastFlow.simulation.state.activeRunwayEnds).every((end) => end === -1), 'ORD: east flow changed runway ends incoherently');
+totals.runwayConfigurationsVerified = true;
 
 const concurrent = createHubSimulationHarness('ORD', { stepSeconds: 0.05 });
 const initialGates = concurrent.simulation.state.flights.map((flight) => flight.gateSlot);

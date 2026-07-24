@@ -48,6 +48,19 @@ type RunwayVisual = {
 type AirportBuild = {
   runwayLights: RunwayLight[];
   runwayVisuals: RunwayVisual[];
+  surfaceLayers: Record<SurfaceLayer, THREE.Group>;
+};
+
+export type SurfaceLayer = 'taxiway-labels' | 'operational-zones' | 'hotspots';
+
+export type WorldDiagnostics = {
+  drawCalls: number;
+  triangles: number;
+  geometries: number;
+  textures: number;
+  detail: 'low' | 'high';
+  pooledAircraft: number;
+  surfaceLayers: Record<SurfaceLayer, boolean>;
 };
 
 export interface AirportWorld {
@@ -62,7 +75,8 @@ export interface AirportWorld {
   zoomOut(): void;
   resetCamera(): void;
   setRunwayLabelsVisible(visible: boolean): void;
-  diagnostics(): { drawCalls: number; triangles: number; geometries: number; textures: number; detail: 'low' | 'high'; pooledAircraft: number };
+  setSurfaceLayerVisible(layer: SurfaceLayer, visible: boolean): void;
+  diagnostics(): WorldDiagnostics;
   resize(): void;
   dispose(): void;
 }
@@ -480,6 +494,9 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
       runwayLabelsVisible = visible;
       for (const runway of airportBuild.runwayVisuals) for (const label of runway.labels) label.visible = visible;
     },
+    setSurfaceLayerVisible(layer, visible) {
+      airportBuild.surfaceLayers[layer].visible = visible;
+    },
     diagnostics() {
       return {
         drawCalls: renderer.info.render.calls,
@@ -488,6 +505,11 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
         textures: renderer.info.memory.textures,
         detail: lowDetail ? 'low' : 'high',
         pooledAircraft: [...flightPool.values()].reduce((sum, pool) => sum + pool.length, 0),
+        surfaceLayers: {
+          'taxiway-labels': airportBuild.surfaceLayers['taxiway-labels'].visible,
+          'operational-zones': airportBuild.surfaceLayers['operational-zones'].visible,
+          hotspots: airportBuild.surfaceLayers.hotspots.visible,
+        },
       };
     },
     resize,
@@ -659,6 +681,7 @@ function buildAirport(root: THREE.Group, config: AirportConfig): AirportBuild {
   if (config.vectorData) addImportedAprons(root, config.vectorData.runtimeReference.aprons);
   const taxiMaterial = new THREE.MeshStandardMaterial({ color: 0x515b58, roughness: 0.96 });
   addTaxiNetwork(root, config.surfaceGraph, taxiMaterial);
+  const surfaceLayers = addSurfaceMapLayers(root, config);
   for (const node of config.surfaceGraph.nodes.filter((item) => item.kind === 'hold-short')) {
     const runway = node.runwayId === undefined ? undefined : config.runways[node.runwayId];
     if (runway) addHoldShortMarking(root, runway, new THREE.Vector3(node.position[0], node.position[1], 2));
@@ -709,7 +732,7 @@ function buildAirport(root: THREE.Group, config: AirportConfig): AirportBuild {
   top.castShadow = true;
   tower.add(top);
   root.add(tower);
-  return { runwayLights, runwayVisuals };
+  return { runwayLights, runwayVisuals, surfaceLayers };
 }
 
 function addImportedAprons(root: THREE.Group, aprons: NonNullable<AirportConfig['vectorData']>['runtimeReference']['aprons']): void {
@@ -1324,6 +1347,146 @@ function addTaxiNetwork(root: THREE.Group, graph: AirportConfig['surfaceGraph'],
   const taxi = new THREE.Mesh(geometry, material);
   taxi.receiveShadow = true;
   root.add(taxi);
+}
+
+function createMapLabel(label: string, tone: 'taxiway' | 'zone' | 'hotspot'): THREE.Sprite {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 72;
+  const context = canvas.getContext('2d');
+  const colors = tone === 'hotspot'
+    ? { background: 'rgba(70, 31, 31, 0.92)', border: 'rgba(240, 150, 140, 0.92)', text: '#ffe5dc' }
+    : tone === 'zone'
+      ? { background: 'rgba(26, 57, 60, 0.84)', border: 'rgba(141, 190, 177, 0.7)', text: '#e5f2e8' }
+      : { background: 'rgba(24, 49, 51, 0.92)', border: 'rgba(238, 194, 103, 0.86)', text: '#fff0c6' };
+  if (context) {
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = colors.background;
+    context.strokeStyle = colors.border;
+    context.lineWidth = 4;
+    context.beginPath();
+    context.roundRect(4, 4, canvas.width - 8, canvas.height - 8, 12);
+    context.fill();
+    context.stroke();
+    context.fillStyle = colors.text;
+    context.font = tone === 'taxiway' ? '800 38px Arial, sans-serif' : '700 24px Arial, sans-serif';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    const copy = label.length > 24 ? `${label.slice(0, 22)}…` : label;
+    context.fillText(copy, canvas.width / 2, canvas.height / 2 + 1);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false }));
+  const width = tone === 'taxiway' ? 5.4 : Math.min(14, Math.max(7, label.length * 0.5));
+  sprite.scale.set(width, tone === 'taxiway' ? 1.55 : 2.15, 1);
+  sprite.renderOrder = 9;
+  return sprite;
+}
+
+function addSurfaceMapLayers(root: THREE.Group, config: AirportConfig): Record<SurfaceLayer, THREE.Group> {
+  const graph = config.surfaceGraph;
+  const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+  const edgeById = new Map(graph.edges.map((edge) => [edge.id, edge]));
+  const taxiwayLabels = new THREE.Group();
+  taxiwayLabels.name = 'surface-layer-taxiway-labels';
+  const operationalZones = new THREE.Group();
+  operationalZones.name = 'surface-layer-operational-zones';
+  const hotspots = new THREE.Group();
+  hotspots.name = 'surface-layer-hotspots';
+
+  const taxiwaysByReference = new Map<string, typeof graph.taxiways>();
+  for (const taxiway of graph.taxiways) {
+    const reference = taxiway.reference?.trim().toUpperCase();
+    if (!reference || !/^[A-Z]$/.test(reference)) continue;
+    const entries = taxiwaysByReference.get(reference) ?? [];
+    entries.push(taxiway);
+    taxiwaysByReference.set(reference, entries);
+  }
+  for (const [reference, taxiways] of taxiwaysByReference) {
+    const edgeIds = new Set(taxiways.flatMap((taxiway) => taxiway.edgeIds));
+    const midpoints = [...edgeIds].flatMap((edgeId) => {
+      const edge = edgeById.get(edgeId);
+      const from = edge ? nodeById.get(edge.from) : undefined;
+      const to = edge ? nodeById.get(edge.to) : undefined;
+      return from && to ? [[(from.position[0] + to.position[0]) / 2, (from.position[1] + to.position[1]) / 2] as [number, number]] : [];
+    });
+    if (!midpoints.length) continue;
+    const center: [number, number] = [
+      midpoints.reduce((sum, point) => sum + point[0], 0) / midpoints.length,
+      midpoints.reduce((sum, point) => sum + point[1], 0) / midpoints.length,
+    ];
+    const position = midpoints.reduce((nearest, point) => distance2(point, center) < distance2(nearest, center) ? point : nearest);
+    const label = createMapLabel(reference, 'taxiway');
+    label.position.set(position[0], position[1], 3.2);
+    taxiwayLabels.add(label);
+  }
+
+  const zonePalette: Record<string, number> = {
+    'terminal-complex': 0x89b7b0,
+    'terminal-apron': 0xa7c9bd,
+    'cargo-ramp': 0xa590bc,
+    'general-aviation': 0x80a7c5,
+    'deicing-pad': 0x8cb8ca,
+    'holding-pad': 0xc3a975,
+    maintenance: 0xa8927b,
+    'remote-ramp': 0x8aa18b,
+    'perimeter-route': 0x718f91,
+  };
+  for (const zone of graph.zones) {
+    const shape = shapeFromRings(zone.rings);
+    if (!shape) continue;
+    const color = zonePalette[zone.kind] ?? COLORS.sage;
+    const mesh = new THREE.Mesh(
+      new THREE.ShapeGeometry(shape),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.19, depthWrite: false, side: THREE.DoubleSide }),
+    );
+    mesh.position.z = 1.96;
+    mesh.renderOrder = 5;
+    operationalZones.add(mesh);
+    const center = ringCenter(zone.rings[0]);
+    const label = createMapLabel(zone.name, 'zone');
+    label.position.set(center[0], center[1], 3.5);
+    operationalZones.add(label);
+  }
+
+  for (const hotspot of graph.hotspots) {
+    const shape = shapeFromRings(hotspot.rings);
+    if (!shape) continue;
+    const mesh = new THREE.Mesh(
+      new THREE.ShapeGeometry(shape),
+      new THREE.MeshBasicMaterial({ color: COLORS.rose, transparent: true, opacity: 0.28, depthWrite: false, side: THREE.DoubleSide }),
+    );
+    mesh.position.z = 2.04;
+    mesh.renderOrder = 7;
+    hotspots.add(mesh);
+    const center = ringCenter(hotspot.rings[0]);
+    const label = createMapLabel(hotspot.label, 'hotspot');
+    label.position.set(center[0], center[1], 3.8);
+    hotspots.add(label);
+  }
+
+  taxiwayLabels.visible = false;
+  operationalZones.visible = false;
+  hotspots.visible = false;
+  root.add(operationalZones, hotspots, taxiwayLabels);
+  return { 'taxiway-labels': taxiwayLabels, 'operational-zones': operationalZones, hotspots };
+}
+
+function ringCenter(ring: Array<[number, number]>): [number, number] {
+  if (!ring.length) return [0, 0];
+  const unique = ring.length > 1 && ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1]
+    ? ring.slice(0, -1)
+    : ring;
+  if (!unique.length) return [0, 0];
+  return [
+    unique.reduce((sum, point) => sum + point[0], 0) / unique.length,
+    unique.reduce((sum, point) => sum + point[1], 0) / unique.length,
+  ];
+}
+
+function distance2(first: [number, number], second: [number, number]): number {
+  return (first[0] - second[0]) ** 2 + (first[1] - second[1]) ** 2;
 }
 
 function disposeObject(object: THREE.Object3D): void {

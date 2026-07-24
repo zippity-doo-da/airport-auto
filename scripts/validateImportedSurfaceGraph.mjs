@@ -26,7 +26,9 @@ check(manifest.assetSha256 === sha256(osmText), "OSM surface checksum mismatch")
 check(manifest.graphSha256 === sha256(graphText), "surface graph checksum mismatch");
 check(osm.airport?.icaoId === "KORD", "OSM asset is not for KORD");
 check(graph.airportCode === "ORD", "surface graph is not for ORD");
-check(graph.schemaVersion === 1, "surface graph schemaVersion must be 1");
+check(osm.schemaVersion === 2, "OSM surface schemaVersion must be 2");
+check(graph.schemaVersion === 2, "surface graph schemaVersion must be 2");
+check(manifest.schemaVersion === 2, "surface manifest schemaVersion must be 2");
 check(
   osm.source?.license === "Open Data Commons Open Database License 1.0",
   "OSM ODbL license is missing",
@@ -115,10 +117,20 @@ for (const edge of graph.edges ?? []) {
       distance(from, to) > 0.001,
       `edge ${edge.id} has zero geometric length`,
     );
-  for (const wayId of edge.sourceWayIds ?? (edge.sourceWayId ? [edge.sourceWayId] : [])) {
+  const sourceWayIds = edge.sourceWayIds ?? (edge.sourceWayId ? [edge.sourceWayId] : []);
+  for (const wayId of sourceWayIds) {
     representedWays.add(wayId);
     check(sourceWays.has(wayId), `edge ${edge.id} references missing OSM way ${wayId}`);
   }
+  const sourceGrade = sourceWayIds.some((wayId) => sourceWays.get(wayId)?.bridge)
+    ? "bridge"
+    : sourceWayIds.some((wayId) => sourceWays.get(wayId)?.tunnel)
+      ? "tunnel"
+      : undefined;
+  check(
+    edge.gradeSeparation === sourceGrade,
+    `edge ${edge.id} grade separation ${edge.gradeSeparation ?? "none"} differs from source ${sourceGrade ?? "none"}`,
+  );
   if (edge.sourceWayId) {
     const geometricCrossings = edgeRunwayCrossings(edge, nodes, faa);
     const declaredCrossings = [...(edge.crossedRunwayIds ?? [])].sort(
@@ -180,6 +192,12 @@ for (const taxiway of graph.taxiways ?? []) {
   check(!taxiways.has(taxiway.id), `duplicate taxiway ${taxiway.id}`);
   taxiways.set(taxiway.id, taxiway);
   check(String(taxiway.name).trim(), `taxiway ${taxiway.id} has no name`);
+  check(
+    ["taxiway", "taxilane", "procedural"].includes(taxiway.sourceKind),
+    `taxiway ${taxiway.id} has unknown source kind ${taxiway.sourceKind}`,
+  );
+  if (taxiway.reference !== undefined)
+    check(String(taxiway.reference).trim(), `taxiway ${taxiway.id} has an empty reference`);
   for (const edgeId of taxiway.edgeIds)
     check(edges.has(edgeId), `taxiway ${taxiway.id} references edge ${edgeId}`);
 }
@@ -189,11 +207,57 @@ for (const edge of edges.values())
       taxiways.get(edge.taxiwayId)?.edgeIds.includes(edge.id),
       `edge ${edge.id} is not registered by taxiway ${edge.taxiwayId}`,
     );
+for (const reference of ["A", "B", "C", "G", "M", "N", "V", "Y"])
+  check(
+    [...taxiways.values()].some((taxiway) => taxiway.reference === reference),
+    `major named taxiway ${reference} is missing`,
+  );
+
+const zones = new Map();
+const validZoneKinds = new Set([
+  "terminal-complex",
+  "terminal-apron",
+  "cargo-ramp",
+  "general-aviation",
+  "deicing-pad",
+  "holding-pad",
+  "maintenance",
+  "remote-ramp",
+  "perimeter-route",
+]);
+const sourceFacilityIds = new Set([
+  ...faa.runtimeReference.aprons.map((apron) => apron.id),
+  ...faa.runtimeReference.obstacles.map((obstacle) => obstacle.id),
+]);
+for (const zone of graph.zones ?? []) {
+  check(!zones.has(zone.id), `duplicate operational zone ${zone.id}`);
+  zones.set(zone.id, zone);
+  check(validZoneKinds.has(zone.kind), `zone ${zone.id} has unknown kind ${zone.kind}`);
+  check(String(zone.name).trim(), `zone ${zone.id} has no name`);
+  check(["published", "derived"].includes(zone.classification), `zone ${zone.id} has unknown classification`);
+  for (const sourceFeatureId of zone.sourceFeatureIds)
+    check(sourceFacilityIds.has(sourceFeatureId), `zone ${zone.id} references missing FAA feature ${sourceFeatureId}`);
+  for (const edgeId of zone.edgeIds)
+    check(edges.has(edgeId), `zone ${zone.id} references missing edge ${edgeId}`);
+  for (const ring of zone.rings)
+    for (const point of ring) validatePoint(point, `zone ${zone.id} ring point`);
+}
+for (const kind of validZoneKinds)
+  check(
+    [...zones.values()].some((zone) => zone.kind === kind),
+    `ORD operational zones do not include ${kind}`,
+  );
 
 const stands = graph.stands ?? [];
 check(stands.length >= 24, `expected at least 24 stands, found ${stands.length}`);
 const standIds = new Set();
 const standNodes = new Set();
+const categoryWingspans = new Map([
+  ["regional", 28.7],
+  ["narrowbody", 35.8],
+  ["widebody", 64.8],
+  ["cargo", 64.8],
+]);
 let minimumStandSpacing = Infinity;
 for (const stand of stands) {
   check(!standIds.has(stand.id), `duplicate stand ${stand.id}`);
@@ -207,7 +271,51 @@ for (const stand of stands) {
       stand.position[1] === node?.position[1],
     `stand ${stand.id} position differs from its node`,
   );
+  check(nodes.has(stand.rampNodeId), `stand ${stand.id} has no ramp-access node`);
+  check(
+    [...edges.values()].some(
+      (edge) =>
+        (edge.from === stand.nodeId && edge.to === stand.rampNodeId)
+        || (edge.to === stand.nodeId && edge.from === stand.rampNodeId),
+    ),
+    `stand ${stand.id} has no lead-in edge to ${stand.rampNodeId}`,
+  );
+  const zone = zones.get(stand.zoneId);
+  check(zone, `stand ${stand.id} references missing zone ${stand.zoneId}`);
+  check(zone?.standIds.includes(stand.id), `stand ${stand.id} is not registered by zone ${stand.zoneId}`);
+  if (zone?.rings.length && zone.classification === "published")
+    check(pointInRings(stand.position, zone.rings), `stand ${stand.id} lies outside zone ${stand.zoneId}`);
+  check(Number.isFinite(stand.maximumWingspanM), `stand ${stand.id} has no wingspan limit`);
+  check(
+    Array.isArray(stand.supportedCategories) && stand.supportedCategories.length,
+    `stand ${stand.id} has no compatible categories`,
+  );
+  for (const category of stand.supportedCategories ?? []) {
+    check(categoryWingspans.has(category), `stand ${stand.id} has unknown category ${category}`);
+    check(
+      stand.maximumWingspanM >= (categoryWingspans.get(category) ?? Infinity),
+      `stand ${stand.id} claims ${category} support above its wingspan limit`,
+    );
+  }
+  check(
+    ["left", "right", "straight"].includes(stand.pushbackDirection),
+    `stand ${stand.id} has invalid pushback direction`,
+  );
+  check(Number.isFinite(stand.pushbackHeading), `stand ${stand.id} has invalid pushback heading`);
+  if (stand.sourceParkingNodeId !== undefined)
+    check(
+      sourceNodes.get(stand.sourceParkingNodeId)?.parkingPosition,
+      `stand ${stand.id} references a non-parking OSM node`,
+    );
 }
+for (const zone of zones.values())
+  for (const standId of zone.standIds)
+    check(standIds.has(standId), `zone ${zone.id} references missing stand ${standId}`);
+for (const category of categoryWingspans.keys())
+  check(
+    stands.filter((stand) => stand.supportedCategories.includes(category)).length >= 2,
+    `ORD has fewer than two ${category}-compatible stands`,
+  );
 for (let first = 0; first < stands.length; first += 1)
   for (let second = first + 1; second < stands.length; second += 1)
     minimumStandSpacing = Math.min(
@@ -242,8 +350,77 @@ for (const access of graph.runwayAccess ?? []) {
   );
 }
 
+const controlPoints = new Map();
+const validControlKinds = new Set([
+  "hold-short",
+  "runway-entry",
+  "runway-crossing",
+  "line-up",
+  "departure-release",
+]);
+for (const point of graph.controlPoints ?? []) {
+  check(!controlPoints.has(point.id), `duplicate control point ${point.id}`);
+  controlPoints.set(point.id, point);
+  check(validControlKinds.has(point.kind), `control point ${point.id} has unknown kind ${point.kind}`);
+  validatePoint(point.position, `control point ${point.id}`);
+  check(faa.runtimeReference.runways[point.runwayId], `control point ${point.id} has invalid runway`);
+  if (point.nodeId) {
+    check(nodes.has(point.nodeId), `control point ${point.id} references missing node ${point.nodeId}`);
+    check(
+      JSON.stringify(nodes.get(point.nodeId)?.position) === JSON.stringify(point.position),
+      `control point ${point.id} differs from node ${point.nodeId}`,
+    );
+  }
+  if (point.edgeId) check(edges.has(point.edgeId), `control point ${point.id} references missing edge ${point.edgeId}`);
+  if (point.kind === "hold-short") {
+    const runwayFeature = runwayFeatureForIndex(faa, point.runwayId);
+    check(
+      !pointInGeometry(point.position.map((value) => value * 38), runwayFeature.geometry),
+      `hold-short point ${point.id} lies inside runway pavement`,
+    );
+  }
+}
+for (const access of graph.runwayAccess ?? []) {
+  for (const kind of ["hold-short", "runway-entry", "line-up", "departure-release"])
+    check(
+      [...controlPoints.values()].some(
+        (point) => point.runwayId === access.runwayId && point.end === access.end && point.kind === kind,
+      ),
+      `runway ${access.runwayId}:${access.end} has no ${kind} control point`,
+    );
+}
+const crossingIds = new Set(
+  [...edges.values()].flatMap((edge) => edge.crossingIds ?? []),
+);
+for (const crossingId of crossingIds) {
+  const points = [...controlPoints.values()].filter((point) => point.crossingId === crossingId);
+  check(points.filter((point) => point.kind === "hold-short").length >= 2, `${crossingId} has fewer than two hold points`);
+  check(points.filter((point) => point.kind === "runway-crossing").length >= 2, `${crossingId} has fewer than two crossing points`);
+}
+check(crossingIds.size >= 40, `only ${crossingIds.size} through-crossing groups have explicit control points`);
+
+const hotspots = graph.hotspots ?? [];
+check(hotspots.length === faa.layers.hotspots.length, "FAA hot-spot count differs from the surface graph");
+for (const hotspot of hotspots) {
+  const source = faa.layers.hotspots.find((feature) => feature.id === hotspot.sourceFeatureId);
+  check(source, `hot spot ${hotspot.id} references missing FAA feature ${hotspot.sourceFeatureId}`);
+  check(hotspot.description === source?.properties.description, `hot spot ${hotspot.id} description differs from FAA source`);
+  check(hotspot.nodeIds.length > 0, `hot spot ${hotspot.id} contains no graph nodes`);
+  check(hotspot.edgeIds.length > 0, `hot spot ${hotspot.id} contains no graph edges`);
+  for (const nodeId of hotspot.nodeIds)
+    check(nodes.has(nodeId), `hot spot ${hotspot.id} references missing node ${nodeId}`);
+  for (const edgeId of hotspot.edgeIds)
+    check(edges.has(edgeId), `hot spot ${hotspot.id} references missing edge ${edgeId}`);
+}
+
 const adjacency = buildAdjacency(graph.edges, true);
 let routeChecks = 0;
+const categoryTakeoffMeters = new Map([
+  ["regional", 1_650],
+  ["narrowbody", 2_250],
+  ["widebody", 2_650],
+  ["cargo", 3_050],
+]);
 for (const stand of stands) {
   const reachable = reachableNodes(adjacency, stand.nodeId);
   for (const access of graph.runwayAccess) {
@@ -252,6 +429,19 @@ for (const stand of stands) {
       `${stand.id} cannot reach runway ${access.runwayId}:${access.end}`,
     );
     routeChecks += 1;
+  }
+  for (const category of stand.supportedCategories) {
+    const compatibleRunways = faa.runtimeReference.runways
+      .map((runway, runwayId) => ({ ...runway, runwayId }))
+      .filter((runway) => runway.role === "departure" || runway.role === "mixed")
+      .filter((runway) => runway.sourceLengthMeters >= categoryTakeoffMeters.get(category));
+    check(
+      compatibleRunways.some((runway) =>
+        graph.runwayAccess.some(
+          (access) => access.runwayId === runway.runwayId && reachable.has(access.holdShortNodeId),
+        )),
+      `${stand.id} has no reachable ${category}-compatible departure runway`,
+    );
   }
 }
 const reverseAdjacency = buildAdjacency(
@@ -299,6 +489,13 @@ check(manifest.counts.sourceWays === osm.ways.length, "manifest source-way count
 check(manifest.counts.graphNodes === graph.nodes.length, "manifest graph-node count differs");
 check(manifest.counts.graphEdges === graph.edges.length, "manifest graph-edge count differs");
 check(manifest.counts.stands === stands.length, "manifest stand count differs");
+check(manifest.counts.controlPoints === controlPoints.size, "manifest control-point count differs");
+check(manifest.counts.operationalZones === zones.size, "manifest operational-zone count differs");
+check(manifest.counts.hotspots === hotspots.length, "manifest hot-spot count differs");
+check(
+  manifest.counts.gradeSeparatedEdges === graph.edges.filter((edge) => edge.gradeSeparation).length,
+  "manifest grade-separated edge count differs",
+);
 check(
   manifest.counts.runwayCrossingEdges === crossingEdges,
   "manifest crossing-edge count differs",
@@ -309,7 +506,7 @@ if (errors.length) {
   process.exitCode = 1;
 } else {
   process.stdout.write(
-    `KORD imported surface graph valid: ${nodes.size} nodes, ${edges.size} edges, ${taxiways.size} named/source routes, ${stands.length} stands, ${crossingEdges} protected crossing edges, ${routeChecks} stand/runway routes\n`,
+    `KORD imported surface graph valid: ${nodes.size} nodes, ${edges.size} edges, ${taxiways.size} named/source routes, ${stands.length} compatible stands, ${zones.size} operational zones, ${controlPoints.size} control points, ${hotspots.length} FAA hot spots, ${crossingEdges} protected crossing edges, ${routeChecks} stand/runway routes\n`,
   );
 }
 
@@ -448,6 +645,11 @@ function pointInRing([x, y], ring) {
       inside = !inside;
   }
   return inside;
+}
+
+function pointInRings(point, rings) {
+  if (!rings?.length || !pointInRing(point, rings[0])) return false;
+  return !rings.slice(1).some((ring) => pointInRing(point, ring));
 }
 
 function addArray(map, key, value) {

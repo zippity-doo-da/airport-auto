@@ -42,7 +42,11 @@ The current committed asset records its own effective window. Reimporting agains
 
 ## O'Hare surface centerlines and airport surroundings
 
-O'Hare taxiway, taxilane, and runway centerlines use OpenStreetMap data obtained through a bounded, saved Overpass query. The resulting ODbL asset is kept separate from FAA airfield geometry. The importer converts shared OSM nodes into a routable graph, removes building conflicts, maps geometric runway crossings to protected FAA runway IDs, and records every deliberately excluded way or segment.
+O'Hare taxiway, taxilane, runway centerline, and available parking-position data use OpenStreetMap data obtained through a bounded, saved Overpass query. The resulting ODbL asset is kept separate from FAA airfield geometry. The importer converts shared OSM nodes into a routable graph, preserves direction and bridge/tunnel semantics where present, removes building conflicts, maps geometric runway crossings to protected FAA runway IDs, and records every deliberately excluded way or segment.
+
+The generated surface graph currently uses schema version 2. It compiles named taxiways, compatible stands and pushback headings, terminal/ramp/cargo/maintenance/deicing/holding/perimeter operational zones, explicit runway-entry/line-up/departure-release controls, and paired hold-short/runway-crossing points. FAA hot-spot polygons and descriptions are joined to affected graph nodes and edges. All through-crossing components must expose physically distinct controls on opposite approach sides; cyclic source geometry is handled without inventing a midfield hold point.
+
+The committed KORD graph contains 2,799 nodes, 3,524 edges, 939 named/source route groups, 25 active stands, 248 control points, 35 operational zones, two FAA hot spots, two sourced bridge edges, and 315 runway-crossing edges. The current cached OSM extract contains no usable standalone parking-position nodes, so active stand positions are deterministic ramp-endpoint approximations and remain part of the airport's `ATC schematic` limitation.
 
 Roads, land use, rail, and water around named airports will use the same bounded-query policy in a future context asset; they are not part of the current surface graph.
 
@@ -53,7 +57,7 @@ OpenStreetMap data is licensed under the Open Data Commons Open Database License
 - make the derived context database available under the ODbL when distribution triggers share-alike;
 - avoid copying OpenStreetMap's cartographic style, tiles, or visual assets.
 
-The OSM surface asset, exact query, ODbL notice, and attribution are shipped with the game. The surrounding Chicago landscape remains procedural until a separately versioned context importer and layer controls are complete. ORD remains labeled `ATC schematic` until the full milestone acceptance gate passes.
+The OSM surface asset, exact query, ODbL notice, and attribution are shipped with the game. Taxiway IDs, operational areas, FAA hot spots, and runway labels are optional clean-map layers that begin hidden. The surrounding Chicago landscape remains procedural until a separately versioned context importer and context-layer controls are complete. ORD remains labeled `ATC schematic` until the full milestone acceptance gate passes.
 
 ## Coordinate conversion
 
@@ -77,4 +81,4 @@ npm run test:airport-data
 
 `import:ord` refreshes FAA data and deterministically rebuilds the graph from the committed OSM source asset. `import:ord:refresh` deliberately contacts Overpass to update that source asset; review its timestamp, query, geometry diff, exclusions, and ODbL metadata before committing.
 
-The validator rejects missing provenance, duplicate or unsorted feature IDs, unexpected geometry, non-finite coordinates, open or degenerate polygon rings, out-of-bounds features, incorrect layer counts, and asset/manifest checksum drift. Surface-graph validation is a separate acceptance gate: raw pavement polygons are not treated as safe routable centerlines until topology generation and clearance checks pass.
+The validator rejects missing provenance, duplicate or unsorted feature IDs, unexpected geometry, non-finite coordinates, open or degenerate polygon rings, out-of-bounds features, incorrect layer counts, and asset/manifest checksum drift. Surface-graph validation separately checks topology, named taxiways, bridge/tunnel preservation, stand compatibility and spacing, runway reachability, operational-zone references, exact FAA hot-spot descriptions, physical crossing-control pairs, and manifest counts. Raw pavement polygons are never treated as safe routable centerlines until those topology and clearance gates pass.

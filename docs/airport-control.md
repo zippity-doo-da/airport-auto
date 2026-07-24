@@ -54,6 +54,9 @@ airportControl.request({ action: 'resetCamera' })
 airportControl.request({ action: 'setNightMode', enabled: true })
 airportControl.request({ action: 'setRadarVisible', enabled: true })
 airportControl.request({ action: 'setRunwayLabelsVisible', enabled: false })
+airportControl.request({ action: 'setSurfaceLayerVisible', layer: 'taxiway-labels', enabled: true })
+airportControl.request({ action: 'setSurfaceLayerVisible', layer: 'operational-zones', enabled: true })
+airportControl.request({ action: 'setSurfaceLayerVisible', layer: 'hotspots', enabled: true })
 ```
 
 Flight commands:
@@ -86,7 +89,7 @@ In manual mode, the normal departure sequence is: clear every required crossing,
 
 ## Snapshot and events
 
-Snapshots include the airport and seed, simulation clock, mode, speed, station, scenario, weather, active runway ends, closure, runway roles and reservations, proposed Assisted clearances, the complete surface graph, renderer diagnostics, safety metrics, and every flight's route, clearances, model data, authoritative pose, rendered nose-up attitude, kinematics, fuel, trajectory stage, and hold reason.
+Snapshots include the airport and seed, simulation clock, mode, speed, station, scenario, weather, active runway configuration and ends, closure, runway roles and reservations, proposed Assisted clearances, the complete surface graph, renderer/map-layer diagnostics, safety metrics, and every flight's route, clearances, model data, authoritative pose, rendered nose-up attitude, kinematics, fuel, trajectory stage, and hold reason. Surface graph schema v2 includes stand compatibility, pushback/ramp metadata, named routes, bridge/tunnel semantics, explicit control points, operational zones, and FAA hot spots. A taxiing flight reports its exact `crossingHoldPointId` when stopped for a runway crossing.
 
 Events have a monotonic sequence number and include command payloads and acceptance, flight/runway/taxiway context, and safety-hold or go-around details. The in-page log retains the latest 500 events.
 

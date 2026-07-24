@@ -71,7 +71,7 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 ## Post-2.1 — ORD vector and movement foundation
 
 - [x] FAA Airport Data and Information Portal geometry supplies all eight ORD runways, 743 taxiway polygons, 30 aprons, 32 buildings, hot spots, stopways, beacons, and wind indicators as a versioned offline asset.
-- [x] A normalized OpenStreetMap surface import supplies 2,799 routable nodes, 3,524 edges, 939 named/source route groups, 25 stands, and 315 protected runway-crossing edges without any live map dependency.
+- [x] A normalized OpenStreetMap surface import supplies 2,799 routable nodes, 3,524 edges, 939 named/source route groups, 25 compatibility-checked stands, and 315 protected runway-crossing edges without any live map dependency.
 - [x] Source URL, provider, license, attribution, retrieval timestamp, coordinate system, bounds, checksums, exclusions, and the 51 m FAA-building/pavement clearance rule are preserved and validated.
 - [x] ORD runtime geometry now uses the sourced runway dimensions, apron rings, terminal/control-tower locations, and every FAA building footprint.
 - [x] Rendering follows the exact simulation surface segments; imported aprons and buildings retain the muted miniature style while ORD remains explicitly labeled schematic.
@@ -79,13 +79,18 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Taxi aircraft brake to a generated hold-short point before each uncleared runway crossing; Auto sequences safe clearances and Manual requires explicit Ground approval.
 - [x] Landing rollout leaves the centerline on a smooth path to the assigned OSM exit, and departure lineup begins at the actual hold-short node without a positional jump.
 - [x] Landing flare/touchdown reaches roughly 10.3° nose-up and takeoff rotation reaches roughly 10.9° nose-up in either runway direction.
+- [x] Surface schema v2 records 248 explicit control points, 35 operational zones, two current FAA hot spots, two sourced taxiway-bridge edges, stand compatibility, pushback headings, and ramp access.
+- [x] Cyclic and bidirectional runway-crossing geometry resolves distinct physical hold-short points on both approach sides; reverse taxi routes use the same authoritative crossing controls.
+- [x] ORD selects coherent east-flow or west-flow runway ends from wind, holds the current configuration while protected traffic is active, and reports the active configuration in the HUD and control snapshot.
+- [x] Taxiway IDs, operational areas, and FAA hot spots are optional muted map layers; all start hidden and can be changed through the normal UI or typed control API.
+- [x] Imported stands maintain safe visual separation, reject incompatible aircraft, never reuse an occupied slot, and collectively pass 800 compatible stand-to-runway route checks.
 - [x] Deterministic import, topology, route-connectivity, fixed-step, trajectory, Auto/Watch Rush, collision, obstacle, desktop, and mobile browser gates cover the sourced layout.
 
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.
 
-Current focus remains O’Hare. Its release graph combines FAA runway/apron/building geometry with a normalized OSM surface graph and real source taxiway names. It remains schematic because operational zones, stand compatibility, published hot spots, full surrounding Chicago context, and complete configuration procedures are still roadmap work.
+Current focus remains O’Hare. Its release graph combines FAA runway/apron/building/hot-spot geometry with a normalized OSM surface graph, real source taxiway names, operational zones, stand compatibility, and east/west flow configurations. It remains schematic because passenger concourses and sourced gate positions, full surrounding Chicago context, airport-boundary presentation, less-common runway configurations, and complete procedures are still roadmap work.
 
 ## Acceptance gates
 

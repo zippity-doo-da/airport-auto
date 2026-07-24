@@ -93,6 +93,7 @@ export interface Flight {
   crossingClearances?: number[];
   crossingClearanceIds?: string[];
   crossingHoldRunway?: number;
+  crossingHoldPointId?: string;
   controlPace?: number;
   controlHold?: boolean;
   automaticHold?: boolean;
@@ -174,6 +175,7 @@ export interface AirportState {
   station: ControllerStation;
   weather: WeatherState;
   scenario: TrafficScenario;
+  runwayConfigurationId: string;
   activeRunwayEnds: Record<number, -1 | 1>;
   closedRunway: number | null;
 }

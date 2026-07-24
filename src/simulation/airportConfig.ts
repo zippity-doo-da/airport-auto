@@ -18,6 +18,15 @@ export interface RunwayConfig {
   designation?: [string, string];
 }
 
+export interface AirportRunwayConfiguration {
+  id: string;
+  name: string;
+  description: string;
+  arrivalRunwayIds: number[];
+  departureRunwayIds: number[];
+  operatingEnds: Record<number, -1 | 1>;
+}
+
 export interface AirportConfig {
   seed: number;
   name: string;
@@ -33,11 +42,13 @@ export interface AirportConfig {
   trafficCap: number;
   vectorData?: AirportVectorManifest;
   surfaceData?: AirportSurfaceDataManifest;
+  runwayConfigurations: AirportRunwayConfiguration[];
+  defaultRunwayConfigurationId: string;
   obstacles: AirportObstacleEnvelope[];
   surfaceGraph: AirportSurfaceGraph;
 }
 
-type AirportConfigSource = Omit<AirportConfig, 'obstacles' | 'surfaceGraph'>;
+type AirportConfigSource = Omit<AirportConfig, 'obstacles' | 'surfaceGraph' | 'runwayConfigurations' | 'defaultRunwayConfigurationId'>;
 
 type HubProfile = {
   code: string;
@@ -232,11 +243,47 @@ function withSurfaceGraph(config: AirportConfigSource): AirportConfig {
   const terminal = resolveAirportTerminal(config);
   const geometry = { ...config, terminal };
   const importedSurfaceGraph = importedAirportSurfaceGraph(config.code, config.seed);
+  const runwayConfigurations = buildRunwayConfigurations(config.code, config.runways);
   return {
     ...geometry,
+    runwayConfigurations,
+    defaultRunwayConfigurationId: runwayConfigurations[0].id,
     obstacles: buildAirportObstacleEnvelopes(geometry),
     surfaceGraph: importedSurfaceGraph ?? buildAirportSurfaceGraph(geometry),
   };
+}
+
+function buildRunwayConfigurations(code: string, runways: RunwayConfig[]): AirportRunwayConfiguration[] {
+  const arrivals = runways
+    .filter((runway) => runway.role === 'arrival' || runway.role === 'mixed')
+    .map((runway) => runway.id);
+  const departures = runways
+    .filter((runway) => runway.role === 'departure' || runway.role === 'mixed')
+    .map((runway) => runway.id);
+  const configuration = (
+    id: string,
+    name: string,
+    description: string,
+    end: -1 | 1,
+  ): AirportRunwayConfiguration => ({
+    id,
+    name,
+    description,
+    arrivalRunwayIds: [...arrivals],
+    departureRunwayIds: [...departures],
+    operatingEnds: Object.fromEntries(runways.map((runway) => [runway.id, end])) as Record<number, -1 | 1>,
+  });
+  if (code === 'ORD') {
+    return [
+      configuration('ORD-WEST-FLOW', 'West flow', 'Arrivals use 27/28 ends; departures roll westbound on the parallel system.', 1),
+      configuration('ORD-EAST-FLOW', 'East flow', 'Arrivals use 09/10 ends; departures roll eastbound on the parallel system.', -1),
+    ];
+  }
+  const defaultEnd = runways.find((runway) => runway.role !== 'inactive')?.landingEnd ?? 1;
+  return [
+    configuration(`${code}-PRIMARY`, 'Primary flow', 'Published schematic runway roles and their primary operating ends.', defaultEnd),
+    configuration(`${code}-RECIPROCAL`, 'Reciprocal flow', 'The reciprocal operating ends for a wind reversal.', defaultEnd === 1 ? -1 : 1),
+  ];
 }
 
 function rotate(point: [number, number], angle: number): [number, number] {

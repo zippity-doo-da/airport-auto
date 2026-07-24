@@ -2,15 +2,16 @@ import { build } from 'esbuild';
 
 const validationSource = `
 import { generateAirportConfig, generateHubConfig, HUB_AIRPORTS } from './src/simulation/airportConfig.ts';
+import { aircraftProfile } from './src/simulation/aircraftProfiles.ts';
 import { FixedStepSimulationHarness } from './src/simulation/fixedStepHarness.ts';
-import { sampleSurfaceRoute, surfaceRouteCrossingWindows, surfaceRouteForFlight, validateAirportSurfaceGraph } from './src/simulation/surfaceGraph.ts';
+import { sampleSurfaceRoute, surfaceRouteCrossingWindows, surfaceRouteForFlight, surfaceStandSupportsAircraft, validateAirportSurfaceGraph } from './src/simulation/surfaceGraph.ts';
 
 const configs = [
   ...Array.from({ length: 64 }, (_, index) => generateAirportConfig(10_000 + index * 97)),
   ...HUB_AIRPORTS.map((_, index) => generateHubConfig(index)),
 ];
 
-const totals = { airports: configs.length, nodes: 0, edges: 0, taxiways: 0, stands: 0, routes: 0, trafficRuns: 0, simulatedMinutes: 0 };
+const totals = { airports: configs.length, nodes: 0, edges: 0, taxiways: 0, stands: 0, controlPoints: 0, zones: 0, hotspots: 0, gradeSeparatedEdges: 0, routes: 0, trafficRuns: 0, simulatedMinutes: 0 };
 for (const config of configs) {
   const validation = validateAirportSurfaceGraph(config);
   if (!validation.valid) throw new Error(config.code + ': ' + validation.errors.join('; '));
@@ -18,6 +19,10 @@ for (const config of configs) {
   totals.edges += validation.counts.edges;
   totals.taxiways += validation.counts.taxiways;
   totals.stands += validation.counts.stands;
+  totals.controlPoints += validation.counts.controlPoints;
+  totals.zones += validation.counts.zones;
+  totals.hotspots += validation.counts.hotspots;
+  totals.gradeSeparatedEdges += validation.counts.gradeSeparatedEdges;
   if (validation.counts.intersections < 1) throw new Error(config.code + ': graph has no intersections');
   if (validation.counts.holdShorts !== config.runways.length * 2) throw new Error(config.code + ': hold-short count does not cover every runway end');
 
@@ -44,6 +49,9 @@ for (const config of configs) {
             if (!(crossing.holdProgress < crossing.entryProgress && crossing.entryProgress < crossing.exitProgress)) {
               throw new Error(config.code + ': ' + phase + ' route has an invalid hold/crossing window ' + JSON.stringify(crossing));
             }
+            if (crossing.crossingId && (!crossing.holdPointId || !crossing.crossingPointId)) {
+              throw new Error(config.code + ': physical crossing window is missing its control points ' + JSON.stringify(crossing));
+            }
           }
           for (const progress of [0, 0.25, 0.5, 0.75, 1]) {
             const sample = sampleSurfaceRoute(config.surfaceGraph, route.nodeIds, progress);
@@ -55,6 +63,24 @@ for (const config of configs) {
         }
       }
     }
+  }
+
+  if (config.code === 'ORD') {
+    const taxiwayReferences = new Set(config.surfaceGraph.taxiways.map((taxiway) => taxiway.reference).filter(Boolean));
+    for (const reference of ['A', 'B', 'C', 'G', 'M', 'N', 'V', 'Y']) {
+      if (!taxiwayReferences.has(reference)) throw new Error('ORD: missing major taxiway ' + reference);
+    }
+    if (config.surfaceGraph.schemaVersion !== 2) throw new Error('ORD: imported surface graph is not schema v2');
+    if (validation.counts.hotspots !== 2) throw new Error('ORD: expected two FAA hot spots');
+    if (validation.counts.gradeSeparatedEdges !== 2) throw new Error('ORD: expected two sourced bridge edges');
+    if (validation.counts.controlPoints < 200) throw new Error('ORD: imported control point set is incomplete');
+    const zoneKinds = new Set(config.surfaceGraph.zones.map((zone) => zone.kind));
+    for (const kind of ['terminal-complex', 'terminal-apron', 'cargo-ramp', 'general-aviation', 'deicing-pad', 'holding-pad', 'maintenance', 'remote-ramp', 'perimeter-route']) {
+      if (!zoneKinds.has(kind)) throw new Error('ORD: missing operational zone kind ' + kind);
+    }
+    if (config.runwayConfigurations.length !== 2) throw new Error('ORD: expected west-flow and east-flow configurations');
+    if (!config.runwayConfigurations.some((configuration) => configuration.id === 'ORD-WEST-FLOW')) throw new Error('ORD: west-flow configuration missing');
+    if (!config.runwayConfigurations.some((configuration) => configuration.id === 'ORD-EAST-FLOW')) throw new Error('ORD: east-flow configuration missing');
   }
 }
 
@@ -95,6 +121,11 @@ for (const config of trafficConfigs) {
   }
   for (const flight of simulation.state.flights.filter((item) => item.phase === 'taxi-in' || item.phase === 'taxi-out' || item.phase === 'resting')) {
     if (!flight.surfaceRoute?.length || !flight.surfaceNode) throw new Error(config.code + ': surface flight ' + flight.id + ' has no graph route');
+    const stand = config.surfaceGraph.stands.find((item) => item.slot === flight.gateSlot);
+    const profile = aircraftProfile(flight.aircraft);
+    if (!stand || !surfaceStandSupportsAircraft(stand, profile.category, profile.wingspanM)) {
+      throw new Error(config.code + ': surface flight ' + flight.id + ' was assigned an incompatible stand');
+    }
   }
   totals.trafficRuns += 1;
   totals.simulatedMinutes += ticks * 0.1 / 60;

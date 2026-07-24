@@ -15,6 +15,16 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   expect(initial.airport.vectorData?.attribution).toContain('Federal Aviation Administration');
   expect(initial.airport.surfaceData?.counts.stands).toBeGreaterThanOrEqual(24);
   expect(initial.airport.surfaceData?.attribution).toContain('OpenStreetMap contributors');
+  expect(initial.surfaceGraph.schemaVersion).toBe(2);
+  expect(initial.surfaceGraph.hotspots).toHaveLength(2);
+  expect(initial.surfaceGraph.controlPoints.length).toBeGreaterThanOrEqual(200);
+  expect(initial.surfaceGraph.edges.filter((edge) => edge.gradeSeparation === 'bridge')).toHaveLength(2);
+  const zoneKinds = new Set(initial.surfaceGraph.zones.map((zone) => zone.kind));
+  for (const kind of ['terminal-complex', 'terminal-apron', 'cargo-ramp', 'general-aviation', 'deicing-pad', 'holding-pad', 'maintenance', 'remote-ramp', 'perimeter-route']) {
+    expect(zoneKinds.has(kind)).toBeTruthy();
+  }
+  expect(initial.runwayConfigurations.map((configuration) => configuration.id)).toEqual(['ORD-WEST-FLOW', 'ORD-EAST-FLOW']);
+  expect(initial.renderer.surfaceLayers).toEqual({ 'taxiway-labels': false, 'operational-zones': false, hotspots: false });
   expect(initial.flights.some((flight) => flight.phase === 'approach')).toBeTruthy();
   expect(initial.flights.some((flight) => flight.phase === 'taxi-out' || flight.phase === 'resting')).toBeTruthy();
   expect(initial.traffic.collisions).toHaveLength(0);
@@ -53,6 +63,12 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await page.locator('.advanced-tools summary').click();
   await expect(page.locator('#map-data-version')).toContainText('FAA geometry + OSM surface graph');
   await expect(page.locator('#map-data-attribution')).toContainText('not for navigation');
+  const hotspotLayer = page.locator('input[data-surface-layer="hotspots"]');
+  await expect(hotspotLayer).not.toBeChecked();
+  await hotspotLayer.check();
+  expect((await page.evaluate(() => window.airportControl.snapshot())).renderer.surfaceLayers.hotspots).toBeTruthy();
+  await page.evaluate(() => window.airportControl.command({ action: 'resetCamera' }));
+  await page.waitForTimeout(250);
   await page.locator('#station-select').selectOption('ground');
   await expect(page.locator('#flight-strip-count')).toContainText('on frequency');
   await page.screenshot({ path: testInfo.outputPath('assisted-ord.png'), fullPage: true });

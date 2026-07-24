@@ -3,13 +3,14 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const WORLD_METERS_PER_UNIT = 38;
 const OSM_LICENSE = "Open Data Commons Open Database License 1.0";
 const OSM_ATTRIBUTION = "© OpenStreetMap contributors";
 const OSM_COPYRIGHT_URL = "https://www.openstreetmap.org/copyright";
 const DEFAULT_ENDPOINT = "https://overpass-api.de/api/interpreter";
 const MINIMUM_BUILDING_CLEARANCE_METERS = 51;
+const graphNodeIndexes = new WeakMap();
 
 async function main() {
   const options = parseArguments(process.argv.slice(2));
@@ -81,6 +82,10 @@ async function main() {
       taxiways: graph.taxiways.length,
       stands: graph.stands.length,
       runwayAccess: graph.runwayAccess.length,
+      controlPoints: graph.controlPoints.length,
+      operationalZones: graph.zones.length,
+      hotspots: graph.hotspots.length,
+      gradeSeparatedEdges: graph.edges.filter((edge) => edge.gradeSeparation).length,
       runwayCrossingEdges: graph.edges.filter(
         (edge) => edge.kind === "runway-access" && edge.sourceWayId,
       ).length,
@@ -222,7 +227,12 @@ function normalizeOverpass(response, faa, options, query) {
       nodeIds: [...way.nodes],
     }))
     .sort((first, second) => first.id - second.id);
-  const usedNodeIds = new Set(ways.flatMap((way) => way.nodeIds));
+  const usedNodeIds = new Set([
+    ...ways.flatMap((way) => way.nodeIds),
+    ...[...rawNodes.values()]
+      .filter((node) => node.tags?.aeroway === "parking_position")
+      .map((node) => node.id),
+  ]);
   const nodes = [...usedNodeIds]
     .map((id) => {
       const node = rawNodes.get(id);
@@ -295,6 +305,9 @@ function buildSurfaceGraph(surface, faa) {
         if (!existing.ref && way.ref) existing.ref = way.ref;
         if (existing.kind === "taxilane" && way.kind === "taxiway")
           existing.kind = "taxiway";
+        existing.bridge ||= way.bridge;
+        existing.tunnel ||= way.tunnel;
+        existing.oneWay ||= way.oneWay;
         continue;
       }
       const candidate = { from, to, wayId: way.id, ...way };
@@ -407,6 +420,11 @@ function buildSurfaceGraph(surface, faa) {
         3,
       ),
       taxiwayId,
+      ...(sourceEdge.bridge
+        ? { gradeSeparation: "bridge" }
+        : sourceEdge.tunnel
+          ? { gradeSeparation: "tunnel" }
+          : {}),
       ...(crossing
         ? {
             runwayId: crossing.index,
@@ -417,7 +435,13 @@ function buildSurfaceGraph(surface, faa) {
     edges.push(edge);
     let taxiway = taxiwayMap.get(taxiwayId);
     if (!taxiway) {
-      taxiway = { id: taxiwayId, name: taxiwayName, edgeIds: [] };
+      taxiway = {
+        id: taxiwayId,
+        name: taxiwayName,
+        edgeIds: [],
+        ...(sourceEdge.ref ? { reference: sourceEdge.ref } : {}),
+        sourceKind: sourceEdge.kind,
+      };
       taxiwayMap.set(taxiwayId, taxiway);
     }
     taxiway.edgeIds.push(edge.id);
@@ -425,17 +449,32 @@ function buildSurfaceGraph(surface, faa) {
       if (!node.taxiwayIds.includes(taxiwayId)) node.taxiwayIds.push(taxiwayId);
   }
 
+  edgeSequence = attachParkingPositions(
+    surface,
+    faa,
+    nodeMap,
+    edges,
+    taxiwayMap,
+    edgeSequence,
+  );
+
   const degree = nodeDegrees(edges);
   for (const node of nodeMap.values())
     if ((degree.get(node.id) ?? 0) >= 3) node.kind = "intersection";
+  const zones = buildOperationalZones(faa, nodeMap, edges);
   const stands = selectStands(
     nodeMap,
     edges,
     degree,
     surface,
     faa,
+    zones,
     48,
   );
+  for (const stand of stands) {
+    const zone = zones.find((candidate) => candidate.id === stand.zoneId);
+    if (zone) zone.standIds.push(stand.id);
+  }
   const runwayAccess = [];
   for (const { index, runway, feature } of runwayFeatures) {
     if (!feature) throw new Error(`FAA runway feature ${runway.runwayId} is missing`);
@@ -499,11 +538,14 @@ function buildSurfaceGraph(surface, faa) {
   }
 
   for (const node of nodeMap.values()) node.taxiwayIds.sort();
+  zones.push(...buildPerimeterRouteZones(nodeMap, edges));
+  const controlPoints = buildSurfaceControlPoints(nodeMap, edges, runwayAccess, faa);
+  const hotspots = buildSurfaceHotspots(faa, nodeMap, edges);
   return {
     excludedWays,
     excludedSegments,
     graph: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       airportCode: "ORD",
       seed: 10_004,
       source: {
@@ -518,6 +560,9 @@ function buildSurfaceGraph(surface, faa) {
       ),
       stands,
       runwayAccess,
+      controlPoints,
+      zones,
+      hotspots,
     },
   };
 }
@@ -591,7 +636,402 @@ function connectedComponents(edges) {
   return components;
 }
 
-function selectStands(nodeMap, edges, degree, surface, faa, maximum) {
+function attachParkingPositions(surface, faa, nodeMap, edges, taxiwayMap, edgeSequence) {
+  const existingNodes = [...nodeMap.values()];
+  for (const source of surface.nodes.filter(
+    (node) => node.parkingPosition && !nodeMap.has(node.id),
+  )) {
+    if (pointInLayer(source.positionMeters, faa.layers.buildings)) continue;
+    const position = roundPoint(
+      source.positionMeters.map((value) => value / WORLD_METERS_PER_UNIT),
+      3,
+    );
+    const neighbor = existingNodes
+      .map((node) => ({ node, distance: distance2d(position, node.position) }))
+      .filter((candidate) => candidate.distance <= 4)
+      .filter((candidate) => segmentLayerClearance(
+        source.positionMeters,
+        candidate.node.position.map((value) => value * WORLD_METERS_PER_UNIT),
+        faa.layers.buildings,
+        4,
+      ) > 0)
+      .sort((first, second) => first.distance - second.distance)[0]?.node;
+    if (!neighbor) continue;
+    const node = {
+      id: `OSM-N${source.id}`,
+      sourceNodeId: source.id,
+      kind: "taxiway",
+      position,
+      taxiwayIds: [],
+    };
+    const taxiwayId = neighbor.taxiwayIds.find((id) => id.startsWith("RAMP-"))
+      ?? neighbor.taxiwayIds[0]
+      ?? "RAMP-PARKING";
+    const taxiwayName = taxiwayMap.get(taxiwayId)?.name ?? "Parking stand lead-ins";
+    const edge = {
+      id: `OSM-E${String(edgeSequence++).padStart(5, "0")}`,
+      from: neighbor.id,
+      to: node.id,
+      kind: "stand-lead-in",
+      name: source.ref ? `Stand ${source.ref} lead-in` : "Parking stand lead-in",
+      direction: "both",
+      width: 1.8,
+      taxiwayId,
+    };
+    node.taxiwayIds.push(taxiwayId);
+    nodeMap.set(source.id, node);
+    edges.push(edge);
+    existingNodes.push(node);
+    let taxiway = taxiwayMap.get(taxiwayId);
+    if (!taxiway) {
+      taxiway = { id: taxiwayId, name: taxiwayName, edgeIds: [], sourceKind: "taxilane" };
+      taxiwayMap.set(taxiwayId, taxiway);
+    }
+    taxiway.edgeIds.push(edge.id);
+  }
+  return edgeSequence;
+}
+
+function buildOperationalZones(faa, nodeMap, edges) {
+  const zones = [];
+  for (const obstacle of faa.runtimeReference.obstacles.filter(
+    (candidate) => candidate.kind === "terminal",
+  )) {
+    zones.push({
+      id: "ZONE-TERMINAL-COMPLEX",
+      name: obstacle.label || "O'Hare terminal complex",
+      kind: "terminal-complex",
+      sourceFeatureIds: [obstacle.id],
+      rings: [[...obstacle.points]],
+      edgeIds: [],
+      standIds: [],
+      classification: "published",
+    });
+  }
+
+  let unnamedTerminal = 1;
+  let unnamedRemote = 1;
+  const terminal = faa.runtimeReference.terminal;
+  for (const apron of faa.runtimeReference.aprons) {
+    const designator = String(apron.designator ?? "").trim();
+    const published = designator && designator !== "UNK";
+    const centroid = polygonCentroid(apron.rings[0]);
+    const upper = designator.toUpperCase();
+    let kind;
+    let name;
+    if (upper.includes("CARGO")) {
+      kind = "cargo-ramp";
+      name = titleCase(designator);
+    } else if (upper.includes("GENERAL AVIATION")) {
+      kind = "general-aviation";
+      name = "General aviation ramp";
+    } else if (upper.includes("DEIC")) {
+      kind = "deicing-pad";
+      name = titleCase(designator);
+    } else if (upper.includes("PAD") || upper.includes("HOLD")) {
+      kind = "holding-pad";
+      name = titleCase(designator);
+    } else if (distance2d(centroid, terminal) <= 30) {
+      kind = "terminal-apron";
+      name = `Terminal apron ${unnamedTerminal++}`;
+    } else {
+      kind = "remote-ramp";
+      name = `Remote ramp ${unnamedRemote++}`;
+    }
+    zones.push({
+      id: `ZONE-${sanitize(apron.id)}`,
+      name,
+      kind,
+      sourceFeatureIds: [apron.id],
+      rings: apron.rings.map((ring) => ring.map((point) => [...point])),
+      edgeIds: edges
+        .filter((edge) => {
+          const from = graphNodeById(nodeMap, edge.from);
+          const to = graphNodeById(nodeMap, edge.to);
+          return from && to && pointInRings(midpoint(from.position, to.position), apron.rings);
+        })
+        .map((edge) => edge.id),
+      standIds: [],
+      classification: published ? "published" : "derived",
+    });
+  }
+
+  const maintenanceCandidate = zones
+    .filter((zone) => zone.kind === "remote-ramp")
+    .sort((first, second) => ringsArea(second.rings) - ringsArea(first.rings))[0];
+  if (maintenanceCandidate) {
+    maintenanceCandidate.kind = "maintenance";
+    maintenanceCandidate.name = "Maintenance / remote apron";
+  }
+  return zones;
+}
+
+function buildPerimeterRouteZones(nodeMap, edges) {
+  const nodes = [...nodeMap.values()].filter(
+    (node) => Array.isArray(node.position) && node.kind !== "runway-threshold",
+  );
+  if (!nodes.length) return [];
+  const bounds = boundsForPoints(nodes.map((node) => node.position));
+  const spanX = bounds.max[0] - bounds.min[0];
+  const spanY = bounds.max[1] - bounds.min[1];
+  const definitions = [
+    { id: "NORTH", name: "North perimeter routes", includes: ([, y]) => y >= bounds.max[1] - spanY * 0.18 },
+    { id: "SOUTH", name: "South perimeter routes", includes: ([, y]) => y <= bounds.min[1] + spanY * 0.18 },
+    { id: "EAST", name: "East perimeter routes", includes: ([x]) => x >= bounds.max[0] - spanX * 0.16 },
+    { id: "WEST", name: "West perimeter routes", includes: ([x]) => x <= bounds.min[0] + spanX * 0.16 },
+  ];
+  return definitions
+    .map((definition) => ({
+      id: `ZONE-PERIMETER-${definition.id}`,
+      name: definition.name,
+      kind: "perimeter-route",
+      sourceFeatureIds: [],
+      rings: [],
+      edgeIds: edges
+        .filter((edge) => edge.kind !== "runway")
+        .filter((edge) => {
+          const from = graphNodeById(nodeMap, edge.from);
+          const to = graphNodeById(nodeMap, edge.to);
+          return from && to && definition.includes(midpoint(from.position, to.position));
+        })
+        .map((edge) => edge.id),
+      standIds: [],
+      classification: "derived",
+    }))
+    .filter((zone) => zone.edgeIds.length);
+}
+
+function buildSurfaceControlPoints(nodeMap, edges, runwayAccess, faa) {
+  const controlPoints = [];
+  for (const access of runwayAccess) {
+    const hold = graphNodeById(nodeMap, access.holdShortNodeId);
+    const threshold = graphNodeById(nodeMap, access.thresholdNodeId);
+    if (!hold || !threshold) continue;
+    const suffix = access.end === -1 ? "NEG" : "POS";
+    controlPoints.push(
+      { id: `CP-RWY-${access.runwayId}-${suffix}-HOLD`, kind: "hold-short", position: [...hold.position], runwayId: access.runwayId, nodeId: hold.id, end: access.end, source: "generated" },
+      { id: `CP-RWY-${access.runwayId}-${suffix}-RELEASE`, kind: "departure-release", position: [...hold.position], runwayId: access.runwayId, nodeId: hold.id, end: access.end, source: "generated" },
+      { id: `CP-RWY-${access.runwayId}-${suffix}-ENTRY`, kind: "runway-entry", position: [...threshold.position], runwayId: access.runwayId, nodeId: threshold.id, end: access.end, source: "generated" },
+      { id: `CP-RWY-${access.runwayId}-${suffix}-LINEUP`, kind: "line-up", position: [...threshold.position], runwayId: access.runwayId, nodeId: threshold.id, end: access.end, source: "generated" },
+    );
+  }
+
+  const runwayIds = [...new Set(edges.flatMap((edge) => edge.crossedRunwayIds ?? []))].sort(
+    (first, second) => first - second,
+  );
+  for (const runwayId of runwayIds) {
+    const runwayFeature = faa.layers.runways.find(
+      (feature) => feature.properties.runwayId === faa.runtimeReference.runways[runwayId]?.runwayId,
+    );
+    if (!runwayFeature) continue;
+    const crossingEdges = edges.filter(
+      (edge) => edge.sourceWayId && edge.kind === "runway-access" && edge.crossedRunwayIds?.includes(runwayId),
+    );
+    const edgeById = new Map(crossingEdges.map((edge) => [edge.id, edge]));
+    const edgeIdsByNode = new Map();
+    for (const edge of crossingEdges) {
+      addArrayValue(edgeIdsByNode, edge.from, edge.id);
+      addArrayValue(edgeIdsByNode, edge.to, edge.id);
+    }
+    const unseen = new Set(edgeById.keys());
+    let sequence = 1;
+    while (unseen.size) {
+      const pending = [unseen.values().next().value];
+      const component = [];
+      while (pending.length) {
+        const edgeId = pending.pop();
+        if (!unseen.delete(edgeId)) continue;
+        const edge = edgeById.get(edgeId);
+        if (!edge) continue;
+        component.push(edge);
+        for (const nodeId of [edge.from, edge.to])
+          for (const neighborId of edgeIdsByNode.get(nodeId) ?? [])
+            if (unseen.has(neighborId)) pending.push(neighborId);
+      }
+      component.sort((first, second) => first.id.localeCompare(second.id));
+      const degree = new Map();
+      for (const edge of component) {
+        degree.set(edge.from, (degree.get(edge.from) ?? 0) + 1);
+        degree.set(edge.to, (degree.get(edge.to) ?? 0) + 1);
+      }
+      const componentIds = new Set(component.map((edge) => edge.id));
+      const componentNodeIds = new Set(component.flatMap((edge) => [edge.from, edge.to]));
+      const boundaryNodeIds = [...new Set([
+        ...[...degree]
+        .filter(([, count]) => count === 1)
+        .map(([nodeId]) => nodeId),
+        ...[...componentNodeIds].filter((nodeId) => allEdgesOutsideComponentAtNode(
+          nodeId,
+          componentIds,
+          edges,
+          nodeMap,
+          runwayFeature,
+        )),
+      ])].sort();
+      const boundaryCandidates = boundaryNodeIds
+        .map((nodeId) => {
+          const node = graphNodeById(nodeMap, nodeId);
+          const edge = component.find((candidate) => candidate.from === node?.id || candidate.to === node?.id);
+          if (!node || !edge) return null;
+          const positions = crossingControlPositions(node, edge, component, edges, nodeMap, runwayFeature);
+          return positions ? { node, edge, positions } : null;
+        })
+        .filter(Boolean)
+        .filter((candidate, index, candidates) => candidates.findIndex((other) => distance2d(
+          candidate.positions.hold,
+          other.positions.hold,
+        ) < 0.25) === index);
+      let boundaryPair = null;
+      let boundarySeparation = 0;
+      for (let first = 0; first < boundaryCandidates.length; first += 1) {
+        for (let second = first + 1; second < boundaryCandidates.length; second += 1) {
+          const separation = distance2d(boundaryCandidates[first].positions.hold, boundaryCandidates[second].positions.hold);
+          if (separation <= boundarySeparation) continue;
+          boundarySeparation = separation;
+          boundaryPair = [boundaryCandidates[first], boundaryCandidates[second]];
+        }
+      }
+      if (!boundaryPair || boundarySeparation < 1.2) continue;
+      const boundaries = boundaryPair;
+      const crossingId = `X-RWY-${runwayId}-${String(sequence++).padStart(3, "0")}`;
+      for (const edge of component) {
+        edge.crossingIds ??= [];
+        if (!edge.crossingIds.includes(crossingId)) edge.crossingIds.push(crossingId);
+      }
+      for (let side = 0; side < boundaries.length; side += 1) {
+        const { positions } = boundaries[side];
+        const suffix = side === 0 ? "A" : side === 1 ? "B" : String(side + 1);
+        controlPoints.push(
+          { id: `CP-${crossingId}-${suffix}-HOLD`, kind: "hold-short", position: roundPoint(positions.hold, 3), runwayId, edgeId: positions.edgeId, crossingId, source: "generated" },
+          { id: `CP-${crossingId}-${suffix}-CROSS`, kind: "runway-crossing", position: roundPoint(positions.crossing, 3), runwayId, edgeId: positions.edgeId, crossingId, source: "generated" },
+        );
+      }
+    }
+  }
+  return controlPoints;
+}
+
+function allEdgesOutsideComponentAtNode(nodeId, componentIds, allEdges, nodeMap, runwayFeature) {
+  const node = graphNodeById(nodeMap, nodeId);
+  if (!node) return false;
+  if (!pointInGeometry(node.position.map((value) => value * WORLD_METERS_PER_UNIT), runwayFeature.geometry)) return true;
+  return allEdges
+    .filter((edge) => !componentIds.has(edge.id) && (edge.from === nodeId || edge.to === nodeId))
+    .some((edge) => {
+      const neighbor = graphNodeById(nodeMap, edge.from === nodeId ? edge.to : edge.from);
+      return neighbor && !pointInGeometry(
+        neighbor.position.map((value) => value * WORLD_METERS_PER_UNIT),
+        runwayFeature.geometry,
+      );
+    });
+}
+
+function crossingControlPositions(boundaryNode, componentEdge, component, allEdges, nodeMap, runwayFeature) {
+  const componentIds = new Set(component.map((edge) => edge.id));
+  const boundaryInside = pointInGeometry(
+    boundaryNode.position.map((value) => value * WORLD_METERS_PER_UNIT),
+    runwayFeature.geometry,
+  );
+  let pathEdge = componentEdge;
+  let outside = boundaryNode.position;
+  let inside = graphNodeById(
+    nodeMap,
+    componentEdge.from === boundaryNode.id ? componentEdge.to : componentEdge.from,
+  )?.position ?? boundaryNode.position;
+
+  if (boundaryInside) {
+    const outwardEdge = allEdges
+      .filter((edge) => !componentIds.has(edge.id))
+      .filter((edge) => edge.from === boundaryNode.id || edge.to === boundaryNode.id)
+      .map((edge) => ({
+        edge,
+        node: graphNodeById(nodeMap, edge.from === boundaryNode.id ? edge.to : edge.from),
+      }))
+      .filter((candidate) => candidate.node)
+      .filter((candidate) => !pointInGeometry(
+        candidate.node.position.map((value) => value * WORLD_METERS_PER_UNIT),
+        runwayFeature.geometry,
+      ))
+      .sort((first, second) => distance2d(second.node.position, boundaryNode.position) - distance2d(first.node.position, boundaryNode.position))[0];
+    if (outwardEdge) {
+      pathEdge = outwardEdge.edge;
+      outside = outwardEdge.node.position;
+      inside = boundaryNode.position;
+    } else return null;
+  }
+
+  const transition = firstRunwayEntry(outside, inside, runwayFeature);
+  if (!transition) return null;
+  const directionX = outside[0] - transition[0];
+  const directionY = outside[1] - transition[1];
+  const length = Math.hypot(directionX, directionY) || 1;
+  const holdBuffer = 0.8;
+  return {
+    hold: [
+      transition[0] + directionX / length * holdBuffer,
+      transition[1] + directionY / length * holdBuffer,
+    ],
+    crossing: transition,
+    edgeId: pathEdge.id,
+  };
+}
+
+function firstRunwayEntry(outside, inside, runwayFeature) {
+  const samples = 96;
+  let previous = outside;
+  for (let sample = 1; sample <= samples; sample += 1) {
+    const amount = sample / samples;
+    const point = [
+      outside[0] + (inside[0] - outside[0]) * amount,
+      outside[1] + (inside[1] - outside[1]) * amount,
+    ];
+    if (pointInGeometry(
+      point.map((value) => value * WORLD_METERS_PER_UNIT),
+      runwayFeature.geometry,
+    ))
+      return previous;
+    previous = point;
+  }
+  return null;
+}
+
+function buildSurfaceHotspots(faa, nodeMap, edges) {
+  return faa.layers.hotspots
+    .map((feature) => {
+      const rings = geometryRings(feature.geometry).map((ring) =>
+        ring.map((point) => roundPoint(point.map((value) => value / WORLD_METERS_PER_UNIT), 3)),
+      );
+      const nodeIds = [...nodeMap.values()]
+        .filter((node) => pointInRings(node.position, rings))
+        .map((node) => node.id)
+        .sort();
+      const edgeIds = edges
+        .filter((edge) => {
+          const from = graphNodeById(nodeMap, edge.from);
+          const to = graphNodeById(nodeMap, edge.to);
+          return from && to && (
+            pointInRings(from.position, rings)
+            || pointInRings(to.position, rings)
+            || pointInRings(midpoint(from.position, to.position), rings)
+          );
+        })
+        .map((edge) => edge.id)
+        .sort();
+      const hotspotId = feature.properties.hotspotId;
+      return {
+        id: `HS-${hotspotId}`,
+        label: `HS ${hotspotId}`,
+        description: feature.properties.description,
+        sourceFeatureId: feature.id,
+        rings,
+        nodeIds,
+        edgeIds,
+      };
+    })
+    .sort((first, second) => first.id.localeCompare(second.id));
+}
+
+function selectStands(nodeMap, edges, degree, surface, faa, zones, maximum) {
   const sourceNodeById = new Map(surface.nodes.map((node) => [node.id, node]));
   const edgeByNode = new Map();
   for (const edge of edges) {
@@ -612,7 +1052,8 @@ function selectStands(nodeMap, edges, degree, surface, faa, maximum) {
     const positionMeters = source.positionMeters;
     const distance = distance2d(positionMeters, terminalMeters);
     const connectedEdges = edgeByNode.get(node.id) ?? [];
-    const candidate = { node, source, edge: connectedEdges[0], distance };
+    const zone = operationalZoneForPoint(zones, node.position);
+    const candidate = { node, source, edge: connectedEdges[0], distance, zone };
     const rampEndpoint = connectedEdges.some((edge) =>
       edge.taxiwayId?.startsWith("RAMP-"),
     );
@@ -631,30 +1072,40 @@ function selectStands(nodeMap, edges, degree, surface, faa, maximum) {
     )
       primary.push(candidate);
   }
-  const candidates = primary.length >= 24
-    ? primary
-    : uniqueCandidates([...primary, ...fallback, ...airportWideEndpoints]);
+  const candidates = uniqueCandidates([...primary, ...fallback, ...airportWideEndpoints]);
   candidates.sort(
     (first, second) =>
       first.distance - second.distance ||
       first.source.id - second.source.id,
   );
   const selected = [];
-  for (const minimumSpacing of [2.4, 2.1, 1.8]) {
-    for (const candidate of candidates) {
-      if (selected.includes(candidate)) continue;
-      if (
-        selected.every(
-          (other) =>
-            distance2d(candidate.node.position, other.node.position) >=
-            minimumSpacing,
+  const addCandidates = (predicate, requested) => {
+    for (const minimumSpacing of [2.6, 2.4, 2.25]) {
+      for (const candidate of candidates.filter(predicate)) {
+        if (selected.includes(candidate)) continue;
+        const matching = selected.filter(predicate).length;
+        if (matching >= requested || selected.length >= maximum) return;
+        if (
+          selected.every(
+            (other) =>
+              distance2d(candidate.node.position, other.node.position) >=
+              minimumSpacing,
+          )
         )
-      )
-        selected.push(candidate);
-      if (selected.length >= maximum) break;
+          selected.push(candidate);
+      }
+      if (selected.filter(predicate).length >= requested) return;
     }
-    if (selected.length >= 24 || selected.length >= maximum) break;
-  }
+  };
+  addCandidates((candidate) => candidate.zone?.kind === "cargo-ramp", 4);
+  addCandidates((candidate) => candidate.zone?.kind === "terminal-apron", 20);
+  addCandidates((candidate) => candidate.zone?.kind === "general-aviation", 2);
+  addCandidates(
+    (candidate) => ["maintenance", "remote-ramp"].includes(candidate.zone?.kind),
+    6,
+  );
+  const target = Math.min(maximum, Math.max(24, Math.min(32, candidates.length)));
+  addCandidates(() => true, target);
   if (selected.length < 16)
     throw new Error(
       `Only ${selected.length} usable stand endpoints found (${primary.length} terminal-apron candidates, ${fallback.length} nearby ramp endpoints, ${airportWideEndpoints.length} airport-wide apron endpoints)`,
@@ -674,23 +1125,53 @@ function selectStands(nodeMap, edges, degree, surface, faa, maximum) {
         candidate.edge.from === candidate.node.id
           ? candidate.edge.to
           : candidate.edge.from;
-      const neighbor = nodeMap.get(
-        [...nodeMap.keys()].find((id) => nodeMap.get(id).id === neighborId),
-      );
+      const neighbor = graphNodeById(nodeMap, neighborId);
       const heading = neighbor
         ? Math.atan2(
             candidate.node.position[1] - neighbor.position[1],
             candidate.node.position[0] - neighbor.position[0],
           )
         : 0;
+      const pushbackHeading = neighbor
+        ? Math.atan2(
+            neighbor.position[1] - candidate.node.position[1],
+            neighbor.position[0] - candidate.node.position[0],
+          )
+        : normalizeRadians(heading + Math.PI);
+      const nearestSpacingMeters = Math.min(
+        ...selected
+          .filter((other) => other !== candidate)
+          .map((other) => distance2d(candidate.node.position, other.node.position) * WORLD_METERS_PER_UNIT),
+      );
+      const maximumWingspanM = round(
+        Math.max(35.8, Math.min(72, nearestSpacingMeters - 12)),
+        1,
+      );
+      const supportedCategories = ["regional", "narrowbody"];
+      if (maximumWingspanM >= 64.8 && candidate.zone?.kind !== "general-aviation")
+        supportedCategories.push("widebody");
+      if (
+        maximumWingspanM >= 64.8
+        && ["cargo-ramp", "maintenance", "remote-ramp"].includes(candidate.zone?.kind)
+      )
+        supportedCategories.push("cargo");
       return {
         id: standId,
         slot,
         nodeId: candidate.node.id,
         apronTaxiwayId: candidate.edge.taxiwayId,
-        terminal: "MAIN",
+        terminal: standTerminal(candidate.zone),
         position: candidate.node.position,
         heading: round(heading, 6),
+        zoneId: candidate.zone?.id ?? "ZONE-TERMINAL-COMPLEX",
+        maximumWingspanM,
+        supportedCategories,
+        pushbackDirection: "straight",
+        pushbackHeading: round(normalizeRadians(pushbackHeading), 6),
+        rampNodeId: neighbor?.id ?? candidate.node.id,
+        ...(candidate.source.parkingPosition
+          ? { sourceParkingNodeId: candidate.source.id }
+          : {}),
       };
     });
 }
@@ -816,6 +1297,89 @@ function pointInRing([x, y], ring) {
       inside = !inside;
   }
   return inside;
+}
+
+function pointInRings(point, rings) {
+  if (!rings?.length || !pointInRing(point, rings[0])) return false;
+  return !rings.slice(1).some((ring) => pointInRing(point, ring));
+}
+
+function geometryRings(geometry) {
+  if (geometry.type === "Polygon") return geometry.coordinates;
+  return geometry.coordinates.flatMap((polygon) => polygon);
+}
+
+function operationalZoneForPoint(zones, point) {
+  const surfaceZones = zones.filter(
+    (zone) => zone.rings.length && zone.kind !== "terminal-complex",
+  );
+  const containing = surfaceZones
+    .filter((zone) => pointInRings(point, zone.rings))
+    .sort((first, second) => ringsArea(first.rings) - ringsArea(second.rings));
+  if (containing.length) return containing[0];
+  return surfaceZones
+    .filter((zone) => zone.classification === "derived")
+    .map((zone) => ({ zone, distance: distance2d(point, polygonCentroid(zone.rings[0])) }))
+    .sort((first, second) => first.distance - second.distance)[0]?.zone;
+}
+
+function standTerminal(zone) {
+  if (zone?.kind === "terminal-apron") return "TERMINAL";
+  if (zone?.kind === "cargo-ramp") return "CARGO";
+  if (zone?.kind === "general-aviation") return "GA";
+  if (zone?.kind === "maintenance") return "MAINTENANCE";
+  return "REMOTE";
+}
+
+function graphNodeById(nodeMap, nodeId) {
+  let index = graphNodeIndexes.get(nodeMap);
+  if (!index) {
+    index = new Map([...nodeMap.values()].map((node) => [node.id, node]));
+    graphNodeIndexes.set(nodeMap, index);
+  }
+  if (index.has(nodeId)) return index.get(nodeId);
+  const node = [...nodeMap.values()].find((candidate) => candidate.id === nodeId);
+  if (node) index.set(nodeId, node);
+  return node;
+}
+
+function midpoint(first, second) {
+  return [(first[0] + second[0]) / 2, (first[1] + second[1]) / 2];
+}
+
+function polygonCentroid(points) {
+  const vertices = points.length > 1 && points[0][0] === points.at(-1)[0] && points[0][1] === points.at(-1)[1]
+    ? points.slice(0, -1)
+    : points;
+  if (!vertices.length) return [0, 0];
+  return [
+    vertices.reduce((sum, point) => sum + point[0], 0) / vertices.length,
+    vertices.reduce((sum, point) => sum + point[1], 0) / vertices.length,
+  ];
+}
+
+function ringsArea(rings) {
+  return rings.reduce((total, ring) => total + Math.abs(polygonArea(ring)), 0);
+}
+
+function polygonArea(points) {
+  let area = 0;
+  for (let index = 0; index < points.length - 1; index += 1)
+    area += points[index][0] * points[index + 1][1] - points[index + 1][0] * points[index][1];
+  return area / 2;
+}
+
+function titleCase(value) {
+  return String(value)
+    .toLowerCase()
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function normalizeRadians(value) {
+  let result = value % (Math.PI * 2);
+  if (result > Math.PI) result -= Math.PI * 2;
+  if (result < -Math.PI) result += Math.PI * 2;
+  return result;
 }
 
 function logicalTaxiwayId(edge) {

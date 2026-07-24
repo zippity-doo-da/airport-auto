@@ -3,7 +3,7 @@ import kordSurfaceManifestJson from '../data/airports/KORD.surface.manifest.json
 import type { AirportSurfaceGraph } from './surfaceGraph';
 
 export interface AirportSurfaceDataManifest {
-  schemaVersion: 1;
+  schemaVersion: 2;
   airport: {
     faaId: string;
     icaoId: string;
@@ -63,9 +63,28 @@ export function importedAirportSurfaceGraph(airportCode: string, seed: number): 
       ...edge,
       crossedRunwayIds: edge.crossedRunwayIds ? [...edge.crossedRunwayIds] : undefined,
       sourceWayIds: edge.sourceWayIds ? [...edge.sourceWayIds] : undefined,
+      crossingIds: edge.crossingIds ? [...edge.crossingIds] : undefined,
     })),
     taxiways: KORD_SURFACE_GRAPH.taxiways.map((taxiway) => ({ ...taxiway, edgeIds: [...taxiway.edgeIds] })),
-    stands: KORD_SURFACE_GRAPH.stands.map((stand) => ({ ...stand, position: [...stand.position] as [number, number] })),
+    stands: KORD_SURFACE_GRAPH.stands.map((stand) => ({
+      ...stand,
+      position: [...stand.position] as [number, number],
+      supportedCategories: [...stand.supportedCategories],
+    })),
     runwayAccess: KORD_SURFACE_GRAPH.runwayAccess.map((access) => ({ ...access })),
+    controlPoints: KORD_SURFACE_GRAPH.controlPoints.map((point) => ({ ...point, position: [...point.position] as [number, number] })),
+    zones: KORD_SURFACE_GRAPH.zones.map((zone) => ({
+      ...zone,
+      sourceFeatureIds: [...zone.sourceFeatureIds],
+      rings: zone.rings.map((ring) => ring.map((point) => [...point] as [number, number])),
+      edgeIds: [...zone.edgeIds],
+      standIds: [...zone.standIds],
+    })),
+    hotspots: KORD_SURFACE_GRAPH.hotspots.map((hotspot) => ({
+      ...hotspot,
+      rings: hotspot.rings.map((ring) => ring.map((point) => [...point] as [number, number])),
+      nodeIds: [...hotspot.nodeIds],
+      edgeIds: [...hotspot.edgeIds],
+    })),
   };
 }
