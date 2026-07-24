@@ -53,11 +53,13 @@ export interface FixedStepFlightSnapshot {
   controlPace: number;
   held: boolean;
   automaticHold: boolean;
+  crossingHoldRunway?: number;
   safetyHold: boolean;
   safetyHoldReason?: string;
   runwayEntryCleared: boolean;
   takeoffCleared: boolean;
   crossingClearances: number[];
+  crossingClearanceIds: string[];
   airspeedKts: number;
   groundSpeedKts: number;
   altitudeFt: number;
@@ -335,11 +337,13 @@ function snapshotFlight(config: AirportConfig, flight: Flight): FixedStepFlightS
     controlPace: round(flight.controlPace ?? 1),
     held: Boolean(flight.controlHold),
     automaticHold: Boolean(flight.automaticHold),
+    crossingHoldRunway: flight.crossingHoldRunway,
     safetyHold: Boolean(flight.safetyHold),
     safetyHoldReason: flight.safetyHoldReason,
     runwayEntryCleared: Boolean(flight.runwayEntryCleared),
     takeoffCleared: Boolean(flight.takeoffCleared),
     crossingClearances: [...(flight.crossingClearances ?? [])].sort((first, second) => first - second),
+    crossingClearanceIds: [...(flight.crossingClearanceIds ?? [])].sort(),
     airspeedKts: round(flight.kinematics.airspeedKts),
     groundSpeedKts: round(flight.kinematics.groundSpeedKts),
     altitudeFt: round(flight.kinematics.altitudeFt),

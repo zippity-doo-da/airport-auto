@@ -12,6 +12,8 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   expect(initial.airport.vectorData?.layerCounts.runways).toBe(8);
   expect(initial.airport.vectorData?.layerCounts.taxiways).toBe(743);
   expect(initial.airport.vectorData?.attribution).toContain('Federal Aviation Administration');
+  expect(initial.airport.surfaceData?.counts.stands).toBeGreaterThanOrEqual(24);
+  expect(initial.airport.surfaceData?.attribution).toContain('OpenStreetMap contributors');
   expect(initial.flights.some((flight) => flight.phase === 'approach')).toBeTruthy();
   expect(initial.flights.some((flight) => flight.phase === 'taxi-out' || flight.phase === 'resting')).toBeTruthy();
   expect(initial.traffic.collisions).toHaveLength(0);
@@ -46,7 +48,7 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
 
   await page.locator('#menu-toggle').click();
   await page.locator('.advanced-tools summary').click();
-  await expect(page.locator('#map-data-version')).toContainText('FAA vector foundation');
+  await expect(page.locator('#map-data-version')).toContainText('FAA geometry + OSM surface graph');
   await expect(page.locator('#map-data-attribution')).toContainText('not for navigation');
   await page.locator('#station-select').selectOption('ground');
   await expect(page.locator('#flight-strip-count')).toContainText('on frequency');

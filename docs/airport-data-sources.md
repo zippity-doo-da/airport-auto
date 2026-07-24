@@ -40,9 +40,11 @@ FAA attribution used in the game and asset manifest:
 
 The current committed asset records its own effective window. Reimporting against a later FAA cycle is an intentional data update and must pass the same validation and visual review as a code change.
 
-## Airport surroundings
+## O'Hare surface centerlines and airport surroundings
 
-Roads, land use, rail, and water around named airports will use OpenStreetMap data obtained through a bounded, saved import query. That context is kept in a separate generated asset from FAA airfield data.
+O'Hare taxiway, taxilane, and runway centerlines use OpenStreetMap data obtained through a bounded, saved Overpass query. The resulting ODbL asset is kept separate from FAA airfield geometry. The importer converts shared OSM nodes into a routable graph, removes building conflicts, maps geometric runway crossings to protected FAA runway IDs, and records every deliberately excluded way or segment.
+
+Roads, land use, rail, and water around named airports will use the same bounded-query policy in a future context asset; they are not part of the current surface graph.
 
 OpenStreetMap data is licensed under the Open Data Commons Open Database License 1.0. Any shipped context asset must:
 
@@ -51,7 +53,7 @@ OpenStreetMap data is licensed under the Open Data Commons Open Database License
 - make the derived context database available under the ODbL when distribution triggers share-alike;
 - avoid copying OpenStreetMap's cartographic style, tiles, or visual assets.
 
-No OSM context asset is shipped until its importer, attribution UI, and share-alike packaging are complete. Until then, the surrounding Chicago landscape remains procedural and ORD remains labeled `ATC schematic`.
+The OSM surface asset, exact query, ODbL notice, and attribution are shipped with the game. The surrounding Chicago landscape remains procedural until a separately versioned context importer and layer controls are complete. ORD remains labeled `ATC schematic` until the full milestone acceptance gate passes.
 
 ## Coordinate conversion
 
@@ -69,8 +71,10 @@ Coordinates are rounded to 0.1 metre in the generated asset. Runtime conversion 
 To refresh the committed KORD asset with an explicit retrieval date:
 
 ```bash
-npm run import:ord -- --retrieved-on YYYY-MM-DD
+npm run import:ord
 npm run test:airport-data
 ```
+
+`import:ord` refreshes FAA data and deterministically rebuilds the graph from the committed OSM source asset. `import:ord:refresh` deliberately contacts Overpass to update that source asset; review its timestamp, query, geometry diff, exclusions, and ODbL metadata before committing.
 
 The validator rejects missing provenance, duplicate or unsorted feature IDs, unexpected geometry, non-finite coordinates, open or degenerate polygon rings, out-of-bounds features, incorrect layer counts, and asset/manifest checksum drift. Surface-graph validation is a separate acceptance gate: raw pavement polygons are not treated as safe routable centerlines until topology generation and clearance checks pass.

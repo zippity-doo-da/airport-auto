@@ -1,6 +1,6 @@
 import type { AirportConfig, RunwayConfig } from './airportConfig';
 
-export type AirportObstacleKind = 'terminal' | 'control-tower';
+export type AirportObstacleKind = 'terminal' | 'control-tower' | 'building';
 
 interface AirportObstacleBase {
   id: string;
@@ -22,7 +22,12 @@ export interface CircleAirportObstacleEnvelope extends AirportObstacleBase {
   radius: number;
 }
 
-export type AirportObstacleEnvelope = BoxAirportObstacleEnvelope | CircleAirportObstacleEnvelope;
+export interface PolygonAirportObstacleEnvelope extends AirportObstacleBase {
+  shape: 'polygon';
+  points: Point[];
+}
+
+export type AirportObstacleEnvelope = BoxAirportObstacleEnvelope | CircleAirportObstacleEnvelope | PolygonAirportObstacleEnvelope;
 
 export interface AirportObstacleValidation {
   valid: boolean;
@@ -34,8 +39,8 @@ export interface AirportObstacleValidation {
   };
 }
 
-type ObstacleConfig = Pick<AirportConfig, 'scope' | 'terminal' | 'runways'>;
-type TerminalConfig = Pick<AirportConfig, 'scope' | 'terminal' | 'runways'>;
+type ObstacleConfig = Pick<AirportConfig, 'scope' | 'terminal' | 'runways' | 'vectorData'>;
+type TerminalConfig = Pick<AirportConfig, 'scope' | 'terminal' | 'runways' | 'vectorData'>;
 type Point = [number, number];
 
 const TERMINAL_HALF_EXTENTS: Point = [14.75, 5.1];
@@ -74,6 +79,13 @@ export function resolveAirportTerminal(config: TerminalConfig): Point {
 }
 
 export function buildAirportObstacleEnvelopes(config: ObstacleConfig): AirportObstacleEnvelope[] {
+  if (config.vectorData?.runtimeReference.obstacles.length) {
+    return config.vectorData.runtimeReference.obstacles.map((obstacle) => ({
+      ...obstacle,
+      center: [...obstacle.center],
+      points: obstacle.points.map((point) => [...point]),
+    }));
+  }
   const centroid = runwayCentroid(config.runways);
   const outward = normalize(subtract(config.terminal, centroid), [1, 0]);
   const towerDistance = config.scope === 'center' ? 58 : 45;
@@ -114,13 +126,14 @@ export function validateAirportObstacleEnvelopes(config: AirportConfig): Airport
     if (obstacle.minimumAltitude >= obstacle.maximumAltitude) errors.push(`${obstacle.id} has an invalid altitude interval`);
     if (obstacle.shape === 'box' && (obstacle.halfExtents[0] <= 0 || obstacle.halfExtents[1] <= 0)) errors.push(`${obstacle.id} has invalid box extents`);
     if (obstacle.shape === 'circle' && obstacle.radius <= 0) errors.push(`${obstacle.id} has an invalid radius`);
+    if (obstacle.shape === 'polygon' && (obstacle.points.length < 4 || !obstacle.points.every((point) => point.every(Number.isFinite)))) errors.push(`${obstacle.id} has an invalid polygon`);
   }
 
   for (const runway of config.runways) {
     const [start, end] = runwaySegment(runway);
     for (const obstacle of config.obstacles) {
       const clearance = minimumSegmentObstacleDistance(start, end, obstacle);
-      if (clearance < runway.width / 2 + INFRASTRUCTURE_RUNWAY_GAP) {
+      if (clearance < runway.width / 2 + infrastructureRunwayGap(config)) {
         errors.push(`${obstacle.id} intersects runway ${runway.id}'s protected envelope`);
       }
     }
@@ -133,7 +146,8 @@ export function validateAirportObstacleEnvelopes(config: AirportConfig): Airport
     if (!from || !to) continue;
     for (const obstacle of config.obstacles) {
       const clearance = minimumSegmentObstacleDistance(from.position, to.position, obstacle);
-      if (clearance < edge.width / 2 + obstacle.clearance) {
+      const requiredClearance = edge.width / 2 + obstacle.clearance;
+      if (clearance < requiredClearance) {
         errors.push(`${obstacle.id} at ${obstacle.center.join(',')} intersects surface edge ${edge.id} (${edge.name}; ${from.position.join(',')} to ${to.position.join(',')}; clearance ${clearance.toFixed(2)})`);
       }
     }
@@ -161,6 +175,14 @@ export function distanceToObstacleBoundary(point: Point, obstacle: AirportObstac
   if (obstacle.shape === 'circle') {
     return Math.max(0, distance(point, obstacle.center) - obstacle.radius);
   }
+  if (obstacle.shape === 'polygon') {
+    if (pointInPolygon(point, obstacle.points)) return 0;
+    let minimum = Infinity;
+    for (let index = 0; index < obstacle.points.length - 1; index += 1) {
+      minimum = Math.min(minimum, pointSegmentDistance(point, obstacle.points[index], obstacle.points[index + 1]));
+    }
+    return minimum;
+  }
   const x = Math.max(0, Math.abs(point[0] - obstacle.center[0]) - obstacle.halfExtents[0]);
   const y = Math.max(0, Math.abs(point[1] - obstacle.center[1]) - obstacle.halfExtents[1]);
   return Math.hypot(x, y);
@@ -171,7 +193,7 @@ function infrastructureClearsRunways(config: ObstacleConfig): boolean {
   return config.runways.every((runway) => {
     const [start, end] = runwaySegment(runway);
     return obstacles.every((obstacle) => (
-      minimumSegmentObstacleDistance(start, end, obstacle) >= runway.width / 2 + INFRASTRUCTURE_RUNWAY_GAP
+      minimumSegmentObstacleDistance(start, end, obstacle) >= runway.width / 2 + infrastructureRunwayGap(config)
     ));
   });
 }
@@ -216,3 +238,24 @@ function add(first: Point, second: Point): Point { return [first[0] + second[0],
 function subtract(first: Point, second: Point): Point { return [first[0] - second[0], first[1] - second[1]]; }
 function scale(point: Point, amount: number): Point { return [point[0] * amount, point[1] * amount]; }
 function distance(first: Point, second: Point): number { return Math.hypot(first[0] - second[0], first[1] - second[1]); }
+function pointInPolygon([x, y]: Point, points: Point[]): boolean {
+  let inside = false;
+  for (let index = 0, previous = points.length - 1; index < points.length; previous = index++) {
+    const [xi, yi] = points[index];
+    const [xj, yj] = points[previous];
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi || Number.EPSILON) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+function infrastructureRunwayGap(config: ObstacleConfig): number {
+  return config.vectorData ? 1.05 : INFRASTRUCTURE_RUNWAY_GAP;
+}
+function pointSegmentDistance(point: Point, start: Point, end: Point): number {
+  const x = end[0] - start[0];
+  const y = end[1] - start[1];
+  const denominator = x * x + y * y;
+  const amount = denominator > 0 ? clamp(((point[0] - start[0]) * x + (point[1] - start[1]) * y) / denominator, 0, 1) : 0;
+  return distance(point, [start[0] + x * amount, start[1] + y * amount]);
+}
+function clamp(value: number, minimum: number, maximum: number): number { return Math.max(minimum, Math.min(maximum, value)); }

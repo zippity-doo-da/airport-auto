@@ -1,7 +1,7 @@
 import type { AirportConfig } from './airportConfig';
 import { aircraftProfile } from './aircraftProfiles';
 import type { Flight, FlightPhase, WakeClass } from './types';
-import { sampleSurfaceRoute } from './surfaceGraph';
+import { sampleSurfaceRouteWithEdges } from './surfaceGraph';
 import { distanceToObstacleBoundary, type AirportObstacleEnvelope } from './airportObstacles';
 import { sampleFlightTrajectory } from './flightTrajectory';
 import { runwaysConflict } from './runwayConflict';
@@ -75,7 +75,7 @@ export function aircraftCollisionEnvelope(config: AirportConfig, flight: Flight,
   const p = clamp(progress, 0, 1);
   const landingSign = flight.operatingEnd;
   const takeoffSign = -landingSign as -1 | 1;
-  const baseScale = config.scope === 'center' ? 0.72 : 0.92;
+  const baseScale = config.scope === 'center' ? 0.17 : 0.92;
   const approachScale = flight.phase === 'approach'
     ? lerp(baseScale * 1.3, baseScale, smoothRange(p, 0.06, 0.96))
     : baseScale;
@@ -85,7 +85,7 @@ export function aircraftCollisionEnvelope(config: AirportConfig, flight: Flight,
   const presentationScale = flight.phase === 'approach' ? approachScale : takeoffScale;
   const halfLength = (aircraft.visual.bodyLength + aircraft.visual.bodyRadius * 2) / 2 * presentationScale;
   const halfWidth = aircraft.visual.wingSpan / 2 * presentationScale;
-  const bodyRadius = Math.max(2.2, halfLength, halfWidth);
+  const bodyRadius = Math.max(config.scope === 'center' ? 0.92 : 2.2, halfLength, halfWidth);
   const envelope = (
     values: Omit<AircraftCollisionEnvelope, 'kind' | 'id' | 'halfLength' | 'halfWidth' | 'bodyRadius' | 'minimumAltitude' | 'maximumAltitude'>,
   ): AircraftCollisionEnvelope => ({
@@ -94,8 +94,8 @@ export function aircraftCollisionEnvelope(config: AirportConfig, flight: Flight,
     halfLength,
     halfWidth,
     bodyRadius,
-    minimumAltitude: values.altitude - Math.max(1.4, aircraft.visual.bodyRadius * 1.8),
-    maximumAltitude: values.altitude + Math.max(1.2, aircraft.visual.tailHeight),
+    minimumAltitude: values.altitude - Math.max(config.scope === 'center' ? 0.35 : 1.4, aircraft.visual.bodyRadius * 1.8 * presentationScale),
+    maximumAltitude: values.altitude + Math.max(config.scope === 'center' ? 0.32 : 1.2, aircraft.visual.tailHeight * presentationScale),
     ...values,
   });
 
@@ -138,7 +138,7 @@ export function aircraftCollisionEnvelope(config: AirportConfig, flight: Flight,
     });
   }
 
-  const routeSample = sampleSurfaceRoute(config.surfaceGraph, flight.surfaceRoute, p);
+  const routeSample = sampleSurfaceRouteWithEdges(config.surfaceGraph, flight.surfaceRoute, flight.surfaceRouteEdges, p);
   if (routeSample) {
     const motion = Math.abs(p - flight.progress) < 1e-9 && flight.motion
       ? flight.motion

@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "airport": {
+    "faaId": "ORD",
+    "icaoId": "KORD",
+    "name": "Chicago O'Hare International",
+    "fidelity": "faa-airport-mapping",
+    "navigationUse": false
+  },
+  "assetPath": "data/airports/KORD.osm-surface.json",
+  "graphPath": "src/data/airports/KORD.surfaceGraph.json",
+  "assetSha256": "d9d1fd34b172b6a33b2d867bae02ddfe9dcb93bf531d3a2b656072deade68464",
+  "graphSha256": "5eea5970ba2a53e0fb29f03234d6b6ac3be663cf396e82b86f208832590d5b21",
+  "retrievedOn": "2026-07-23",
+  "coordinateSystem": {
+    "source": "EPSG:4326",
+    "local": "local-tangent-plane",
+    "originWgs84": [
+      -87.9055658,
+      41.9781154
+    ],
+    "axes": {
+      "x": "east",
+      "y": "north"
+    },
+    "unit": "meter",
+    "earthRadiusMeters": 6378137,
+    "coordinatePrecisionMeters": 0.1
+  },
+  "source": {
+    "provider": "OpenStreetMap",
+    "endpoint": "https://overpass-api.de/api/interpreter",
+    "query": "[out:json][timeout:120];(way(41.9424586,-87.9451272,42.0169882,-87.8659851)[\"aeroway\"~\"^(taxiway|taxilane|runway)$\"];node(41.9424586,-87.9451272,42.0169882,-87.8659851)[\"aeroway\"=\"parking_position\"];);out body;>;out skel qt;",
+    "osmBaseTimestamp": "2026-07-24T05:08:06Z",
+    "license": "Open Data Commons Open Database License 1.0",
+    "attribution": "© OpenStreetMap contributors",
+    "copyrightUrl": "https://www.openstreetmap.org/copyright"
+  },
+  "validationRules": {
+    "minimumBuildingClearanceMeters": 51
+  },
+  "counts": {
+    "sourceNodes": 7012,
+    "sourceWays": 1008,
+    "excludedWays": 42,
+    "excludedSegments": 133,
+    "graphNodes": 2799,
+    "graphEdges": 3524,
+    "taxiways": 939,
+    "stands": 25,
+    "runwayAccess": 16,
+    "runwayCrossingEdges": 315
+  },
+  "license": "Open Data Commons Open Database License 1.0",
+  "attribution": "© OpenStreetMap contributors",
+  "copyrightUrl": "https://www.openstreetmap.org/copyright"
+}

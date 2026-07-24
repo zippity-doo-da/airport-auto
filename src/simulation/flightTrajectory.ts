@@ -56,6 +56,9 @@ type ArcLengthSample = { parameter: number; distance: number };
 type PreparedSmoothPath = { points: Point3[]; samples: ArcLengthSample[]; totalDistance: number };
 
 const KNOT_TO_MPS = 0.514444;
+const APPROACH_PITCH = 0.105;
+const LANDING_FLARE_PITCH = 0.18;
+const TAKEOFF_ROTATION_PITCH = 0.19;
 const APPROACH_PATH_CACHE = new WeakMap<AirportConfig, Map<string, PreparedSmoothPath>>();
 
 export function phaseUsesFlightTrajectory(phase: FlightPhase): phase is 'approach' | 'landing' | 'takeoff' {
@@ -148,7 +151,7 @@ function sampleApproach(config: AirportConfig, flight: Flight, progress: number)
     y: patterned.point.y,
     z: patterned.point.z,
     heading,
-    pitch: 0.105 * flare,
+    pitch: APPROACH_PITCH * flare,
     bank: clamp(turn * 2.8, -0.14, 0.14),
     onGround: false,
     groundBlend: 0,
@@ -244,16 +247,38 @@ function sampleLanding(config: AirportConfig, flight: Flight, progress: number):
   const elapsed = progress * timing.totalSeconds;
   const travel = runwayTravelDirection(runway, flight.operatingEnd);
   const threshold = runwayEnd(runway, flight.operatingEnd, 0, 4.2);
-  const exitDistance = Math.max(1, runway.length - 5);
+  const fallbackExitDistance = Math.max(1, runway.length - 5);
+  const exitPoint = runwaySurfacePoint(config, flight.runway, -flight.operatingEnd as -1 | 1, 'exit') ?? {
+    x: threshold.x + travel.x * fallbackExitDistance,
+    y: threshold.y + travel.y * fallbackExitDistance,
+    z: 2,
+  };
+  const projectedExitDistance = (exitPoint.x - threshold.x) * travel.x + (exitPoint.y - threshold.y) * travel.y;
+  const centerlineExitDistance = clamp(projectedExitDistance, runway.length * 0.55, runway.length - 1);
   // Put the mains down close to the threshold so the stopping calculation can
   // use nearly all of the available pavement, especially on shorter runways.
   const touchdownDistance = Math.min(4.5, runway.length * 0.075);
   const rolloutDistance = landingRollDistance(runway, flight.aircraft);
-  const rolloutEnd = Math.min(exitDistance - 2, touchdownDistance + rolloutDistance);
+  const rolloutEnd = Math.min(centerlineExitDistance - 2, touchdownDistance + rolloutDistance);
   const rolloutTravel = Math.max(1, rolloutEnd - touchdownDistance);
+  const exitStart = {
+    x: threshold.x + travel.x * rolloutEnd,
+    y: threshold.y + travel.y * rolloutEnd,
+    z: 2,
+  };
+  const exitControlDistance = lerp(rolloutEnd, centerlineExitDistance, 0.72);
+  const exitControl = {
+    x: threshold.x + travel.x * exitControlDistance,
+    y: threshold.y + travel.y * exitControlDistance,
+    z: 2,
+  };
+  const exitPathDistance = Math.max(1, distance(exitStart, exitControl) + distance(exitControl, exitPoint));
   let distanceAlong = 0;
   let z = 4.2;
-  let pitch = 0.105;
+  let pitch = APPROACH_PITCH;
+  let x = threshold.x;
+  let y = threshold.y;
+  let heading = Math.atan2(travel.y, travel.x);
   let stage: FlightTrajectoryStage = 'flare';
   let stageProgress = 0;
   let onGround = false;
@@ -263,7 +288,7 @@ function sampleLanding(config: AirportConfig, flight: Flight, progress: number):
     stageProgress = clamp(elapsed / timing.flareSeconds, 0, 1);
     distanceAlong = touchdownDistance * stageProgress;
     z = lerp(4.2, 2, smooth01(stageProgress));
-    pitch = lerp(0.105, 0.13, smooth01(stageProgress));
+    pitch = lerp(APPROACH_PITCH, LANDING_FLARE_PITCH, smooth01(stageProgress));
     groundBlend = smoothRange(stageProgress, 0.48, 1);
     onGround = stageProgress >= 0.985;
   } else if (elapsed < timing.flareSeconds + timing.brakingSeconds) {
@@ -276,13 +301,19 @@ function sampleLanding(config: AirportConfig, flight: Flight, progress: number):
     ) / Math.max(1, 0.5 * (initialSpeed + finalSpeed));
     distanceAlong = touchdownDistance + rolloutTravel * distanceProgress;
     z = 2;
-    pitch = 0.13 * (1 - smoothRange(stageProgress, 0.06, 0.52));
+    pitch = LANDING_FLARE_PITCH * (1 - smoothRange(stageProgress, 0.06, 0.52));
     stage = stageProgress < 0.08 ? 'touchdown' : 'rollout';
     onGround = true;
     groundBlend = 1;
   } else {
     stageProgress = clamp((elapsed - timing.flareSeconds - timing.brakingSeconds) / timing.exitSeconds, 0, 1);
-    distanceAlong = lerp(rolloutEnd, exitDistance, stageProgress);
+    const curveProgress = smooth01(stageProgress);
+    const point = quadraticPoint(exitStart, exitControl, exitPoint, curveProgress);
+    const tangent = quadraticTangent(exitStart, exitControl, exitPoint, curveProgress);
+    x = point.x;
+    y = point.y;
+    heading = Math.atan2(tangent.y, tangent.x);
+    distanceAlong = rolloutEnd + exitPathDistance * stageProgress;
     z = 2;
     pitch = 0;
     stage = 'runway-exit';
@@ -290,12 +321,16 @@ function sampleLanding(config: AirportConfig, flight: Flight, progress: number):
     groundBlend = 1;
   }
 
-  distanceAlong = clamp(distanceAlong, 0, exitDistance);
+  if (stage !== 'runway-exit') {
+    distanceAlong = clamp(distanceAlong, 0, rolloutEnd);
+    x = threshold.x + travel.x * distanceAlong;
+    y = threshold.y + travel.y * distanceAlong;
+  }
   return {
-    x: threshold.x + travel.x * distanceAlong,
-    y: threshold.y + travel.y * distanceAlong,
+    x,
+    y,
     z,
-    heading: Math.atan2(travel.y, travel.x),
+    heading,
     pitch,
     bank: 0,
     onGround,
@@ -304,7 +339,7 @@ function sampleLanding(config: AirportConfig, flight: Flight, progress: number):
     stage,
     stageProgress,
     distanceAlong,
-    totalDistance: exitDistance,
+    totalDistance: rolloutEnd + exitPathDistance,
   };
 }
 
@@ -314,15 +349,28 @@ function sampleDeparture(config: AirportConfig, flight: Flight, progress: number
   const elapsed = progress * timing.totalSeconds;
   const travel = runwayTravelDirection(runway, flight.operatingEnd);
   const threshold = runwayEnd(runway, flight.operatingEnd, 0, 2);
-  const holdDistance = 8;
+  const holdPoint = runwaySurfacePoint(config, flight.runway, flight.operatingEnd, 'hold') ?? {
+    x: threshold.x - travel.x * 8,
+    y: threshold.y - travel.y * 8,
+    z: 2,
+  };
+  const lineupControl = {
+    x: threshold.x - travel.x * Math.min(5, Math.max(2, distance(holdPoint, threshold) * 0.35)),
+    y: threshold.y - travel.y * Math.min(5, Math.max(2, distance(holdPoint, threshold) * 0.35)),
+    z: 2,
+  };
+  const lineupDistance = Math.max(1, distance(holdPoint, lineupControl) + distance(lineupControl, threshold));
   const rollDistance = takeoffRollDistance(runway, flight.aircraft);
   const rotationDistance = Math.min(runway.length * 0.08, 6.5);
   const liftoffDistance = Math.min(runway.length * 0.9, rollDistance + rotationDistance);
   const edgeBeyond = config.scope === 'center' ? 220 : 150;
   const endDistance = runway.length + edgeBeyond;
-  let distanceAlong = -holdDistance;
+  let distanceAlong = -lineupDistance;
   let z = 2;
   let pitch = 0;
+  let x = holdPoint.x;
+  let y = holdPoint.y;
+  let heading = Math.atan2(lineupControl.y - holdPoint.y, lineupControl.x - holdPoint.x);
   let stage: FlightTrajectoryStage = 'lineup';
   let stageProgress = 0;
   let onGround = true;
@@ -330,7 +378,13 @@ function sampleDeparture(config: AirportConfig, flight: Flight, progress: number
 
   if (elapsed < timing.lineupSeconds) {
     stageProgress = clamp(elapsed / timing.lineupSeconds, 0, 1);
-    distanceAlong = lerp(-holdDistance, 0, smooth01(stageProgress));
+    const curveProgress = smooth01(stageProgress);
+    const point = quadraticPoint(holdPoint, lineupControl, threshold, curveProgress);
+    const tangent = quadraticTangent(holdPoint, lineupControl, threshold, curveProgress);
+    x = point.x;
+    y = point.y;
+    heading = Math.atan2(tangent.y, tangent.x);
+    distanceAlong = lerp(-lineupDistance, 0, stageProgress);
   } else if (elapsed < timing.lineupSeconds + timing.rollSeconds) {
     stageProgress = clamp((elapsed - timing.lineupSeconds) / timing.rollSeconds, 0, 1);
     distanceAlong = rollDistance * stageProgress * stageProgress;
@@ -338,7 +392,7 @@ function sampleDeparture(config: AirportConfig, flight: Flight, progress: number
   } else if (elapsed < timing.lineupSeconds + timing.rollSeconds + timing.rotationSeconds) {
     stageProgress = clamp((elapsed - timing.lineupSeconds - timing.rollSeconds) / timing.rotationSeconds, 0, 1);
     distanceAlong = lerp(rollDistance, liftoffDistance, stageProgress);
-    pitch = 0.145 * smooth01(stageProgress);
+    pitch = TAKEOFF_ROTATION_PITCH * smooth01(stageProgress);
     const liftoff = smoothRange(stageProgress, 0.72, 1);
     z = lerp(2, 2.8, liftoff);
     groundBlend = 1 - liftoff;
@@ -349,17 +403,22 @@ function sampleDeparture(config: AirportConfig, flight: Flight, progress: number
     distanceAlong = lerp(liftoffDistance, endDistance, stageProgress);
     const climb = stageProgress * (2 - stageProgress);
     z = 2.8 + (config.scope === 'center' ? 39 : 31) * climb;
-    pitch = lerp(0.145, 0.085, smooth01(stageProgress));
+    pitch = lerp(TAKEOFF_ROTATION_PITCH, 0.085, smooth01(stageProgress));
     groundBlend = 0;
     onGround = false;
     stage = 'climbout';
   }
 
+  if (stage !== 'lineup') {
+    x = threshold.x + travel.x * distanceAlong;
+    y = threshold.y + travel.y * distanceAlong;
+    heading = Math.atan2(travel.y, travel.x);
+  }
   return {
-    x: threshold.x + travel.x * distanceAlong,
-    y: threshold.y + travel.y * distanceAlong,
+    x,
+    y,
     z,
-    heading: Math.atan2(travel.y, travel.x),
+    heading,
     pitch,
     bank: 0,
     onGround,
@@ -367,8 +426,8 @@ function sampleDeparture(config: AirportConfig, flight: Flight, progress: number
     protectedRunway: stage !== 'climbout' || stageProgress < 0.08,
     stage,
     stageProgress,
-    distanceAlong: distanceAlong + holdDistance,
-    totalDistance: endDistance + holdDistance,
+    distanceAlong: distanceAlong + lineupDistance,
+    totalDistance: endDistance + lineupDistance,
   };
 }
 
@@ -480,6 +539,35 @@ function runwayEnd(runway: RunwayConfig, sign: number, beyond: number, z: number
     x: runway.center[0] + Math.cos(runway.heading) * amount,
     y: runway.center[1] + Math.sin(runway.heading) * amount,
     z,
+  };
+}
+
+function runwaySurfacePoint(
+  config: AirportConfig,
+  runwayId: number,
+  end: -1 | 1,
+  kind: 'exit' | 'hold',
+): Point3 | null {
+  const access = config.surfaceGraph.runwayAccess.find((item) => item.runwayId === runwayId && item.end === end);
+  const nodeId = kind === 'exit' ? access?.exitNodeId : access?.holdShortNodeId;
+  const node = nodeId ? config.surfaceGraph.nodes.find((item) => item.id === nodeId) : undefined;
+  return node ? { x: node.position[0], y: node.position[1], z: 2 } : null;
+}
+
+function quadraticPoint(start: Point3, control: Point3, end: Point3, amount: number): Point3 {
+  const inverse = 1 - amount;
+  return {
+    x: inverse * inverse * start.x + 2 * inverse * amount * control.x + amount * amount * end.x,
+    y: inverse * inverse * start.y + 2 * inverse * amount * control.y + amount * amount * end.y,
+    z: inverse * inverse * start.z + 2 * inverse * amount * control.z + amount * amount * end.z,
+  };
+}
+
+function quadraticTangent(start: Point3, control: Point3, end: Point3, amount: number): Point3 {
+  return {
+    x: 2 * (1 - amount) * (control.x - start.x) + 2 * amount * (end.x - control.x),
+    y: 2 * (1 - amount) * (control.y - start.y) + 2 * amount * (end.y - control.y),
+    z: 2 * (1 - amount) * (control.z - start.z) + 2 * amount * (end.z - control.z),
   };
 }
 

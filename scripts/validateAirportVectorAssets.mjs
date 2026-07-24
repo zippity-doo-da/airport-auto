@@ -91,6 +91,11 @@ check(
   "manifest bounds differ from asset",
 );
 check(
+  JSON.stringify(manifest.runtimeReference) ===
+    JSON.stringify(asset.runtimeReference),
+  "manifest runtime reference differs from asset",
+);
+check(
   typeof manifest.attribution === "string" &&
     manifest.attribution.includes("Federal Aviation Administration"),
   "FAA attribution is missing from manifest",
@@ -205,6 +210,90 @@ check(
     .size === asset.layers.runways.length,
   "runway designations are not unique",
 );
+check(
+  asset.runtimeReference?.worldMetersPerUnit === 38,
+  "runtime metres-per-world-unit value differs from the simulation",
+);
+check(
+  Array.isArray(asset.runtimeReference?.runways) &&
+    asset.runtimeReference.runways.length === 8,
+  "runtime runway reference must contain all eight ORD runways",
+);
+for (const runway of asset.runtimeReference?.runways ?? []) {
+  check(
+    Array.isArray(runway.center) &&
+      runway.center.length === 2 &&
+      runway.center.every(Number.isFinite),
+    `${runway.runwayId}: invalid runtime center`,
+  );
+  check(
+    Number.isFinite(runway.heading),
+    `${runway.runwayId}: invalid runtime heading`,
+  );
+  check(
+    runway.length * 38 >= runway.sourceLengthMeters - 0.2 &&
+      runway.length * 38 <= runway.sourceLengthMeters + 0.2,
+    `${runway.runwayId}: runtime runway length lost physical scale`,
+  );
+  check(
+    runway.sourceLengthMeters >= 2_200,
+    `${runway.runwayId}: implausibly short source runway`,
+  );
+  check(
+    runway.sourceWidthMeters >= 40 && runway.sourceWidthMeters <= 70,
+    `${runway.runwayId}: implausible source runway width`,
+  );
+}
+
+check(
+  Array.isArray(asset.runtimeReference?.terminal) &&
+    asset.runtimeReference.terminal.length === 2 &&
+    asset.runtimeReference.terminal.every(Number.isFinite),
+  "runtime terminal reference is invalid",
+);
+check(
+  Array.isArray(asset.runtimeReference?.controlTower) &&
+    asset.runtimeReference.controlTower.length === 2 &&
+    asset.runtimeReference.controlTower.every(Number.isFinite),
+  "runtime control-tower reference is invalid",
+);
+check(
+  Array.isArray(asset.runtimeReference?.aprons) &&
+    asset.runtimeReference.aprons.length === asset.layers.aprons.length,
+  "runtime apron reference must preserve every FAA apron",
+);
+for (const apron of asset.runtimeReference?.aprons ?? []) {
+  check(typeof apron.id === "string" && apron.id.startsWith("FAA-aprons:"), `${apron.id}: invalid runtime apron id`);
+  check(Array.isArray(apron.rings) && apron.rings.length > 0, `${apron.id}: runtime apron has no rings`);
+  for (const ring of apron.rings ?? []) validateRuntimeRing(ring, `${apron.id} apron ring`);
+}
+
+const runtimeObstacles = asset.runtimeReference?.obstacles ?? [];
+check(
+  Array.isArray(runtimeObstacles) && runtimeObstacles.length === asset.layers.buildings.length,
+  "runtime obstacles must preserve every FAA building footprint",
+);
+check(
+  runtimeObstacles.filter((obstacle) => obstacle.kind === "terminal").length === 1,
+  "runtime obstacles must identify exactly one terminal complex",
+);
+check(
+  runtimeObstacles.filter((obstacle) => obstacle.kind === "control-tower").length === 1,
+  "runtime obstacles must identify exactly one control tower",
+);
+const runtimeObstacleIds = new Set();
+for (const obstacle of runtimeObstacles) {
+  check(!runtimeObstacleIds.has(obstacle.id), `${obstacle.id}: duplicate runtime obstacle`);
+  runtimeObstacleIds.add(obstacle.id);
+  check(obstacle.shape === "polygon", `${obstacle.id}: runtime obstacle is not polygonal`);
+  validateRuntimeRing(obstacle.points, `${obstacle.id} obstacle footprint`);
+  check(
+    Number.isFinite(obstacle.minimumAltitude) &&
+      Number.isFinite(obstacle.maximumAltitude) &&
+      obstacle.maximumAltitude > obstacle.minimumAltitude,
+    `${obstacle.id}: runtime obstacle altitude envelope is invalid`,
+  );
+}
 
 for (const axis of [0, 1]) {
   check(
@@ -299,6 +388,20 @@ function validatePoint(point, featureId, bounds) {
   bounds.max[0] = Math.max(bounds.max[0], point[0]);
   bounds.max[1] = Math.max(bounds.max[1], point[1]);
   return 1;
+}
+
+function validateRuntimeRing(ring, label) {
+  check(Array.isArray(ring) && ring.length >= 4, `${label} has fewer than four points`);
+  if (!Array.isArray(ring) || ring.length < 2) return;
+  for (const point of ring)
+    check(
+      Array.isArray(point) && point.length === 2 && point.every(Number.isFinite),
+      `${label} contains a non-finite point`,
+    );
+  const first = ring[0];
+  const last = ring.at(-1);
+  check(first[0] === last[0] && first[1] === last[1], `${label} is not closed`);
+  check(Math.abs(signedArea(ring)) >= 0.0001, `${label} is degenerate`);
 }
 
 function signedArea(ring) {

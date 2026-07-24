@@ -1,0 +1,476 @@
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import process from "node:process";
+
+const paths = {
+  faa: path.resolve("public/data/airports/KORD.vector.json"),
+  faaManifest: path.resolve("src/data/airports/KORD.manifest.json"),
+  osm: path.resolve("public/data/airports/KORD.osm-surface.json"),
+  graph: path.resolve("src/data/airports/KORD.surfaceGraph.json"),
+  manifest: path.resolve("src/data/airports/KORD.surface.manifest.json"),
+};
+const [faaText, faaManifestText, osmText, graphText, manifestText] =
+  await Promise.all(
+    Object.values(paths).map((filePath) => readFile(filePath, "utf8")),
+  );
+const faa = JSON.parse(faaText);
+const faaManifest = JSON.parse(faaManifestText);
+const osm = JSON.parse(osmText);
+const graph = JSON.parse(graphText);
+const manifest = JSON.parse(manifestText);
+const errors = [];
+
+check(faaManifest.assetSha256 === sha256(faaText), "FAA checksum mismatch");
+check(manifest.assetSha256 === sha256(osmText), "OSM surface checksum mismatch");
+check(manifest.graphSha256 === sha256(graphText), "surface graph checksum mismatch");
+check(osm.airport?.icaoId === "KORD", "OSM asset is not for KORD");
+check(graph.airportCode === "ORD", "surface graph is not for ORD");
+check(graph.schemaVersion === 1, "surface graph schemaVersion must be 1");
+check(
+  osm.source?.license === "Open Data Commons Open Database License 1.0",
+  "OSM ODbL license is missing",
+);
+check(
+  String(osm.source?.attribution).includes("OpenStreetMap contributors"),
+  "OSM attribution is missing",
+);
+check(
+  osm.coordinateSystem?.originWgs84?.join(":") ===
+    faa.coordinateSystem.originWgs84.join(":"),
+  "FAA and OSM assets use different local origins",
+);
+const minimumBuildingClearanceMeters =
+  osm.validationRules?.minimumBuildingClearanceMeters;
+check(
+  minimumBuildingClearanceMeters === 51,
+  "surface asset must declare the 51 m FAA-building clearance rule",
+);
+check(
+  manifest.validationRules?.minimumBuildingClearanceMeters ===
+    minimumBuildingClearanceMeters,
+  "surface manifest building-clearance rule differs from the asset",
+);
+
+const sourceNodes = new Map();
+for (const node of osm.nodes ?? []) {
+  check(!sourceNodes.has(node.id), `duplicate OSM source node ${node.id}`);
+  sourceNodes.set(node.id, node);
+  validatePoint(node.positionMeters, `OSM node ${node.id}`);
+}
+const sourceWays = new Map();
+for (const way of osm.ways ?? []) {
+  check(!sourceWays.has(way.id), `duplicate OSM source way ${way.id}`);
+  sourceWays.set(way.id, way);
+  check(
+    ["taxiway", "taxilane", "runway"].includes(way.kind),
+    `OSM way ${way.id} has unknown kind ${way.kind}`,
+  );
+  check(
+    Array.isArray(way.nodeIds) && way.nodeIds.length >= 2,
+    `OSM way ${way.id} has fewer than two nodes`,
+  );
+  for (const nodeId of way.nodeIds)
+    check(sourceNodes.has(nodeId), `OSM way ${way.id} references node ${nodeId}`);
+}
+
+const nodes = new Map();
+for (const node of graph.nodes ?? []) {
+  check(!nodes.has(node.id), `duplicate graph node ${node.id}`);
+  nodes.set(node.id, node);
+  validatePoint(node.position, `graph node ${node.id}`);
+  if (node.sourceNodeId !== undefined)
+    check(
+      sourceNodes.has(node.sourceNodeId),
+      `graph node ${node.id} references missing source node ${node.sourceNodeId}`,
+    );
+}
+const edges = new Map();
+const endpointPairs = new Set();
+const representedWays = new Set();
+let crossingEdges = 0;
+for (const edge of graph.edges ?? []) {
+  check(!edges.has(edge.id), `duplicate graph edge ${edge.id}`);
+  edges.set(edge.id, edge);
+  check(nodes.has(edge.from), `edge ${edge.id} has missing from node ${edge.from}`);
+  check(nodes.has(edge.to), `edge ${edge.id} has missing to node ${edge.to}`);
+  check(edge.from !== edge.to, `edge ${edge.id} has identical endpoints`);
+  const pair = [edge.from, edge.to].sort().join(":");
+  check(!endpointPairs.has(pair), `duplicate graph segment ${pair}`);
+  endpointPairs.add(pair);
+  check(
+    ["runway", "runway-access", "taxiway", "apron", "stand-lead-in"].includes(
+      edge.kind,
+    ),
+    `edge ${edge.id} has unknown kind ${edge.kind}`,
+  );
+  check(
+    Number.isFinite(edge.width) && edge.width >= 1.8,
+    `edge ${edge.id} has undersized width ${edge.width}`,
+  );
+  const from = nodes.get(edge.from)?.position;
+  const to = nodes.get(edge.to)?.position;
+  if (from && to)
+    check(
+      distance(from, to) > 0.001,
+      `edge ${edge.id} has zero geometric length`,
+    );
+  for (const wayId of edge.sourceWayIds ?? (edge.sourceWayId ? [edge.sourceWayId] : [])) {
+    representedWays.add(wayId);
+    check(sourceWays.has(wayId), `edge ${edge.id} references missing OSM way ${wayId}`);
+  }
+  if (edge.sourceWayId) {
+    const geometricCrossings = edgeRunwayCrossings(edge, nodes, faa);
+    const declaredCrossings = [...(edge.crossedRunwayIds ?? [])].sort(
+      (first, second) => first - second,
+    );
+    check(
+      JSON.stringify(geometricCrossings) === JSON.stringify(declaredCrossings),
+      `edge ${edge.id} declares runway crossings ${declaredCrossings.join(",")} but geometry crosses ${geometricCrossings.join(",")}`,
+    );
+    check(
+      geometricCrossings.length === 0 || edge.kind === "runway-access",
+      `edge ${edge.id} crosses a runway without runway-access protection`,
+    );
+    if (geometricCrossings.length) crossingEdges += 1;
+    check(
+      !segmentIntersectsLayer(
+        from.map((value) => value * 38),
+        to.map((value) => value * 38),
+        faa.layers.buildings,
+        4,
+      ),
+      `edge ${edge.id} intersects an FAA building footprint`,
+    );
+    const buildingClearance = segmentLayerClearance(
+      from.map((value) => value * 38),
+      to.map((value) => value * 38),
+      faa.layers.buildings,
+      8,
+    );
+    check(
+      buildingClearance + 0.2 >= minimumBuildingClearanceMeters,
+      `edge ${edge.id} has only ${buildingClearance.toFixed(1)} m FAA-building clearance`,
+    );
+  }
+}
+
+const excludedWays = new Set((osm.excludedWays ?? []).map((item) => item.id));
+for (const way of osm.ways.filter(
+  (item) => item.kind === "taxiway" || item.kind === "taxilane",
+))
+  check(
+    representedWays.has(way.id) || excludedWays.has(way.id),
+    `routable OSM way ${way.id} is neither represented nor explicitly excluded`,
+  );
+for (const excluded of osm.excludedSegments ?? []) {
+  check(
+    sourceWays.has(excluded.wayId),
+    `excluded segment references missing way ${excluded.wayId}`,
+  );
+  check(
+    excluded.reason === "intersects-faa-building" ||
+      excluded.reason === "insufficient-faa-building-clearance",
+    `excluded segment ${excluded.wayId} has unexplained reason ${excluded.reason}`,
+  );
+}
+
+const taxiways = new Map();
+for (const taxiway of graph.taxiways ?? []) {
+  check(!taxiways.has(taxiway.id), `duplicate taxiway ${taxiway.id}`);
+  taxiways.set(taxiway.id, taxiway);
+  check(String(taxiway.name).trim(), `taxiway ${taxiway.id} has no name`);
+  for (const edgeId of taxiway.edgeIds)
+    check(edges.has(edgeId), `taxiway ${taxiway.id} references edge ${edgeId}`);
+}
+for (const edge of edges.values())
+  if (edge.taxiwayId)
+    check(
+      taxiways.get(edge.taxiwayId)?.edgeIds.includes(edge.id),
+      `edge ${edge.id} is not registered by taxiway ${edge.taxiwayId}`,
+    );
+
+const stands = graph.stands ?? [];
+check(stands.length >= 24, `expected at least 24 stands, found ${stands.length}`);
+const standIds = new Set();
+const standNodes = new Set();
+let minimumStandSpacing = Infinity;
+for (const stand of stands) {
+  check(!standIds.has(stand.id), `duplicate stand ${stand.id}`);
+  check(!standNodes.has(stand.nodeId), `stand node ${stand.nodeId} is reused`);
+  standIds.add(stand.id);
+  standNodes.add(stand.nodeId);
+  const node = nodes.get(stand.nodeId);
+  check(node?.kind === "stand", `stand ${stand.id} has no stand node`);
+  check(
+    stand.position[0] === node?.position[0] &&
+      stand.position[1] === node?.position[1],
+    `stand ${stand.id} position differs from its node`,
+  );
+}
+for (let first = 0; first < stands.length; first += 1)
+  for (let second = first + 1; second < stands.length; second += 1)
+    minimumStandSpacing = Math.min(
+      minimumStandSpacing,
+      distance(stands[first].position, stands[second].position),
+    );
+check(
+  minimumStandSpacing >= 1.8,
+  `stand spacing ${minimumStandSpacing.toFixed(3)} is undersized`,
+);
+
+check(
+  graph.runwayAccess?.length === faa.runtimeReference.runways.length * 2,
+  `expected ${faa.runtimeReference.runways.length * 2} runway access records`,
+);
+const accessKeys = new Set();
+for (const access of graph.runwayAccess ?? []) {
+  const key = `${access.runwayId}:${access.end}`;
+  check(!accessKeys.has(key), `duplicate runway access ${key}`);
+  accessKeys.add(key);
+  check(nodes.has(access.thresholdNodeId), `${key} threshold node is missing`);
+  check(nodes.has(access.exitNodeId), `${key} exit node is missing`);
+  check(nodes.has(access.holdShortNodeId), `${key} hold-short node is missing`);
+  check(taxiways.has(access.primaryTaxiwayId), `${key} primary taxiway is missing`);
+  const runwayFeature = runwayFeatureForIndex(faa, access.runwayId);
+  const hold = nodes.get(access.holdShortNodeId)?.position.map(
+    (value) => value * 38,
+  );
+  check(
+    hold && !pointInGeometry(hold, runwayFeature.geometry),
+    `${key} hold-short point lies inside runway pavement`,
+  );
+}
+
+const adjacency = buildAdjacency(graph.edges, true);
+let routeChecks = 0;
+for (const stand of stands) {
+  const reachable = reachableNodes(adjacency, stand.nodeId);
+  for (const access of graph.runwayAccess) {
+    check(
+      reachable.has(access.holdShortNodeId),
+      `${stand.id} cannot reach runway ${access.runwayId}:${access.end}`,
+    );
+    routeChecks += 1;
+  }
+}
+const reverseAdjacency = buildAdjacency(
+  graph.edges.map((edge) => ({
+    ...edge,
+    from: edge.to,
+    to: edge.from,
+  })),
+  true,
+);
+for (const stand of stands) {
+  const reachable = reachableNodes(reverseAdjacency, stand.nodeId);
+  for (const access of graph.runwayAccess) {
+    check(
+      reachable.has(access.exitNodeId),
+      `runway ${access.runwayId}:${access.end} cannot reach ${stand.id}`,
+    );
+    routeChecks += 1;
+  }
+}
+
+let sharpTurns = 0;
+const incident = new Map();
+for (const edge of graph.edges.filter((item) => item.kind !== "runway")) {
+  addArray(incident, edge.from, edge);
+  addArray(incident, edge.to, edge);
+}
+for (const [nodeId, connected] of incident) {
+  if (connected.length !== 2 || nodes.get(nodeId)?.kind !== "taxiway") continue;
+  const center = nodes.get(nodeId).position;
+  const vectors = connected.map((edge) => {
+    const other = nodes.get(edge.from === nodeId ? edge.to : edge.from).position;
+    const length = distance(center, other);
+    return [(other[0] - center[0]) / length, (other[1] - center[1]) / length];
+  });
+  const angle = Math.acos(
+    Math.max(-1, Math.min(1, vectors[0][0] * vectors[1][0] + vectors[0][1] * vectors[1][1])),
+  );
+  if (angle < Math.PI / 12) sharpTurns += 1;
+}
+check(sharpTurns === 0, `${sharpTurns} degree-two nodes require an impossible reversal`);
+
+check(manifest.counts.sourceNodes === osm.nodes.length, "manifest source-node count differs");
+check(manifest.counts.sourceWays === osm.ways.length, "manifest source-way count differs");
+check(manifest.counts.graphNodes === graph.nodes.length, "manifest graph-node count differs");
+check(manifest.counts.graphEdges === graph.edges.length, "manifest graph-edge count differs");
+check(manifest.counts.stands === stands.length, "manifest stand count differs");
+check(
+  manifest.counts.runwayCrossingEdges === crossingEdges,
+  "manifest crossing-edge count differs",
+);
+
+if (errors.length) {
+  process.stderr.write(`${errors.map((error) => `- ${error}`).join("\n")}\n`);
+  process.exitCode = 1;
+} else {
+  process.stdout.write(
+    `KORD imported surface graph valid: ${nodes.size} nodes, ${edges.size} edges, ${taxiways.size} named/source routes, ${stands.length} stands, ${crossingEdges} protected crossing edges, ${routeChecks} stand/runway routes\n`,
+  );
+}
+
+function edgeRunwayCrossings(edge, nodeMap, faaAsset) {
+  const from = nodeMap.get(edge.from).position.map((value) => value * 38);
+  const to = nodeMap.get(edge.to).position.map((value) => value * 38);
+  const length = distance(from, to);
+  const samples = Math.max(1, Math.ceil(length / 8));
+  const crossings = new Set();
+  for (let sample = 0; sample <= samples; sample += 1) {
+    const amount = sample / samples;
+    const point = [
+      from[0] + (to[0] - from[0]) * amount,
+      from[1] + (to[1] - from[1]) * amount,
+    ];
+    for (let index = 0; index < faaAsset.runtimeReference.runways.length; index += 1)
+      if (pointInGeometry(point, runwayFeatureForIndex(faaAsset, index).geometry))
+        crossings.add(index);
+  }
+  return [...crossings].sort((first, second) => first - second);
+}
+
+function runwayFeatureForIndex(faaAsset, index) {
+  const runwayId = faaAsset.runtimeReference.runways[index]?.runwayId;
+  return faaAsset.layers.runways.find(
+    (feature) => feature.properties.runwayId === runwayId,
+  );
+}
+
+function buildAdjacency(edgeList, excludeRunways) {
+  const adjacency = new Map();
+  for (const edge of edgeList) {
+    if (excludeRunways && edge.kind === "runway") continue;
+    addArray(adjacency, edge.from, edge.to);
+    if (edge.direction === "both") addArray(adjacency, edge.to, edge.from);
+  }
+  return adjacency;
+}
+
+function reachableNodes(adjacency, start) {
+  const reachable = new Set([start]);
+  const pending = [start];
+  while (pending.length) {
+    const current = pending.pop();
+    for (const next of adjacency.get(current) ?? []) {
+      if (reachable.has(next)) continue;
+      reachable.add(next);
+      pending.push(next);
+    }
+  }
+  return reachable;
+}
+
+function segmentIntersectsLayer(start, end, features, stepMeters) {
+  const length = distance(start, end);
+  const samples = Math.max(1, Math.ceil(length / stepMeters));
+  for (let sample = 0; sample <= samples; sample += 1) {
+    const amount = sample / samples;
+    const point = [
+      start[0] + (end[0] - start[0]) * amount,
+      start[1] + (end[1] - start[1]) * amount,
+    ];
+    if (features.some((feature) => pointInGeometry(point, feature.geometry)))
+      return true;
+  }
+  return false;
+}
+
+function segmentLayerClearance(start, end, features, stepMeters) {
+  const length = distance(start, end);
+  const samples = Math.max(1, Math.ceil(length / stepMeters));
+  let minimum = Infinity;
+  for (let sample = 0; sample <= samples; sample += 1) {
+    const amount = sample / samples;
+    const point = [
+      start[0] + (end[0] - start[0]) * amount,
+      start[1] + (end[1] - start[1]) * amount,
+    ];
+    for (const feature of features) {
+      if (pointInGeometry(point, feature.geometry)) return 0;
+      minimum = Math.min(minimum, distanceToGeometryBoundary(point, feature.geometry));
+    }
+  }
+  return minimum;
+}
+
+function distanceToGeometryBoundary(point, geometry) {
+  const polygons =
+    geometry.type === "Polygon" ? [geometry.coordinates] : geometry.coordinates;
+  let minimum = Infinity;
+  for (const polygon of polygons)
+    for (const ring of polygon)
+      for (let index = 0; index < ring.length - 1; index += 1)
+        minimum = Math.min(
+          minimum,
+          pointSegmentDistance(point, ring[index], ring[index + 1]),
+        );
+  return minimum;
+}
+
+function pointSegmentDistance(point, start, end) {
+  const dx = end[0] - start[0];
+  const dy = end[1] - start[1];
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared <= Number.EPSILON) return distance(point, start);
+  const amount = Math.max(
+    0,
+    Math.min(1, ((point[0] - start[0]) * dx + (point[1] - start[1]) * dy) / lengthSquared),
+  );
+  return distance(point, [start[0] + dx * amount, start[1] + dy * amount]);
+}
+
+function pointInGeometry(point, geometry) {
+  const polygons =
+    geometry.type === "Polygon" ? [geometry.coordinates] : geometry.coordinates;
+  return polygons.some(
+    (polygon) =>
+      pointInRing(point, polygon[0]) &&
+      !polygon.slice(1).some((ring) => pointInRing(point, ring)),
+  );
+}
+
+function pointInRing([x, y], ring) {
+  let inside = false;
+  for (
+    let index = 0, previous = ring.length - 1;
+    index < ring.length;
+    previous = index++
+  ) {
+    const [xi, yi] = ring[index];
+    const [xj, yj] = ring[previous];
+    if (
+      yi > y !== yj > y &&
+      x < ((xj - xi) * (y - yi)) / (yj - yi || Number.EPSILON) + xi
+    )
+      inside = !inside;
+  }
+  return inside;
+}
+
+function addArray(map, key, value) {
+  const values = map.get(key) ?? [];
+  values.push(value);
+  map.set(key, values);
+}
+
+function validatePoint(point, label) {
+  check(
+    Array.isArray(point) && point.length === 2 && point.every(Number.isFinite),
+    `${label} is not a finite x/y pair`,
+  );
+}
+
+function distance(first, second) {
+  return Math.hypot(first[0] - second[0], first[1] - second[1]);
+}
+
+function sha256(text) {
+  return createHash("sha256").update(text).digest("hex");
+}
+
+function check(condition, message) {
+  if (!condition) errors.push(message);
+}

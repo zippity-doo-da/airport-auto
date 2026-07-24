@@ -3,7 +3,7 @@ import { build } from 'esbuild';
 const validationSource = `
 import { generateAirportConfig, generateHubConfig, HUB_AIRPORTS } from './src/simulation/airportConfig.ts';
 import { FixedStepSimulationHarness } from './src/simulation/fixedStepHarness.ts';
-import { sampleSurfaceRoute, surfaceRouteForFlight, validateAirportSurfaceGraph } from './src/simulation/surfaceGraph.ts';
+import { sampleSurfaceRoute, surfaceRouteCrossingWindows, surfaceRouteForFlight, validateAirportSurfaceGraph } from './src/simulation/surfaceGraph.ts';
 
 const configs = [
   ...Array.from({ length: 64 }, (_, index) => generateAirportConfig(10_000 + index * 97)),
@@ -28,6 +28,22 @@ for (const config of configs) {
           const route = surfaceRouteForFlight(config.surfaceGraph, runway.id, end, phase, stand.slot);
           if (!route || route.nodeIds.length < 2 || route.edgeIds.length !== route.nodeIds.length - 1) {
             throw new Error(config.code + ': missing ' + phase + ' route for runway ' + runway.id + ', end ' + end + ', stand ' + stand.id);
+          }
+          const crossingWindows = surfaceRouteCrossingWindows(
+            config.surfaceGraph,
+            route.nodeIds,
+            0,
+            runway.id,
+            route.edgeIds,
+          );
+          const crossingIds = crossingWindows.map((crossing) => crossing.id);
+          if (new Set(crossingIds).size !== crossingIds.length) {
+            throw new Error(config.code + ': ' + phase + ' route has duplicate crossing occurrence ids ' + JSON.stringify(crossingWindows));
+          }
+          for (const crossing of crossingWindows) {
+            if (!(crossing.holdProgress < crossing.entryProgress && crossing.entryProgress < crossing.exitProgress)) {
+              throw new Error(config.code + ': ' + phase + ' route has an invalid hold/crossing window ' + JSON.stringify(crossing));
+            }
           }
           for (const progress of [0, 0.25, 0.5, 0.75, 1]) {
             const sample = sampleSurfaceRoute(config.surfaceGraph, route.nodeIds, progress);

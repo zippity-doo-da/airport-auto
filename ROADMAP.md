@@ -27,36 +27,36 @@ This document contains only unfinished, still-valid work. Shipped behavior belon
 - [x] Record source, license, retrieval date, coordinate system, and data version in each generated airport asset.
 - [x] Build an offline importer that converts source coordinates into the simulation’s local coordinate system.
 - [x] Normalize imported features into a compact, versioned airport vector format rather than loading raw OSM or diagram data at runtime.
-- [ ] Add deterministic import validation for disconnected edges, duplicate nodes, impossible turns, undersized clearances, and unreferenced features.
+- [x] Add deterministic import validation for disconnected edges, duplicate nodes, impossible turns, undersized clearances, and unreferenced features.
 - [x] Show attribution and map-version metadata in About/settings and `airportControl.snapshot()`.
 
 ### Airfield topology
 
-- [ ] Model all current ORD runway thresholds, declared operating ends, exits, touchdown zones, rollout regions, and runway-protection areas.
+- [x] Model all current ORD runway thresholds, declared operating ends, exits, touchdown zones, rollout regions, and runway-protection areas.
 - [ ] Import the major named taxiways, direction-aware segments, intersections, bridges/tunnels where relevant, and published hot spots.
 - [ ] Generate explicit hold-short, runway-entry, crossing, line-up, and departure-release points from the graph.
 - [ ] Model the terminal complexes, concourses, ramps, cargo areas, maintenance areas, deicing pads, and perimeter routes as separate operational zones.
 - [ ] Add unique stands with aircraft-size compatibility, pushback direction, ramp access, and occupancy constraints.
-- [ ] Derive actual route-crossing clearances from the imported route and protected runway zones.
+- [x] Derive actual route-crossing clearances from the imported route and protected runway zones.
 - [ ] Support common ORD runway configurations and operating directions without moving visual markers to the wrong threshold.
 
 ### Chicago context and presentation
 
 - [ ] Replace repeated district tiles with recognizable airport-adjacent ground, highways, major roads, rail corridors, and development patterns.
-- [ ] Keep the airport on continuous land and show a credible airport boundary; do not present O’Hare as an island.
+- [x] Keep the airport on continuous land and show a credible airport boundary; do not present O’Hare as an island.
 - [ ] Add optional north arrow, map scale, airport boundary, taxiway labels, runway labels, and clean-map layer controls.
 - [ ] Keep terminals, scenery, roads, and props outside every protected movement-surface envelope.
-- [ ] Preserve the original muted miniature visual language instead of copying chart or satellite aesthetics.
+- [x] Preserve the original muted miniature visual language instead of copying chart or satellite aesthetics.
 
 ### ORD v1 acceptance gate
 
 - [ ] Every active stand can reach at least one compatible departure runway using pavement-only routes.
-- [ ] Every landing runway can reach a compatible free stand without an unexplained teleport, grass segment, or unmodeled crossing.
-- [ ] Every runway crossing on a route maps to a specific hold-short point and explicit clearance.
+- [x] Every landing runway can reach a compatible free stand without an unexplained teleport, grass segment, or unmodeled crossing.
+- [x] Every runway crossing on a route maps to a specific hold-short point and explicit clearance.
 - [ ] No building, scenery object, or road overlaps a protected runway or taxiway envelope.
-- [ ] Rush Auto and Watch soaks sustain concurrent arrivals, departures, and multiple nonconflicting surface movements with zero collisions or incursions.
-- [ ] The renderer pose and simulation pose remain identical at imported curves and tight intersections.
-- [ ] ORD remains labeled “schematic” until source review and all acceptance checks are complete.
+- [x] Rush Auto and Watch soaks sustain concurrent arrivals, departures, and multiple nonconflicting surface movements with zero collisions or incursions.
+- [x] The renderer pose and simulation pose remain identical at imported curves and tight intersections.
+- [x] ORD remains labeled “schematic” until source review and all acceptance checks are complete.
 
 ## Milestone 2 — Living ground operation
 
@@ -202,7 +202,7 @@ These tasks travel with the milestones above rather than waiting for a final cle
 
 ## Decisions still needed
 
-- [ ] Choose the first import sources and fidelity boundary for ORD Surface Graph v1.
+- [x] Choose the first import sources and fidelity boundary for ORD Surface Graph v1.
 - [ ] Choose whether “realistic separation” is the default ATC ruleset or an opt-in difficulty level.
 - [ ] Decide whether ATC voice should remain captions, use licensed recordings, use generated speech, or offer several options.
 - [ ] Choose the hosting and identity model for authenticated remote/multi-controller sessions.

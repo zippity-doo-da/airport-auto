@@ -91,6 +91,8 @@ export interface Flight {
   takeoffCleared?: boolean;
   requiredCrossings?: number[];
   crossingClearances?: number[];
+  crossingClearanceIds?: string[];
+  crossingHoldRunway?: number;
   controlPace?: number;
   controlHold?: boolean;
   automaticHold?: boolean;

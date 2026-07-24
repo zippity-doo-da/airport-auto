@@ -123,6 +123,7 @@ const airportMeta = $<HTMLElement>('#airport-meta');
 const mapDataVersion = $<HTMLElement>('#map-data-version');
 const mapDataAttribution = $<HTMLElement>('#map-data-attribution');
 const mapDataSource = $<HTMLAnchorElement>('#map-data-source');
+const mapSurfaceSource = $<HTMLAnchorElement>('#map-surface-source');
 const instructionCopy = $<HTMLElement>('#instruction-copy');
 const airportSelect = $<HTMLSelectElement>('#airport-select');
 const controlSelect = $<HTMLSelectElement>('#control-select');
@@ -673,6 +674,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
       surfaceRouteEdges: flight.surfaceRouteEdges ? [...flight.surfaceRouteEdges] : undefined,
       requiredCrossings: flight.requiredCrossings ? [...flight.requiredCrossings] : undefined,
       crossingClearances: flight.crossingClearances ? [...flight.crossingClearances] : undefined,
+      crossingClearanceIds: flight.crossingClearanceIds ? [...flight.crossingClearanceIds] : undefined,
       kinematics: { ...flight.kinematics },
       motion: { ...flight.motion },
     })),
@@ -736,7 +738,7 @@ function updateFlightChip(item: HTMLElement, flight: Flight): void {
   const button = item.querySelector<HTMLButtonElement>('button')!;
   const kinematics = flight.kinematics;
   const surface = flight.phase === 'taxi-in' || flight.phase === 'taxi-out' || flight.phase === 'resting';
-  const held = Boolean(flight.controlHold || flight.automaticHold || flight.safetyHold);
+  const held = Boolean(flight.controlHold || flight.automaticHold || flight.crossingHoldRunway !== undefined || flight.safetyHold);
   const speed = surface ? kinematics.groundSpeedKts : kinematics.airspeedKts;
   const speedLabel = surface ? 'GS' : 'IAS';
   const altitude = Math.max(0, Math.round(kinematics.altitudeFt / 10) * 10);
@@ -808,7 +810,7 @@ function renderFlightActions(): void {
   if (flight.phase === 'approach' && !flight.cleared) add('clear', `Land ${runwayDesignation(flight.runway)}`, !simulation.canIssue('approach'));
   if (flight.phase === 'approach' || flight.phase === 'landing') add('go-around', 'Go around', !simulation.canIssue('approach'));
   if (ground) add('hold-toggle', flight.controlHold ? 'Resume taxi' : 'Hold position', !simulation.canIssue('ground'));
-  for (const runway of (flight.requiredCrossings ?? []).filter((id) => !flight.crossingClearances?.includes(id))) {
+  for (const runway of flight.crossingHoldRunway === undefined ? [] : [flight.crossingHoldRunway]) {
     add('cross', `Cross ${runwayDesignation(runway)}`, !simulation.canIssue('ground'), runway);
   }
   if (flight.phase === 'taxi-out' && flight.progress >= 0.985 && !flight.runwayEntryCleared) add('entry', `Line up ${runwayDesignation(flight.runway)}`, !simulation.canIssue('tower'));
@@ -924,8 +926,7 @@ function renderTelemetryControls(): void {
       ...(flight.phase === 'approach' || flight.phase === 'landing' ? [`<button data-action="go-around" data-flight="${flight.id}">Go around</button>`] : []),
       ...(flight.emergency ? [`<button data-action="medical" data-flight="${flight.id}">Medical</button>`] : [`<button data-action="emergency" data-flight="${flight.id}">Emergency</button>`]),
     ].join('');
-    const crossings = (flight.requiredCrossings ?? [])
-      .filter((runway) => flight.phase === 'taxi-out' && !flight.crossingClearances?.includes(runway))
+    const crossings = (flight.crossingHoldRunway === undefined ? [] : [flight.crossingHoldRunway])
       .map((runway) => `<button data-action="cross" data-flight="${flight.id}" data-runway="${runway}">Clear cross ${runwayDesignation(runway)}</button>`)
       .join('');
     const entry = flight.phase !== 'taxi-out' || flight.progress < 0.985 || flight.runwayEntryCleared
@@ -934,7 +935,17 @@ function renderTelemetryControls(): void {
     const takeoff = flight.phase === 'takeoff' && !flight.takeoffCleared
       ? `<button data-action="takeoff" data-flight="${flight.id}">Clear takeoff ${runwayDesignation(flight.runway)}</button>`
       : '';
-    const directive = flight.safetyHold ? ' · SAFETY HOLD' : flight.controlHold ? ' · HELD' : flight.controlPattern === 'zigzag' ? ' · ZIGZAG' : flight.controlPace && flight.controlPace !== 1 ? ` · ${flight.controlPace < 1 ? 'SLOW' : 'EXPEDITE'}` : '';
+    const directive = flight.safetyHold
+      ? ' · SAFETY HOLD'
+      : flight.crossingHoldRunway !== undefined
+        ? ` · HOLD SHORT ${runwayDesignation(flight.crossingHoldRunway)}`
+        : flight.controlHold
+          ? ' · HELD'
+          : flight.controlPattern === 'zigzag'
+            ? ' · ZIGZAG'
+            : flight.controlPace && flight.controlPace !== 1
+              ? ` · ${flight.controlPace < 1 ? 'SLOW' : 'EXPEDITE'}`
+              : '';
     const profile = aircraftProfile(flight.aircraft);
     const airline = airlineProfile(flight.airline);
     return `<div class="telemetry__flight"><strong>${flight.callsign} · ${flight.aircraft} · ${flight.phase.toUpperCase()}${flight.taxiway ? ` · ${flight.taxiway}` : ''}${directive}</strong><small>${airline.name} · ${flight.registration} · ${flight.service} · ${profile.name} · ${profile.wakeClass} wake · ${profile.approachKts} kt approach</small>${flightControls}${crossings}${entry}${takeoff}</div>`;
@@ -1156,13 +1167,19 @@ function updateAirportUi(): void {
     const effective = config.vectorData.effective
       ? `${config.vectorData.effective.from.replace(/^\d{4}Z\s+/, '')}–${config.vectorData.effective.to.replace(/^\d{4}Z\s+/, '')}`
       : 'effective window unavailable';
-    mapDataVersion.textContent = `FAA vector foundation · ${effective}`;
-    mapDataAttribution.textContent = `${config.vectorData.attribution} Retrieved ${config.vectorData.retrievedOn} · imported geometry staged · not for navigation.`;
+    mapDataVersion.textContent = config.surfaceData
+      ? `FAA geometry + OSM surface graph · ${effective}`
+      : `FAA vector foundation · ${effective}`;
+    mapDataAttribution.textContent = config.surfaceData
+      ? `${config.vectorData.attribution} ${config.surfaceData.attribution}. Retrieved ${config.vectorData.retrievedOn} · not for navigation.`
+      : `${config.vectorData.attribution} Retrieved ${config.vectorData.retrievedOn} · imported geometry staged · not for navigation.`;
     mapDataSource.hidden = false;
+    mapSurfaceSource.hidden = !config.surfaceData;
   } else {
     mapDataVersion.textContent = center ? 'Purpose-built ATC schematic' : 'Procedural airfield';
     mapDataAttribution.textContent = 'Original generated scenery · not for navigation';
     mapDataSource.hidden = true;
+    mapSurfaceSource.hidden = true;
   }
   document.title = `${config.code === 'LOCAL' ? config.name : config.code} · Airport Auto`;
   scopeButton.setAttribute('aria-pressed', String(center));
@@ -1309,6 +1326,22 @@ function airportSnapshot() {
         attribution: config.vectorData.attribution,
         sources: config.vectorData.sources,
       } : null,
+      surfaceData: config.surfaceData ? {
+        schemaVersion: config.surfaceData.schemaVersion,
+        assetPath: config.surfaceData.assetPath,
+        graphSha256: config.surfaceData.graphSha256,
+        retrievedOn: config.surfaceData.retrievedOn,
+        coordinateSystem: {
+          ...config.surfaceData.coordinateSystem,
+          originWgs84: [...config.surfaceData.coordinateSystem.originWgs84],
+          axes: { ...config.surfaceData.coordinateSystem.axes },
+        },
+        counts: { ...config.surfaceData.counts },
+        validationRules: { ...config.surfaceData.validationRules },
+        license: config.surfaceData.license,
+        attribution: config.surfaceData.attribution,
+        copyrightUrl: config.surfaceData.copyrightUrl,
+      } : null,
     },
     clock: Number(simulation.state.elapsed.toFixed(2)),
     paused: simulation.state.paused,
@@ -1352,8 +1385,13 @@ function airportSnapshot() {
       schemaVersion: config.surfaceGraph.schemaVersion,
       airportCode: config.surfaceGraph.airportCode,
       seed: config.surfaceGraph.seed,
+      source: config.surfaceGraph.source ? { ...config.surfaceGraph.source } : undefined,
       nodes: config.surfaceGraph.nodes.map((node) => ({ ...node, position: [...node.position], taxiwayIds: [...node.taxiwayIds] })),
-      edges: config.surfaceGraph.edges.map((edge) => ({ ...edge })),
+      edges: config.surfaceGraph.edges.map((edge) => ({
+        ...edge,
+        crossedRunwayIds: edge.crossedRunwayIds ? [...edge.crossedRunwayIds] : undefined,
+        sourceWayIds: edge.sourceWayIds ? [...edge.sourceWayIds] : undefined,
+      })),
       taxiways: config.surfaceGraph.taxiways.map((taxiway) => ({ ...taxiway, edgeIds: [...taxiway.edgeIds] })),
       stands: config.surfaceGraph.stands.map((stand) => ({ ...stand, position: [...stand.position] })),
       runwayAccess: config.surfaceGraph.runwayAccess.map((access) => ({ ...access })),
@@ -1376,6 +1414,7 @@ function airportSnapshot() {
         takeoffCleared: flight.takeoffCleared,
         requiredCrossings: flight.requiredCrossings ?? [],
         crossingClearances: flight.crossingClearances ?? [],
+        crossingClearanceIds: flight.crossingClearanceIds ?? [],
       })),
     flights: simulation.state.flights.map((flight) => ({
       id: flight.id,
@@ -1448,6 +1487,7 @@ function airportSnapshot() {
       takeoffCleared: flight.takeoffCleared,
       requiredCrossings: flight.requiredCrossings ?? [],
       crossingClearances: flight.crossingClearances ?? [],
+      crossingClearanceIds: flight.crossingClearanceIds ?? [],
       control: {
         pace: flight.controlPace ?? 1,
         held: flight.controlHold ?? false,

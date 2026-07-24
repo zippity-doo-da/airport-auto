@@ -14,6 +14,7 @@ The airport layouts are readable operational schematics inspired by real runway 
 - Auto, Assisted, Manual, and Watch modes; four controller stations; six scenarios; weather and wind controls; a five-channel sound mixer; replay; and four camera views.
 - A procedural aircraft fleet with model-specific size, runway performance, taxi/approach speeds, acceleration, braking, wake class, airline, callsign, registration, and fuel telemetry.
 - A local, versioned browser API and `BroadcastChannel` bridge for playtests and controller agents.
+- A fully offline ORD data foundation: FAA runway/apron/building geometry plus a normalized, attributed OpenStreetMap surface graph. O’Hare remains labeled schematic while its remaining operational zones and Chicago context are built out.
 
 ## Run locally
 

@@ -223,7 +223,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
         visual.root.visible = true;
         visual.poseInitialized = false;
         if (config.scope === 'center') {
-          visual.baseScale = 0.72;
+          visual.baseScale = 0.17;
         } else {
           visual.baseScale = 0.92;
         }
@@ -582,24 +582,26 @@ function buildAirport(root: THREE.Group, config: AirportConfig): AirportBuild {
     }
     for (const side of [-1, 1]) {
       const edge = new THREE.Mesh(new THREE.BoxGeometry(data.length - 4, 0.15, 0.05), stripe);
-      edge.position.set(0, side * (data.width / 2 - 0.7), 0.22);
+      edge.position.set(0, side * Math.max(0.2, data.width / 2 - 0.18), 0.22);
       runway.add(edge);
     }
     const marker = new THREE.Group();
     marker.position.set(data.landingEnd * (data.length / 2 - 3.1), 0, 0.25);
     marker.scale.x = data.landingEnd;
     if (data.role === 'arrival' || data.role === 'mixed') {
-      for (let bar = -3; bar <= 3; bar += 1) {
-        const thresholdBar = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.62, 0.06), stripe);
-        thresholdBar.position.set(0, bar * 0.92, 0);
+      const barCount = Math.max(2, Math.min(7, Math.floor(data.width / 0.42)));
+      for (let bar = 0; bar < barCount; bar += 1) {
+        const thresholdBar = new THREE.Mesh(new THREE.BoxGeometry(0.55, Math.min(0.36, data.width / (barCount * 1.35)), 0.06), stripe);
+        const across = barCount === 1 ? 0 : (bar / (barCount - 1) - 0.5) * Math.max(0.5, data.width - 0.5);
+        thresholdBar.position.set(0, across, 0);
         marker.add(thresholdBar);
       }
     }
     if (data.role === 'departure' || data.role === 'mixed') {
       const departureMaterial = new THREE.MeshBasicMaterial({ color: 0x79c8e8 });
       for (const side of [-1, 1]) {
-        const chevron = new THREE.Mesh(new THREE.BoxGeometry(3.7, 0.38, 0.07), departureMaterial);
-        chevron.position.set(-0.7, side * 1.5, 0.02);
+        const chevron = new THREE.Mesh(new THREE.BoxGeometry(3.7, Math.min(0.38, data.width * 0.13), 0.07), departureMaterial);
+        chevron.position.set(-0.7, side * data.width * 0.23, 0.02);
         chevron.rotation.z = side * 0.38;
         marker.add(chevron);
       }
@@ -644,70 +646,53 @@ function buildAirport(root: THREE.Group, config: AirportConfig): AirportBuild {
     const edgeLightCount = Math.max(8, Math.round(data.length / 6));
     for (let lightIndex = 0; lightIndex <= edgeLightCount; lightIndex += 1) {
       const x = -data.length / 2 + 2 + (data.length - 4) * lightIndex / edgeLightCount;
-      addLight(x, -data.width / 2 + 0.38, 0xb9ddff, 0.14, 0.92);
-      addLight(x, data.width / 2 - 0.38, 0xb9ddff, 0.14, 0.92);
+      addLight(x, -Math.max(0.18, data.width / 2 - 0.18), 0xb9ddff, 0.14, 0.92);
+      addLight(x, Math.max(0.18, data.width / 2 - 0.18), 0xb9ddff, 0.14, 0.92);
     }
     for (const side of [-1, 1]) {
-      addLight(-data.landingEnd * (data.length / 2 - 0.8), side * (data.width / 2 - 1.2), 0xff6d61, 0.18, 1, 0.32);
+      addLight(-data.landingEnd * (data.length / 2 - 0.8), side * Math.max(0.16, data.width / 2 - 0.3), 0xff6d61, 0.18, 1, 0.24);
     }
     runwayVisuals.push({ marker, closure, labels });
     root.add(runway);
   });
 
+  if (config.vectorData) addImportedAprons(root, config.vectorData.runtimeReference.aprons);
   const taxiMaterial = new THREE.MeshStandardMaterial({ color: 0x515b58, roughness: 0.96 });
-  const surfaceNodes = new Map(config.surfaceGraph.nodes.map((node) => [node.id, node]));
-  for (const edge of config.surfaceGraph.edges) {
-    if (edge.kind === 'runway') continue;
-    const from = surfaceNodes.get(edge.from);
-    const to = surfaceNodes.get(edge.to);
-    if (!from || !to) continue;
-    addTaxiPath(root, [
-      new THREE.Vector3(from.position[0], from.position[1], 2),
-      new THREE.Vector3(to.position[0], to.position[1], 2),
-    ], taxiMaterial, edge.width);
-  }
+  addTaxiNetwork(root, config.surfaceGraph, taxiMaterial);
   for (const node of config.surfaceGraph.nodes.filter((item) => item.kind === 'hold-short')) {
     const runway = node.runwayId === undefined ? undefined : config.runways[node.runwayId];
     if (runway) addHoldShortMarking(root, runway, new THREE.Vector3(node.position[0], node.position[1], 2));
   }
 
-  const terminalEnvelope = config.obstacles.find((obstacle) => obstacle.kind === 'terminal');
-  const terminalCenter = terminalEnvelope?.center ?? config.terminal;
-  const terminal = new THREE.Group();
-  terminal.position.set(terminalCenter[0], terminalCenter[1], 1.7);
-  const terminalMaterial = new THREE.MeshStandardMaterial({ color: COLORS.terminal, roughness: 0.78 });
-  const buildingParts = config.code === 'ORD'
-    ? [
-      { size: [28, 3.2, 5.5] as const, position: [0, 0] as const },
-      { size: [5.2, 9, 4.4] as const, position: [-9, 0] as const },
-      { size: [5.2, 9, 4.4] as const, position: [0, 0] as const },
-      { size: [5.2, 9, 4.4] as const, position: [9, 0] as const },
-    ]
-    : [{ size: [28, 9, 5.5] as const, position: [0, 0] as const }];
-  for (const part of buildingParts) {
-    const building = new THREE.Mesh(new THREE.BoxGeometry(...part.size), terminalMaterial);
-    building.position.set(part.position[0], part.position[1], part.size[2] / 2);
+  if (config.vectorData) {
+    addImportedBuildings(root, config.obstacles);
+  } else {
+    const terminalEnvelope = config.obstacles.find((obstacle) => obstacle.kind === 'terminal');
+    const terminalCenter = terminalEnvelope?.center ?? config.terminal;
+    const terminal = new THREE.Group();
+    terminal.position.set(terminalCenter[0], terminalCenter[1], 1.7);
+    const terminalMaterial = new THREE.MeshStandardMaterial({ color: COLORS.terminal, roughness: 0.78 });
+    const building = new THREE.Mesh(new THREE.BoxGeometry(28, 9, 5.5), terminalMaterial);
+    building.position.z = 2.75;
     building.castShadow = true;
     terminal.add(building);
-  }
-
-  const roof = new THREE.Mesh(
-    new THREE.BoxGeometry(29.5, 10.2, 0.55),
-    new THREE.MeshStandardMaterial({ color: COLORS.roof, roughness: 0.85 }),
-  );
-  roof.position.z = 5.8;
-  roof.castShadow = true;
-  terminal.add(roof);
-
-  for (let index = -5; index <= 5; index += 1) {
-    const window = new THREE.Mesh(
-      new THREE.BoxGeometry(1.4, 0.15, 1.25),
-      new THREE.MeshStandardMaterial({ color: COLORS.window, emissive: 0x193536, emissiveIntensity: 0.3 }),
+    const roof = new THREE.Mesh(
+      new THREE.BoxGeometry(29.5, 10.2, 0.55),
+      new THREE.MeshStandardMaterial({ color: COLORS.roof, roughness: 0.85 }),
     );
-    window.position.set(index * 2.25, -4.58, 3.1);
-    terminal.add(window);
+    roof.position.z = 5.8;
+    roof.castShadow = true;
+    terminal.add(roof);
+    for (let index = -5; index <= 5; index += 1) {
+      const window = new THREE.Mesh(
+        new THREE.BoxGeometry(1.4, 0.15, 1.25),
+        new THREE.MeshStandardMaterial({ color: COLORS.window, emissive: 0x193536, emissiveIntensity: 0.3 }),
+      );
+      window.position.set(index * 2.25, -4.58, 3.1);
+      terminal.add(window);
+    }
+    root.add(terminal);
   }
-  root.add(terminal);
 
   const towerEnvelope = config.obstacles.find((obstacle) => obstacle.kind === 'control-tower');
   const towerCenter = towerEnvelope?.center ?? [config.terminal[0] - 17, config.terminal[1] + 6];
@@ -725,6 +710,51 @@ function buildAirport(root: THREE.Group, config: AirportConfig): AirportBuild {
   tower.add(top);
   root.add(tower);
   return { runwayLights, runwayVisuals };
+}
+
+function addImportedAprons(root: THREE.Group, aprons: NonNullable<AirportConfig['vectorData']>['runtimeReference']['aprons']): void {
+  const material = new THREE.MeshStandardMaterial({ color: 0x59635e, roughness: 0.98, side: THREE.DoubleSide });
+  for (const apron of aprons) {
+    const shape = shapeFromRings(apron.rings);
+    if (!shape) continue;
+    const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), material);
+    mesh.position.z = 1.56;
+    mesh.receiveShadow = true;
+    root.add(mesh);
+  }
+}
+
+function addImportedBuildings(root: THREE.Group, obstacles: AirportConfig['obstacles']): void {
+  const terminalMaterial = new THREE.MeshStandardMaterial({ color: COLORS.terminal, roughness: 0.78 });
+  const buildingMaterial = new THREE.MeshStandardMaterial({ color: 0xb8ae98, roughness: 0.88 });
+  for (const obstacle of obstacles) {
+    if (obstacle.shape !== 'polygon' || obstacle.kind === 'control-tower') continue;
+    const shape = shapeFromRings([obstacle.points]);
+    if (!shape) continue;
+    const height = obstacle.kind === 'terminal' ? 4.2 : 2.6;
+    const geometry = new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false, curveSegments: 1 });
+    const mesh = new THREE.Mesh(geometry, obstacle.kind === 'terminal' ? terminalMaterial : buildingMaterial);
+    mesh.position.z = 1.64;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    root.add(mesh);
+  }
+}
+
+function shapeFromRings(rings: Array<Array<[number, number]>>): THREE.Shape | null {
+  const outer = rings[0];
+  if (!outer || outer.length < 4) return null;
+  const shape = new THREE.Shape();
+  shape.moveTo(outer[0][0], outer[0][1]);
+  for (let index = 1; index < outer.length; index += 1) shape.lineTo(outer[index][0], outer[index][1]);
+  for (const ring of rings.slice(1)) {
+    if (ring.length < 4) continue;
+    const hole = new THREE.Path();
+    hole.moveTo(ring[0][0], ring[0][1]);
+    for (let index = 1; index < ring.length; index += 1) hole.lineTo(ring[index][0], ring[index][1]);
+    shape.holes.push(hole);
+  }
+  return shape;
 }
 
 function createRunwayLabel(label: string): THREE.Sprite {
@@ -1248,22 +1278,44 @@ function dampAngle(current: number, target: number, smoothing: number, delta: nu
   return current + difference * (1 - Math.exp(-smoothing * Math.max(0, delta)));
 }
 
-function addTaxiPath(root: THREE.Group, points: THREE.Vector3[], material: THREE.Material, width = 8): void {
-  const curve = new THREE.CatmullRomCurve3(points, false, 'centripetal');
-  const segments = 48;
+function addTaxiNetwork(root: THREE.Group, graph: AirportConfig['surfaceGraph'], material: THREE.Material): void {
+  const nodes = new Map(graph.nodes.map((node) => [node.id, node]));
   const positions: number[] = [];
   const indices: number[] = [];
-  for (let index = 0; index <= segments; index += 1) {
-    const amount = index / segments;
-    const point = curve.getPointAt(amount);
-    const tangent = curve.getTangentAt(amount);
-    const normal = new THREE.Vector3(-tangent.y, tangent.x, 0).normalize().multiplyScalar(width / 2);
-    positions.push(point.x + normal.x, point.y + normal.y, 1.62);
-    positions.push(point.x - normal.x, point.y - normal.y, 1.62);
-    if (index < segments) {
-      const base = index * 2;
-      indices.push(base, base + 2, base + 1, base + 1, base + 2, base + 3);
+  const intersectionRadius = new Map<string, number>();
+  for (const edge of graph.edges) {
+    if (edge.kind === 'runway') continue;
+    const from = nodes.get(edge.from);
+    const to = nodes.get(edge.to);
+    if (!from || !to) continue;
+    const x = to.position[0] - from.position[0];
+    const y = to.position[1] - from.position[1];
+    const length = Math.hypot(x, y);
+    if (length <= 0.001) continue;
+    const normalX = -y / length * edge.width / 2;
+    const normalY = x / length * edge.width / 2;
+    const base = positions.length / 3;
+    positions.push(
+      from.position[0] + normalX, from.position[1] + normalY, 1.62,
+      from.position[0] - normalX, from.position[1] - normalY, 1.62,
+      to.position[0] + normalX, to.position[1] + normalY, 1.62,
+      to.position[0] - normalX, to.position[1] - normalY, 1.62,
+    );
+    indices.push(base, base + 2, base + 1, base + 1, base + 2, base + 3);
+    intersectionRadius.set(from.id, Math.max(intersectionRadius.get(from.id) ?? 0, edge.width / 2));
+    intersectionRadius.set(to.id, Math.max(intersectionRadius.get(to.id) ?? 0, edge.width / 2));
+  }
+  for (const node of graph.nodes.filter((item) => item.kind === 'intersection')) {
+    const radius = intersectionRadius.get(node.id);
+    if (!radius) continue;
+    const base = positions.length / 3;
+    positions.push(node.position[0], node.position[1], 1.621);
+    const sides = 8;
+    for (let side = 0; side < sides; side += 1) {
+      const angle = side / sides * Math.PI * 2;
+      positions.push(node.position[0] + Math.cos(angle) * radius, node.position[1] + Math.sin(angle) * radius, 1.621);
     }
+    for (let side = 0; side < sides; side += 1) indices.push(base, base + 1 + side, base + 1 + (side + 1) % sides);
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
@@ -1272,7 +1324,6 @@ function addTaxiPath(root: THREE.Group, points: THREE.Vector3[], material: THREE
   const taxi = new THREE.Mesh(geometry, material);
   taxi.receiveShadow = true;
   root.add(taxi);
-
 }
 
 function disposeObject(object: THREE.Object3D): void {

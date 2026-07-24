@@ -1,7 +1,7 @@
 import type { AirportConfig } from './airportConfig';
 import { sampleFlightTrajectory } from './flightTrajectory';
 import { WORLD_METERS_PER_UNIT } from './runwayPerformance';
-import { sampleSurfaceRoute } from './surfaceGraph';
+import { sampleSurfaceRouteWithEdges } from './surfaceGraph';
 import type { Flight, FlightMotionState } from './types';
 
 /** Convert the shared path definition into the simulation-owned world pose. */
@@ -30,7 +30,7 @@ export function sampleFlightMotion(
     };
   }
 
-  const surface = sampleSurfaceRoute(config.surfaceGraph, flight.surfaceRoute, amount);
+  const surface = sampleSurfaceRouteWithEdges(config.surfaceGraph, flight.surfaceRoute, flight.surfaceRouteEdges, amount);
   if (surface) {
     return {
       x: surface.x,

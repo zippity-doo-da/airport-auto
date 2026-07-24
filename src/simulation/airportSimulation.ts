@@ -3,7 +3,7 @@ import type { AirportEvent, AirportState, ClearanceProposal, ConflictPrediction,
 import { AIRCRAFT_ROSTER, aircraftProfile, type AircraftModel } from './aircraftProfiles';
 import { AIRPORT_AIRLINES, airlineProfile, type AirlineCode } from './airlineProfiles';
 import { aircraftCollisionEnvelope, findFlightConflicts, findObstacleConflicts, findProposedConflict } from './collisionDetection';
-import { sampleSurfaceRoute, surfaceRouteForFlight, surfaceRouteReservationKeys, surfaceRouteRunwayCrossings, validateAirportSurfaceGraph, type SurfaceGraphValidation, type SurfaceRoute } from './surfaceGraph';
+import { sampleSurfaceRouteWithEdges, surfaceRouteCrossingWindows, surfaceRouteForFlight, surfaceRouteReservationKeys, surfaceRouteRunwayCrossings, validateAirportSurfaceGraph, type SurfaceGraphValidation, type SurfaceRoute, type SurfaceRouteCrossingWindow } from './surfaceGraph';
 import { validateAirportObstacleEnvelopes, type AirportObstacleValidation } from './airportObstacles';
 import { departureTrajectoryTiming, landingTrajectoryTiming } from './flightTrajectory';
 import { runwaySupportsAircraft, WORLD_METERS_PER_UNIT } from './runwayPerformance';
@@ -20,6 +20,7 @@ const PHASE_DURATION: Record<FlightPhase, number> = {
 };
 
 const KNOT_TO_MPS = 0.514444;
+const CROSSING_CLEARANCE_RANGE_M = 190;
 
 const NEXT_PHASE: Partial<Record<FlightPhase, FlightPhase>> = {
   approach: 'landing',
@@ -200,12 +201,16 @@ export class AirportSimulation {
           label: 'Issue go-around', reason: flight.safetyHoldReason ?? 'Protected approach spacing cannot be maintained.', priority: 'urgent',
         });
       }
-      for (const runway of (flight.requiredCrossings ?? []).filter((id) => !flight.crossingClearances?.includes(id))) {
+      const nextCrossing = this.nextUnclearedCrossing(flight);
+      for (const crossing of nextCrossing && nextCrossing.distanceToHold * WORLD_METERS_PER_UNIT <= CROSSING_CLEARANCE_RANGE_M
+        ? [nextCrossing]
+        : []) {
+        const runway = crossing.runwayId;
         proposals.push({
           id: `${flight.id}:cross:${runway}`, flightId: flight.id, action: 'cross', runway, station: 'ground',
           label: `Cross ${this.activeRunwayDesignation(runway)}`,
-          reason: `Taxi route requires runway ${this.activeRunwayDesignation(runway)}; the safety arbiter will recheck occupancy on approval.`,
-          priority: flight.progress > 0.72 ? 'attention' : 'routine',
+          reason: `Approaching the hold-short point for runway ${this.activeRunwayDesignation(runway)}; occupancy will be rechecked on approval.`,
+          priority: crossing.distanceToHold <= 0.05 ? 'urgent' : 'attention',
         });
       }
       if (flight.phase === 'taxi-out' && flight.progress >= 0.985 && !flight.runwayEntryCleared) {
@@ -304,8 +309,8 @@ export class AirportSimulation {
     const flight = this.state.flights.find((item) => item.id === id && item.phase === 'taxi-out');
     if (!flight) return this.rejectDecision('flight is not taxiing for departure');
     if (flight.progress < 0.985) return this.rejectDecision('flight has not reached the hold-short point', flight);
-    const missingCrossing = (flight.requiredCrossings ?? []).find((runway) => !flight.crossingClearances?.includes(runway));
-    if (missingCrossing !== undefined) return this.rejectDecision(`crossing clearance for ${this.activeRunwayDesignation(missingCrossing)} is still required`, flight);
+    const missingCrossing = this.nextUnclearedCrossing(flight);
+    if (missingCrossing) return this.rejectDecision(`crossing clearance for ${this.activeRunwayDesignation(missingCrossing.runwayId)} is still required`, flight);
     const blocker = this.runwayBlocker(flight.runway, flight.id);
     if (blocker) return this.rejectDecision(`runway protected for ${blocker.callsign} ${blocker.phase}`, flight);
     flight.runwayEntryCleared = true;
@@ -316,16 +321,17 @@ export class AirportSimulation {
 
   clearRunwayCrossing(id: number, runway: number): boolean {
     if (!this.canIssue('ground')) return this.rejectDecision(`${this.state.station} station has no runway-crossing authority`);
-    const flight = this.state.flights.find((item) => item.id === id && item.phase === 'taxi-out');
-    if (!flight) return this.rejectDecision('flight is not taxiing for departure');
+    const flight = this.state.flights.find((item) => item.id === id && (item.phase === 'taxi-in' || item.phase === 'taxi-out'));
+    if (!flight) return this.rejectDecision('flight is not taxiing on the surface');
     if (!flight.requiredCrossings?.includes(runway)) return this.rejectDecision(`runway ${this.activeRunwayDesignation(runway)} is not on this taxi route`, flight);
+    const crossing = this.nextUnclearedCrossing(flight);
+    if (!crossing || crossing.runwayId !== runway) return this.rejectDecision(`runway ${this.activeRunwayDesignation(runway)} is not the next crossing on this taxi route`, flight);
+    if (crossing.distanceToHold * WORLD_METERS_PER_UNIT > CROSSING_CLEARANCE_RANGE_M) {
+      return this.rejectDecision(`aircraft has not reached the ${this.activeRunwayDesignation(runway)} crossing hold-short area`, flight);
+    }
     const blocker = this.runwayBlocker(runway, flight.id);
     if (blocker) return this.rejectDecision(`crossing held: ${blocker.callsign} is ${blocker.phase} on the protected runway`, flight);
-    flight.crossingClearances ??= [];
-    if (!flight.crossingClearances.includes(runway)) {
-      flight.crossingClearances.push(runway);
-      this.events.push({ type: 'runway-crossing', flight, runway, taxiway: flight.taxiway });
-    }
+    this.grantCrossingClearance(flight, crossing);
     this.decisionReason = `crossing clearance accepted for ${this.activeRunwayDesignation(runway)}`;
     return true;
   }
@@ -432,6 +438,7 @@ export class AirportSimulation {
       this.spawnIn = spawnedAircraft ? this.arrivalSpacing(aircraftProfile(spawnedAircraft)) : 0.6;
     }
     this.metrics.maxConcurrent = Math.max(this.metrics.maxConcurrent, this.state.flights.length);
+    this.coordinateAutomaticRunwayCrossings();
     this.coordinateAutomaticSurfaceTraffic();
 
     const proposedProgressById = new Map<number, number>(this.state.flights.map((flight) => [flight.id, flight.progress]));
@@ -443,11 +450,21 @@ export class AirportSimulation {
       flight.safetyHoldReason = undefined;
       const onSurface = flight.phase === 'taxi-in' || flight.phase === 'taxi-out';
       const motion = syncFlightMotion(this.config, flight);
+      const crossing = onSurface ? this.nextUnclearedCrossing(flight) : null;
+      const crossingDistanceM = Math.max(0, (crossing?.distanceToHold ?? Infinity) * WORLD_METERS_PER_UNIT);
+      const crossingHold = Boolean(crossing && crossing.distanceToHold <= 0.002);
+      flight.crossingHoldRunway = crossingHold ? crossing?.runwayId : undefined;
       const awaitingTakeoffClearance = flight.phase === 'takeoff'
         && !flight.takeoffCleared
         && motion.stage !== 'lineup';
-      const hardHold = (onSurface && flight.automaticHold) || awaitingTakeoffClearance;
-      const targetSpeed = hardHold ? 0 : this.targetGroundSpeedKts(flight, Boolean(onSurface && flight.controlHold));
+      const hardHold = (onSurface && flight.automaticHold) || crossingHold || awaitingTakeoffClearance;
+      let targetSpeed = hardHold ? 0 : this.targetGroundSpeedKts(flight, Boolean(onSurface && flight.controlHold));
+      if (crossing && Number.isFinite(crossingDistanceM)) {
+        const braking = aircraftProfile(flight.aircraft).brakingMps2
+          * (this.state.weather.condition === 'rain' ? 0.76 : this.state.weather.condition === 'fog' ? 0.9 : 1);
+        const maximumStoppingSpeedKts = Math.sqrt(Math.max(0, 2 * braking * crossingDistanceM)) / KNOT_TO_MPS;
+        targetSpeed = Math.min(targetSpeed, maximumStoppingSpeedKts);
+      }
       const nextSpeed = hardHold ? 0 : this.acceleratedSpeedKts(flight, targetSpeed, delta);
       const travelMeters = (flight.kinematics.groundSpeedKts + nextSpeed) * 0.5 * KNOT_TO_MPS * delta;
       const requestedProgress = flight.phase === 'resting'
@@ -455,8 +472,9 @@ export class AirportSimulation {
         : hardHold
           ? flight.progress
           : progressAfterDistance(this.config, flight, travelMeters);
-      requestedSpeedById.set(flight.id, nextSpeed);
-      requestedProgressById.set(flight.id, requestedProgress);
+      const clearanceLimitedProgress = crossing ? Math.min(requestedProgress, crossing.holdProgress) : requestedProgress;
+      requestedSpeedById.set(flight.id, clearanceLimitedProgress >= (crossing?.holdProgress ?? Infinity) - 1e-6 ? 0 : nextSpeed);
+      requestedProgressById.set(flight.id, clearanceLimitedProgress);
     }
 
     // Resolve proposed movement in a deterministic order. The collision layer
@@ -619,6 +637,7 @@ export class AirportSimulation {
       if (taxiing) {
         flight.requiredCrossings = surfaceRouteRunwayCrossings(this.config.surfaceGraph, flight.surfaceRouteEdges, flight.runway);
         flight.crossingClearances = [];
+        flight.crossingClearanceIds = [];
         const desired = this.config.scope === 'center' ? 0.8 - index * 0.08 : 0.62 - index * 0.08;
         const safeProgress = [desired, desired - 0.08, 0.64, 0.52, 0.4, 0.28, 0.16, 0.08, 0]
           .find((progress) => {
@@ -628,6 +647,15 @@ export class AirportSimulation {
               && findFlightConflicts(this.config, this.state.flights).length === 0;
           }) ?? 0;
         flight.progress = safeProgress;
+        const completedCrossings = surfaceRouteCrossingWindows(
+          this.config.surfaceGraph,
+          flight.surfaceRoute,
+          safeProgress,
+          flight.runway,
+          flight.surfaceRouteEdges,
+        ).filter((crossing) => crossing.exitProgress < safeProgress);
+        flight.crossingClearanceIds = completedCrossings.map((crossing) => crossing.id);
+        flight.crossingClearances = [...new Set(completedCrossings.map((crossing) => crossing.runwayId))];
         flight.phaseElapsed = flight.duration * flight.progress;
         this.updateSurfaceRouteState(flight);
       }
@@ -752,6 +780,7 @@ export class AirportSimulation {
       flight.takeoffCleared = false;
       flight.requiredCrossings = [];
       flight.crossingClearances = [];
+      flight.crossingClearanceIds = [];
       flight.origin = this.config.code === 'LOCAL' ? 'LOCAL' : this.config.code;
       flight.destination = this.originFor(flight.id + 5);
       flight.procedure = this.departureProcedure(flight.runway);
@@ -767,18 +796,12 @@ export class AirportSimulation {
           flight.runwayEntryCleared = true;
           this.events.push({ type: 'runway-entry', flight, runway: flight.runway, taxiway: flight.taxiway });
         }
-        for (const crossing of flight.requiredCrossings ?? []) {
-          if (!flight.crossingClearances?.includes(crossing)) {
-            flight.crossingClearances?.push(crossing);
-            this.events.push({ type: 'runway-crossing', flight, runway: crossing, taxiway: flight.taxiway });
-          }
-        }
         if (!flight.takeoffCleared) {
           flight.takeoffCleared = true;
           this.events.push({ type: 'takeoff-clearance', flight, runway: flight.runway });
         }
       }
-      const crossingClear = (flight.requiredCrossings ?? []).every((runway) => flight.crossingClearances?.includes(runway));
+      const crossingClear = !this.nextUnclearedCrossing(flight);
       if (!flight.runwayEntryCleared || !crossingClear || !this.reserveDeparture(flight)) return;
     }
     const transitionConflict = this.transitionConflict(flight, next);
@@ -834,6 +857,19 @@ export class AirportSimulation {
     return false;
   }
 
+  private coordinateAutomaticRunwayCrossings(): void {
+    if (!this.isAutomaticMode()) return;
+    const candidates = this.state.flights
+      .filter((flight) => flight.phase === 'taxi-in' || flight.phase === 'taxi-out')
+      .map((flight) => ({ flight, crossing: this.nextUnclearedCrossing(flight) }))
+      .filter((item): item is { flight: Flight; crossing: SurfaceRouteCrossingWindow } => Boolean(item.crossing))
+      .filter((item) => item.crossing.distanceToHold * WORLD_METERS_PER_UNIT <= CROSSING_CLEARANCE_RANGE_M)
+      .sort((first, second) => first.crossing.distanceToHold - second.crossing.distanceToHold || first.flight.id - second.flight.id);
+    for (const { flight, crossing } of candidates) {
+      if (!this.runwayBlocker(crossing.runwayId, flight.id)) this.grantCrossingClearance(flight, crossing);
+    }
+  }
+
   /** Auto mode reserves only converging nodes and opposing taxiway segments. */
   private coordinateAutomaticSurfaceTraffic(): void {
     if (!this.isAutomaticMode()) {
@@ -856,7 +892,7 @@ export class AirportSimulation {
     const reservedNodes = new Map<string, number>();
     const reservedEdges = new Map<string, { direction: string; flight: number }>();
     for (const flight of candidates) {
-      const keys = surfaceRouteReservationKeys(this.config.surfaceGraph, flight.surfaceRoute, flight.progress, 1);
+      const keys = surfaceRouteReservationKeys(this.config.surfaceGraph, flight.surfaceRoute, flight.progress, 1, flight.surfaceRouteEdges);
       const conflict = keys.some((key) => {
         if (key.startsWith('node:')) return reservedNodes.has(key);
         const match = /^edge:([^:]+):(.+)$/.exec(key);
@@ -905,6 +941,7 @@ export class AirportSimulation {
       surfaceRouteEdges: flight.surfaceRouteEdges ? [...flight.surfaceRouteEdges] : undefined,
       requiredCrossings: flight.requiredCrossings ? [...flight.requiredCrossings] : undefined,
       crossingClearances: flight.crossingClearances ? [...flight.crossingClearances] : undefined,
+      crossingClearanceIds: flight.crossingClearanceIds ? [...flight.crossingClearanceIds] : undefined,
       kinematics: { ...flight.kinematics },
     };
     if (next === 'taxi-in' || next === 'resting' || next === 'taxi-out') this.assignSurfaceRoute(preview, next);
@@ -1174,6 +1211,7 @@ export class AirportSimulation {
     const expected = Boolean(
       flight.controlHold
       || flight.automaticHold
+      || flight.crossingHoldRunway !== undefined
       || flight.safetyHold
       || (flight.phase === 'takeoff' && !flight.takeoffCleared)
     );
@@ -1221,7 +1259,22 @@ export class AirportSimulation {
     flight.surfaceNode = route?.nodeIds[0];
     flight.surfaceEdge = route?.edgeIds[0];
     if (phase === 'resting') flight.duration = this.turnaroundDuration(flight);
-    else if (route) flight.duration = this.surfaceRouteDuration(flight, route);
+    else if (route) {
+      flight.duration = this.surfaceRouteDuration(flight, route);
+      flight.requiredCrossings = surfaceRouteRunwayCrossings(this.config.surfaceGraph, route.edgeIds, flight.runway);
+      const crossingWindows = surfaceRouteCrossingWindows(
+        this.config.surfaceGraph,
+        route.nodeIds,
+        flight.progress,
+        flight.runway,
+        route.edgeIds,
+      );
+      const validCrossingIds = new Set(crossingWindows.map((crossing) => crossing.id));
+      flight.crossingClearanceIds = (flight.crossingClearanceIds ?? []).filter((id) => validCrossingIds.has(id));
+      flight.crossingClearances = [...new Set(crossingWindows
+        .filter((crossing) => flight.crossingClearanceIds?.includes(crossing.id))
+        .map((crossing) => crossing.runwayId))];
+    }
     if (phase === 'resting') {
       const stand = this.config.surfaceGraph.stands.find((item) => item.slot === flight.gateSlot);
       const apron = this.config.surfaceGraph.taxiways.find((taxiway) => taxiway.id === stand?.apronTaxiwayId);
@@ -1245,11 +1298,45 @@ export class AirportSimulation {
   }
 
   private updateSurfaceRouteState(flight: Flight): void {
-    const sample = sampleSurfaceRoute(this.config.surfaceGraph, flight.surfaceRoute, flight.progress);
+    const sample = sampleSurfaceRouteWithEdges(this.config.surfaceGraph, flight.surfaceRoute, flight.surfaceRouteEdges, flight.progress);
     if (!sample) return;
     flight.surfaceNode = sample.nearestNodeId;
     flight.surfaceEdge = sample.edge?.id;
     if (sample.edge?.taxiwayId) flight.taxiway = sample.edge.name;
+  }
+
+  private nextUnclearedCrossing(flight: Flight): SurfaceRouteCrossingWindow | null {
+    const clearanceIds = new Set(flight.crossingClearanceIds ?? []);
+    const legacyClearances = flight.crossingClearanceIds === undefined ? new Set(flight.crossingClearances ?? []) : null;
+    return surfaceRouteCrossingWindows(this.config.surfaceGraph, flight.surfaceRoute, flight.progress, flight.runway, flight.surfaceRouteEdges)
+      .find((crossing) => (
+        !clearanceIds.has(crossing.id)
+        && !legacyClearances?.has(crossing.runwayId)
+        && crossing.exitProgress + 1e-6 >= flight.progress
+      )) ?? null;
+  }
+
+  private activeClearedCrossingRunways(flight: Flight): number[] {
+    const clearanceIds = new Set(flight.crossingClearanceIds ?? []);
+    const legacyClearances = flight.crossingClearanceIds === undefined ? new Set(flight.crossingClearances ?? []) : null;
+    return surfaceRouteCrossingWindows(this.config.surfaceGraph, flight.surfaceRoute, flight.progress, flight.runway, flight.surfaceRouteEdges)
+      .filter((crossing) => (
+        (clearanceIds.has(crossing.id) || Boolean(legacyClearances?.has(crossing.runwayId)))
+        && crossing.distanceToHold * WORLD_METERS_PER_UNIT <= CROSSING_CLEARANCE_RANGE_M
+        && flight.progress <= crossing.exitProgress + 0.002
+      ))
+      .map((crossing) => crossing.runwayId);
+  }
+
+  private grantCrossingClearance(flight: Flight, crossing: SurfaceRouteCrossingWindow): void {
+    const runway = crossing.runwayId;
+    flight.crossingClearanceIds ??= [];
+    flight.crossingClearances ??= [];
+    if (flight.crossingClearanceIds.includes(crossing.id)) return;
+    flight.crossingClearanceIds.push(crossing.id);
+    if (!flight.crossingClearances.includes(runway)) flight.crossingClearances.push(runway);
+    flight.crossingHoldRunway = undefined;
+    this.events.push({ type: 'runway-crossing', flight, runway, taxiway: flight.taxiway });
   }
 
   private intersectingRunways(runwayId: number): number[] {
@@ -1331,7 +1418,9 @@ export class AirportSimulation {
 
   private runwayBlocker(runway: number, excludingFlightId: number): Flight | null {
     return this.state.flights.find((flight) => {
-      if (flight.id === excludingFlightId || !this.runwaysConflict(runway, flight.runway)) return false;
+      if (flight.id === excludingFlightId) return false;
+      if (this.activeClearedCrossingRunways(flight).some((crossingRunway) => this.runwaysConflict(runway, crossingRunway))) return true;
+      if (!this.runwaysConflict(runway, flight.runway)) return false;
       return (flight.phase === 'approach' && flight.progress > 0.68)
         || flight.phase === 'landing'
         || flight.phase === 'takeoff'

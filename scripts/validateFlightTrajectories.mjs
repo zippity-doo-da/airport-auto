@@ -155,14 +155,17 @@ for (const config of configs) {
         if (sample.onGround) touchedDown = true;
         if (touchedDown) assert(sample.onGround, config.code + ' runway ' + runway.id + ': aircraft became airborne again after touchdown');
         if (index > 0) assert(horizontalDistance(landingSamples[index - 1], sample) > 1e-6, config.code + ' runway ' + runway.id + ': landing paused at sample ' + index);
-        const direction = { x: Math.cos(runway.heading), y: Math.sin(runway.heading) };
-        const lateral = Math.abs((sample.x - runway.center[0]) * -direction.y + (sample.y - runway.center[1]) * direction.x);
-        assert(lateral < 1e-6, config.code + ' runway ' + runway.id + ': landing left the runway centerline');
+        if (sample.stage !== 'runway-exit') {
+          const direction = { x: Math.cos(runway.heading), y: Math.sin(runway.heading) };
+          const lateral = Math.abs((sample.x - runway.center[0]) * -direction.y + (sample.y - runway.center[1]) * direction.x);
+          assert(lateral < 1e-6, config.code + ' runway ' + runway.id + ': landing left the runway centerline before its assigned exit');
+        }
       }
       assert(sawFlare && sawRollout && touchedDown, config.code + ' runway ' + runway.id + ': landing sequence omitted flare, touchdown, or rollout');
       const touchdown = landingSamples.find((sample) => sample.onGround);
       assert(touchdown && touchdown.distanceAlong <= 5.6, config.code + ' runway ' + runway.id + ': touchdown is too far beyond the threshold');
-      assert(Math.max(...landingSamples.map((sample) => sample.pitch)) >= 0.11, config.code + ' runway ' + runway.id + ': landing did not flare nose-up');
+      assert(touchdown.pitch >= 0.17, config.code + ' runway ' + runway.id + ': touchdown attitude was not visibly nose-up');
+      assert(Math.max(...landingSamples.map((sample) => sample.pitch)) >= 0.17, config.code + ' runway ' + runway.id + ': landing did not flare to a 10-degree nose-up attitude');
       assert(Math.abs(landingEnd.pitch) < 1e-8 && landingEnd.onGround, config.code + ' runway ' + runway.id + ': landing did not lower the nose for runway exit');
       const taxiInRoute = surfaceRouteForFlight(config.surfaceGraph, runway.id, runway.landingEnd, 'taxi-in', landing.gateSlot);
       const taxiInStart = config.surfaceGraph.nodes.find((node) => node.id === taxiInRoute?.nodeIds[0]);
@@ -187,16 +190,22 @@ for (const config of configs) {
         if (sample.stage === 'climbout') sawClimb = true;
         if (!sample.onGround && liftoffIndex < 0) liftoffIndex = index;
         if (index > 0) assert(horizontalDistance(departureSamples[index - 1], sample) > 1e-7, config.code + ' runway ' + runway.id + ': departure paused at sample ' + index);
-        const direction = { x: Math.cos(runway.heading), y: Math.sin(runway.heading) };
-        const lateral = Math.abs((sample.x - runway.center[0]) * -direction.y + (sample.y - runway.center[1]) * direction.x);
-        assert(lateral < 1e-6, config.code + ' runway ' + runway.id + ': departure left the runway centerline');
+        if (sample.stage !== 'lineup') {
+          const direction = { x: Math.cos(runway.heading), y: Math.sin(runway.heading) };
+          const lateral = Math.abs((sample.x - runway.center[0]) * -direction.y + (sample.y - runway.center[1]) * direction.x);
+          assert(lateral < 1e-6, config.code + ' runway ' + runway.id + ': departure left the runway centerline after lineup');
+        }
       }
       assert(sawRoll && sawRotation && sawClimb, config.code + ' runway ' + runway.id + ': departure sequence omitted roll, rotation, or climb');
       assert(liftoffIndex > departureSamples.length * 0.4, config.code + ' runway ' + runway.id + ': aircraft lifted off without a full runway roll');
       assert(departureSamples[liftoffIndex].distanceAlong >= runway.length * 0.42, config.code + ' runway ' + runway.id + ': aircraft lifted off too early on the runway');
-      assert(Math.max(...departureSamples.map((sample) => sample.pitch)) >= 0.13, config.code + ' runway ' + runway.id + ': departure did not rotate nose-up');
+      assert(Math.max(...departureSamples.map((sample) => sample.pitch)) >= 0.18, config.code + ' runway ' + runway.id + ': departure did not rotate to a 10-degree nose-up attitude');
       assert(takeoffEnd.z >= 30 && !takeoffEnd.onGround, config.code + ' runway ' + runway.id + ': departure did not complete its climb-out');
-      assert(horizontalDistance(takeoffStart, takeoffEnd) >= runway.length + (config.scope === 'center' ? 210 : 140), config.code + ' runway ' + runway.id + ': departure did not reach the map edge');
+      const departureThreshold = {
+        x: runway.center[0] + Math.cos(runway.heading) * takeoff.operatingEnd * runway.length / 2,
+        y: runway.center[1] + Math.sin(runway.heading) * takeoff.operatingEnd * runway.length / 2,
+      };
+      assert(horizontalDistance(departureThreshold, takeoffEnd) >= runway.length + (config.scope === 'center' ? 210 : 140), config.code + ' runway ' + runway.id + ': departure did not reach the map edge');
       assert(departureTrajectoryTiming(config, runway.id, aircraft).totalSeconds > 30, config.code + ' runway ' + runway.id + ': takeoff timing is implausibly short');
       totals.rotationChecks += 7;
     }

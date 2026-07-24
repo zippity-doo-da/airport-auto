@@ -7,6 +7,8 @@ import {
   createSeededSimulationHarness,
 } from './src/simulation/fixedStepHarness.ts';
 import { generateAirportConfig } from './src/simulation/airportConfig.ts';
+import { surfaceRouteCrossingWindows, surfaceRouteForFlight, surfaceRouteRunwayCrossings } from './src/simulation/surfaceGraph.ts';
+import { syncFlightMotion } from './src/simulation/flightMotion.ts';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -47,6 +49,7 @@ const totals = {
   hubDepartures: 0,
   concurrentSurfaceMovers: 0,
   manualDepartureCleared: false,
+  repeatedCrossingClearances: false,
 };
 
 const seeds = [1, 17, 991, 42_424];
@@ -127,13 +130,87 @@ totals.concurrentSurfaceMovers = concurrentMovers;
 const manual = createHubSimulationHarness('ORD', { stepSeconds: 0.05 });
 manual.simulation.setMode('manual');
 manual.simulation.setStation('supervisor');
-assert(manual.runUntil(() => manual.simulation.state.flights.some((flight) => flight.phase === 'taxi-out' && flight.progress >= 0.985), 1_500), 'ORD manual: no departure reached hold short');
+let manualDepartureReady = false;
+for (let tick = 0; tick < 3_000 && !manualDepartureReady; tick += 1) {
+  for (const flight of manual.simulation.state.flights) {
+    if (flight.crossingHoldRunway !== undefined) {
+      assert(
+        manual.simulation.clearRunwayCrossing(flight.id, flight.crossingHoldRunway),
+        'ORD manual: crossing clearance was rejected for runway ' + flight.crossingHoldRunway,
+      );
+    }
+  }
+  manualDepartureReady = manual.simulation.state.flights.some((flight) => flight.phase === 'taxi-out' && flight.progress >= 0.985);
+  if (!manualDepartureReady) manual.advanceTicks(1);
+}
+assert(manualDepartureReady, 'ORD manual: no departure reached hold short after explicit runway-crossing clearances');
 const manualFlight = manual.simulation.state.flights.find((flight) => flight.phase === 'taxi-out' && flight.progress >= 0.985);
-assert(manualFlight && manual.simulation.clearRunwayEntry(manualFlight.id), 'ORD manual: line-up clearance was rejected');
+const runwayEntryAccepted = manualFlight && manual.simulation.clearRunwayEntry(manualFlight.id);
+const manualCrossingWindows = manualFlight
+  ? surfaceRouteCrossingWindows(manual.config.surfaceGraph, manualFlight.surfaceRoute, manualFlight.progress, manualFlight.runway, manualFlight.surfaceRouteEdges)
+  : [];
+assert(
+  runwayEntryAccepted,
+  'ORD manual: line-up clearance was rejected: ' + manual.simulation.lastCommandReason()
+    + ' required=' + JSON.stringify(manualFlight?.requiredCrossings)
+    + ' cleared=' + JSON.stringify(manualFlight?.crossingClearances)
+    + ' windows=' + JSON.stringify(manualCrossingWindows),
+);
 assert(manual.runUntil(() => manual.simulation.state.flights.some((flight) => flight.id === manualFlight.id && flight.phase === 'takeoff'), 500), 'ORD manual: cleared aircraft never lined up');
 assert(manual.simulation.clearTakeoff(manualFlight.id), 'ORD manual: takeoff clearance was rejected');
 assert(manual.runUntil(() => manual.simulation.state.departures > 0, 300), 'ORD manual: cleared aircraft never departed');
 totals.manualDepartureCleared = true;
+
+const repeatedCrossingHarness = createHubSimulationHarness('ORD', { stepSeconds: 0.05 });
+repeatedCrossingHarness.simulation.setMode('manual');
+repeatedCrossingHarness.simulation.setStation('supervisor');
+let repeatedFixture = null;
+findRepeatedCrossing:
+for (const runway of repeatedCrossingHarness.config.runways.filter((item) => item.role !== 'inactive')) {
+  for (const operatingEnd of [-1, 1]) {
+    for (const stand of repeatedCrossingHarness.config.surfaceGraph.stands) {
+      for (const phase of ['taxi-in', 'taxi-out']) {
+        const route = surfaceRouteForFlight(repeatedCrossingHarness.config.surfaceGraph, runway.id, operatingEnd, phase, stand.slot);
+        if (!route) continue;
+        const windows = surfaceRouteCrossingWindows(repeatedCrossingHarness.config.surfaceGraph, route.nodeIds, 0, runway.id, route.edgeIds);
+        const repeatedRunway = windows.find((crossing, index) => windows.some((other, otherIndex) => otherIndex > index && other.runwayId === crossing.runwayId))?.runwayId;
+        const sameRunwayWindows = windows.filter((crossing) => crossing.runwayId === repeatedRunway);
+        if (repeatedRunway === undefined || sameRunwayWindows.length < 2) continue;
+        repeatedFixture = { runway, operatingEnd, stand, phase, route, repeatedRunway, sameRunwayWindows };
+        break findRepeatedCrossing;
+      }
+    }
+  }
+}
+assert(repeatedFixture, 'ORD manual: imported graph has no repeated-runway fixture for occurrence clearance testing');
+const repeatedFlight = repeatedCrossingHarness.simulation.state.flights[0];
+Object.assign(repeatedFlight, {
+  runway: repeatedFixture.runway.id,
+  departureRunway: repeatedFixture.runway.id,
+  operatingEnd: repeatedFixture.operatingEnd,
+  phase: repeatedFixture.phase,
+  progress: repeatedFixture.sameRunwayWindows[0].holdProgress,
+  phaseElapsed: 0,
+  duration: 120,
+  gateSlot: repeatedFixture.stand.slot,
+  surfaceRoute: [...repeatedFixture.route.nodeIds],
+  surfaceRouteEdges: [...repeatedFixture.route.edgeIds],
+  requiredCrossings: surfaceRouteRunwayCrossings(repeatedCrossingHarness.config.surfaceGraph, repeatedFixture.route.edgeIds, repeatedFixture.runway.id),
+  crossingClearances: [],
+  crossingClearanceIds: [],
+  controlHold: false,
+  automaticHold: false,
+  safetyHold: false,
+});
+repeatedCrossingHarness.simulation.state.flights = [repeatedFlight];
+syncFlightMotion(repeatedCrossingHarness.config, repeatedFlight);
+assert(repeatedCrossingHarness.simulation.clearRunwayCrossing(repeatedFlight.id, repeatedFixture.repeatedRunway), 'ORD manual: first repeated crossing clearance was rejected');
+assert(repeatedFlight.crossingClearanceIds?.length === 1, 'ORD manual: first repeated crossing was not recorded by occurrence');
+repeatedFlight.progress = repeatedFixture.sameRunwayWindows[1].holdProgress;
+syncFlightMotion(repeatedCrossingHarness.config, repeatedFlight);
+assert(repeatedCrossingHarness.simulation.clearRunwayCrossing(repeatedFlight.id, repeatedFixture.repeatedRunway), 'ORD manual: second repeated crossing clearance was rejected');
+assert(repeatedFlight.crossingClearanceIds?.length === 2, 'ORD manual: second crossing of the same runway reused the first clearance');
+totals.repeatedCrossingClearances = true;
 
 const firstSeedGraph = JSON.stringify(generateAirportConfig(101).surfaceGraph);
 const secondSeedGraph = JSON.stringify(generateAirportConfig(102).surfaceGraph);

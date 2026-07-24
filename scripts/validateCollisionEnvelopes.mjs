@@ -19,9 +19,10 @@ const configs = [
   ...Array.from({ length: 64 }, (_, index) => generateAirportConfig(90_000 + index * 131)),
   ...HUB_AIRPORTS.map((_, index) => generateHubConfig(index)),
 ];
-const maximumBodyRadius = Math.max(...AIRCRAFT_ROSTER.map((model) => {
+const maximumVisualBodyRadius = (scope) => Math.max(...AIRCRAFT_ROSTER.map((model) => {
   const visual = aircraftProfile(model).visual;
-  return Math.max(2.2, (visual.bodyLength + visual.bodyRadius * 2) / 2, visual.wingSpan / 2);
+  const scale = scope === 'center' ? 0.17 : 0.92;
+  return Math.max(scope === 'center' ? 0.92 : 2.2, (visual.bodyLength + visual.bodyRadius * 2) / 2 * scale, visual.wingSpan / 2 * scale);
 }));
 
 const totals = {
@@ -39,6 +40,7 @@ const totals = {
 };
 
 for (const config of configs) {
+  const maximumBodyRadius = maximumVisualBodyRadius(config.scope);
   const validation = validateAirportObstacleEnvelopes(config);
   assert(validation.valid, config.code + ' seed ' + config.seed + ': ' + validation.errors.join('; '));
   assert(validation.counts.terminals === 1, config.code + ': expected one terminal envelope');
@@ -152,6 +154,26 @@ for (const config of configs) {
   totals.ticks += ticks;
   totals.simulatedHours += snapshot.simulationTimeSeconds / 3_600;
 }
+
+const watchConfig = generateHubConfig(HUB_AIRPORTS.findIndex((airport) => airport.code === 'ORD'));
+const watchHarness = new FixedStepSimulationHarness(watchConfig, { stepSeconds: 0.1, pace: 3, scenario: 'rush' });
+watchHarness.simulation.setMode('watch');
+for (let tick = 0; tick < 3_000; tick += 1) {
+  watchHarness.advanceTicks(1);
+  const diagnostics = watchHarness.simulation.diagnostics();
+  assert(
+    diagnostics.collisions.length === 0 && diagnostics.obstacleCollisions.length === 0,
+    'ORD Watch tick ' + tick + ': collision during Rush soak',
+  );
+  totals.aircraftEnvelopeTicks += watchHarness.simulation.state.flights.length;
+}
+const watchSnapshot = watchHarness.snapshot();
+assert(watchSnapshot.diagnostics.metrics.collisionAlerts === 0, 'ORD Watch: transient collision during Rush soak');
+assert(watchSnapshot.state.arrivals > 0 && watchSnapshot.state.departures > 0, 'ORD Watch: Rush soak did not sustain both arrivals and departures');
+totals.spawnedFlights += watchSnapshot.events.filter((event) => event.type === 'spawn').length;
+totals.trafficRuns += 1;
+totals.ticks += 3_000;
+totals.simulatedHours += watchSnapshot.simulationTimeSeconds / 3_600;
 
 assert(totals.aircraftEnvelopeTicks >= 10_000, 'fewer than 10,000 active aircraft envelope ticks were checked');
 assert(totals.ordB77fAssignmentTicks > 0, 'O’Hare traffic never exercised a B77F runway assignment');

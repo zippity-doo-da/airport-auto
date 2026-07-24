@@ -1,6 +1,7 @@
 import { buildAirportSurfaceGraph, type AirportSurfaceGraph } from './surfaceGraph';
 import { buildAirportObstacleEnvelopes, resolveAirportTerminal, type AirportObstacleEnvelope } from './airportObstacles';
 import { airportVectorManifest, type AirportVectorManifest } from './airportVectorMetadata';
+import { airportSurfaceDataManifest, importedAirportSurfaceGraph, type AirportSurfaceDataManifest } from './importedAirportData';
 
 export type FlightColor = 'rose' | 'mist' | 'sage';
 export type TerrainTheme = 'coast' | 'highland' | 'woodland';
@@ -31,6 +32,7 @@ export interface AirportConfig {
   trafficInterval: number;
   trafficCap: number;
   vectorData?: AirportVectorManifest;
+  surfaceData?: AirportSurfaceDataManifest;
   obstacles: AirportObstacleEnvelope[];
   surfaceGraph: AirportSurfaceGraph;
 }
@@ -195,12 +197,14 @@ export function generateAirportConfig(seed = Math.floor(Math.random() * 0x7fffff
 
 export function generateHubConfig(index = 0): AirportConfig {
   const profile = HUB_AIRPORTS[((index % HUB_AIRPORTS.length) + HUB_AIRPORTS.length) % HUB_AIRPORTS.length];
-  const runways: RunwayConfig[] = profile.runways.map((runway, id) => ({
+  const vectorData = airportVectorManifest(profile.code);
+  const runwayProfiles = vectorData?.runtimeReference.runways ?? profile.runways;
+  const runways: RunwayConfig[] = runwayProfiles.map((runway, id) => ({
     id,
     center: runway.center,
     heading: runway.heading,
     length: runway.length,
-    width: 6.4,
+    width: vectorData ? vectorData.runtimeReference.runways[id].width : 6.4,
     landingEnd: 1,
     color: COLORS[id % COLORS.length],
     role: runway.role,
@@ -214,22 +218,24 @@ export function generateHubConfig(index = 0): AirportConfig {
     terrain: profile.terrain,
     runwayCount: runways.length,
     runways,
-    terminal: profile.terminal,
+    terminal: vectorData?.runtimeReference.terminal ?? profile.terminal,
     treeCount: 26,
     annualOperations: profile.operations,
     trafficInterval: profile.interval,
     trafficCap: Math.max(14, Math.round(14 + (profile.operations - 450_000) / 45_000)),
-    vectorData: airportVectorManifest(profile.code),
+    vectorData,
+    surfaceData: airportSurfaceDataManifest(profile.code),
   });
 }
 
 function withSurfaceGraph(config: AirportConfigSource): AirportConfig {
   const terminal = resolveAirportTerminal(config);
   const geometry = { ...config, terminal };
+  const importedSurfaceGraph = importedAirportSurfaceGraph(config.code, config.seed);
   return {
     ...geometry,
     obstacles: buildAirportObstacleEnvelopes(geometry),
-    surfaceGraph: buildAirportSurfaceGraph(geometry),
+    surfaceGraph: importedSurfaceGraph ?? buildAirportSurfaceGraph(geometry),
   };
 }
 

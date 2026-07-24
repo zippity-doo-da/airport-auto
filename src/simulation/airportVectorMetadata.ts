@@ -35,6 +35,38 @@ export interface AirportVectorManifest {
     coordinatePrecisionMeters: number;
   };
   boundsMeters: { min: [number, number]; max: [number, number] };
+  runtimeReference: {
+    worldMetersPerUnit: number;
+    terminal: [number, number];
+    controlTower: [number, number] | null;
+    runways: Array<{
+      runwayId: string;
+      designation: [string, string];
+      role: "arrival" | "departure" | "mixed" | "inactive";
+      center: [number, number];
+      heading: number;
+      length: number;
+      width: number;
+      sourceLengthMeters: number;
+      sourceWidthMeters: number;
+    }>;
+    aprons: Array<{
+      id: string;
+      designator: string | null;
+      rings: Array<Array<[number, number]>>;
+    }>;
+    obstacles: Array<{
+      id: string;
+      kind: "terminal" | "control-tower" | "building";
+      label: string;
+      shape: "polygon";
+      center: [number, number];
+      points: Array<[number, number]>;
+      minimumAltitude: number;
+      maximumAltitude: number;
+      clearance: number;
+    }>;
+  };
   attribution: string;
   layerCounts: Record<string, number>;
   sources: AirportVectorSourceMetadata[];

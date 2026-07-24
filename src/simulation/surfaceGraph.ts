@@ -14,6 +14,7 @@ export type SurfaceEdgeDirection = 'both' | 'forward';
 
 export interface SurfaceNode {
   id: string;
+  sourceNodeId?: number;
   kind: SurfaceNodeKind;
   position: [number, number];
   taxiwayIds: string[];
@@ -31,6 +32,9 @@ export interface SurfaceEdge {
   width: number;
   taxiwayId?: string;
   runwayId?: number;
+  crossedRunwayIds?: number[];
+  sourceWayId?: number;
+  sourceWayIds?: number[];
 }
 
 export interface SurfaceTaxiway {
@@ -62,6 +66,11 @@ export interface AirportSurfaceGraph {
   schemaVersion: 1;
   airportCode: string;
   seed: number;
+  source?: {
+    kind: 'procedural' | 'imported';
+    provider: string;
+    retrievedOn?: string | null;
+  };
   nodes: SurfaceNode[];
   edges: SurfaceEdge[];
   taxiways: SurfaceTaxiway[];
@@ -106,7 +115,43 @@ export interface SurfaceGraphValidation {
 type SurfaceGraphConfig = Pick<AirportConfig, 'code' | 'seed' | 'scope' | 'terminal' | 'runways'>;
 type Point = [number, number];
 
+interface SurfaceGraphIndex {
+  nodeById: Map<string, SurfaceNode>;
+  edgeById: Map<string, SurfaceEdge>;
+  edgeByTraversal: Map<string, SurfaceEdge>;
+  adjacency: Map<string, Array<{ nodeId: string; edge: SurfaceEdge; cost: number }>>;
+  routeGeometry: WeakMap<string[], SurfaceRouteGeometry>;
+}
+
+interface SurfaceRouteSegment {
+  from: SurfaceNode;
+  to: SurfaceNode;
+  length: number;
+  startDistance: number;
+  edge?: SurfaceEdge;
+}
+
+export interface SurfaceRouteCrossingWindow {
+  id: string;
+  runwayId: number;
+  edgeId: string;
+  edgeIndex: number;
+  exitEdgeIndex: number;
+  holdProgress: number;
+  entryProgress: number;
+  exitProgress: number;
+  distanceToHold: number;
+}
+
+interface SurfaceRouteGeometry {
+  nodes: SurfaceNode[];
+  segments: SurfaceRouteSegment[];
+  totalDistance: number;
+}
+
 const ROUNDING = 1_000;
+const HOLD_SHORT_BUFFER = 1.15;
+const surfaceGraphIndexes = new WeakMap<AirportSurfaceGraph, SurfaceGraphIndex>();
 
 export function buildAirportSurfaceGraph(config: SurfaceGraphConfig): AirportSurfaceGraph {
   const nodes: SurfaceNode[] = [];
@@ -338,46 +383,25 @@ export function surfaceRouteForFlight(
 
 export function findSurfaceRoute(graph: AirportSurfaceGraph, fromNodeId: string, toNodeId: string): SurfaceRoute | null {
   if (fromNodeId === toNodeId) return { nodeIds: [fromNodeId], edgeIds: [], distance: 0, taxiwayIds: [] };
-  const nodeMap = new Map(graph.nodes.map((node) => [node.id, node]));
-  if (!nodeMap.has(fromNodeId) || !nodeMap.has(toNodeId)) return null;
-  const adjacency = new Map<string, Array<{ nodeId: string; edge: SurfaceEdge; cost: number }>>();
-  for (const edge of graph.edges) {
-    if (edge.kind === 'runway') continue;
-    const from = nodeMap.get(edge.from);
-    const to = nodeMap.get(edge.to);
-    if (!from || !to) continue;
-    const cost = distance(from.position, to.position);
-    const forward = adjacency.get(edge.from) ?? [];
-    forward.push({ nodeId: edge.to, edge, cost });
-    adjacency.set(edge.from, forward);
-    if (edge.direction === 'both') {
-      const reverse = adjacency.get(edge.to) ?? [];
-      reverse.push({ nodeId: edge.from, edge, cost });
-      adjacency.set(edge.to, reverse);
-    }
-  }
+  const { nodeById, edgeById, adjacency } = surfaceGraphIndex(graph);
+  if (!nodeById.has(fromNodeId) || !nodeById.has(toNodeId)) return null;
 
   const distanceByNode = new Map<string, number>([[fromNodeId, 0]]);
   const previous = new Map<string, { nodeId: string; edge: SurfaceEdge }>();
-  const pending = new Set<string>([fromNodeId]);
-  while (pending.size) {
-    let current = '';
-    let currentDistance = Infinity;
-    for (const candidate of pending) {
-      const candidateDistance = distanceByNode.get(candidate) ?? Infinity;
-      if (candidateDistance < currentDistance) {
-        current = candidate;
-        currentDistance = candidateDistance;
-      }
-    }
-    pending.delete(current);
+  const pending: Array<{ nodeId: string; distance: number }> = [{ nodeId: fromNodeId, distance: 0 }];
+  while (pending.length) {
+    const candidate = popMinimumRouteNode(pending);
+    if (!candidate) break;
+    const current = candidate.nodeId;
+    const currentDistance = candidate.distance;
+    if (currentDistance !== distanceByNode.get(current)) continue;
     if (current === toNodeId) break;
     for (const next of adjacency.get(current) ?? []) {
       const nextDistance = currentDistance + next.cost;
       if (nextDistance >= (distanceByNode.get(next.nodeId) ?? Infinity)) continue;
       distanceByNode.set(next.nodeId, nextDistance);
       previous.set(next.nodeId, { nodeId: current, edge: next.edge });
-      pending.add(next.nodeId);
+      pushRouteNode(pending, { nodeId: next.nodeId, distance: nextDistance });
     }
   }
 
@@ -394,31 +418,29 @@ export function findSurfaceRoute(graph: AirportSurfaceGraph, fromNodeId: string,
   }
   nodeIds.reverse();
   edgeIds.reverse();
-  const edgeMap = new Map(graph.edges.map((edge) => [edge.id, edge]));
-  const taxiwayIds = [...new Set(edgeIds.map((id) => edgeMap.get(id)?.taxiwayId).filter((id): id is string => Boolean(id)))];
+  const taxiwayIds = [...new Set(edgeIds.map((id) => edgeById.get(id)?.taxiwayId).filter((id): id is string => Boolean(id)))];
   return { nodeIds, edgeIds, distance: distanceByNode.get(toNodeId) ?? 0, taxiwayIds };
 }
 
 export function sampleSurfaceRoute(graph: AirportSurfaceGraph, nodeIds: string[] | undefined, progress: number): SurfaceRouteSample | null {
   if (!nodeIds?.length) return null;
-  const nodeMap = new Map(graph.nodes.map((node) => [node.id, node]));
-  const routeNodes = nodeIds.map((id) => nodeMap.get(id)).filter((node): node is SurfaceNode => Boolean(node));
+  return sampleSurfaceRouteGeometry(surfaceRouteGeometry(graph, nodeIds), progress);
+}
+
+function sampleSurfaceRouteGeometry(geometry: SurfaceRouteGeometry, progress: number): SurfaceRouteSample | null {
+  const routeNodes = geometry.nodes;
   if (!routeNodes.length) return null;
   if (routeNodes.length === 1) {
     const node = routeNodes[0];
     return { x: node.position[0], y: node.position[1], heading: 0, distanceAlong: 0, totalDistance: 0, edgeIndex: -1, edgeProgress: 1, fromNodeId: node.id, toNodeId: node.id, nearestNodeId: node.id };
   }
 
-  const segments = routeNodes.slice(0, -1).map((from, index) => {
-    const to = routeNodes[index + 1];
-    return { from, to, length: distance(from.position, to.position) };
-  });
-  const total = segments.reduce((sum, segment) => sum + segment.length, 0);
+  const segments = geometry.segments;
+  const total = geometry.totalDistance;
   let remaining = clamp(progress, 0, 1) * total;
   let selected = segments[segments.length - 1];
   let selectedIndex = segments.length - 1;
   let local = 1;
-  let traversed = 0;
   for (let index = 0; index < segments.length; index += 1) {
     const segment = segments[index];
     if (remaining <= segment.length || segment === selected) {
@@ -428,24 +450,19 @@ export function sampleSurfaceRoute(graph: AirportSurfaceGraph, nodeIds: string[]
       break;
     }
     remaining -= segment.length;
-    traversed += segment.length;
   }
-  const edge = graph.edges.find((item) => (
-    (item.from === selected.from.id && item.to === selected.to.id)
-      || (item.direction === 'both' && item.from === selected.to.id && item.to === selected.from.id)
-  ));
   return {
     x: lerp(selected.from.position[0], selected.to.position[0], local),
     y: lerp(selected.from.position[1], selected.to.position[1], local),
     heading: Math.atan2(selected.to.position[1] - selected.from.position[1], selected.to.position[0] - selected.from.position[0]),
-    distanceAlong: traversed + selected.length * local,
+    distanceAlong: selected.startDistance + selected.length * local,
     totalDistance: total,
     edgeIndex: selectedIndex,
     edgeProgress: local,
     fromNodeId: selected.from.id,
     toNodeId: selected.to.id,
     nearestNodeId: local < 0.5 ? selected.from.id : selected.to.id,
-    edge,
+    edge: selected.edge,
   };
 }
 
@@ -459,17 +476,17 @@ export function surfaceRouteReservationKeys(
   nodeIds: string[] | undefined,
   progress: number,
   lookaheadEdges = 1,
+  edgeIds?: string[],
 ): string[] {
-  const sample = sampleSurfaceRoute(graph, nodeIds, progress);
+  const sample = sampleSurfaceRouteWithEdges(graph, nodeIds, edgeIds, progress);
   if (!sample || !nodeIds?.length || sample.edgeIndex < 0) return [];
   const keys = new Set<string>();
   for (let index = sample.edgeIndex; index <= Math.min(nodeIds.length - 2, sample.edgeIndex + lookaheadEdges); index += 1) {
     const from = nodeIds[index];
     const to = nodeIds[index + 1];
-    const edge = graph.edges.find((item) => (
-      (item.from === from && item.to === to)
-      || (item.direction === 'both' && item.from === to && item.to === from)
-    ));
+    const edge = edgeIds?.[index]
+      ? surfaceGraphIndex(graph).edgeById.get(edgeIds[index])
+      : surfaceGraphIndex(graph).edgeByTraversal.get(surfaceTraversalKey(from, to));
     if (edge) keys.add(`edge:${edge.id}:${from}>${to}`);
     if (index > sample.edgeIndex || sample.edgeProgress > 0.64) keys.add(`node:${to}`);
   }
@@ -482,11 +499,144 @@ export function surfaceRouteRunwayCrossings(
   assignedRunway: number,
 ): number[] {
   if (!edgeIds?.length) return [];
-  const edgeMap = new Map(graph.edges.map((edge) => [edge.id, edge]));
+  const edgeMap = surfaceGraphIndex(graph).edgeById;
   return [...new Set(edgeIds
     .map((id) => edgeMap.get(id))
-    .filter((edge) => edge?.kind === 'runway-access' && edge.runwayId !== undefined && edge.runwayId !== assignedRunway)
-    .map((edge) => edge!.runwayId!))];
+    .filter((edge) => edge?.kind === 'runway-access')
+    .flatMap((edge) => edge?.crossedRunwayIds ?? (edge?.runwayId === undefined ? [] : [edge.runwayId]))
+    .filter((runwayId) => runwayId !== assignedRunway))];
+}
+
+/**
+ * Return the physical windows where a route crosses protected runway
+ * pavement. The hold point is kept one center-view aircraft radius before
+ * the source segment so the rendered nose remains behind the protection line.
+ */
+export function surfaceRouteCrossingWindows(
+  graph: AirportSurfaceGraph,
+  nodeIds: string[] | undefined,
+  progress: number,
+  assignedRunway: number,
+  edgeIds?: string[],
+): SurfaceRouteCrossingWindow[] {
+  if (!nodeIds?.length) return [];
+  const geometry = surfaceRouteGeometry(graph, nodeIds, edgeIds);
+  if (geometry.totalDistance <= 0) return [];
+  const currentDistance = clamp(progress, 0, 1) * geometry.totalDistance;
+  const windows: SurfaceRouteCrossingWindow[] = [];
+  for (let edgeIndex = 0; edgeIndex < geometry.segments.length; edgeIndex += 1) {
+    const segment = geometry.segments[edgeIndex];
+    const edge = segment.edge;
+    if (edge?.kind !== 'runway-access') continue;
+    const runwayIds = edge.crossedRunwayIds ?? (edge.runwayId === undefined ? [] : [edge.runwayId]);
+    for (const runwayId of runwayIds) {
+      if (runwayId === assignedRunway) continue;
+      const holdDistance = Math.max(0, segment.startDistance - HOLD_SHORT_BUFFER);
+      windows.push({
+        id: `${runwayId}:${edgeIndex}`,
+        runwayId,
+        edgeId: edge.id,
+        edgeIndex,
+        exitEdgeIndex: edgeIndex,
+        holdProgress: holdDistance / geometry.totalDistance,
+        entryProgress: segment.startDistance / geometry.totalDistance,
+        exitProgress: (segment.startDistance + segment.length) / geometry.totalDistance,
+        distanceToHold: holdDistance - currentDistance,
+      });
+    }
+  }
+  const merged: SurfaceRouteCrossingWindow[] = [];
+  for (const window of windows.sort((first, second) => first.edgeIndex - second.edgeIndex || first.runwayId - second.runwayId)) {
+    const previous = [...merged].reverse().find((candidate) => candidate.runwayId === window.runwayId);
+    if (previous && window.edgeIndex <= previous.exitEdgeIndex + 1) {
+      previous.exitEdgeIndex = window.exitEdgeIndex;
+      previous.exitProgress = Math.max(previous.exitProgress, window.exitProgress);
+      continue;
+    }
+    merged.push({ ...window });
+  }
+  return merged
+    .sort((first, second) => first.entryProgress - second.entryProgress || first.runwayId - second.runwayId)
+    .map((window) => ({ ...window, id: `${window.runwayId}:${window.edgeIndex}-${window.exitEdgeIndex}` }));
+}
+
+export function sampleSurfaceRouteWithEdges(
+  graph: AirportSurfaceGraph,
+  nodeIds: string[] | undefined,
+  edgeIds: string[] | undefined,
+  progress: number,
+): SurfaceRouteSample | null {
+  if (!nodeIds?.length) return null;
+  return sampleSurfaceRouteGeometry(surfaceRouteGeometry(graph, nodeIds, edgeIds), progress);
+}
+
+function surfaceGraphIndex(graph: AirportSurfaceGraph): SurfaceGraphIndex {
+  const cached = surfaceGraphIndexes.get(graph);
+  if (cached) return cached;
+
+  const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+  const edgeById = new Map(graph.edges.map((edge) => [edge.id, edge]));
+  const edgeByTraversal = new Map<string, SurfaceEdge>();
+  const adjacency = new Map<string, Array<{ nodeId: string; edge: SurfaceEdge; cost: number }>>();
+  for (const edge of graph.edges) {
+    edgeByTraversal.set(surfaceTraversalKey(edge.from, edge.to), edge);
+    if (edge.direction === 'both') edgeByTraversal.set(surfaceTraversalKey(edge.to, edge.from), edge);
+    if (edge.kind === 'runway') continue;
+    const from = nodeById.get(edge.from);
+    const to = nodeById.get(edge.to);
+    if (!from || !to) continue;
+    const cost = distance(from.position, to.position);
+    const forward = adjacency.get(edge.from) ?? [];
+    forward.push({ nodeId: edge.to, edge, cost });
+    adjacency.set(edge.from, forward);
+    if (edge.direction === 'both') {
+      const reverse = adjacency.get(edge.to) ?? [];
+      reverse.push({ nodeId: edge.from, edge, cost });
+      adjacency.set(edge.to, reverse);
+    }
+  }
+
+  const index: SurfaceGraphIndex = {
+    nodeById,
+    edgeById,
+    edgeByTraversal,
+    adjacency,
+    routeGeometry: new WeakMap<string[], SurfaceRouteGeometry>(),
+  };
+  surfaceGraphIndexes.set(graph, index);
+  return index;
+}
+
+function surfaceRouteGeometry(graph: AirportSurfaceGraph, nodeIds: string[], edgeIds?: string[]): SurfaceRouteGeometry {
+  const index = surfaceGraphIndex(graph);
+  const cacheKey = edgeIds ?? nodeIds;
+  const cached = index.routeGeometry.get(cacheKey);
+  if (cached) return cached;
+
+  const nodes = nodeIds.map((id) => index.nodeById.get(id)).filter((node): node is SurfaceNode => Boolean(node));
+  let startDistance = 0;
+  const segments = nodes.slice(0, -1).map((from, segmentIndex): SurfaceRouteSegment => {
+    const to = nodes[segmentIndex + 1];
+    const length = distance(from.position, to.position);
+    const segment = {
+      from,
+      to,
+      length,
+      startDistance,
+      edge: edgeIds?.[segmentIndex]
+        ? index.edgeById.get(edgeIds[segmentIndex])
+        : index.edgeByTraversal.get(surfaceTraversalKey(from.id, to.id)),
+    };
+    startDistance += length;
+    return segment;
+  });
+  const geometry = { nodes, segments, totalDistance: startDistance };
+  index.routeGeometry.set(cacheKey, geometry);
+  return geometry;
+}
+
+function surfaceTraversalKey(fromNodeId: string, toNodeId: string): string {
+  return `${fromNodeId}>${toNodeId}`;
 }
 
 export function validateAirportSurfaceGraph(config: SurfaceGraphConfig & { surfaceGraph: AirportSurfaceGraph }): SurfaceGraphValidation {
@@ -655,3 +805,34 @@ function distance(first: Point, second: Point): number { return Math.hypot(first
 function lerp(first: number, second: number, amount: number): number { return first + (second - first) * amount; }
 function clamp(value: number, minimum: number, maximum: number): number { return Math.max(minimum, Math.min(maximum, value)); }
 function round(value: number): number { return Math.round(value * ROUNDING) / ROUNDING; }
+
+function pushRouteNode(heap: Array<{ nodeId: string; distance: number }>, value: { nodeId: string; distance: number }): void {
+  heap.push(value);
+  let index = heap.length - 1;
+  while (index > 0) {
+    const parent = Math.floor((index - 1) / 2);
+    if (heap[parent].distance <= value.distance) break;
+    heap[index] = heap[parent];
+    index = parent;
+  }
+  heap[index] = value;
+}
+
+function popMinimumRouteNode(heap: Array<{ nodeId: string; distance: number }>): { nodeId: string; distance: number } | undefined {
+  if (!heap.length) return undefined;
+  const minimum = heap[0];
+  const replacement = heap.pop();
+  if (!heap.length || !replacement) return minimum;
+  let index = 0;
+  while (true) {
+    const left = index * 2 + 1;
+    const right = left + 1;
+    if (left >= heap.length) break;
+    const child = right < heap.length && heap[right].distance < heap[left].distance ? right : left;
+    if (heap[child].distance >= replacement.distance) break;
+    heap[index] = heap[child];
+    index = child;
+  }
+  heap[index] = replacement;
+  return minimum;
+}

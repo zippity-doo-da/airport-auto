@@ -6,6 +6,7 @@ import process from "node:process";
 const SCHEMA_VERSION = 1;
 const IMPORTER_VERSION = 1;
 const EARTH_RADIUS_METERS = 6_378_137;
+const WORLD_METERS_PER_UNIT = 38;
 const FAA_OWNER = "AeronauticalInformationServices_FAA";
 const FAA_ATTRIBUTION =
   "Federal Aviation Administration, Air Traffic Organization, Mission Support Services, Aeronautical Information Services.";
@@ -143,6 +144,7 @@ async function main() {
   const effectiveWindows = sources
     .map((source) => source.effective)
     .filter(Boolean);
+  const runtimeReference = deriveRuntimeReference(layers);
   const asset = {
     schemaVersion: SCHEMA_VERSION,
     importerVersion: IMPORTER_VERSION,
@@ -163,6 +165,7 @@ async function main() {
       coordinatePrecisionMeters: 0.1,
     },
     boundsMeters,
+    runtimeReference,
     sources,
     layers,
   };
@@ -178,6 +181,7 @@ async function main() {
     effective: asset.effective,
     coordinateSystem: asset.coordinateSystem,
     boundsMeters: asset.boundsMeters,
+    runtimeReference: asset.runtimeReference,
     attribution: FAA_ATTRIBUTION,
     layerCounts: Object.fromEntries(
       Object.entries(layers).map(([key, features]) => [key, features.length]),
@@ -532,6 +536,263 @@ function commonEffectiveWindow(windows) {
   return windows.every((window) => JSON.stringify(window) === first)
     ? windows[0]
     : null;
+}
+
+function deriveRuntimeReference(layers) {
+  const runwayOrder = [
+    "09L/27R",
+    "09C/27C",
+    "09R/27L",
+    "10L/28R",
+    "10C/28C",
+    "10R/28L",
+    "04L/22R",
+    "04R/22L",
+  ];
+  const roles = new Map([
+    ["09L/27R", "arrival"],
+    ["09C/27C", "arrival"],
+    ["09R/27L", "departure"],
+    ["10L/28R", "departure"],
+    ["10C/28C", "arrival"],
+    ["10R/28L", "arrival"],
+    ["04L/22R", "inactive"],
+    ["04R/22L", "inactive"],
+  ]);
+  const runwayByName = new Map(
+    layers.runways.map((feature) => [feature.properties.runwayId, feature]),
+  );
+  const runways = runwayOrder.map((runwayId) => {
+    const feature = runwayByName.get(runwayId);
+    if (!feature)
+      throw new Error(`Runtime reference is missing runway ${runwayId}`);
+    const bounds = principalBounds(geometryPoints(feature.geometry));
+    return {
+      runwayId,
+      designation: runwayId.split("/"),
+      role: roles.get(runwayId),
+      center: roundPoint(
+        bounds.center.map((value) => value / WORLD_METERS_PER_UNIT),
+        4,
+      ),
+      heading: round(bounds.heading, 7),
+      length: round(bounds.length / WORLD_METERS_PER_UNIT, 4),
+      width: round(
+        Math.max(2.4, bounds.width / WORLD_METERS_PER_UNIT),
+        4,
+      ),
+      sourceLengthMeters: round(bounds.length, 1),
+      sourceWidthMeters: round(bounds.width, 1),
+    };
+  });
+  const building = layers.buildings
+    .map((feature) => ({
+      feature,
+      centroid: featureCentroid(feature.geometry),
+    }))
+    .sort((first, second) => second.centroid.area - first.centroid.area)[0];
+  if (!building)
+    throw new Error("Runtime reference requires at least one building");
+  const towerCandidates = layers.buildings
+    .filter((feature) => feature.properties.designator === "TWR")
+    .map((feature) => ({
+      feature,
+      centroid: featureCentroid(feature.geometry),
+    }))
+    .sort(
+      (first, second) =>
+        distance2d(first.centroid, building.centroid) -
+        distance2d(second.centroid, building.centroid),
+    );
+  const primaryTower = towerCandidates[0];
+  const obstacles = layers.buildings.flatMap((feature) => {
+    const polygons =
+      feature.geometry.type === "Polygon"
+        ? [feature.geometry.coordinates]
+        : feature.geometry.coordinates;
+    return polygons.map((polygon, polygonIndex) => {
+      const centroid = ringCentroid(polygon[0]);
+      const kind =
+        feature.id === building.feature.id
+          ? "terminal"
+          : feature.id === primaryTower?.feature.id
+            ? "control-tower"
+            : "building";
+      return {
+        id: `FAA-${feature.id}${polygons.length > 1 ? `-${polygonIndex + 1}` : ""}`,
+        kind,
+        label:
+          kind === "terminal"
+            ? "O'Hare terminal complex"
+            : kind === "control-tower"
+              ? "O'Hare control tower"
+              : feature.properties.designator || "Airport building",
+        shape: "polygon",
+        center: roundPoint(
+          [centroid.x / WORLD_METERS_PER_UNIT, centroid.y / WORLD_METERS_PER_UNIT],
+          4,
+        ),
+        points: polygon[0].map((point) =>
+          roundPoint(
+            point.map((value) => value / WORLD_METERS_PER_UNIT),
+            4,
+          ),
+        ),
+        minimumAltitude: 1.7,
+        maximumAltitude: kind === "control-tower" ? 16.4 : 7.8,
+        clearance: 0.12,
+      };
+    });
+  });
+  const aprons = layers.aprons.flatMap((feature) => {
+    const polygons =
+      feature.geometry.type === "Polygon"
+        ? [feature.geometry.coordinates]
+        : feature.geometry.coordinates;
+    return polygons.map((polygon, polygonIndex) => ({
+      id: `FAA-${feature.id}${polygons.length > 1 ? `-${polygonIndex + 1}` : ""}`,
+      designator: feature.properties.designator ?? null,
+      rings: polygon.map((ring) =>
+        ring.map((point) =>
+          roundPoint(
+            point.map((value) => value / WORLD_METERS_PER_UNIT),
+            4,
+          ),
+        ),
+      ),
+    }));
+  });
+  return {
+    worldMetersPerUnit: WORLD_METERS_PER_UNIT,
+    terminal: roundPoint(
+      [
+        building.centroid.x / WORLD_METERS_PER_UNIT,
+        building.centroid.y / WORLD_METERS_PER_UNIT,
+      ],
+      4,
+    ),
+    controlTower: primaryTower
+      ? roundPoint(
+          [
+            primaryTower.centroid.x / WORLD_METERS_PER_UNIT,
+            primaryTower.centroid.y / WORLD_METERS_PER_UNIT,
+          ],
+          4,
+        )
+      : null,
+    runways,
+    aprons,
+    obstacles,
+  };
+}
+
+function geometryPoints(geometry) {
+  const points = [];
+  visitCoordinates(geometry.coordinates, (point) => points.push(point));
+  return points;
+}
+
+function principalBounds(points) {
+  const mean = points
+    .reduce(
+      (sum, point) => [sum[0] + point[0], sum[1] + point[1]],
+      [0, 0],
+    )
+    .map((value) => value / points.length);
+  let xx = 0;
+  let yy = 0;
+  let xy = 0;
+  for (const point of points) {
+    const x = point[0] - mean[0];
+    const y = point[1] - mean[1];
+    xx += x * x;
+    yy += y * y;
+    xy += x * y;
+  }
+  let heading = 0.5 * Math.atan2(2 * xy, xx - yy);
+  if (Math.cos(heading) < 0) heading += Math.PI;
+  const direction = [Math.cos(heading), Math.sin(heading)];
+  const normal = [-direction[1], direction[0]];
+  const along = points.map(
+    (point) => point[0] * direction[0] + point[1] * direction[1],
+  );
+  const across = points.map(
+    (point) => point[0] * normal[0] + point[1] * normal[1],
+  );
+  const alongMidpoint = (Math.min(...along) + Math.max(...along)) / 2;
+  const acrossMidpoint = (Math.min(...across) + Math.max(...across)) / 2;
+  return {
+    center: [
+      direction[0] * alongMidpoint + normal[0] * acrossMidpoint,
+      direction[1] * alongMidpoint + normal[1] * acrossMidpoint,
+    ],
+    heading,
+    length: Math.max(...along) - Math.min(...along),
+    width: Math.max(...across) - Math.min(...across),
+  };
+}
+
+function featureCentroid(geometry) {
+  const polygons =
+    geometry.type === "Polygon" ? [geometry.coordinates] : geometry.coordinates;
+  let weightedX = 0;
+  let weightedY = 0;
+  let totalArea = 0;
+  for (const polygon of polygons) {
+    const ring = polygon[0];
+    let signedArea = 0;
+    let x = 0;
+    let y = 0;
+    for (let index = 0; index < ring.length - 1; index += 1) {
+      const cross =
+        ring[index][0] * ring[index + 1][1] -
+        ring[index + 1][0] * ring[index][1];
+      signedArea += cross;
+      x += (ring[index][0] + ring[index + 1][0]) * cross;
+      y += (ring[index][1] + ring[index + 1][1]) * cross;
+    }
+    signedArea /= 2;
+    const area = Math.abs(signedArea);
+    if (area <= 1e-6) continue;
+    weightedX += (x / (6 * signedArea)) * area;
+    weightedY += (y / (6 * signedArea)) * area;
+    totalArea += area;
+  }
+  return {
+    x: weightedX / totalArea,
+    y: weightedY / totalArea,
+    area: totalArea,
+  };
+}
+
+function ringCentroid(ring) {
+  let signedArea = 0;
+  let x = 0;
+  let y = 0;
+  for (let index = 0; index < ring.length - 1; index += 1) {
+    const cross =
+      ring[index][0] * ring[index + 1][1] -
+      ring[index + 1][0] * ring[index][1];
+    signedArea += cross;
+    x += (ring[index][0] + ring[index + 1][0]) * cross;
+    y += (ring[index][1] + ring[index + 1][1]) * cross;
+  }
+  signedArea /= 2;
+  if (Math.abs(signedArea) <= 1e-6)
+    return {
+      x: ring.reduce((sum, point) => sum + point[0], 0) / ring.length,
+      y: ring.reduce((sum, point) => sum + point[1], 0) / ring.length,
+    };
+  return { x: x / (6 * signedArea), y: y / (6 * signedArea) };
+}
+
+function distance2d(first, second) {
+  return Math.hypot(first.x - second.x, first.y - second.y);
+}
+
+function round(value, decimalPlaces) {
+  const scale = 10 ** decimalPlaces;
+  return Math.round(value * scale) / scale;
 }
 
 main().catch((error) => {
