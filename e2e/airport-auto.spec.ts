@@ -9,11 +9,11 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await page.goto('/?airport=ORD&mode=assisted&station=supervisor&autostart=1&detail=low');
   await expect(page.locator('#airport-name')).toContainText('O’Hare');
   await expect(page.locator('#flight-strip-count')).toContainText('aircraft');
-  await page.waitForFunction(() => window.airportControl?.version === '2.10.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.11.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
-  expect(initial.schemaVersion).toBe(12);
+  expect(initial.schemaVersion).toBe(13);
   expect(initial.mode).toBe('assisted');
   expect(initial.airport.code).toBe('ORD');
   expect(initial.renderer.camera).toMatchObject({
@@ -43,6 +43,8 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   expect(initial.surfaceGraph.passengerFacilities.filter((facility) => facility.kind === 'terminal').map((facility) => facility.terminalId).sort()).toEqual(['T1', 'T2', 'T3', 'T5']);
   expect(initial.renderer.passengerFacilities).toBe(13);
   expect(initial.renderer.serviceVehiclesVisible).toBeTruthy();
+  expect(initial.renderer.surfaceDisruptions).toEqual({ total: 0, pending: 0, active: 0, recovering: 0 });
+  expect(initial.surfaceDisruptions).toHaveLength(0);
   for (const concourse of ['B', 'C', 'E', 'F', 'G', 'H', 'K', 'L', 'M']) {
     expect(initial.surfaceGraph.stands.filter((stand) => stand.concourse === concourse).length).toBeGreaterThanOrEqual(2);
   }
@@ -330,6 +332,22 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await expect(page.locator('#map-data-attribution')).toContainText('Chicago Department of Aviation');
   await expect(page.locator('#map-facility-source')).toBeVisible();
   await expect(page.locator('#map-facility-source')).toHaveAttribute('href', initial.airport.surfaceData?.passengerFacilityReference.url ?? '');
+  await page.locator('#surface-disruption-kind').selectOption('runway-closure');
+  await page.locator('#surface-disruption-target').selectOption({ index: 0 });
+  await page.locator('#surface-disruption-duration').selectOption('90');
+  await page.locator('#surface-disruption-apply').click();
+  await expect(page.locator('#surface-disruption-list .surface-disruptions__item')).toHaveCount(1);
+  const restricted = await page.evaluate(() => window.airportControl.snapshot());
+  expect(restricted.surfaceDisruptions).toHaveLength(1);
+  expect(restricted.surfaceDisruptions[0]).toMatchObject({ kind: 'runway-closure', source: 'controller' });
+  expect(restricted.renderer.surfaceDisruptions.total).toBe(1);
+  const restrictedRunway = restricted.runways.find((runway) => runway.id === restricted.surfaceDisruptions[0].runwayId);
+  expect(restrictedRunway?.closed).toBeTruthy();
+  expect(restricted.renderer.runways.find((runway) => runway.id === restrictedRunway?.id)?.markerVisible).toBeFalsy();
+  await page.screenshot({ path: testInfo.outputPath('surface-restriction.png') });
+  await page.locator('#surface-disruption-list button[data-clear-disruption]').click();
+  await expect(page.locator('#surface-disruption-list .surface-disruptions__item')).toHaveCount(0);
+  expect((await page.evaluate(() => window.airportControl.snapshot())).surfaceDisruptions).toHaveLength(0);
   const hotspotLayer = page.locator('input[data-surface-layer="hotspots"]');
   await expect(hotspotLayer).not.toBeChecked();
   await hotspotLayer.check();
@@ -369,7 +387,7 @@ test('ORD snow exposes the deicing route and holdover model in the normal UI', a
   test.skip(testInfo.project.name !== 'desktop-chromium', 'Winter operations are viewport-independent and covered once in Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=auto&autostart=1&detail=low&weather=snow&windDir=270&wind=12');
-  await page.waitForFunction(() => window.airportControl?.version === '2.10.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.11.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
   await page.locator('#menu-toggle').click();
@@ -420,7 +438,7 @@ test('Go-around climbs from the live pose and flies a visible missed-approach pa
   test.skip(testInfo.project.name !== 'desktop-chromium', 'The authoritative go-around is viewport-independent and covered once in Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ATL&mode=auto&autostart=1&detail=low&speed=3');
-  await page.waitForFunction(() => window.airportControl?.version === '2.10.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.11.0');
   await page.waitForFunction(() => {
     const flight = window.airportControl.snapshot().flights.find((candidate) => candidate.phase === 'approach');
     return Boolean(flight && flight.progress > 0.18);
@@ -454,7 +472,7 @@ test('Mobile Watch mode keeps non-ORD and procedural maps navigable in low detai
   test.skip(testInfo.project.name !== 'mobile-chromium', 'This test is the dedicated responsive/mobile browser gate.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ATL&mode=watch&autostart=1&detail=low');
-  await page.waitForFunction(() => window.airportControl?.version === '2.10.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.11.0');
   await expect(page.locator('body')).toHaveClass(/watch-mode/);
   await expect(page.locator('#menu-toggle')).toBeVisible();
   await expect(page.locator('#zoom-in')).toBeVisible();

@@ -45,6 +45,8 @@ Useful real-world references for future fidelity work:
 - Each aircraft type has separate straight-taxi speed, turn-speed, ground acceleration, braking, design turn radius, and wingspan. The simulation replaces eligible graph corners with tangent circular arcs, brakes before them, and rejects routes below the modeled wingtip margin.
 - Ground aircraft remain on modeled runway, taxiway, apron, or stand pavement.
 - Active-runway plans follow eligible wind/weather/procedure conditions when automatic selection is enabled, but never change underneath protected traffic.
+- Runway, taxiway, construction, and disabled-aircraft restrictions block explicit graph edges. Affected traffic keeps its occupied edge, reroutes only its remaining path without jumping, or brakes into an explainable hold until compatible pavement reopens.
+- A disabled surface aircraft protects its occupied resource until Ground/automatic recovery completes a modeled tow and inspection; closing the last usable arrival or departure runway is rejected.
 - Runway entry, crossing, and takeoff are distinct clearances.
 - Runway reservations protect intersecting and occupied runways while still permitting independent parallel operations.
 - Physical envelopes and broader airborne/surface separation envelopes are checked before movement is committed.
@@ -61,7 +63,7 @@ Useful real-world references for future fidelity work:
 - Approach and departure procedure names are descriptive placeholders, not published SID/STAR data.
 - Wake class affects spacing, but the game does not reproduce every FAA separation category or local waiver. The E175 and Q400 use the medium game category, not the former misleading light label.
 - Gate assignment uses 40 sampled playable stands rather than all 199 real passenger gates; airline affinities are schematic, scheduled windows are simulation time rather than a live airline feed, and actual leases/irregular operations are not reproduced.
-- Pushback uses a compact procedural tug and graph-derived ramp release. Turnaround equipment uses stylized procedural vehicle families rather than airline-specific models; individually routed deicing rigs, detailed fluid/inspection rules, lavatory/water service, NOTAM ingestion, and live METAR/traffic feeds are not yet modeled.
+- Pushback uses a compact procedural tug and graph-derived ramp release. Turnaround equipment uses stylized procedural vehicle families rather than airline-specific models; individually routed deicing rigs, detailed fluid/inspection rules, emergency-response staging, tow-route choreography, NOTAM ingestion, and live METAR/traffic feeds are not yet modeled.
 - Manufacturer airport-planning manuals and FAA taxiway-design guidance bound the ground model, but its speeds, radii, and imported edge-clearance corridors remain entertainment-scale parameters—not dispatch or airport-engineering data.
 - O'Hare ships versioned offline OSM surface and surrounding-context assets; other hubs retain procedural surroundings.
 

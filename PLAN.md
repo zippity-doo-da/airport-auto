@@ -197,6 +197,17 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] API 2.10 / snapshot schema 12 exposes the complete exit decision and emits structured `runway-exit-plan` events; replay clones the same authoritative state.
 - [x] Add a dedicated deterministic gate for imported/procedural candidates, aircraft and weather ordering, stand-route influence, traffic avoidance, pavement protection, and phase continuity; retain the full trajectory, fixed-step, collision, and desktop/mobile browser gates.
 
+## Airport Auto 2.11 — dynamic surface restrictions and recovery
+
+- [x] Represent runway closures, taxiway closures, construction zones, and disabled aircraft as serializable edge-level restrictions in the authoritative fixed-step state.
+- [x] Require Supervisor authority for closing or reopening airport pavement; require Ground or Supervisor for disabled-aircraft recovery and return structured rejection reasons through the normal UI and typed control API.
+- [x] Preserve an aircraft's occupied edge and exact pose while replanning only its remaining graph route; brake into an explainable hold when no compatible suffix exists and retry after pavement reopens.
+- [x] Keep assigned deicing movements protected during a disruption so a reroute cannot silently bypass a queue or treatment lane.
+- [x] Remove closed runways from new operation choices, retain capacity, queue activation behind protected occupants, and send affected approaches through a real go-around before compatible-runway reassignment.
+- [x] Model deterministic disabled-aircraft protection, tow/inspection progress, reservation release, removal, and `recovery-start` / `recovery-complete` events.
+- [x] Add a normal Surface availability panel, compact construction/barrier/recovery map cues, selected-flight reroute/recovery state, replay cloning, telemetry payloads, and API 2.11 / snapshot schema 13.
+- [x] Validate target resolution, authority, pose continuity, blocked-edge avoidance, timed reopening, runway reassignment, recovery completion, and zero collisions; retain the complete deterministic and browser release gates.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.

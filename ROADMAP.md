@@ -1,7 +1,7 @@
 # Airport Auto — Forward Roadmap
 
 Last reconciled: July 24, 2026
-Baseline: Airport Auto 2.10.0
+Baseline: Airport Auto 2.11.0
 
 Airport Auto is an **ASMR-first web airport simulation with an optional serious ATC layer**. The simulation should remain enjoyable as a calm, hands-off miniature world while also supporting increasingly authentic controller work when the player asks for it.
 
@@ -65,7 +65,7 @@ This document contains only unfinished, still-valid work. Shipped behavior belon
 
 Turn the safe surface graph into a believable airport lifecycle.
 
-**Status: in progress.** Pushback shipped in 2.3, aircraft-specific ground handling in 2.4, ramp/alley flow control in 2.5, scheduled gate assignment in 2.6, explicit turnaround services in 2.7, protected service-vehicle routing in 2.8, winter deicing in 2.9, and performance/traffic-aware runway-exit selection in 2.10.
+**Status: in progress.** Pushback shipped in 2.3, aircraft-specific ground handling in 2.4, ramp/alley flow control in 2.5, scheduled gate assignment in 2.6, explicit turnaround services in 2.7, protected service-vehicle routing in 2.8, winter deicing in 2.9, performance/traffic-aware runway-exit selection in 2.10, and dynamic surface restrictions/recovery in 2.11.
 
 - [x] Add explicit pushback clearance, tug attachment, push direction, engine-start state, and tug release.
 - [x] Add aircraft-specific taxi speed, turn-radius, stopping-distance, and wingtip-clearance behavior on the imported graph.
@@ -74,7 +74,7 @@ Turn the safe surface graph into a believable airport lifecycle.
 - [x] Replace the simple turnaround timer with optional fueling, baggage, cargo, catering, cleaning, boarding, and maintenance states.
 - [x] Add service vehicles with reserved routes that never cross protected movement areas without authorization.
 - [x] Add deicing pads, queues, treatment time, holdover time, and winter routing.
-- [ ] Add taxiway/runway closures, construction zones, disabled-aircraft recovery, and graph rerouting.
+- [x] Add taxiway/runway closures, construction zones, disabled-aircraft recovery, and graph rerouting.
 - [ ] Add a queue inspector that explains gate, ramp, taxi, crossing, runway, wake, weather, and downstream blockers.
 
 ## Milestone 3 — Terminal traffic, separation, and procedures

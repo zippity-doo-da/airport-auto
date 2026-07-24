@@ -7,6 +7,7 @@ import type {
   FlightPhase,
   RunwayConfigurationTransition,
   ShiftMetrics,
+  SurfaceDisruptionState,
   TrafficScenario,
 } from './types';
 import { sampleFlightTrajectory, type FlightTrajectoryStage } from './flightTrajectory';
@@ -99,6 +100,8 @@ export interface FixedStepFlightSnapshot {
   surfaceNode?: string;
   surfaceEdge?: string;
   surfaceRoute: string[];
+  surfaceRouteEdges: string[];
+  surfaceReroute?: Flight['surfaceReroute'];
   controlPace: number;
   held: boolean;
   automaticHold: boolean;
@@ -131,7 +134,7 @@ export interface FixedStepFlightSnapshot {
 }
 
 export interface FixedStepSimulationSnapshot {
-  schemaVersion: 7;
+  schemaVersion: 8;
   seed: number;
   airportCode: string;
   stepSeconds: number;
@@ -151,6 +154,7 @@ export interface FixedStepSimulationSnapshot {
     runwayConfigurationTransition: RunwayConfigurationTransition | null;
     activeRunwayEnds: Record<number, -1 | 1>;
     activeRunwayRoles: Record<number, RunwayOperationalRole>;
+    surfaceDisruptions: SurfaceDisruptionState[];
     weather: {
       enabled: boolean;
       windEnabled: boolean;
@@ -308,7 +312,7 @@ export class FixedStepSimulationHarness {
   snapshot(): FixedStepSimulationSnapshot {
     const diagnostics = this.simulation.diagnostics();
     return {
-      schemaVersion: 7,
+      schemaVersion: 8,
       seed: this.config.seed,
       airportCode: this.config.code,
       stepSeconds: round(this.stepSeconds),
@@ -332,6 +336,11 @@ export class FixedStepSimulationHarness {
         } : null,
         activeRunwayEnds: { ...this.simulation.state.activeRunwayEnds },
         activeRunwayRoles: { ...this.simulation.state.activeRunwayRoles },
+        surfaceDisruptions: this.simulation.state.surfaceDisruptions.map((disruption) => ({
+          ...disruption,
+          edgeIds: [...disruption.edgeIds],
+          reroutedFlightIds: [...disruption.reroutedFlightIds],
+        })),
         weather: {
           enabled: this.simulation.state.weather.weatherEnabled,
           windEnabled: this.simulation.state.weather.windEnabled,
@@ -503,6 +512,13 @@ function snapshotFlight(config: AirportConfig, flight: Flight): FixedStepFlightS
     surfaceNode: flight.surfaceNode,
     surfaceEdge: flight.surfaceEdge,
     surfaceRoute: [...(flight.surfaceRoute ?? [])],
+    surfaceRouteEdges: [...(flight.surfaceRouteEdges ?? [])],
+    surfaceReroute: flight.surfaceReroute ? {
+      ...flight.surfaceReroute,
+      disruptionIds: [...flight.surfaceReroute.disruptionIds],
+      previousEdgeIds: [...flight.surfaceReroute.previousEdgeIds],
+      routeEdgeIds: [...flight.surfaceReroute.routeEdgeIds],
+    } : undefined,
     controlPace: round(flight.controlPace ?? 1),
     held: Boolean(flight.controlHold),
     automaticHold: Boolean(flight.automaticHold),

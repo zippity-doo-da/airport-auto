@@ -6,7 +6,7 @@ import { airlineProfile } from './simulation/airlineProfiles';
 import { sampleAircraftSurfaceMotion, surfaceStoppingDistanceM } from './simulation/surfaceMotion';
 import { surfaceRampControlZones, surfaceStandFlow } from './simulation/surfaceOperations';
 import { GATE_TURN_BUFFER_SECONDS } from './simulation/gateAssignment';
-import type { ClearanceProposal, ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, ReplayFrame, TrafficScenario, TurnaroundServiceType, WeatherCondition } from './simulation/types';
+import type { ClearanceProposal, ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, ReplayFrame, SurfaceDisruptionKind, TrafficScenario, TurnaroundServiceType, WeatherCondition } from './simulation/types';
 import { AmbientAudio, type AudioChannel, type AudioPreset } from './audio/ambientAudio';
 import { createWorld, type SurfaceLayer } from './render/createWorld';
 
@@ -35,7 +35,10 @@ type AirportControlCommand =
   | { action: 'setWeather'; condition: WeatherCondition; directionDegrees: number; windSpeed: number }
   | { action: 'setWeatherEnabled'; enabled: boolean }
   | { action: 'setWindEnabled'; enabled: boolean }
-  | { action: 'setRunwayConfiguration'; configurationId: string | null };
+  | { action: 'setRunwayConfiguration'; configurationId: string | null }
+  | { action: 'setSurfaceDisruption'; kind: Exclude<SurfaceDisruptionKind, 'disabled-aircraft'>; targetId: string; enabled: boolean; durationSeconds?: number }
+  | { action: 'clearSurfaceDisruption'; disruptionId: string }
+  | { action: 'recoverDisabledAircraft'; flightId: number };
 
 type AirportControlResult = {
   accepted: boolean;
@@ -205,6 +208,11 @@ const windOverlayArrow = $<HTMLElement>('#wind-overlay-arrow');
 const windOverlayHeading = $<HTMLElement>('#wind-overlay-heading');
 const windOverlaySpeed = $<HTMLElement>('#wind-overlay-speed');
 const serviceVehiclesToggle = $<HTMLInputElement>('#service-vehicles-toggle');
+const surfaceDisruptionKind = $<HTMLSelectElement>('#surface-disruption-kind');
+const surfaceDisruptionTarget = $<HTMLSelectElement>('#surface-disruption-target');
+const surfaceDisruptionDuration = $<HTMLSelectElement>('#surface-disruption-duration');
+const surfaceDisruptionApply = $<HTMLButtonElement>('#surface-disruption-apply');
+const surfaceDisruptionList = $<HTMLElement>('#surface-disruption-list');
 const operationsHealth = $<HTMLElement>('#operations-health');
 const healthState = $<HTMLElement>('#health-state');
 const healthThroughput = $<HTMLElement>('#health-throughput');
@@ -236,6 +244,7 @@ let telemetrySequence = 0;
 let lastWeatherCondition: WeatherCondition | null = null;
 let weatherSelection: 'auto' | WeatherCondition = 'auto';
 let runwayConfigurationOptionsKey = '';
+let surfaceDisruptionUiKey = '';
 let lastPredictionKey = '';
 let replayIndex = -1;
 let replayMode = false;
@@ -273,6 +282,8 @@ debugPanel.hidden = !debugEnabled;
 updateAirportUi();
 updateNightControl();
 updateRadarControl();
+updateSurfaceDisruptionTargets();
+renderSurfaceDisruptionControls();
 renderFlightStrip();
 setExclusiveModal(intro);
 requestAnimationFrame(() => enterButton.focus());
@@ -434,6 +445,33 @@ audioPreset.addEventListener('change', () => audio.setPreset(audioPreset.value a
 for (const control of audioLevelControls) {
   control.addEventListener('input', () => audio.setLevel(control.dataset.audioLevel as AudioChannel, Number(control.value)));
 }
+
+surfaceDisruptionKind.addEventListener('change', () => {
+  updateSurfaceDisruptionTargets();
+  renderSurfaceDisruptionControls();
+});
+surfaceDisruptionApply.addEventListener('click', () => {
+  const result = executeAirportRequest({
+    action: 'setSurfaceDisruption',
+    kind: surfaceDisruptionKind.value as Exclude<SurfaceDisruptionKind, 'disabled-aircraft'>,
+    targetId: surfaceDisruptionTarget.value,
+    enabled: true,
+    durationSeconds: Number(surfaceDisruptionDuration.value) || undefined,
+  });
+  surfaceDisruptionUiKey = '';
+  renderSurfaceDisruptionControls();
+  setStatus(result.accepted ? 'Surface restriction active' : 'Surface restriction rejected', result.reason);
+});
+surfaceDisruptionList.addEventListener('click', (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
+  if (!button) return;
+  const result = button.dataset.recoverFlight
+    ? executeAirportRequest({ action: 'recoverDisabledAircraft', flightId: Number(button.dataset.recoverFlight) })
+    : executeAirportRequest({ action: 'clearSurfaceDisruption', disruptionId: button.dataset.clearDisruption ?? '' });
+  surfaceDisruptionUiKey = '';
+  renderSurfaceDisruptionControls();
+  setStatus(result.accepted ? 'Surface operation accepted' : 'Surface operation rejected', result.reason);
+});
 
 replayToggle.addEventListener('click', () => {
   replayMode = !replayMode;
@@ -660,6 +698,7 @@ function frame(now: number): void {
     updateSafetyUi(predictions);
     updateReplayUi();
     updateOperationsHealth();
+    renderSurfaceDisruptionControls();
   }
   if (simulation.state.arrivals !== lastArrivals) {
     landedCount.textContent = two(simulation.state.arrivals);
@@ -676,9 +715,18 @@ function frame(now: number): void {
     const serviceVehicleEvent = event.type.startsWith('service-vehicle-');
     const deicingEvent = event.type.startsWith('deicing-');
     const runwayExitEvent = event.type === 'runway-exit-plan';
+    const surfaceEvent = event.type === 'surface-reroute' || event.type === 'recovery-start' || event.type === 'recovery-complete';
     recordTelemetry(event.type, event.flight, event.runway, event.taxiway, {
       detail: event.detail ?? (event.type === 'safety-hold' ? event.flight.safetyHoldReason : undefined),
-      payload: runwayExitEvent && event.flight.runwayExit ? {
+      payload: surfaceEvent ? {
+        reroute: event.flight.surfaceReroute ? {
+          ...event.flight.surfaceReroute,
+          disruptionIds: [...event.flight.surfaceReroute.disruptionIds],
+          previousEdgeIds: [...event.flight.surfaceReroute.previousEdgeIds],
+          routeEdgeIds: [...event.flight.surfaceReroute.routeEdgeIds],
+        } : null,
+        disruption: simulation.state.surfaceDisruptions.find((disruption) => disruption.flightId === event.flight.id) ?? null,
+      } : runwayExitEvent && event.flight.runwayExit ? {
         ...event.flight.runwayExit,
         taxiRouteEdgeIds: [...event.flight.runwayExit.taxiRouteEdgeIds],
         rationale: [...event.flight.runwayExit.rationale],
@@ -756,6 +804,9 @@ function frame(now: number): void {
     if (event.type === 'conflict') showGameOver(event.flight.callsign);
     if (event.type === 'emergency') setStatus(`${event.flight.callsign} emergency`, `${event.flight.emergency} · priority handling active`);
     if (event.type === 'go-around') setStatus(`${event.flight.callsign} going around`, `${event.detail ?? 'spacing reset'} · re-entering the arrival sequence`);
+    if (event.type === 'surface-reroute') setStatus(`${event.flight.callsign} surface route amended`, event.detail ?? 'remaining on available pavement');
+    if (event.type === 'recovery-start') setStatus(`${event.flight.callsign} recovery dispatched`, event.detail ?? 'tow and pavement inspection underway');
+    if (event.type === 'recovery-complete') setStatus(`${event.flight.callsign} recovered`, event.detail ?? 'movement area inspected and reopened');
   }
 
   world.update(replayMode ? displayedState : presentationState(), delta);
@@ -873,6 +924,11 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
       changedRunwayIds: [...state.runwayConfigurationTransition.changedRunwayIds],
       blockingFlightIds: [...state.runwayConfigurationTransition.blockingFlightIds],
     } : null,
+    surfaceDisruptions: state.surfaceDisruptions.map((disruption) => ({
+      ...disruption,
+      edgeIds: [...disruption.edgeIds],
+      reroutedFlightIds: [...disruption.reroutedFlightIds],
+    })),
     serviceVehicles: state.serviceVehicles.map((vehicle) => ({
       ...vehicle,
       outboundRoute: [...vehicle.outboundRoute],
@@ -890,6 +946,12 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
         ...flight.runwayExit,
         taxiRouteEdgeIds: [...flight.runwayExit.taxiRouteEdgeIds],
         rationale: [...flight.runwayExit.rationale],
+      } : undefined,
+      surfaceReroute: flight.surfaceReroute ? {
+        ...flight.surfaceReroute,
+        disruptionIds: [...flight.surfaceReroute.disruptionIds],
+        previousEdgeIds: [...flight.surfaceReroute.previousEdgeIds],
+        routeEdgeIds: [...flight.surfaceReroute.routeEdgeIds],
       } : undefined,
       gateAssignment: flight.gateAssignment ? {
         ...flight.gateAssignment,
@@ -913,7 +975,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
 function replayRecording(): ReplayRecording {
   return {
     schemaVersion: 1,
-    simulationVersion: window.airportControl?.version ?? '2.10.0',
+    simulationVersion: window.airportControl?.version ?? '2.11.0',
     recordedAt: new Date().toISOString(),
     seed: config.seed,
     airport: { code: config.code, name: config.name, scope: config.scope },
@@ -1035,6 +1097,11 @@ function formatPhase(phase: FlightPhase): string {
 }
 
 function flightOperationLabel(flight: Flight): string {
+  if (flight.emergency === 'disabled') {
+    const recovery = displayState().surfaceDisruptions.find((disruption) => disruption.flightId === flight.id);
+    return recovery?.status === 'recovering' ? `Recovery ${Math.round(recovery.recoveryProgress * 100)}%` : 'Disabled · awaiting recovery';
+  }
+  if (flight.surfaceReroute?.status === 'holding') return 'Route unavailable';
   if (flight.goAround) return flight.motion.stage === 'go-around-reentry' ? 'Rejoining arrival' : 'Go around';
   if (flight.phase === 'resting') {
     if (flight.turnaround.status !== 'ready') return `Turnaround ${Math.round(flight.turnaround.progress * 100)}%`;
@@ -1178,6 +1245,85 @@ function setServiceVehiclesVisible(visible: boolean): void {
   world.setServiceVehiclesVisible(visible);
 }
 
+function updateSurfaceDisruptionTargets(): void {
+  const previous = surfaceDisruptionTarget.value;
+  const kind = surfaceDisruptionKind.value as Exclude<SurfaceDisruptionKind, 'disabled-aircraft'>;
+  const targets = kind === 'runway-closure'
+    ? config.runways
+        .filter((runway) => runway.role !== 'inactive')
+        .map((runway) => ({ value: String(runway.id), label: `Runway ${runway.designation?.join('/') ?? runway.id}` }))
+    : config.surfaceGraph.taxiways
+        .filter((taxiway) => taxiway.edgeIds.length > 0)
+        .filter((taxiway) => taxiway.sourceKind !== 'taxilane' || kind === 'construction')
+        .sort((first, second) => (first.reference ?? first.name).localeCompare(second.reference ?? second.name))
+        .map((taxiway) => ({ value: taxiway.id, label: taxiway.name }));
+  surfaceDisruptionTarget.replaceChildren(...targets.map((target) => {
+    const option = document.createElement('option');
+    option.value = target.value;
+    option.textContent = target.label;
+    return option;
+  }));
+  if (targets.some((target) => target.value === previous)) surfaceDisruptionTarget.value = previous;
+}
+
+function renderSurfaceDisruptionControls(): void {
+  const disruptions = displayState().surfaceDisruptions;
+  const key = [
+    config.code,
+    surfaceDisruptionKind.value,
+    simulation.state.station,
+    replayMode,
+    ...disruptions.map((disruption) => [
+      disruption.id,
+      disruption.status,
+      Math.floor(disruption.recoveryProgress * 20),
+      Math.max(0, Math.ceil((disruption.expectedClearAtSeconds ?? displayState().elapsed) - displayState().elapsed)),
+      disruption.reroutedFlightIds.join(','),
+    ].join(':')),
+  ].join('|');
+  const supervisor = simulation.state.station === 'supervisor';
+  surfaceDisruptionApply.disabled = replayMode || !supervisor || !surfaceDisruptionTarget.value;
+  surfaceDisruptionTarget.disabled = replayMode || !supervisor;
+  surfaceDisruptionKind.disabled = replayMode || !supervisor;
+  surfaceDisruptionDuration.disabled = replayMode || !supervisor;
+  if (surfaceDisruptionUiKey === key) return;
+  surfaceDisruptionUiKey = key;
+  if (!disruptions.length) {
+    const empty = document.createElement('small');
+    empty.textContent = 'All movement surfaces available.';
+    surfaceDisruptionList.replaceChildren(empty);
+    return;
+  }
+  const rows = disruptions.map((disruption) => {
+    const row = document.createElement('div');
+    row.className = 'surface-disruptions__item';
+    const copy = document.createElement('span');
+    const title = document.createElement('b');
+    title.textContent = disruption.label;
+    const remaining = disruption.expectedClearAtSeconds === undefined
+      ? ''
+      : ` · ${Math.max(0, Math.ceil(disruption.expectedClearAtSeconds - displayState().elapsed))}s`;
+    const detail = document.createElement('small');
+    detail.textContent = `${disruption.status.replace('-', ' ')}${remaining} · ${disruption.reroutedFlightIds.length} rerouted`;
+    detail.title = disruption.reason;
+    copy.append(title, detail);
+    const button = document.createElement('button');
+    button.type = 'button';
+    if (disruption.kind === 'disabled-aircraft') {
+      button.textContent = disruption.status === 'recovering' ? `${Math.round(disruption.recoveryProgress * 100)}%` : 'Recover';
+      if (disruption.flightId !== undefined) button.dataset.recoverFlight = String(disruption.flightId);
+      button.disabled = replayMode || disruption.status === 'recovering' || !simulation.canIssue('ground');
+    } else {
+      button.textContent = 'Reopen';
+      button.dataset.clearDisruption = disruption.id;
+      button.disabled = replayMode || !supervisor;
+    }
+    row.append(copy, button);
+    return row;
+  });
+  surfaceDisruptionList.replaceChildren(...rows);
+}
+
 function updateMapOrientation(): void {
   const metrics = world.mapMetrics();
   mapNorthArrow.style.transform = `rotate(${metrics.northDegrees.toFixed(2)}deg)`;
@@ -1315,6 +1461,11 @@ function renderFlightActions(): void {
         flight.runwayExit?.brakingAction ?? 'no-braking-plan',
         flight.runwayExit?.stoppingMarginM ?? 0,
         flight.runwayExit?.routeDistanceM ?? 0,
+        flight.surfaceReroute?.revision ?? 0,
+        flight.surfaceReroute?.status ?? 'no-reroute',
+        flight.emergency ?? 'no-emergency',
+        displayState().surfaceDisruptions.find((disruption) => disruption.flightId === flight.id)?.status ?? 'no-recovery',
+        Math.floor((displayState().surfaceDisruptions.find((disruption) => disruption.flightId === flight.id)?.recoveryProgress ?? 0) * 20),
         simulation.state.station,
         replayMode,
       ].join('|')
@@ -1339,6 +1490,7 @@ function renderFlightActions(): void {
   if (flight.runwayExit && (flight.phase === 'approach' || flight.phase === 'landing' || flight.phase === 'taxi-in')) {
     flightActions.append(createRunwayExitPanel(flight));
   }
+  if (flight.surfaceReroute || flight.emergency === 'disabled') flightActions.append(createSurfaceReroutePanel(flight));
   if (flight.phase === 'resting') flightActions.append(createTurnaroundPanel(flight));
   if (flight.deicing.required) flightActions.append(createDeicingPanel(flight));
   const controls = document.createElement('div');
@@ -1353,10 +1505,12 @@ function renderFlightActions(): void {
     controls.append(button);
   };
   const ground = flight.phase === 'taxi-in' || flight.phase === 'taxi-out';
+  const recovery = displayState().surfaceDisruptions.find((disruption) => disruption.flightId === flight.id);
   if (flight.phase === 'approach' && !flight.cleared && !flight.goAround) add('clear', `Land ${runwayDesignation(flight.runway)}`, !simulation.canIssue('approach'));
   if ((flight.phase === 'approach' || flight.phase === 'landing') && !flight.goAround) add('go-around', 'Go around', !simulation.canIssue('approach'));
   if (flight.phase === 'resting' && flight.turnaround.status === 'ready' && !flight.pushbackCleared && !serviceVehiclesBlockingPush(flight.id).length) add('pushback', `Push ${flight.pushbackDirection}`, !simulation.canIssue('ground') || flight.deicing.status === 'unavailable');
-  if (ground) add('hold-toggle', flight.controlHold ? 'Resume taxi' : 'Hold position', !simulation.canIssue('ground'));
+  if (flight.emergency === 'disabled' && recovery?.status !== 'recovering') add('recover', 'Dispatch recovery', !simulation.canIssue('ground'));
+  if (ground && flight.emergency !== 'disabled') add('hold-toggle', flight.controlHold ? 'Resume taxi' : 'Hold position', !simulation.canIssue('ground'));
   for (const runway of flight.crossingHoldRunway === undefined ? [] : [flight.crossingHoldRunway]) {
     add('cross', `Cross ${runwayDesignation(runway)}`, !simulation.canIssue('ground'), runway);
   }
@@ -1366,7 +1520,7 @@ function renderFlightActions(): void {
     add('entry', winterProtected ? `Line up ${runwayDesignation(flight.runway)}` : 'Await deicing', !simulation.canIssue('tower') || !winterProtected);
   }
   if (flight.phase === 'takeoff' && !flight.takeoffCleared) add('takeoff', `Take off ${runwayDesignation(flight.runway)}`, !simulation.canIssue('tower'));
-  if (flight.phase !== 'resting') {
+  if (flight.phase !== 'resting' && flight.emergency !== 'disabled') {
     add('slow', 'Slow');
     add('normal', 'Normal');
     if (!ground) add('expedite', 'Expedite');
@@ -1402,6 +1556,33 @@ function createRunwayExitPanel(flight: Flight): HTMLElement {
   const rationale = document.createElement('small');
   rationale.textContent = exit.rationale[0] ?? 'Pavement-connected arrival route';
   panel.append(heading, metrics, rationale);
+  return panel;
+}
+
+function createSurfaceReroutePanel(flight: Flight): HTMLElement {
+  const disruption = displayState().surfaceDisruptions.find((candidate) => candidate.flightId === flight.id);
+  const reroute = flight.surfaceReroute;
+  const panel = document.createElement('section');
+  panel.className = 'runway-exit-panel surface-reroute-panel';
+  const heading = document.createElement('div');
+  heading.className = 'runway-exit-panel__heading';
+  const title = document.createElement('b');
+  const badge = document.createElement('span');
+  if (disruption?.kind === 'disabled-aircraft') {
+    title.textContent = 'Disabled aircraft recovery';
+    badge.textContent = disruption.status === 'recovering' ? `${Math.round(disruption.recoveryProgress * 100)}%` : 'Awaiting dispatch';
+  } else {
+    title.textContent = reroute?.status === 'holding' ? 'Pavement route unavailable' : `Surface route · revision ${reroute?.revision ?? 0}`;
+    badge.textContent = reroute?.status ?? 'planned';
+  }
+  heading.append(title, badge);
+  const metrics = document.createElement('p');
+  metrics.textContent = disruption?.kind === 'disabled-aircraft'
+    ? `${disruption.label.toUpperCase()} · ${Math.max(0, Math.ceil((disruption.expectedClearAtSeconds ?? displayState().elapsed) - displayState().elapsed))} SEC`
+    : `${(reroute?.addedDistanceM ?? 0) >= 0 ? '+' : ''}${Math.round(reroute?.addedDistanceM ?? 0)} M · ${(reroute?.routeEdgeIds.length ?? 0)} SEGMENTS`;
+  const reason = document.createElement('small');
+  reason.textContent = disruption?.reason ?? reroute?.reason ?? 'Pavement routing available';
+  panel.append(heading, metrics, reason);
   return panel;
 }
 
@@ -1533,6 +1714,7 @@ function handleFlightAction(flightId: number, action: string, runwayValue?: stri
   if (action === 'entry') executeAirportRequest({ action: 'clearRunwayEntry', flightId });
   if (action === 'takeoff') executeAirportRequest({ action: 'clearTakeoff', flightId });
   if (action === 'cross') executeAirportRequest({ action: 'clearRunwayCrossing', flightId, runway: Number(runwayValue) });
+  if (action === 'recover') executeAirportRequest({ action: 'recoverDisabledAircraft', flightId });
   if (action === 'hold-toggle') executeAirportRequest({ action: 'controlFlights', flightIds: [flightId], instruction: flight.controlHold ? 'resume' : 'hold' });
   if (action === 'slow' || action === 'normal' || action === 'expedite') executeAirportRequest({ action: 'controlFlights', flightIds: [flightId], instruction: action });
   renderFlightStrip();
@@ -1793,6 +1975,9 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   updateModeControl();
   updateNightControl();
   updateRadarControl();
+  updateSurfaceDisruptionTargets();
+  surfaceDisruptionUiKey = '';
+  renderSurfaceDisruptionControls();
 }
 
 function setExclusiveModal(modal: HTMLElement | null): void {
@@ -1955,6 +2140,8 @@ function setScenario(scenario: TrafficScenario): void {
   scenarioSelect.value = scenario;
   const labels: Record<TrafficScenario, string> = { normal: 'Normal flow', rush: 'Rush hour', storm: 'Storm front', closure: 'Runway closure', training: 'Training pattern', emergency: 'Emergency response' };
   setStatus(`${labels[scenario]} scenario`, scenario === 'closure' ? 'one runway closed · arrivals re-sequencing' : scenario === 'storm' ? 'reduced visibility · wider spacing' : scenario === 'rush' ? 'compressed arrival stream · watch separation' : scenario === 'training' ? 'one aircraft at a time · practice clearances' : scenario === 'emergency' ? 'medical priority · keep a protected runway' : 'standard traffic picture');
+  surfaceDisruptionUiKey = '';
+  renderSurfaceDisruptionControls();
 }
 
 function setStation(station: ControllerStation): void {
@@ -1965,6 +2152,8 @@ function setStation(station: ControllerStation): void {
   focusedFlightId = null;
   world.selectFlight(null);
   renderFlightStrip();
+  surfaceDisruptionUiKey = '';
+  renderSurfaceDisruptionControls();
   setStatus(`${labels[station]} station`, station === 'supervisor' ? 'full picture · all clearances available' : `${labels[station].toLowerCase()} frequency selected`);
 }
 
@@ -2075,7 +2264,7 @@ function airportSnapshot() {
   const diagnostics = simulation.diagnostics();
   const movingPhases = new Set(['approach', 'landing', 'taxi-in', 'taxi-out', 'takeoff']);
   return {
-    schemaVersion: 12,
+    schemaVersion: 13,
     airport: {
       code: config.code,
       name: config.name,
@@ -2180,6 +2369,11 @@ function airportSnapshot() {
       durationSeconds: replayFrames.length ? replayFrames[replayFrames.length - 1].clock - replayFrames[0].clock : 0,
     },
     traffic: diagnostics,
+    surfaceDisruptions: simulation.state.surfaceDisruptions.map((disruption) => ({
+      ...disruption,
+      edgeIds: [...disruption.edgeIds],
+      reroutedFlightIds: [...disruption.reroutedFlightIds],
+    })),
     proposals: simulation.clearanceProposals(),
     renderer: world.diagnostics(),
     runways: config.runways.map((runway) => ({
@@ -2190,7 +2384,9 @@ function airportSnapshot() {
       landingEnd: runway.landingEnd,
       activeEnd: simulation.state.activeRunwayEnds[runway.id],
       activeDesignation: runway.designation?.[simulation.state.activeRunwayEnds[runway.id] === 1 ? 1 : 0],
-      closed: simulation.state.closedRunway === runway.id,
+      closed: simulation.state.surfaceDisruptions.some((disruption) => (
+        disruption.runwayId === runway.id && (disruption.kind === 'runway-closure' || disruption.kind === 'disabled-aircraft')
+      )),
       occupiedBy: simulation.state.flights
         .filter((flight) => flight.runway === runway.id && movingPhases.has(flight.phase))
         .map((flight) => ({ id: flight.id, callsign: flight.callsign, phase: flight.phase, progress: Number(flight.progress.toFixed(3)) })),
@@ -2421,6 +2617,12 @@ function airportSnapshot() {
         ...flight.runwayExit,
         taxiRouteEdgeIds: [...flight.runwayExit.taxiRouteEdgeIds],
         rationale: [...flight.runwayExit.rationale],
+      } : null,
+      surfaceReroute: flight.surfaceReroute ? {
+        ...flight.surfaceReroute,
+        disruptionIds: [...flight.surfaceReroute.disruptionIds],
+        previousEdgeIds: [...flight.surfaceReroute.previousEdgeIds],
+        routeEdgeIds: [...flight.surfaceReroute.routeEdgeIds],
       } : null,
       operatingEnd: flight.operatingEnd,
       activeRunwayEnd: config.runways[flight.runway]?.designation?.[flight.operatingEnd === 1 ? 1 : 0],
@@ -2698,7 +2900,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
   }
   if (command.action === 'triggerEmergency') {
     accepted = simulation.triggerEmergency(command.flightId, command.type);
-    if (!accepted) reason = 'flight is not available for that instruction';
+    reason = simulation.lastCommandReason();
   }
   if (command.action === 'setWeather') {
     accepted = ['clear', 'rain', 'fog', 'snow'].includes(command.condition) && Number.isFinite(command.directionDegrees) && Number.isFinite(command.windSpeed);
@@ -2715,6 +2917,28 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
     reason = simulation.lastCommandReason();
     updateWeatherUi();
   }
+  if (command.action === 'setSurfaceDisruption') {
+    const valid = ['runway-closure', 'taxiway-closure', 'construction'].includes(command.kind)
+      && typeof command.targetId === 'string'
+      && command.targetId.length > 0
+      && (command.durationSeconds === undefined || (Number.isFinite(command.durationSeconds) && command.durationSeconds > 0));
+    accepted = valid && simulation.setSurfaceDisruption(command.kind, command.targetId, command.enabled, command.durationSeconds);
+    reason = valid ? simulation.lastCommandReason() : 'surface restriction requires a valid kind, target, and positive duration';
+    surfaceDisruptionUiKey = '';
+    renderSurfaceDisruptionControls();
+  }
+  if (command.action === 'clearSurfaceDisruption') {
+    accepted = simulation.clearSurfaceDisruption(command.disruptionId);
+    reason = simulation.lastCommandReason();
+    surfaceDisruptionUiKey = '';
+    renderSurfaceDisruptionControls();
+  }
+  if (command.action === 'recoverDisabledAircraft') {
+    accepted = simulation.recoverDisabledAircraft(command.flightId);
+    reason = simulation.lastCommandReason();
+    surfaceDisruptionUiKey = '';
+    renderSurfaceDisruptionControls();
+  }
   if (command.action === 'restart') newSession(false, config.code === 'LOCAL' ? generateAirportConfig() : generateHubConfig(hubIndex));
   recordTelemetry(`command:${command.action}`, undefined, undefined, undefined, { accepted, detail: reason, payload: command });
   const snapshot = airportSnapshot();
@@ -2726,7 +2950,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
 }
 
 window.airportControl = {
-  version: '2.10.0',
+  version: '2.11.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },
@@ -2769,6 +2993,10 @@ window.airportControl = {
       weatherToggle: "airportControl.command({ action: 'setWeatherEnabled', enabled: false })",
       windToggle: "airportControl.command({ action: 'setWindEnabled', enabled: false })",
       runwayConfiguration: "airportControl.request({ action: 'setRunwayConfiguration', configurationId: 'ORD-EAST-IFR' }) // supervisor only; null restores automatic",
+      closeTaxiway: "airportControl.request({ action: 'setSurfaceDisruption', kind: 'taxiway-closure', targetId: 'A', enabled: true, durationSeconds: 180 }) // supervisor",
+      construction: "airportControl.request({ action: 'setSurfaceDisruption', kind: 'construction', targetId: 'edge-id', enabled: true }) // supervisor",
+      reopenSurface: "airportControl.request({ action: 'clearSurfaceDisruption', disruptionId: 'SD-1' }) // supervisor",
+      recoverAircraft: "airportControl.request({ action: 'recoverDisabledAircraft', flightId: 3 }) // ground or supervisor",
       broadcast: "new BroadcastChannel('airport-auto') // send { type: 'command', requestId, command }",
     };
   },

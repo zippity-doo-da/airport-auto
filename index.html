@@ -104,6 +104,17 @@
             <label><input id="service-vehicles-toggle" type="checkbox" checked />Service vehicles</label>
             <small>All overlays start hidden to preserve the clean field view.</small>
           </fieldset>
+          <fieldset class="surface-disruptions" aria-label="Surface availability controls">
+            <legend>Surface availability</legend>
+            <div class="surface-disruptions__controls">
+              <select id="surface-disruption-kind" aria-label="Restriction type"><option value="taxiway-closure">Taxiway closure</option><option value="construction">Construction zone</option><option value="runway-closure">Runway closure</option></select>
+              <select id="surface-disruption-target" aria-label="Restriction target"></select>
+              <select id="surface-disruption-duration" aria-label="Restriction duration"><option value="90">90 sec</option><option value="180">3 min</option><option value="0">Until reopened</option></select>
+              <button id="surface-disruption-apply" type="button">Restrict</button>
+            </div>
+            <div id="surface-disruption-list" class="surface-disruptions__list" aria-live="polite"><small>All movement surfaces available.</small></div>
+            <small>Supervisor changes phase around occupied pavement; aircraft reroute without jumping.</small>
+          </fieldset>
           <section id="operations-health" class="operations-health" aria-label="Live simulation health">
             <header><b>Simulation health</b><span id="health-state">WARMING UP</span></header>
             <div><span><b id="health-throughput">0.0</b><small>ops/hr</small></span><span><b id="health-conflicts">0</b><small>conflicts</small></span><span><b id="health-incursions">0</b><small>incursions</small></span><span><b id="health-pauses">0</b><small>pauses</small></span><span><b id="health-hold">0s</b><small>longest hold</small></span><span><b id="health-delay">0m</b><small>queue delay</small></span><span><b id="health-fps">—</b><small>fps</small></span></div>

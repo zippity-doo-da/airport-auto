@@ -19,6 +19,46 @@ export type TurnaroundTaskStatus = 'not-required' | 'waiting' | 'active' | 'comp
 export type TurnaroundStatus = 'planned' | 'servicing' | 'ready' | 'released';
 export type DeicingStatus = 'not-required' | 'planned' | 'enroute' | 'queued' | 'positioning' | 'treating' | 'protected' | 'expired' | 'unavailable';
 export type DeicingFluid = 'Type I' | 'Type I + Type IV';
+export type SurfaceDisruptionKind = 'runway-closure' | 'taxiway-closure' | 'construction' | 'disabled-aircraft';
+export type SurfaceDisruptionStatus = 'pending' | 'active' | 'recovering';
+export type SurfaceDisruptionSource = 'scenario' | 'controller' | 'incident';
+
+/**
+ * A topology-changing surface restriction. edgeIds are the authoritative
+ * resources unavailable to routing and reservation code while active.
+ */
+export interface SurfaceDisruptionState {
+  id: string;
+  kind: SurfaceDisruptionKind;
+  status: SurfaceDisruptionStatus;
+  source: SurfaceDisruptionSource;
+  targetId: string;
+  label: string;
+  edgeIds: string[];
+  runwayId?: number;
+  taxiwayId?: string;
+  flightId?: number;
+  createdAtSeconds: number;
+  activatedAtSeconds?: number;
+  expectedClearAtSeconds?: number;
+  durationSeconds?: number;
+  recoveryStartedAtSeconds?: number;
+  recoveryDurationSeconds?: number;
+  recoveryProgress: number;
+  reroutedFlightIds: number[];
+  reason: string;
+}
+
+export interface FlightSurfaceRerouteState {
+  revision: number;
+  status: 'rerouted' | 'holding';
+  selectedAtSeconds: number;
+  disruptionIds: string[];
+  previousEdgeIds: string[];
+  routeEdgeIds: string[];
+  addedDistanceM: number;
+  reason: string;
+}
 
 /**
  * Fixed-step winter ground-operation state. Route progress values refer to the
@@ -279,6 +319,7 @@ export interface Flight {
   tugAttached: boolean;
   engineState: EngineState;
   runwayExit?: FlightRunwayExitState;
+  surfaceReroute?: FlightSurfaceRerouteState;
   surfaceRoute?: string[];
   surfaceRouteEdges?: string[];
   surfaceRoutingCost?: number;
@@ -367,7 +408,7 @@ export interface ReplayFrame {
 }
 
 export interface AirportEvent {
-  type: 'spawn' | 'gate-assignment' | 'gate-reassignment' | 'gate-release' | 'runway-exit-plan' | 'turnaround-start' | 'service-start' | 'service-complete' | 'turnaround-ready' | 'service-vehicle-dispatch' | 'service-vehicle-arrive' | 'service-vehicle-hold' | 'service-vehicle-release' | 'service-vehicle-return' | 'service-vehicle-clear' | 'deicing-planned' | 'deicing-queue' | 'deicing-pad-entry' | 'deicing-start' | 'deicing-complete' | 'deicing-expired' | 'deicing-return' | 'land' | 'chime' | 'depart' | 'clear' | 'auto-clear' | 'pushback-clearance' | 'pushback-start' | 'engine-start' | 'tug-release' | 'reject' | 'conflict' | 'safety-hold' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'takeoff-clearance' | 'go-around' | 'emergency';
+  type: 'spawn' | 'gate-assignment' | 'gate-reassignment' | 'gate-release' | 'runway-exit-plan' | 'surface-reroute' | 'recovery-start' | 'recovery-complete' | 'turnaround-start' | 'service-start' | 'service-complete' | 'turnaround-ready' | 'service-vehicle-dispatch' | 'service-vehicle-arrive' | 'service-vehicle-hold' | 'service-vehicle-release' | 'service-vehicle-return' | 'service-vehicle-clear' | 'deicing-planned' | 'deicing-queue' | 'deicing-pad-entry' | 'deicing-start' | 'deicing-complete' | 'deicing-expired' | 'deicing-return' | 'land' | 'chime' | 'depart' | 'clear' | 'auto-clear' | 'pushback-clearance' | 'pushback-start' | 'engine-start' | 'tug-release' | 'reject' | 'conflict' | 'safety-hold' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'takeoff-clearance' | 'go-around' | 'emergency';
   flight: Flight;
   runway?: number;
   taxiway?: string;
@@ -390,6 +431,7 @@ export interface AirportState {
   elapsed: number;
   flights: Flight[];
   serviceVehicles: ServiceVehicleState[];
+  surfaceDisruptions: SurfaceDisruptionState[];
   arrivals: number;
   departures: number;
   breeze: number;

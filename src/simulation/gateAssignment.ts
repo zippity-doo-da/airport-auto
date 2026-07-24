@@ -5,6 +5,7 @@ import {
   surfaceRouteForFlight,
   surfaceStandSupportsAircraft,
   type SurfaceOperationalZone,
+  type SurfaceRoutePlanning,
   type SurfaceStand,
 } from './surfaceGraph';
 import { WORLD_METERS_PER_UNIT } from './runwayPerformance';
@@ -40,6 +41,7 @@ export interface GateAssignmentRequest {
   revision?: number;
   previousStandId?: string;
   excludedStandIds?: ReadonlySet<string>;
+  planning?: SurfaceRoutePlanning;
 }
 
 interface StaticGateCandidate {
@@ -163,6 +165,7 @@ function evaluateCandidates(
       'taxi-in',
       candidate.stand.slot,
       routeRequirements,
+      request.planning,
     );
     const departureRoute = surfaceRouteForFlight(
       request.config.surfaceGraph,
@@ -171,6 +174,7 @@ function evaluateCandidates(
       'taxi-out',
       candidate.stand.slot,
       routeRequirements,
+      request.planning,
     );
     if (!arrivalRoute || !departureRoute) continue;
 

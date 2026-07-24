@@ -1,7 +1,7 @@
 import type { AirportConfig } from './airportConfig';
 import { aircraftProfile } from './aircraftProfiles';
 import { aircraftCollisionEnvelope } from './collisionDetection';
-import { findSurfaceRoute, sampleSurfaceRouteWithEdges, type AirportSurfaceGraph, type SurfaceRoute, type SurfaceStand } from './surfaceGraph';
+import { findSurfaceRoute, sampleSurfaceRouteWithEdges, type AirportSurfaceGraph, type SurfaceRoute, type SurfaceRoutePlanning, type SurfaceStand } from './surfaceGraph';
 import { surfaceRouteReservationClaims, type SurfaceReservationClaim } from './surfaceOperations';
 import { WORLD_METERS_PER_UNIT } from './runwayPerformance';
 import type { Flight, ServiceVehicleState, ServiceVehicleStatus, ServiceVehicleType, TurnaroundServiceType } from './types';
@@ -85,7 +85,7 @@ export interface ServiceVehicleConflict {
 }
 
 /** Create all equipment needed by this actual gate turn. */
-export function createServiceVehiclePlans(config: AirportConfig, flight: Flight, actualGateInSeconds: number, reservedDepotNodeIds: ReadonlySet<string> = new Set()): ServiceVehicleState[] {
+export function createServiceVehiclePlans(config: AirportConfig, flight: Flight, actualGateInSeconds: number, reservedDepotNodeIds: ReadonlySet<string> = new Set(), planning?: SurfaceRoutePlanning): ServiceVehicleState[] {
   const stand = config.surfaceGraph.stands.find((candidate) => candidate.id === flight.standId);
   if (!stand) return [];
   const allocatedDepotNodeIds = new Set(reservedDepotNodeIds);
@@ -94,7 +94,7 @@ export function createServiceVehiclePlans(config: AirportConfig, flight: Flight,
     .flatMap((task) => {
       const spec = vehicleSpecForService(task.type, flight);
       if (!spec) return [];
-      const routes = serviceDepotRoutes(config.surfaceGraph, stand, task.type, flight.id, allocatedDepotNodeIds, presentationScale(config) * 1.8);
+      const routes = serviceDepotRoutes(config.surfaceGraph, stand, task.type, flight.id, allocatedDepotNodeIds, presentationScale(config) * 1.8, planning);
       allocatedDepotNodeIds.add(routes.depotNodeId);
       const standPath = serviceStandPath(config, flight, stand, spec);
       const outboundTravelSeconds = (routes.outbound.distance * WORLD_METERS_PER_UNIT) / spec.maximumSpeedMps;
@@ -407,8 +407,8 @@ export function serviceVehicleRadius(config: Pick<AirportConfig, 'scope'>, vehic
   return presentationScale(config) * (large ? 0.8 : 0.62);
 }
 
-function serviceDepotRoutes(graph: AirportSurfaceGraph, stand: SurfaceStand, service: TurnaroundServiceType, flightId: number, reservedDepotNodeIds: ReadonlySet<string>, minimumDepotSeparation: number): { depotNodeId: string; outbound: SurfaceRoute; returning: SurfaceRoute } {
-  const blockedEdgeIds = serviceVehicleProtectedEdgeIds(graph);
+function serviceDepotRoutes(graph: AirportSurfaceGraph, stand: SurfaceStand, service: TurnaroundServiceType, flightId: number, reservedDepotNodeIds: ReadonlySet<string>, minimumDepotSeparation: number, planning?: SurfaceRoutePlanning): { depotNodeId: string; outbound: SurfaceRoute; returning: SurfaceRoute } {
+  const blockedEdgeIds = new Set([...serviceVehicleProtectedEdgeIds(graph), ...(planning?.blockedEdgeIds ?? [])]);
   const edgeById = new Map(graph.edges.map((edge) => [edge.id, edge]));
   const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
   const zone = graph.zones.find((candidate) => candidate.id === stand.zoneId);
@@ -437,8 +437,9 @@ function serviceDepotRoutes(graph: AirportSurfaceGraph, stand: SurfaceStand, ser
   const targetDistance = 2.8 + positiveModulo(stringHash(`${service}:${flightId}`), 6) * 0.62;
   const candidates = candidateIds
     .flatMap((nodeId) => {
-      const outbound = findSurfaceRoute(graph, nodeId, stand.rampNodeId, undefined, { blockedEdgeIds });
-      const returning = findSurfaceRoute(graph, stand.rampNodeId, nodeId, undefined, { blockedEdgeIds });
+      const routePlanning: SurfaceRoutePlanning = { edgePenaltyById: planning?.edgePenaltyById, blockedEdgeIds };
+      const outbound = findSurfaceRoute(graph, nodeId, stand.rampNodeId, undefined, routePlanning);
+      const returning = findSurfaceRoute(graph, stand.rampNodeId, nodeId, undefined, routePlanning);
       if (!outbound || !returning) return [];
       const jitter = positiveModulo(stringHash(`${service}:${nodeId}`), 101) / 1_000;
       return [
