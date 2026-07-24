@@ -127,7 +127,7 @@ for (const config of trafficConfigs) {
     const tickDiagnostics = simulation.diagnostics();
     if (tickDiagnostics.metrics.collisionAlerts > previousCollisionAlerts) {
       throw new Error(config.code + ': collision at tick ' + tick + ' ' + JSON.stringify({
-        flights: simulation.state.flights.map((flight) => ({ id: flight.id, phase: flight.phase, progress: flight.progress, runway: flight.runway, taxiway: flight.taxiway, standId: flight.standId, gateSlot: flight.gateSlot, safetyHoldReason: flight.safetyHoldReason })),
+        flights: simulation.state.flights.map((flight) => ({ id: flight.id, aircraft: flight.aircraft, trafficClass: flight.operationPlan.trafficClass, phase: flight.phase, progress: flight.progress, runway: flight.runway, taxiway: flight.taxiway, surfaceEdge: flight.surfaceEdge, standId: flight.standId, gateSlot: flight.gateSlot, safetyHoldReason: flight.safetyHoldReason })),
         collisions: tickDiagnostics.collisions,
         obstacleCollisions: tickDiagnostics.obstacleCollisions,
       }));

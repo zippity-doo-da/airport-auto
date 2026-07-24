@@ -85,7 +85,12 @@ export function aircraftCollisionEnvelope(config: AirportConfig, flight: Flight,
   const presentationScale = flight.phase === 'approach' ? approachScale : takeoffScale;
   const halfLength = (aircraft.visual.bodyLength + aircraft.visual.bodyRadius * 2) / 2 * presentationScale;
   const halfWidth = aircraft.visual.wingSpan / 2 * presentationScale;
-  const bodyRadius = Math.max(config.scope === 'center' ? 0.92 : 2.2, halfLength, halfWidth);
+  // Presentation aircraft are intentionally a little oversized at hub scale,
+  // but the safety proxy must still follow the model itself rather than a
+  // fixed airport-wide circle. The old 0.92-unit minimum made two regional
+  // aircraft on separate O'Hare centerlines appear physically overlapped from
+  // roughly 80 metres apart and could freeze otherwise valid parallel flows.
+  const bodyRadius = Math.max(aircraft.visual.bodyRadius * presentationScale, halfLength, halfWidth);
   const envelope = (
     values: Omit<AircraftCollisionEnvelope, 'kind' | 'id' | 'halfLength' | 'halfWidth' | 'bodyRadius' | 'minimumAltitude' | 'maximumAltitude'>,
   ): AircraftCollisionEnvelope => ({
@@ -182,7 +187,14 @@ export function aircraftCollisionEnvelope(config: AirportConfig, flight: Flight,
 
 export const flightProxy = aircraftCollisionEnvelope;
 
-export function detectFlightConflict(first: FlightProxy, second: FlightProxy, firstWake: WakeClass, secondWake: WakeClass, runwayConflict = first.runway === second.runway): FlightConflict | null {
+export function detectFlightConflict(
+  first: FlightProxy,
+  second: FlightProxy,
+  firstWake: WakeClass,
+  secondWake: WakeClass,
+  runwayConflict = first.runway === second.runway,
+  includeOperationalSurfaceSeparation = true,
+): FlightConflict | null {
   const horizontalDistance = Math.hypot(first.x - second.x, first.y - second.y);
   const verticalDistance = Math.abs(first.altitude - second.altitude);
   const physicalRequired = first.bodyRadius + second.bodyRadius + PHYSICAL_GAP;
@@ -261,7 +273,7 @@ export function detectFlightConflict(first: FlightProxy, second: FlightProxy, fi
   // Different taxiway routes can visually converge near a terminal without
   // being a collision. Only apply the aircraft envelope when the flights share
   // a runway, named taxiway, or apron stand area.
-  if ((sameRunway || sameTaxiway || sharedApron) && horizontalDistance < requiredHorizontal) {
+  if (includeOperationalSurfaceSeparation && (sameRunway || sameTaxiway || sharedApron) && horizontalDistance < requiredHorizontal) {
     return {
       type: sameRunway ? 'runway-incursion' : 'surface',
       first: first.id,
@@ -275,6 +287,31 @@ export function detectFlightConflict(first: FlightProxy, second: FlightProxy, fi
     };
   }
   return null;
+}
+
+/**
+ * Reserve the horizontal wing sweep of a committed runway operation for
+ * surface traffic. This deliberately ignores momentary vertical-envelope
+ * gaps during rotation/flare; a taxi hold must not flicker as the aircraft
+ * transitions between on-ground and airborne trajectory stages.
+ */
+export function detectCommittedRunwaySweepConflict(
+  surface: FlightProxy,
+  trajectory: FlightProxy,
+): FlightConflict | null {
+  if (!surface.surface || !trajectory.protectedSurface) return null;
+  const horizontalDistance = Math.hypot(surface.x - trajectory.x, surface.y - trajectory.y);
+  const requiredHorizontal = surface.bodyRadius + trajectory.bodyRadius + PHYSICAL_GAP;
+  if (horizontalDistance >= requiredHorizontal) return null;
+  return {
+    type: 'runway-incursion',
+    first: surface.id,
+    second: trajectory.id,
+    horizontalDistance,
+    verticalDistance: Math.abs(surface.altitude - trajectory.altitude),
+    requiredHorizontal,
+    detail: 'surface aircraft would enter the committed runway wing sweep',
+  };
 }
 
 export function detectAircraftObstacleConflict(
@@ -304,7 +341,18 @@ export function findFlightConflicts(config: AirportConfig, flights: Flight[]): F
     for (let secondIndex = firstIndex + 1; secondIndex < proxies.length; secondIndex += 1) {
       const first = proxies[firstIndex];
       const second = proxies[secondIndex];
-      const conflict = detectFlightConflict(first.proxy, second.proxy, first.flight.wakeClass, second.flight.wakeClass, runwaysConflict(config, first.proxy.runway, second.proxy.runway));
+      // Diagnostics and collision alerts report actual envelope breaches,
+      // runway incursions, and airborne separation loss. The wider taxi
+      // sequencing buffer is enforced prospectively by findProposedConflict;
+      // reporting a safely diverging merge as a collision would be misleading.
+      const conflict = detectFlightConflict(
+        first.proxy,
+        second.proxy,
+        first.flight.wakeClass,
+        second.flight.wakeClass,
+        runwaysConflict(config, first.proxy.runway, second.proxy.runway),
+        false,
+      );
       if (conflict) conflicts.push(conflict);
     }
   }
@@ -329,6 +377,7 @@ export function findProposedConflict(
   proposedProgress: number,
   otherFlights: Flight[],
   proposedProgressById: Map<number, number>,
+  resolvedFlightIds?: ReadonlySet<number>,
 ): CollisionConflict | null {
   const proposed = aircraftCollisionEnvelope(config, flight, proposedProgress);
   const current = aircraftCollisionEnvelope(config, flight, flight.progress);
@@ -339,6 +388,55 @@ export function findProposedConflict(
     if (existing && conflict.horizontalDistance > existing.horizontalDistance + 1e-6) continue;
     return conflict;
   }
+
+  // A taxiing aircraft must not enter any part of a runway trajectory that is
+  // already committed. Looking only one simulation step ahead is too late for
+  // a fast departure overtaking a slow aircraft on a closely spaced parallel
+  // taxiway: the taxi aircraft can stop, but the takeoff roll cannot. Reserve
+  // the remaining physical sweep here and let the surface mover wait outside
+  // it until the landing or departure has passed.
+  if (flight.phase === 'taxi-in' || flight.phase === 'taxi-out') {
+    for (const other of otherFlights) {
+      if (other.id === flight.id || (other.phase !== 'approach' && other.phase !== 'landing' && other.phase !== 'takeoff')) continue;
+      const landingPreview: Flight | undefined = other.phase === 'approach'
+        ? {
+            ...other,
+            phase: 'landing',
+            progress: 0,
+            phaseElapsed: 0,
+            motion: { ...other.motion },
+            kinematics: { ...other.kinematics },
+          }
+        : undefined;
+      if (landingPreview) landingPreview.motion = sampleFlightMotion(config, landingPreview, 0);
+      for (const trajectory of landingPreview ? [other, landingPreview] : [other]) {
+        const startProgress = trajectory === other ? other.progress : 0;
+        for (let sampleIndex = 0; sampleIndex <= 96; sampleIndex += 1) {
+          const futureProgress = startProgress + (1 - startProgress) * sampleIndex / 96;
+          const futureEnvelope = aircraftCollisionEnvelope(config, trajectory, futureProgress);
+          // Cover the distance between discrete trajectory samples as well as
+          // a controller buffer, so the aircraft stops before—not exactly on—
+          // the tangent point of the committed wing sweep.
+          const protectedFutureEnvelope = {
+            ...futureEnvelope,
+            bodyRadius: futureEnvelope.bodyRadius + (config.scope === 'center' ? 0.35 : 1.2),
+          };
+          const conflict = detectFlightConflict(
+            proposed,
+            protectedFutureEnvelope,
+            flight.wakeClass,
+            other.wakeClass,
+            runwaysConflict(config, flight.runway, other.runway),
+            false,
+          );
+          if (conflict) return conflict;
+          const sweepConflict = detectCommittedRunwaySweepConflict(proposed, protectedFutureEnvelope);
+          if (sweepConflict) return sweepConflict;
+        }
+      }
+    }
+  }
+
   for (const other of otherFlights) {
     const otherProgress = proposedProgressById.get(other.id) ?? other.progress;
     if (other.id === flight.id) continue;
@@ -350,6 +448,16 @@ export function findProposedConflict(
       runwaysConflict(config, flight.runway, other.runway),
     );
     if (!conflict) continue;
+
+    // Airborne operations, landing rollouts, and takeoff rolls are continuous
+    // trajectories: freezing one in place is neither safe nor believable.
+    // They are resolved before surface movers, which will see the committed
+    // trajectory and yield on their own arbitration pass.
+    const committedTrajectory = flight.phase === 'approach'
+      || flight.phase === 'landing'
+      || flight.phase === 'takeoff';
+    const otherIsSurfaceMovement = other.phase === 'taxi-in' || other.phase === 'taxi-out';
+    if (committedTrajectory && otherIsSurfaceMovement) continue;
 
     if (conflict.type === 'airborne') {
       const flightPriority = airbornePriority(flight.phase);
@@ -372,12 +480,25 @@ export function findProposedConflict(
     const otherIsMoving = Math.abs(otherProgress - other.progress) > 1e-6;
     const currentDistance = Math.hypot(current.x - currentOther.x, current.y - currentOther.y);
     const distanceToCurrentOther = Math.hypot(proposed.x - currentOther.x, proposed.y - currentOther.y);
+    const physicallyClear = conflict.horizontalDistance
+      >= proposed.bodyRadius + currentOther.bodyRadius + PHYSICAL_GAP;
 
     // A stopped aircraft may already be close to the mover. Let the mover
-    // continue only when the next step increases the gap; otherwise it must
-    // yield even if it has the lower ID.
+    // continue when the next step increases the gap and remains physically
+    // clear. This also covers a merge where the sampled taxiway label changes
+    // at the node: operational separation can appear on that exact tick even
+    // though the aircraft is already travelling away from the stopped body.
     if (!otherIsMoving) {
+      if (
+        conflict.type === 'surface'
+        && physicallyClear
+        && distanceToCurrentOther > currentDistance + 1e-6
+      ) continue;
       if (existingConflict && distanceToCurrentOther > currentDistance + 1e-6) continue;
+      return conflict;
+    }
+    if (resolvedFlightIds?.has(other.id)) {
+      if (existingConflict && conflict.horizontalDistance > existingConflict.horizontalDistance + 1e-6) continue;
       return conflict;
     }
     if (other.id < flight.id) return conflict;
@@ -392,9 +513,9 @@ export function findProposedConflict(
 }
 
 function airbornePriority(phase: FlightPhase): number {
-  // Arrivals get the right-of-way over departures when their protected air
-  // volumes converge. This mirrors the game's ATC intent: stop a takeoff
-  // roll rather than force an aircraft on final to make a sharp go-around.
+  // Arrivals receive sequencing priority before a departure is committed.
+  // Once either trajectory is active, upstream runway protection is expected
+  // to keep the envelopes apart rather than pausing an aircraft in motion.
   if (phase === 'approach' || phase === 'landing') return 0;
   if (phase === 'takeoff') return 1;
   return 2;

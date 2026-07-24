@@ -1,6 +1,6 @@
 import type { AircraftCategory, WakeClass } from './types';
 
-export type AircraftModel = 'E175' | 'Q400' | 'A320' | 'B738' | 'A359' | 'B789' | 'B77F';
+export type AircraftModel = 'PC12' | 'E175' | 'Q400' | 'A320' | 'B738' | 'A359' | 'B789' | 'B77F';
 
 export interface AircraftVisualSpec {
   bodyRadius: number;
@@ -12,6 +12,7 @@ export interface AircraftVisualSpec {
   engineLength: number;
   engineOffset: number;
   propeller?: boolean;
+  engineMount?: 'wing' | 'nose';
 }
 
 export interface AircraftProfile {
@@ -46,6 +47,13 @@ export interface AircraftProfile {
 
 /** A compact, intentionally curated fleet for readable airport traffic. */
 export const AIRCRAFT_PROFILES: Record<AircraftModel, AircraftProfile> = {
+  PC12: {
+    model: 'PC12', manufacturer: 'Pilatus', name: 'PC-12 NGX utility turboprop', category: 'regional', wakeClass: 'light',
+    lengthM: 14.4, wingspanM: 16.28, maxTakeoffWeightT: 4.74, cruiseKts: 290, approachKts: 85, taxiKts: 10,
+    taxiTurnKts: 7, taxiAccelerationMps2: 0.42, taxiBrakingMps2: 0.58, taxiTurnRadiusM: 10, minimumWingtipClearanceM: 3,
+    takeoffRollM: 758, landingRollM: 661, climbFpm: 1_920, descentFpm: 1_200, accelerationMps2: 1.45, brakingMps2: 1.55, turnRadiusM: 460, wakeSeparationSeconds: 2.8, engines: 1, engineType: 'turboprop',
+    visual: { bodyRadius: 0.38, bodyLength: 3.85, wingSpan: 4.75, wingSweep: 0.34, tailHeight: 0.96, engineRadius: 0.55, engineLength: 0.86, engineOffset: 0, propeller: true, engineMount: 'nose' },
+  },
   E175: {
     model: 'E175', manufacturer: 'Embraer', name: 'E175 regional jet', category: 'regional', wakeClass: 'medium',
     lengthM: 31.7, wingspanM: 28.7, maxTakeoffWeightT: 40.4, cruiseKts: 447, approachKts: 130, taxiKts: 15,
@@ -97,7 +105,7 @@ export const AIRCRAFT_PROFILES: Record<AircraftModel, AircraftProfile> = {
   },
 };
 
-export const AIRCRAFT_ROSTER: AircraftModel[] = ['E175', 'Q400', 'A320', 'B738', 'A359', 'B789', 'B77F'];
+export const AIRCRAFT_ROSTER: AircraftModel[] = ['PC12', 'E175', 'Q400', 'A320', 'B738', 'A359', 'B789', 'B77F'];
 
 export function aircraftProfile(model: AircraftModel): AircraftProfile {
   return AIRCRAFT_PROFILES[model];

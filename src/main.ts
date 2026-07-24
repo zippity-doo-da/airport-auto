@@ -23,7 +23,7 @@ import {
 } from './ui/surfaceDisruptionPanel';
 
 type AirportControlCommand =
-  | { action: 'pause' | 'resume' | 'nextView' | 'zoomIn' | 'zoomOut' | 'resetCamera' | 'restart' }
+  | { action: 'pause' | 'resume' | 'nextView' | 'zoomIn' | 'zoomOut' | 'rotateLeft' | 'rotateRight' | 'resetCamera' | 'restart' }
   | { action: 'setSpeed'; value: number }
   | { action: 'setMode'; value: ControlMode }
   | { action: 'setNightMode'; enabled: boolean }
@@ -175,6 +175,7 @@ const speedOutput = $<HTMLOutputElement>('#speed-output');
 const weatherCondition = $<HTMLElement>('#weather-condition');
 const weatherWind = $<HTMLElement>('#weather-wind');
 const weatherVisibility = $<HTMLElement>('#weather-visibility');
+const operationBank = $<HTMLElement>('#operation-bank');
 const runwayConfiguration = $<HTMLElement>('#runway-configuration');
 const runwayConfigurationSelect = $<HTMLSelectElement>('#runway-configuration-select');
 const weatherToggle = $<HTMLButtonElement>('#weather-toggle');
@@ -401,6 +402,13 @@ document.addEventListener('keydown', (event) => {
     world.panByScreen(pan[0], pan[1]);
     return;
   }
+  const cameraKey = event.key.toLowerCase();
+  if ((cameraKey === 'q' || cameraKey === 'e') && intro.classList.contains('modal--hidden') && gameOver.hidden) {
+    event.preventDefault();
+    clearFlightFocus();
+    world.rotateBy(cameraKey === 'q' ? -1 : 1);
+    return;
+  }
   if (event.key === '+' || event.key === '=') world.zoomIn();
   if (event.key === '-') world.zoomOut();
   if (event.key === '0') world.resetCamera();
@@ -415,7 +423,7 @@ document.addEventListener('keydown', (event) => {
   if (key === 'l') handleFlightAction(focusedFlightId, 'clear');
   if (key === 'g') handleFlightAction(focusedFlightId, 'go-around');
   if (key === 'h') handleFlightAction(focusedFlightId, 'hold-toggle');
-  if (key === 'e') handleFlightAction(focusedFlightId, 'entry');
+  if (key === 'r') handleFlightAction(focusedFlightId, 'entry');
   if (key === 't') handleFlightAction(focusedFlightId, 'takeoff');
 });
 
@@ -1035,7 +1043,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
 function replayRecording(): ReplayRecording {
   return {
     schemaVersion: 1,
-    simulationVersion: window.airportControl?.version ?? '2.12.0',
+    simulationVersion: window.airportControl?.version ?? '2.13.0',
     recordedAt: new Date().toISOString(),
     seed: config.seed,
     airport: { code: config.code, name: config.name, scope: config.scope },
@@ -1132,7 +1140,10 @@ function updateFlightChip(item: HTMLElement, flight: Flight): void {
   button.style.setProperty('--flight-accent', flight.palette === 'rose' ? 'var(--rose)' : flight.palette === 'sage' ? '#9bc8a0' : 'var(--blue)');
   button.style.setProperty('--fuel', `${fuel.toFixed(1)}%`);
   const holdDetail = flight.automaticHoldReason ?? flight.safetyHoldReason;
-  button.setAttribute('aria-label', `${flight.callsign}, ${flight.aircraft}, ${phase}${holdDetail ? `, ${holdDetail}` : ''}${gateDisplay ? `, ${gateDisplay}` : ''}${gateTime ? `, ${gateTime}` : ''}, fuel ${fuel.toFixed(0)} percent, ${speedLabel} ${speed.toFixed(0)} knots, altitude ${altitude} feet`);
+  const trafficClass = flight.operationPlan.trafficClass === 'general-aviation'
+    ? 'GA'
+    : flight.operationPlan.trafficClass.charAt(0).toUpperCase() + flight.operationPlan.trafficClass.slice(1);
+  button.setAttribute('aria-label', `${flight.callsign}, ${flight.aircraft}, ${trafficClass} traffic, ${phase}${holdDetail ? `, ${holdDetail}` : ''}${gateDisplay ? `, ${gateDisplay}` : ''}${gateTime ? `, ${gateTime}` : ''}, fuel ${fuel.toFixed(0)} percent, ${speedLabel} ${speed.toFixed(0)} knots, altitude ${altitude} feet`);
   button.title = [assignment?.rationale.join(' · '), flight.phase === 'resting' ? turnaroundLongSummary(flight) : ''].filter(Boolean).join(' · ');
   const identity = button.querySelector('.flight-chip__identity')!;
   identity.querySelector('strong')!.textContent = flight.callsign;
@@ -1143,7 +1154,7 @@ function updateFlightChip(item: HTMLElement, flight: Flight): void {
   metrics[1].querySelector('b')!.innerHTML = `${Math.round(speed)}<em>KT</em>`;
   metrics[2].querySelector('b')!.innerHTML = `${altitude.toLocaleString()}<em>FT</em>`;
   const detail = button.querySelector('.flight-chip__detail')!;
-  detail.children[0].textContent = `${flight.aircraft} · ${operation} · ${runwayExitDisplay ?? gateDisplay ?? `RWY ${runwayDesignation(flight.runway)}`}${runwayExitDisplay && gateDisplay ? ` · ${gateDisplay}` : ''}${gateTime ? ` · ${gateTime}` : ''}`;
+  detail.children[0].textContent = `${flight.aircraft} · ${trafficClass} · ${operation} · ${runwayExitDisplay ?? gateDisplay ?? `RWY ${runwayDesignation(flight.runway)}`}${runwayExitDisplay && gateDisplay ? ` · ${gateDisplay}` : ''}${gateTime ? ` · ${gateTime}` : ''}`;
   detail.children[1].textContent = held && holdDetail
     ? `HOLD · ${holdDetail.toUpperCase()}`
     : deicingChipSummary(flight)
@@ -1809,7 +1820,7 @@ function updateModeControl(): void {
   modeButton.classList.toggle('control--active', automatic);
   modeIcon.textContent = mode === 'auto' ? 'A' : mode === 'assisted' ? '✓' : mode === 'manual' ? 'M' : '◌';
   modeLabel.textContent = mode === 'auto' ? 'Auto' : mode === 'assisted' ? 'Assist' : mode === 'manual' ? 'Manual' : 'Watch';
-  const zoomHint = ' · drag or WASD to pan · scroll or pinch to zoom';
+  const zoomHint = ' · drag or WASD to pan · Q/E to rotate · scroll or pinch to zoom';
   instructionCopy.innerHTML = mode === 'watch'
     ? `Watch mode · calm continuous traffic${zoomHint} · <b>select a flight to follow</b>`
     : mode === 'assisted'
@@ -1818,8 +1829,8 @@ function updateModeControl(): void {
         ? `Full Manual ATC${zoomHint} · <b>select a flight for live clearances</b>`
         : `Continuous Auto tower${zoomHint} · <b>select a flight to follow</b>`;
   canvas.setAttribute('aria-label', mode === 'manual' || mode === 'assisted'
-    ? `${mode === 'assisted' ? 'Assisted' : 'Manual'} air traffic control at ${config.name}. Drag or use WASD to pan, scroll or pinch to zoom, and select a flight card for clearances. Select it again or choose empty ground to release the camera.`
-    : `${mode === 'watch' ? 'Watch-only' : 'Automatic'} live traffic at ${config.name}. Drag or use WASD to pan, scroll or pinch to zoom, and select a flight card to follow it. Select it again or choose empty ground to release the camera.`);
+    ? `${mode === 'assisted' ? 'Assisted' : 'Manual'} air traffic control at ${config.name}. Drag or use WASD to pan, use Q and E to rotate, scroll or pinch to zoom, and select a flight card for clearances. Select it again or choose empty ground to release the camera.`
+    : `${mode === 'watch' ? 'Watch-only' : 'Automatic'} live traffic at ${config.name}. Drag or use WASD to pan, use Q and E to rotate, scroll or pinch to zoom, and select a flight card to follow it. Select it again or choose empty ground to release the camera.`);
   controlSelect.value = mode;
   introControlSelect.value = mode;
   document.body.classList.toggle('watch-mode', mode === 'watch');
@@ -2131,6 +2142,7 @@ function setSimulationSpeed(value: number): void {
 
 function updateWeatherUi(): void {
   const weather = simulation.state.weather;
+  const operation = simulation.operationProfileSnapshot(displayState()).current;
   const direction = Math.round(mathAngleToAviationDegrees(weather.windDirection) / 10) * 10 % 360;
   const speed = Math.round(weather.windSpeed);
   const gust = Math.round(weather.gustSpeed);
@@ -2141,6 +2153,7 @@ function updateWeatherUi(): void {
   windOverlayArrow.style.transform = `rotate(${direction + 90}deg)`;
   windOverlayArrow.style.opacity = weather.windEnabled ? '1' : '0.35';
   weatherVisibility.textContent = `${weather.visibility.toFixed(weather.visibility % 1 ? 1 : 0)} mi visibility · ${weather.surfaceCondition} surface`;
+  operationBank.textContent = `${operation.localTime} local · ${operation.periodLabel} · ${operation.demandMultiplier.toFixed(2)}× demand`;
   const activeConfiguration = config.runwayConfigurations.find(
     (configuration) => configuration.id === simulation.state.runwayConfigurationId,
   );
@@ -2208,9 +2221,10 @@ function cloneRunwayConfiguration(configuration: (typeof config.runwayConfigurat
 
 function airportSnapshot() {
   const diagnostics = simulation.diagnostics();
+  const operations = simulation.operationProfileSnapshot();
   const movingPhases = new Set(['approach', 'landing', 'taxi-in', 'taxi-out', 'takeoff']);
   return {
-    schemaVersion: 14,
+    schemaVersion: 15,
     airport: {
       code: config.code,
       name: config.name,
@@ -2295,6 +2309,7 @@ function airportSnapshot() {
       temperatureC: Number(simulation.state.weather.temperatureC.toFixed(1)),
       surfaceCondition: simulation.state.weather.surfaceCondition,
     },
+    operations,
     runwayConfiguration: {
       ...cloneRunwayConfiguration(config.runwayConfigurations.find(
         (configuration) => configuration.id === simulation.state.runwayConfigurationId,
@@ -2516,6 +2531,7 @@ function airportSnapshot() {
       flightNumber: flight.flightNumber,
       registration: flight.registration,
       service: flight.service,
+      operationPlan: { ...flight.operationPlan },
       aircraft: {
         model: flight.aircraft,
         name: aircraftProfile(flight.aircraft).name,
@@ -2765,6 +2781,8 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
   if (command.action === 'nextView') world.nextView();
   if (command.action === 'zoomIn') world.zoomIn();
   if (command.action === 'zoomOut') world.zoomOut();
+  if (command.action === 'rotateLeft') world.rotateBy(-1);
+  if (command.action === 'rotateRight') world.rotateBy(1);
   if (command.action === 'resetCamera') world.resetCamera();
   if (command.action === 'setSpeed') {
     accepted = Number.isFinite(command.value);
@@ -2903,7 +2921,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
 }
 
 window.airportControl = {
-  version: '2.12.0',
+  version: '2.13.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },
@@ -2922,6 +2940,7 @@ window.airportControl = {
       nightMode: "airportControl.command({ action: 'setNightMode', enabled: true })",
       radar: "airportControl.command({ action: 'setRadarVisible', enabled: true })",
       queues: "airportControl.request({ action: 'setQueueInspectorVisible', enabled: true })",
+      rotate: "airportControl.command({ action: 'rotateLeft' }) // rotateRight reverses",
       mapLayer: "airportControl.command({ action: 'setSurfaceLayerVisible', layer: 'hotspots', enabled: true })",
       mapOrientation: "airportControl.command({ action: 'setMapOrientationVisible', enabled: true })",
       windOverlay: "airportControl.command({ action: 'setWindOverlayVisible', enabled: true })",

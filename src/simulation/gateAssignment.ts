@@ -96,7 +96,7 @@ export function planGateAssignment(request: GateAssignmentRequest): FlightGateAs
     .filter((stand) => surfaceStandSupportsAircraft(stand, profile.category, profile.wingspanM))
     .map((stand): StaticGateCandidate => {
       const zone = zoneById.get(stand.zoneId);
-      const service = serviceFit(request.service, stand, zone);
+      const service = serviceFit(request, stand, zone);
       const airline = airlineFit(request, stand, zone);
       const headroomPenalty = Math.max(0, stand.maximumWingspanM - profile.wingspanM) * 0.08;
       return {
@@ -233,12 +233,17 @@ function evaluateCandidates(
 }
 
 function serviceFit(
-  service: FlightService,
+  request: Pick<GateAssignmentRequest, 'service' | 'airline' | 'aircraft'>,
   stand: SurfaceStand,
   zone: SurfaceOperationalZone | undefined,
 ): FitScore<FlightGateAssignment['serviceFit']> {
   const area = standServiceArea(stand, zone);
-  if (service === 'cargo') {
+  if (request.airline === 'LOCAL' && request.aircraft === 'PC12') {
+    if (area === 'general-aviation') return { fit: 'preferred', penalty: 0, reason: `${zone?.name ?? 'General aviation ramp'} utility-aircraft stand` };
+    if (area === 'remote-ramp') return { fit: 'compatible', penalty: 55, reason: `${zone?.name ?? 'Remote ramp'} utility-aircraft fallback` };
+    return { fit: 'fallback', penalty: area === 'passenger-terminal' ? 390 : 260, reason: `${area.replace('-', ' ')} utility-aircraft fallback` };
+  }
+  if (request.service === 'cargo') {
     if (area === 'cargo-ramp') return { fit: 'preferred', penalty: 0, reason: `${zone?.name ?? 'Cargo ramp'} freighter stand` };
     if (area === 'remote-ramp') return { fit: 'compatible', penalty: 90, reason: `${zone?.name ?? 'Remote ramp'} cargo fallback` };
     if (area === 'maintenance') return { fit: 'fallback', penalty: 150, reason: 'maintenance apron cargo fallback' };
@@ -254,6 +259,12 @@ function airlineFit(
   stand: SurfaceStand,
   zone: SurfaceOperationalZone | undefined,
 ): FitScore<FlightGateAssignment['airlineFit']> {
+  if (request.airline === 'LOCAL' && request.aircraft === 'PC12') {
+    const area = standServiceArea(stand, zone);
+    if (area === 'general-aviation') return { fit: 'preferred', penalty: 0, reason: 'general aviation home ramp' };
+    if (area === 'remote-ramp') return { fit: 'compatible', penalty: 24, reason: 'compatible utility-aircraft ramp' };
+    return { fit: 'fallback', penalty: 180, reason: 'off-ramp utility-aircraft fallback' };
+  }
   if (request.config.code === 'ORD' && request.service === 'cargo') {
     const preferredRamps = ORD_CARGO_RAMP_PREFERENCES[request.airline];
     if (preferredRamps?.includes(zone?.name ?? '')) {

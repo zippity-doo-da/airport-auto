@@ -3,6 +3,7 @@ export type FlightPhase = 'approach' | 'landing' | 'taxi-in' | 'resting' | 'taxi
 import type { FlightColor, RunwayOperationalRole } from './airportConfig';
 import type { AircraftModel } from './aircraftProfiles';
 import type { AirlineCode } from './airlineProfiles';
+import type { OperationTrafficClass } from './airportOperationProfiles';
 
 export type ControlMode = 'auto' | 'assisted' | 'manual' | 'watch';
 export type WeatherCondition = 'clear' | 'rain' | 'fog' | 'snow';
@@ -117,6 +118,8 @@ export interface ServiceVehicleState {
   /** Staging point, stand-side bend, and service bay in world coordinates. */
   standPath: Array<[number, number]>;
   dispatchAtSeconds: number;
+  /** Keep the vehicle off-map until its stand staging point is physically free. */
+  prepositionAtStand?: boolean;
   progress: number;
   x: number;
   y: number;
@@ -284,6 +287,16 @@ export interface FlightGoAroundState {
   };
 }
 
+/** The traffic stream and local operating period that generated this leg. */
+export interface FlightOperationPlan {
+  trafficClass: OperationTrafficClass;
+  direction: 'arrival' | 'departure';
+  periodId: string;
+  periodLabel: string;
+  scheduledLocalMinute: number;
+  demandMultiplier: number;
+}
+
 export type ClearanceProposalAction = 'land' | 'go-around' | 'pushback' | 'cross' | 'line-up' | 'takeoff' | 'resume';
 
 export interface ClearanceProposal {
@@ -357,6 +370,7 @@ export interface Flight {
   flightNumber: number;
   registration: string;
   service: FlightService;
+  operationPlan: FlightOperationPlan;
   turnaround: FlightTurnaroundState;
   deicing: FlightDeicingState;
   category: AircraftCategory;

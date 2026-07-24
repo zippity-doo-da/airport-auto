@@ -23,7 +23,7 @@ const configs = [
 const maximumVisualBodyRadius = (scope) => Math.max(...AIRCRAFT_ROSTER.map((model) => {
   const visual = aircraftProfile(model).visual;
   const scale = scope === 'center' ? 0.17 : 0.92;
-  return Math.max(scope === 'center' ? 0.92 : 2.2, (visual.bodyLength + visual.bodyRadius * 2) / 2 * scale, visual.wingSpan / 2 * scale);
+  return Math.max(visual.bodyRadius * scale, (visual.bodyLength + visual.bodyRadius * 2) / 2 * scale, visual.wingSpan / 2 * scale);
 }));
 
 function pointToSegmentDistance(point, start, end) {
@@ -140,6 +140,18 @@ const verticalSeparation = detectFlightConflict(
   'medium', 'medium', false,
 );
 assert(!verticalSeparation, 'vertically separated aircraft were reported as overlapping');
+const operationalSurfaceSpacing = detectFlightConflict(
+  { ...baseEnvelope, id: 1, x: 0, y: 0, altitude: 2, minimumAltitude: 1, maximumAltitude: 3, airborne: false, surface: true, taxiway: 'TWY-A' },
+  { ...baseEnvelope, id: 2, x: 9, y: 0, altitude: 2, minimumAltitude: 1, maximumAltitude: 3, airborne: false, surface: true, taxiway: 'TWY-A' },
+  'medium', 'medium', false,
+);
+const physicalSurfaceCollision = detectFlightConflict(
+  { ...baseEnvelope, id: 1, x: 0, y: 0, altitude: 2, minimumAltitude: 1, maximumAltitude: 3, airborne: false, surface: true, taxiway: 'TWY-A' },
+  { ...baseEnvelope, id: 2, x: 9, y: 0, altitude: 2, minimumAltitude: 1, maximumAltitude: 3, airborne: false, surface: true, taxiway: 'TWY-A' },
+  'medium', 'medium', false, false,
+);
+assert(operationalSurfaceSpacing?.type === 'surface', 'prospective taxi separation buffer was not detected');
+assert(!physicalSurfaceCollision, 'a clear, safely diverging taxi pair was reported as a physical collision');
 
 for (const config of configs) {
   const harness = new FixedStepSimulationHarness(config, { stepSeconds: 0.1, pace: 3, scenario: 'rush' });
@@ -165,6 +177,9 @@ for (const config of configs) {
         reason: flight.safetyHoldReason,
         route: flight.surfaceRoute,
       })),
+      recentEvents: harness.snapshot().events
+        .filter((event) => liveDiagnostics.collisions.some((collision) => collision.first === event.flightId || collision.second === event.flightId))
+        .slice(-24),
       envelopes: liveDiagnostics.collisionEnvelopes.aircraft,
     }));
   }

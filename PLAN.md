@@ -217,6 +217,18 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Extract radar drawing, queue presentation, surface-availability presentation, and queue diagnosis into dedicated modules instead of growing `main.ts` and `airportSimulation.ts` further.
 - [x] Validate all eight categories, identity, explanations, ordering, shared-resource position, weather/wake metering, authoritative clock, diagnostics parity, desktop interaction, and mobile sizing.
 
+## Airport Auto 2.13 — time-of-day operation profiles
+
+- [x] Give all ten hubs and each generated local field a deterministic compressed local-day profile with contiguous, smoothly blended demand periods.
+- [x] Model arrival/departure and passenger/cargo/regional/general-aviation shares; use the active mix to pace continuous arrivals, size the initial departure bank, and vary departure-release cadence.
+- [x] Record each leg's traffic class, direction, source period, scheduled local minute, and demand level in authoritative flight/replay state.
+- [x] Add a true light-wake, single-engine Pilatus PC-12 NGX utility turboprop for GA traffic, including published dimensions and key field-performance references, a nose-mounted propeller presentation, runway compatibility, and GA/remote-ramp preference.
+- [x] Show the current local bank and demand in the Controls HUD, label traffic class in flight strips, and expose the full profile/current state through API 2.13 / snapshot schema 15.
+- [x] Replace the old generic repeating bank factor with profile-driven arrival intervals while preserving scenario, weather, wake, runway, gate, and collision safeguards.
+- [x] Add Q/E 15-degree camera rotation, typed `rotateLeft` / `rotateRight` commands, camera-angle diagnostics, and move the line-up keyboard shortcut to R.
+- [x] Add direction-aware named-taxiway flow reservations, scale physical proxies from the rendered aircraft instead of a fixed hub-wide circle, and let physically clear merge traffic continue only while separation is increasing.
+- [x] Extract traffic-profile construction and interpolation into its own pure module; validate 11 airport choices, 69 periods, mixes, boundaries, deterministic sampling, fixed-step advancement, profile integration, and zero conflicts.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.

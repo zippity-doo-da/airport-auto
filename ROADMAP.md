@@ -1,7 +1,7 @@
 # Airport Auto — Forward Roadmap
 
 Last reconciled: July 24, 2026
-Baseline: Airport Auto 2.12.0
+Baseline: Airport Auto 2.13.0
 
 Airport Auto is an **ASMR-first web airport simulation with an optional serious ATC layer**. The simulation should remain enjoyable as a calm, hands-off miniature world while also supporting increasingly authentic controller work when the player asks for it.
 
@@ -83,7 +83,7 @@ Move from plausible continuous traffic to an explainable hub operation.
 
 ### Traffic and capacity
 
-- [ ] Build airport operation profiles with time-of-day arrival, departure, cargo, regional, and general-aviation streams.
+- [x] Build airport operation profiles with time-of-day arrival, departure, cargo, regional, and general-aviation streams. (2.13: deterministic compressed local clock, smoothly blended demand periods, class-aware fleet generation, visible/API bank state, and profiled arrival/departure cadence.)
 - [ ] Add airline-specific hub banks, fleet mixes, gate preferences, overnight cargo peaks, and recovery lulls.
 - [ ] Add Quiet, Realistic, Busy, Rush, and Extreme density profiles with explicit capacity assumptions.
 - [ ] Generate complete flight plans with origin, destination, route, procedure, airline, aircraft, gate, runway intent, and release time.

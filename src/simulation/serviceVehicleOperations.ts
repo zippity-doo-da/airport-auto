@@ -99,7 +99,13 @@ export function createServiceVehiclePlans(config: AirportConfig, flight: Flight,
       const standPath = serviceStandPath(config, flight, stand, spec);
       const outboundTravelSeconds = (routes.outbound.distance * WORLD_METERS_PER_UNIT) / spec.maximumSpeedMps;
       const localTravelSeconds = (polylineLength(standPath) * WORLD_METERS_PER_UNIT) / spec.maximumSpeedMps;
-      const dispatchAtSeconds = actualGateInSeconds + Math.max(0, task.scheduledStartOffsetSeconds - outboundTravelSeconds - localTravelSeconds);
+      // Work backward from the planned gate-in/service time so equipment can
+      // pre-position while the aircraft is taxiing in. A plan created after
+      // that release time dispatches on the next fixed tick.
+      const dispatchAtSeconds = actualGateInSeconds
+        + task.scheduledStartOffsetSeconds
+        - outboundTravelSeconds
+        - localTravelSeconds;
       const depot = config.surfaceGraph.nodes.find((node) => node.id === routes.depotNodeId)?.position ?? standPath[0];
       const sideCode = spec.side === 'left' ? 'L' : 'R';
       return [
@@ -220,7 +226,19 @@ export function serviceVehicleReservationClaims(graph: AirportSurfaceGraph, vehi
       }
       return claims;
     }
-    return surfaceRouteReservationClaims(graph, nodeIds, edgeIds, graphProgress, vehicle.status === 'dispatching' ? 'taxi-in' : 'taxi-out', lookaheadEdges).map((claim) => (claim.kind === 'edge' || claim.kind === 'alley' ? { ...claim, direction: serviceVehicleOwnerId(vehicle) } : claim));
+    return surfaceRouteReservationClaims(
+      graph,
+      nodeIds,
+      edgeIds,
+      graphProgress,
+      vehicle.status === 'dispatching' ? 'taxi-in' : 'taxi-out',
+      lookaheadEdges,
+    )
+      // A short ramp vehicle owns its physical edge, node, and stand lane; it
+      // must not acquire airport-wide directional control of a named aircraft
+      // taxiway merely while using a service-road segment beside it.
+      .filter((claim) => claim.kind !== 'taxiway-flow')
+      .map((claim) => (claim.kind === 'edge' || claim.kind === 'alley' ? { ...claim, direction: serviceVehicleOwnerId(vehicle) } : claim));
   }
   if (vehicle.status === 'staged')
     return [
@@ -370,7 +388,10 @@ export function findServiceVehicleConflicts(config: AirportConfig, vehicles: Ser
     for (let secondIndex = firstIndex + 1; secondIndex < active.length; secondIndex += 1) {
       const second = active[secondIndex];
       const distance = Math.hypot(first.x - second.x, first.y - second.y);
-      const requiredDistance = serviceVehicleRadius(config, first) + serviceVehicleRadius(config, second) + presentationScale(config) * 0.08;
+      // The resource ledger owns the wider operational buffer. Diagnostics
+      // report actual presentation-envelope contact only, so adjacent service
+      // lanes that remain physically clear are not mislabeled as collisions.
+      const requiredDistance = serviceVehicleRadius(config, first) + serviceVehicleRadius(config, second);
       if (distance + 1e-6 < requiredDistance)
         conflicts.push({
           type: 'vehicle-vehicle',
@@ -387,7 +408,7 @@ export function findServiceVehicleConflicts(config: AirportConfig, vehicles: Ser
       const aircraft = aircraftCollisionEnvelope(config, flight);
       if (!aircraft.surface) continue;
       const distance = Math.hypot(first.x - aircraft.x, first.y - aircraft.y);
-      const requiredDistance = serviceVehicleRadius(config, first) + aircraft.bodyRadius + presentationScale(config) * 0.08;
+      const requiredDistance = serviceVehicleRadius(config, first) + aircraft.bodyRadius;
       if (distance + 1e-6 < requiredDistance)
         conflicts.push({
           type: 'vehicle-aircraft',

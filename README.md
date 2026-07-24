@@ -10,15 +10,16 @@ The airport layouts are readable operational schematics inspired by real runway 
 
 - Ten named hubs: ATL, ORD, DXB, HND, DFW, LHR, IST, DEN, LAX, and JFK, plus a newly generated local airport each session.
 - Continuous arrivals from the map boundary, curved approaches, flare, touchdown, aircraft/weather/traffic-aware runway-exit selection, pavement-continuous taxi, full takeoff roll, rotation, and climb-out.
+- A compressed local-day profile gives every airport smooth arrival/departure banks plus passenger, cargo, regional, and general-aviation streams; the active bank is visible in the HUD and control API.
 - Graph-routed pushback and taxi movement on visible pavement, with Ground clearance, animated tug attachment/release, engine-start state, aircraft-specific circular turns and braking, wingtip-aware and congestion-aware routing, directional ramp alleys, finite-capacity ramp-control zones, explicit stand in/out paths, named taxiways, hold-short points, crossing clearances, runway reservations, and collision prevention.
 - Supervisor-controlled runway/taxiway closures and construction zones amend the live graph; aircraft reroute without jumping or hold with an explanation, while Ground can dispatch deterministic disabled-aircraft recovery.
 - A compact optional queue inspector explains gate, ramp, taxi, crossing, runway, wake, weather, and downstream blockers with wait time, shared-resource position, causal traffic, and one-click aircraft focus.
 - Scheduled gate assignment scores airline/terminal affinity, aircraft size, passenger or cargo service, arrival time, the next destination/runway, taxi distance, and non-overlapping stand reservations; changed arrival times are rechecked before taxi-in.
 - Fixed-step turnarounds run fueling, baggage or cargo, catering, cleaning, boarding, and optional maintenance as explicit parallel/dependent tasks. Pooled fuel trucks, baggage trains, cargo loaders, catering trucks, cleaning/maintenance vans, and remote-stand passenger coaches travel reserved ramp routes, stage beside the assigned stand, and must clear before pushback.
 - Snow activates contaminated-surface performance and a complete ORD winter departure loop: graph-routed deicing-pad assignment, four treatment lanes, an ordered queue, stopped treatment, visible holdover time, protected runway entry, and return-to-pad routing after expiry.
-- Auto, Assisted, Manual, and Watch modes; four controller stations; six scenarios; weather and wind controls; a five-channel sound mixer; replay; four camera views; drag/touch/WASD panning; and cursor-centered wheel or pinch zoom.
+- Auto, Assisted, Manual, and Watch modes; four controller stations; six scenarios; weather and wind controls; a five-channel sound mixer; replay; four camera views; drag/touch/WASD panning; Q/E rotation; and cursor-centered wheel or pinch zoom.
 - Six sourced O’Hare runway plans with dynamic arrival/departure roles, visual and instrument restrictions, strong-southerly contingency operations, and safe drain-then-switch transitions.
-- A procedural aircraft fleet with model-specific size, runway performance, straight/turn taxi speeds, ground acceleration, stopping distance, turn radius, wingtip margin, approach speed, wake class, airline, callsign, registration, and fuel telemetry.
+- An eight-model procedural aircraft fleet, now including a single-engine Pilatus PC-12 utility turboprop, with model-specific size, runway performance, straight/turn taxi speeds, ground acceleration, stopping distance, turn radius, wingtip margin, approach speed, wake class, airline, callsign, registration, and fuel telemetry.
 - A local, versioned browser API and `BroadcastChannel` bridge for playtests and controller agents.
 - A fully offline ORD data foundation: FAA runway/apron/building/hot-spot geometry, a normalized OpenStreetMap surface graph with 40 compatible stands, 219 sourced gates, 364 parking positions, 35 operational zones and 248 control points, plus Chicago Department of Aviation terminal/concourse inventory and coherent east/west runway flows.
 - Optional muted taxiway-label, operational-area, hot-spot, runway-label, compass/scale, wind, service-vehicle, and compact terminal-radar layers preserve a clean ASMR view while exposing controller detail on demand.
@@ -45,11 +46,11 @@ npm run preview
 ## Controls
 
 - Click a flight strip or aircraft to select and follow it; click the same aircraft again, click empty ground, or press `Escape` to return to the free camera.
-- Drag with a mouse or one finger to pan; use the middle mouse button from anywhere; use `WASD` or the arrow keys for stepped movement; scroll or pinch to zoom.
+- Drag with a mouse or one finger to pan; use the middle mouse button from anywhere; use `WASD` or the arrow keys for stepped movement; use `Q`/`E` to rotate; scroll or pinch to zoom.
 - `L`: clear selected arrival to land.
 - `G`: send the selected arrival into a climbing missed-approach circuit and back into the arrival sequence.
 - `H`: hold or resume selected surface aircraft.
-- `E`: line up / clear runway entry.
+- `R`: line up / clear runway entry.
 - `T`: clear takeoff after line-up.
 - `V`: cycle cameras; `+`/`-`: zoom; `0`: reset the camera and map position.
 - `Space`: pause; `Escape`: deselect or close the controls.
@@ -66,7 +67,7 @@ http://127.0.0.1:5173/?airport=ORD&mode=auto&scenario=rush&speed=3&autostart=1&t
 
 Useful parameters include `airport`, `mode`, `scenario`, `station`, `speed`, `weather`, `wind`, `windDir`, `runwayConfig`, `night=1`, `radar=1`, `queues=1`, `telemetry=1`, `debug=1`, `detail=low`, `soak=1`, and `autostart=1`. Modes are `auto`, `assisted`, `manual`, and `watch`; weather values are `clear`, `rain`, `fog`, and `snow`.
 
-See [docs/airport-control.md](docs/airport-control.md) for the live-control interface, [docs/queue-inspector.md](docs/queue-inspector.md) for structured blockers, [docs/airport-operations-review.md](docs/airport-operations-review.md) for modeled rules and deliberate simplifications, [docs/surface-disruption-operations.md](docs/surface-disruption-operations.md) for closures, construction, rerouting, and recovery, [docs/runway-exit-operations.md](docs/runway-exit-operations.md) for arrival-exit planning, [docs/gate-operations.md](docs/gate-operations.md) for scheduled stand planning, [docs/turnaround-operations.md](docs/turnaround-operations.md) for servicing and departure readiness, [docs/service-vehicle-operations.md](docs/service-vehicle-operations.md) for ramp-equipment routing and protection, [docs/deicing-operations.md](docs/deicing-operations.md) for the winter departure lifecycle, and [docs/airport-data-sources.md](docs/airport-data-sources.md) for airport-map provenance and import policy. Completed releases are recorded in [PLAN.md](PLAN.md); unfinished work is tracked in [ROADMAP.md](ROADMAP.md).
+See [docs/airport-control.md](docs/airport-control.md) for the live-control interface, [docs/traffic-profiles.md](docs/traffic-profiles.md) for the compressed local day and traffic streams, [docs/queue-inspector.md](docs/queue-inspector.md) for structured blockers, [docs/airport-operations-review.md](docs/airport-operations-review.md) for modeled rules and deliberate simplifications, [docs/surface-disruption-operations.md](docs/surface-disruption-operations.md) for closures, construction, rerouting, and recovery, [docs/runway-exit-operations.md](docs/runway-exit-operations.md) for arrival-exit planning, [docs/gate-operations.md](docs/gate-operations.md) for scheduled stand planning, [docs/turnaround-operations.md](docs/turnaround-operations.md) for servicing and departure readiness, [docs/service-vehicle-operations.md](docs/service-vehicle-operations.md) for ramp-equipment routing and protection, [docs/deicing-operations.md](docs/deicing-operations.md) for the winter departure lifecycle, and [docs/airport-data-sources.md](docs/airport-data-sources.md) for airport-map provenance and import policy. Completed releases are recorded in [PLAN.md](PLAN.md); unfinished work is tracked in [ROADMAP.md](ROADMAP.md).
 
 ## Architecture
 

@@ -39,6 +39,7 @@ Useful real-world references for future fidelity work:
 ## Rules enforced by the simulation
 
 - Arrivals enter at the map boundary and use a continuous approach, flare, threshold touchdown zone, rollout, and runway exit.
+- Every airport advances through a compressed local day with smoothly blended demand periods. The active arrival/departure and passenger/cargo/regional/general-aviation mix drives traffic generation, while physical capacity and the safety arbiter remain authoritative.
 - A safe exit must provide the modeled rollout plus an 85 m turn margin; wet and contaminated pavement lengthen the prediction, larger aircraft normally select later exits, and a final-approach refresh can avoid newly occupied pavement.
 - Departures receive an explicit Ground pushback clearance, move backward from the stand with a connected tug while engines start, release the tug at the graph's ramp node, taxi to a hold-short point, line up, accelerate down a model-appropriate runway distance, rotate, and climb out.
 - Physical speed and acceleration advance path distance; the fixed-step simulation owns the resulting pose consumed by both the renderer and collision system.
@@ -60,6 +61,7 @@ Useful real-world references for future fidelity work:
 ## Deliberate simplifications
 
 - Layouts preserve the operational impression of each hub rather than survey-grade geometry.
+- Time-of-day bands and traffic mixes are deterministic schematic schedules, not live or historical flight timetables. ORD's broad shape is informed by FAA quarter-hour simulation data; airline-specific banks and schedule-derived fleets remain future work.
 - Taxiway naming is partial and schematic; ramp-control jurisdictions derive from sourced apron polygons rather than current airline or controller agreements.
 - Approach and departure procedure names are descriptive placeholders, not published SID/STAR data.
 - Wake class affects spacing, but the game does not reproduce every FAA separation category or local waiver. The E175 and Q400 use the medium game category, not the former misleading light label.

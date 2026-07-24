@@ -94,6 +94,7 @@ export type WorldDiagnostics = {
     focusX: number;
     focusY: number;
     zoom: number;
+    orbitDegrees: number;
     panningEnabled: true;
     groundWidth: number;
     groundHeight: number;
@@ -127,6 +128,7 @@ export interface AirportWorld {
   zoomIn(): void;
   zoomOut(): void;
   panByScreen(horizontal: number, vertical: number): void;
+  rotateBy(direction: -1 | 1): void;
   resetCamera(): void;
   setRunwayLabelsVisible(visible: boolean): void;
   setServiceVehiclesVisible(visible: boolean): void;
@@ -236,6 +238,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   let viewportWidth = canvas.clientWidth;
   let viewportHeight = canvas.clientHeight;
   let manualZoom = 1;
+  let manualOrbitOffset = 0;
   const cameraFocus = new THREE.Vector2();
   const groundPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -1.3);
   const zoomRaycaster = new THREE.Raycaster();
@@ -479,7 +482,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     const overviewHeight = Math.max(view.height, camera.top * 1.2 + 24);
     const cameraRadius = THREE.MathUtils.lerp(view.radius, overviewRadius, overviewMix);
     const cameraHeight = THREE.MathUtils.lerp(view.height, overviewHeight, overviewMix);
-    const orbit = view.phase + Math.sin(cameraTime * 0.035) * 0.13 * drift;
+    const orbit = view.phase + manualOrbitOffset + Math.sin(cameraTime * 0.035) * 0.13 * drift;
     const targetX = cameraFocus.x + Math.sin(cameraTime * 0.021) * 5 * drift;
     const targetY = cameraFocus.y + Math.cos(cameraTime * 0.017) * 3 * drift;
     camera.position.set(
@@ -498,6 +501,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
 
   function nextView(): void {
     viewIndex = (viewIndex + 1) % views.length;
+    manualOrbitOffset = 0;
     updateProjection();
   }
 
@@ -577,6 +581,13 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     const center = groundPointAt(centerX, centerY);
     const destination = groundPointAt(centerX + horizontal * distance, centerY + vertical * distance);
     if (center && destination) moveCameraFocus(destination.x - center.x, destination.y - center.y);
+  }
+
+  function rotateCamera(direction: -1 | 1): void {
+    manualCameraActive = true;
+    selectedFlightId = null;
+    manualOrbitOffset = THREE.MathUtils.euclideanModulo(manualOrbitOffset + direction * Math.PI / 12, Math.PI * 2);
+    applyCameraPose(0);
   }
 
   const onWheel = (event: WheelEvent): void => {
@@ -678,6 +689,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
 
   function resetCamera(): void {
     manualZoom = 1;
+    manualOrbitOffset = 0;
     cameraFocus.set(0, 0);
     selectedFlightId = null;
     manualCameraActive = false;
@@ -770,6 +782,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     zoomIn() { changeZoom(0.78); },
     zoomOut() { changeZoom(1.28); },
     panByScreen(horizontal, vertical) { panCameraByScreen(horizontal, vertical); },
+    rotateBy(direction) { rotateCamera(direction); },
     resetCamera,
     setRunwayLabelsVisible(visible) {
       runwayLabelsVisible = visible;
@@ -808,6 +821,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
           focusX: Number(cameraFocus.x.toFixed(3)),
           focusY: Number(cameraFocus.y.toFixed(3)),
           zoom: Number(manualZoom.toFixed(3)),
+          orbitDegrees: Number(THREE.MathUtils.radToDeg(manualOrbitOffset).toFixed(2)),
           panningEnabled: true,
           groundWidth: landscape.width,
           groundHeight: landscape.height,
@@ -1404,15 +1418,20 @@ function createPlane(flight: Flight): FlightVisual {
 
   const strutMaterial = new THREE.MeshStandardMaterial({ color: 0x707978, roughness: 0.6, metalness: 0.25 });
   const engineMaterial = new THREE.MeshStandardMaterial({ color: 0x6d7774, roughness: 0.55, metalness: 0.22 });
-  const engineOffsets = profile.engines === 4
+  const engineOffsets = profile.engines === 1
+    ? [0]
+    : profile.engines === 4
     ? [-visual.engineOffset, -visual.engineOffset * 0.5, visual.engineOffset * 0.5, visual.engineOffset]
     : [-visual.engineOffset, visual.engineOffset];
+  const noseEngine = visual.engineMount === 'nose';
+  const engineX = noseEngine ? visual.bodyLength * 0.49 : visual.bodyLength * 0.04;
+  const engineZ = noseEngine ? 0 : -visual.bodyRadius * 0.85;
   const propellers: THREE.Object3D[] = [];
   const engineIndicators: THREE.Mesh[] = [];
   for (const offset of engineOffsets) {
     const engine = new THREE.Mesh(new THREE.CylinderGeometry(visual.engineRadius, visual.engineRadius * 1.04, visual.engineLength, 12), engineMaterial);
     engine.rotation.z = -Math.PI / 2;
-    engine.position.set(visual.bodyLength * 0.04, offset, -visual.bodyRadius * 0.85);
+    engine.position.set(engineX, offset, engineZ);
     engine.castShadow = true;
     body.add(engine);
     const engineIndicator = new THREE.Mesh(
@@ -1420,17 +1439,19 @@ function createPlane(flight: Flight): FlightVisual {
       new THREE.MeshBasicMaterial({ color: 0xffc77c, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false }),
     );
     engineIndicator.rotation.y = Math.PI / 2;
-    engineIndicator.position.set(visual.bodyLength * 0.04 + visual.engineLength * 0.525, offset, -visual.bodyRadius * 0.85);
+    engineIndicator.position.set(engineX + visual.engineLength * 0.525, offset, engineZ);
     engineIndicator.visible = false;
     body.add(engineIndicator);
     engineIndicators.push(engineIndicator);
-    const pylon = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.18, 0.42), strutMaterial);
-    pylon.position.set(visual.bodyLength * 0.04, offset, -visual.bodyRadius * 0.48);
-    body.add(pylon);
+    if (!noseEngine) {
+      const pylon = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.18, 0.42), strutMaterial);
+      pylon.position.set(engineX, offset, -visual.bodyRadius * 0.48);
+      body.add(pylon);
+    }
     if (visual.propeller) {
       const prop = new THREE.Mesh(new THREE.CircleGeometry(visual.engineRadius * 1.35, 16), new THREE.MeshBasicMaterial({ color: 0xddd6bd, transparent: true, opacity: 0.56, side: THREE.DoubleSide }));
       prop.rotation.y = Math.PI / 2;
-      prop.position.set(visual.bodyLength * 0.04 + visual.engineLength * 0.53, offset, -visual.bodyRadius * 0.85);
+      prop.position.set(engineX + visual.engineLength * 0.53, offset, engineZ);
       body.add(prop);
       propellers.push(prop);
     }

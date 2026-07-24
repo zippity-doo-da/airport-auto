@@ -39,7 +39,10 @@ const aircraftClaims = surfaceRouteReservationClaims(
 );
 assert(ledger.firstConflict(aircraftClaims, 999), 'aircraft was allowed to enter a service vehicle edge');
 
-assert(harness.runUntil((snapshot) => snapshot.flights.some((flight) => flight.id === arrival.id && flight.phase === 'resting'), 420), 'arrival never reached its assigned stand');
+assert(harness.runUntil((snapshot) => snapshot.flights.some((flight) => flight.id === arrival.id && flight.phase === 'resting'), 420), 'arrival never reached its assigned stand: ' + JSON.stringify({
+  arrival: harness.simulation.state.flights.find((flight) => flight.id === arrival.id),
+  vehicles: harness.simulation.state.serviceVehicles.filter((vehicle) => vehicle.flightId === arrival.id),
+}));
 harness.simulation.setMode('manual');
 harness.simulation.setStation('ground');
 let live = harness.simulation.state.flights.find((flight) => flight.id === arrival.id);
@@ -73,6 +76,8 @@ const reachedReady = harness.runUntil(() => {
       conflict,
       vehicles: harness.simulation.state.serviceVehicles.filter((vehicle) => conflictIds.has(vehicle.id)).map((vehicle) => ({
         id: vehicle.id,
+        service: vehicle.service,
+        standSide: vehicle.standSide,
         status: vehicle.status,
         progress: vehicle.progress,
         edge: vehicle.currentEdge,
@@ -80,6 +85,7 @@ const reachedReady = harness.runUntil(() => {
         held: vehicle.held,
         x: vehicle.x,
         y: vehicle.y,
+        standPath: vehicle.standPath,
       })),
     });
   }
@@ -90,7 +96,20 @@ const reachedReady = harness.runUntil(() => {
 assert(reachedReady, 'vehicle-gated turnaround never became ready');
 assert(observedVehicleGatedTask, 'no task was observed waiting for and using its vehicle');
 assert(maximumMoving >= 2, 'service fleet never moved concurrently');
-assert(maximumServicing >= 2, 'independent services never operated concurrently');
+assert(maximumServicing >= 2, 'independent services never operated concurrently: ' + JSON.stringify({
+  maximumMoving,
+  maximumServicing,
+  elapsed: harness.simulation.state.elapsed,
+  tasks: harness.simulation.state.flights.find((flight) => flight.id === arrival.id)?.turnaround.tasks,
+  vehicles: harness.simulation.state.serviceVehicles.filter((vehicle) => vehicle.flightId === arrival.id).map((vehicle) => ({
+    id: vehicle.id,
+    service: vehicle.service,
+    status: vehicle.status,
+    progress: vehicle.progress,
+    held: vehicle.held,
+    holdReason: vehicle.holdReason,
+  })),
+}));
 assert(conflicts === 0, 'service vehicle separation diagnostics reported ' + conflicts + ' conflicts: ' + JSON.stringify(conflictSamples));
 assert(violations === 0, 'service vehicle route diagnostics reported ' + violations + ' protected-area entries');
 const readyVehicles = harness.simulation.state.serviceVehicles.filter((vehicle) => vehicle.flightId === arrival.id);

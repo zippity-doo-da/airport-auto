@@ -8,7 +8,7 @@ import {
 } from './surfaceGraph';
 
 export type SurfaceFlowDirection = 'inbound' | 'outbound';
-export type SurfaceReservationKind = 'edge' | 'node' | 'alley' | 'stand' | 'ramp-zone' | 'service-lane' | 'service-bay' | 'service-staging';
+export type SurfaceReservationKind = 'edge' | 'node' | 'taxiway-flow' | 'alley' | 'stand' | 'ramp-zone' | 'service-lane' | 'service-bay' | 'service-staging';
 export type SurfaceReservationOwnerId = number | string;
 
 export interface SurfaceReservationConflict {
@@ -75,6 +75,7 @@ export interface SurfaceCongestionPlanning extends SurfaceRoutePlanning {
 export class SurfaceReservationLedger {
   private readonly reservedNodes = new Map<string, SurfaceReservationOwnerId>();
   private readonly reservedEdges = new Map<string, { direction: string; owners: Set<SurfaceReservationOwnerId> }>();
+  private readonly reservedTaxiwayFlows = new Map<string, { direction: string; owners: Set<SurfaceReservationOwnerId> }>();
   private readonly reservedAlleys = new Map<string, { direction: string; owners: Set<SurfaceReservationOwnerId> }>();
   private readonly reservedStands = new Map<string, SurfaceReservationOwnerId>();
   private readonly rampZoneOccupants = new Map<string, Set<SurfaceReservationOwnerId>>();
@@ -92,6 +93,11 @@ export class SurfaceReservationLedger {
       }
       if (claim.kind === 'edge') {
         const reservation = this.reservedEdges.get(claim.id);
+        const other = reservation ? [...reservation.owners].find((owner) => owner !== ownerId) : undefined;
+        if (reservation && other !== undefined && reservation.direction !== claim.direction) return { claim, ownerId: other };
+      }
+      if (claim.kind === 'taxiway-flow') {
+        const reservation = this.reservedTaxiwayFlows.get(claim.id);
         const other = reservation ? [...reservation.owners].find((owner) => owner !== ownerId) : undefined;
         if (reservation && other !== undefined && reservation.direction !== claim.direction) return { claim, ownerId: other };
       }
@@ -125,6 +131,11 @@ export class SurfaceReservationLedger {
         if (reservation && reservation.direction === (claim.direction ?? '')) reservation.owners.add(ownerId);
         else if (!reservation) this.reservedEdges.set(claim.id, { direction: claim.direction ?? '', owners: new Set([ownerId]) });
       }
+      if (claim.kind === 'taxiway-flow') {
+        const reservation = this.reservedTaxiwayFlows.get(claim.id);
+        if (reservation && reservation.direction === (claim.direction ?? '')) reservation.owners.add(ownerId);
+        else if (!reservation) this.reservedTaxiwayFlows.set(claim.id, { direction: claim.direction ?? '', owners: new Set([ownerId]) });
+      }
       if (claim.kind === 'alley') {
         const reservation = this.reservedAlleys.get(claim.id);
         if (reservation && reservation.direction === (claim.direction ?? '')) reservation.owners.add(ownerId);
@@ -145,13 +156,22 @@ export class SurfaceReservationLedger {
 }
 
 interface SurfaceOperationsIndex {
+  nodeById: Map<string, AirportSurfaceGraph['nodes'][number]>;
   edgeById: Map<string, SurfaceEdge>;
+  taxiwayFlowByEdgeId: Map<string, TaxiwayFlowSectionEdge>;
   standById: Map<string, SurfaceStand>;
   leadEdgeByStandId: Map<string, SurfaceEdge>;
   standByLeadEdgeId: Map<string, SurfaceStand>;
   rampZoneByEdgeId: Map<string, SurfaceRampControlZone>;
   rampZoneByStandId: Map<string, SurfaceRampControlZone>;
   rampZones: SurfaceRampControlZone[];
+}
+
+interface TaxiwayFlowSectionEdge {
+  id: string;
+  label: string;
+  positiveFromNodeId: string;
+  positiveToNodeId: string;
 }
 
 const RAMP_ZONE_KINDS = new Set<SurfaceOperationalZone['kind']>([
@@ -263,6 +283,16 @@ export function surfaceRouteReservationClaims(
       direction: `${from}>${to}`,
       capacity: 1,
     });
+    const taxiwayFlow = directionalTaxiwayFlow(index, edge, from, to);
+    if (taxiwayFlow) {
+      addClaim(claims, {
+        kind: 'taxiway-flow',
+        id: taxiwayFlow.id,
+        label: taxiwayFlow.label,
+        direction: taxiwayFlow.direction,
+        capacity: Infinity,
+      });
+    }
     // Keep ownership of the junction behind a moving body until it is clear.
     // Paired with the forward claim below, this closes the reservation gap
     // where two movers could meet on opposite sides of a shared node.
@@ -343,7 +373,9 @@ export function surfaceCongestionPlanning(
 function operationsIndex(graph: AirportSurfaceGraph): SurfaceOperationsIndex {
   const cached = operationsIndexes.get(graph);
   if (cached) return cached;
+  const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
   const edgeById = new Map(graph.edges.map((edge) => [edge.id, edge]));
+  const taxiwayFlowByEdgeId = buildTaxiwayFlowSections(graph);
   const standById = new Map(graph.stands.map((stand) => [stand.id, stand]));
   const leadEdgeByStandId = new Map<string, SurfaceEdge>();
   const standByLeadEdgeId = new Map<string, SurfaceStand>();
@@ -376,7 +408,9 @@ function operationsIndex(graph: AirportSurfaceGraph): SurfaceOperationsIndex {
     for (const standId of zone.standIds) rampZoneByStandId.set(standId, zone);
   }
   const index = {
+    nodeById,
     edgeById,
+    taxiwayFlowByEdgeId,
     standById,
     leadEdgeByStandId,
     standByLeadEdgeId,
@@ -386,6 +420,106 @@ function operationsIndex(graph: AirportSurfaceGraph): SurfaceOperationsIndex {
   };
   operationsIndexes.set(graph, index);
   return index;
+}
+
+function directionalTaxiwayFlow(
+  index: SurfaceOperationsIndex,
+  edge: SurfaceEdge,
+  fromNodeId: string,
+  toNodeId: string,
+): { id: string; label: string; direction: 'positive' | 'negative' } | null {
+  const section = index.taxiwayFlowByEdgeId.get(edge.id);
+  if (!section) return null;
+  if (fromNodeId === section.positiveFromNodeId && toNodeId === section.positiveToNodeId) {
+    return { id: section.id, label: section.label, direction: 'positive' };
+  }
+  if (fromNodeId === section.positiveToNodeId && toNodeId === section.positiveFromNodeId) {
+    return { id: section.id, label: section.label, direction: 'negative' };
+  }
+  return null;
+}
+
+/**
+ * Divide a named taxiway at real graph junctions. Each section receives
+ * one-way control independently, avoiding both head-on entry and the
+ * starvation caused by locking a multi-kilometre taxiway under one owner.
+ */
+function buildTaxiwayFlowSections(graph: AirportSurfaceGraph): Map<string, TaxiwayFlowSectionEdge> {
+  const result = new Map<string, TaxiwayFlowSectionEdge>();
+  const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+  const edgesByTaxiway = new Map<string, SurfaceEdge[]>();
+  for (const edge of graph.edges) {
+    if (edge.kind !== 'taxiway' || !edge.taxiwayId || edge.taxiwayId.startsWith('RAMP-')) continue;
+    const edges = edgesByTaxiway.get(edge.taxiwayId) ?? [];
+    edges.push(edge);
+    edgesByTaxiway.set(edge.taxiwayId, edges);
+  }
+
+  for (const [taxiwayId, unsortedEdges] of edgesByTaxiway) {
+    const edges = [...unsortedEdges].sort((first, second) => first.id.localeCompare(second.id));
+    const edgeById = new Map(edges.map((edge) => [edge.id, edge]));
+    const adjacency = new Map<string, string[]>();
+    for (const edge of edges) {
+      adjacency.set(edge.from, [...(adjacency.get(edge.from) ?? []), edge.id]);
+      adjacency.set(edge.to, [...(adjacency.get(edge.to) ?? []), edge.id]);
+    }
+    for (const edgeIds of adjacency.values()) edgeIds.sort();
+    const boundaryNodes = new Set([...adjacency].flatMap(([nodeId, edgeIds]) => {
+      const node = nodeById.get(nodeId);
+      const joinsOtherTaxiway = Boolean(node?.taxiwayIds.some((id) => id !== taxiwayId));
+      return edgeIds.length !== 2 || joinsOtherTaxiway ? [nodeId] : [];
+    }));
+    const unvisited = new Set(edges.map((edge) => edge.id));
+    while (unvisited.size) {
+      const boundaryStart = [...boundaryNodes]
+        .sort()
+        .find((nodeId) => adjacency.get(nodeId)?.some((edgeId) => unvisited.has(edgeId)));
+      const seedEdgeId = boundaryStart
+        ? adjacency.get(boundaryStart)?.find((edgeId) => unvisited.has(edgeId))
+        : [...unvisited].sort()[0];
+      if (!seedEdgeId) break;
+      const seed = edgeById.get(seedEdgeId);
+      if (!seed) {
+        unvisited.delete(seedEdgeId);
+        continue;
+      }
+      let currentNodeId = boundaryStart ?? seed.from;
+      let currentEdgeId = seedEdgeId;
+      const sectionNodes = [currentNodeId];
+      const sectionEdgeIds: string[] = [];
+      while (unvisited.has(currentEdgeId)) {
+        const edge = edgeById.get(currentEdgeId);
+        if (!edge) break;
+        unvisited.delete(currentEdgeId);
+        sectionEdgeIds.push(currentEdgeId);
+        const nextNodeId = edge.from === currentNodeId ? edge.to : edge.from;
+        sectionNodes.push(nextNodeId);
+        if (boundaryNodes.has(nextNodeId) && nextNodeId !== sectionNodes[0]) break;
+        const nextEdgeId = adjacency.get(nextNodeId)?.find((edgeId) => unvisited.has(edgeId));
+        if (!nextEdgeId) break;
+        currentNodeId = nextNodeId;
+        currentEdgeId = nextEdgeId;
+      }
+      if (!sectionEdgeIds.length) continue;
+      if ((sectionNodes.at(-1) ?? '') < sectionNodes[0]) {
+        sectionNodes.reverse();
+        sectionEdgeIds.reverse();
+      }
+      const sectionId = `${taxiwayId}:${[...sectionEdgeIds].sort()[0]}`;
+      const taxiwayName = graph.taxiways.find((taxiway) => taxiway.id === taxiwayId)?.name
+        ?? edges[0]?.name
+        ?? taxiwayId;
+      for (let index = 0; index < sectionEdgeIds.length; index += 1) {
+        result.set(sectionEdgeIds[index], {
+          id: sectionId,
+          label: `${taxiwayName} section flow`,
+          positiveFromNodeId: sectionNodes[index],
+          positiveToNodeId: sectionNodes[index + 1],
+        });
+      }
+    }
+  }
+  return result;
 }
 
 function rampZoneCapacity(zone: SurfaceOperationalZone): number {
