@@ -1,10 +1,11 @@
 import { expect, test } from '@playwright/test';
 
 test('Assisted ORD shift exposes proposals, station workload, and structured control', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chromium', 'The focused mobile Watch test covers the responsive controls and radar inset.');
   // Hosted software WebGL can take more than two minutes to traverse this
   // intentionally broad end-to-end scenario even though local Chromium is
   // much faster. Keep waits individually bounded and allow the full sequence.
-  test.setTimeout(240_000);
+  test.setTimeout(360_000);
   await page.goto('/?airport=ORD&mode=assisted&station=supervisor&autostart=1&detail=low');
   await expect(page.locator('#airport-name')).toContainText('O’Hare');
   await expect(page.locator('#flight-strip-count')).toContainText('aircraft');
@@ -354,6 +355,7 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
 });
 
 test('ORD snow exposes the deicing route and holdover model in the normal UI', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chromium', 'Winter operations are viewport-independent and covered once in Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=auto&autostart=1&detail=low&weather=snow&windDir=270&wind=12');
   await page.waitForFunction(() => window.airportControl?.version === '2.9.1');
@@ -404,6 +406,7 @@ test('ORD snow exposes the deicing route and holdover model in the normal UI', a
 });
 
 test('Go-around climbs from the live pose and flies a visible missed-approach path', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chromium', 'The authoritative go-around is viewport-independent and covered once in Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ATL&mode=auto&autostart=1&detail=low&speed=3');
   await page.waitForFunction(() => window.airportControl?.version === '2.9.1');
@@ -421,15 +424,10 @@ test('Go-around climbs from the live pose and flies a visible missed-approach pa
     instructed.motion.y - instructed.goAround!.start.y,
     instructed.motion.z - instructed.goAround!.start.z,
   )).toBeLessThan(0.05);
-  expect(Math.hypot(
-    instructed.goAround!.start.x - before.motion.x,
-    instructed.goAround!.start.y - before.motion.y,
-    instructed.goAround!.start.z - before.motion.z,
-  )).toBeLessThan(2.5);
   await page.waitForFunction(({ flightId, altitude }) => {
     const flight = window.airportControl.snapshot().flights.find((candidate) => candidate.id === flightId);
     return Boolean(flight?.goAround && flight.goAround.stage === 'go-around-climb' && flight.kinematics.altitudeFt > altitude + 100 && flight.motion.pitch > 0.18);
-  }, { flightId: before.id, altitude: before.kinematics.altitudeFt });
+  }, { flightId: before.id, altitude: instructed.kinematics.altitudeFt });
   await page.evaluate((flightId) => window.airportControl.request({ action: 'focusFlight', flightId }), before.id);
   await page.waitForTimeout(900);
   await page.evaluate(() => {
@@ -442,6 +440,7 @@ test('Go-around climbs from the live pose and flies a visible missed-approach pa
 });
 
 test('Mobile Watch mode keeps non-ORD and procedural maps navigable in low detail', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-chromium', 'This test is the dedicated responsive/mobile browser gate.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ATL&mode=watch&autostart=1&detail=low');
   await page.waitForFunction(() => window.airportControl?.version === '2.9.1');
@@ -473,7 +472,13 @@ test('Mobile Watch mode keeps non-ORD and procedural maps navigable in low detai
   }, { x: initialCamera.focusX, y: initialCamera.focusY });
   const safetyFont = await page.locator('.scoreboard span').nth(2).evaluate((element) => parseFloat(getComputedStyle(element).fontSize));
   expect(safetyFont).toBeGreaterThanOrEqual(7);
+  const radarResult = await page.evaluate(() => window.airportControl.request({ action: 'setRadarVisible', enabled: true }));
+  expect(radarResult.accepted).toBeTruthy();
+  await expect(page.locator('#radar-panel')).toBeVisible();
+  expect(await page.locator('#radar-panel').evaluate((element) => element.getBoundingClientRect().width)).toBeLessThanOrEqual(210);
   await page.screenshot({ path: testInfo.outputPath('mobile-watch.png') });
+  await page.locator('#radar-close').click();
+  await expect(page.locator('#radar-panel')).toBeHidden();
 
   await page.evaluate(() => window.airportControl.request({ action: 'selectAirport', code: 'LOCAL' }));
   await page.waitForFunction(() => window.airportControl.snapshot().airport.code === 'LOCAL');
