@@ -120,6 +120,16 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] A dedicated surface-motion gate verifies continuous position/heading, pre-turn braking, model-specific stopping distance, narrow-route rejection, seven compatible ORD aircraft routes, and at least 1.8 m modeled wingtip margin.
 - [x] The complete deterministic, trajectory, collision, lint, build, and desktop/mobile browser suites pass with the aircraft-specific curves enabled.
 
+## Airport Auto 2.5 — ramp flow and congestion-aware routing
+
+- [x] Sixteen sourced ORD apron areas act as finite-capacity ramp-control zones without reducing the airport to one global surface lock.
+- [x] Every playable stand exposes explicit ramp-to-stand lead-in and stand-to-ramp lead-out paths tied to its sourced ramp node and alley.
+- [x] Auto and Watch reserve intersections, opposing edges, exclusive stand paths, ramp capacity, and directional alley flow; an active alley permits following traffic but holds opposing traffic with an explainable reason.
+- [x] Static graph directions remain mandatory, while bidirectional ramp alleys receive a dynamic one-way flow lock until the protected movement clears.
+- [x] New taxi routes add live, decaying edge-occupancy costs during path finding; authoritative geometry and physical route distance remain unchanged.
+- [x] API 2.5 / snapshot schema 7 exposes ramp zones, stand flows, alley direction, zone capacity, automatic hold reasons, routing cost, congestion penalty, and affected edges.
+- [x] A dedicated ramp-operations gate verifies one-way traversal, opposing-alley exclusion, stand exclusivity, ramp capacity, alternate-route selection, all 80 ORD stand movements, four concurrent surface movers, and a zero-collision Rush soak.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.

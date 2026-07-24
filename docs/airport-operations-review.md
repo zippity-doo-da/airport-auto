@@ -19,7 +19,7 @@ The high-arrival plans are gameplay implementations based on configurations eval
 
 Configuration changes use a drain-then-switch rule. The complete old plan—including ends, arrival/departure roles, markings, and lights—stays authoritative while affected approach, landing, taxi-in, taxi-out, or takeoff traffic clears. New arrivals and taxi-out releases are metered during that interval. The complete target plan is then applied in one fixed step; there is no mixed partial state.
 
-The terminal apron is geometrically separated from perimeter taxi routes and runway-access spurs. Stands have unique occupancy, taxi routes follow the imported graph, and source references preserve hundreds of named taxiway and ramp groups. Their operational use remains a readable game abstraction, not a one-for-one transcription of current controller instructions.
+The terminal apron is geometrically separated from perimeter taxi routes and runway-access spurs. Stands have unique occupancy and explicit lead-in/lead-out paths, while sourced apron polygons define finite-capacity ramp-control zones. Named ramp alleys receive directional flow locks: following traffic may proceed, but opposing traffic waits until the alley clears. Taxi routes follow the imported graph and add live congestion costs when alternatives exist. These remain readable game abstractions, not a one-for-one transcription of current controller instructions.
 
 Useful real-world references for future fidelity work:
 
@@ -44,14 +44,14 @@ Useful real-world references for future fidelity work:
 - Runway entry, crossing, and takeoff are distinct clearances.
 - Runway reservations protect intersecting and occupied runways while still permitting independent parallel operations.
 - Physical envelopes and broader airborne/surface separation envelopes are checked before movement is committed.
-- Gate slots cannot be reused while occupied, and converging or opposing surface routes reserve their next node/edge.
+- Gate slots cannot be reused while occupied; surface traffic reserves upcoming nodes and edges, exclusive stand paths, directional alleys, and ramp-zone capacity.
 - Auto and Watch issue the same discrete clearances that a Manual controller must issue; Assisted proposes and explains those commands without silently executing them.
 - Simulation speed advances one shared clock; taxiing does not secretly run at a different multiplier.
 
 ## Deliberate simplifications
 
 - Layouts preserve the operational impression of each hub rather than survey-grade geometry.
-- Taxiway naming is partial and schematic; terminal ramp-control jurisdictions are abstracted.
+- Taxiway naming is partial and schematic; ramp-control jurisdictions derive from sourced apron polygons rather than current airline or controller agreements.
 - Approach and departure procedure names are descriptive placeholders, not published SID/STAR data.
 - Wake class affects spacing, but the game does not reproduce every FAA separation category or local waiver. The E175 and Q400 use the medium game category, not the former misleading light label.
 - Pushback uses a compact procedural tug and graph-derived ramp release; detailed tug types, service vehicles, deicing queues, NOTAM ingestion, and live METAR/traffic feeds are not yet modeled.

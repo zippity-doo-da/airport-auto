@@ -10,7 +10,7 @@ The airport layouts are readable operational schematics inspired by real runway 
 
 - Ten named hubs: ATL, ORD, DXB, HND, DFW, LHR, IST, DEN, LAX, and JFK, plus a newly generated local airport each session.
 - Continuous arrivals from the map boundary, curved approaches, flare, touchdown, rollout, taxi, full takeoff roll, rotation, and climb-out.
-- Graph-routed pushback and taxi movement on visible pavement, with Ground clearance, animated tug attachment/release, engine-start state, aircraft-specific circular turns and braking, wingtip-aware routing, named taxiways, hold-short points, crossing clearances, runway reservations, and collision prevention.
+- Graph-routed pushback and taxi movement on visible pavement, with Ground clearance, animated tug attachment/release, engine-start state, aircraft-specific circular turns and braking, wingtip-aware and congestion-aware routing, directional ramp alleys, finite-capacity ramp-control zones, explicit stand in/out paths, named taxiways, hold-short points, crossing clearances, runway reservations, and collision prevention.
 - Auto, Assisted, Manual, and Watch modes; four controller stations; six scenarios; weather and wind controls; a five-channel sound mixer; replay; and four camera views.
 - Six sourced O’Hare runway plans with dynamic arrival/departure roles, visual and instrument restrictions, strong-southerly contingency operations, and safe drain-then-switch transitions.
 - A procedural aircraft fleet with model-specific size, runway performance, straight/turn taxi speeds, ground acceleration, stopping distance, turn radius, wingtip margin, approach speed, wake class, airline, callsign, registration, and fuel telemetry.

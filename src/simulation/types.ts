@@ -91,8 +91,17 @@ export interface Flight {
   engineState: EngineState;
   surfaceRoute?: string[];
   surfaceRouteEdges?: string[];
+  surfaceRoutingCost?: number;
+  surfaceCongestionPenalty?: number;
+  surfaceCongestedEdgeIds?: string[];
   surfaceNode?: string;
   surfaceEdge?: string;
+  rampControlZoneId?: string;
+  rampControlZoneName?: string;
+  rampControlZoneCapacity?: number;
+  surfaceAlleyId?: string;
+  surfaceFlowDirection?: 'inbound' | 'outbound';
+  standPath?: 'lead-in' | 'lead-out';
   holdShortRunway?: number;
   holdNotified?: boolean;
   runwayEntryCleared?: boolean;
@@ -105,6 +114,7 @@ export interface Flight {
   controlPace?: number;
   controlHold?: boolean;
   automaticHold?: boolean;
+  automaticHoldReason?: string;
   safetyHold?: boolean;
   safetyHoldReason?: string;
   controlPattern?: 'zigzag';

@@ -3,13 +3,14 @@ import type { AirportEvent, AirportState, ClearanceProposal, ConflictPrediction,
 import { AIRCRAFT_ROSTER, aircraftProfile, type AircraftModel } from './aircraftProfiles';
 import { AIRPORT_AIRLINES, airlineProfile, type AirlineCode } from './airlineProfiles';
 import { aircraftCollisionEnvelope, findFlightConflicts, findObstacleConflicts, findProposedConflict } from './collisionDetection';
-import { sampleSurfaceRouteWithEdges, surfacePushbackPlan, surfaceRouteCrossingWindows, surfaceRouteForFlight, surfaceRouteReservationKeys, surfaceRouteRunwayCrossings, surfaceStandSupportsAircraft, validateAirportSurfaceGraph, type SurfaceGraphValidation, type SurfaceRoute, type SurfaceRouteCrossingWindow } from './surfaceGraph';
+import { sampleSurfaceRouteWithEdges, surfacePushbackPlan, surfaceRouteCrossingWindows, surfaceRouteForFlight, surfaceRouteRunwayCrossings, surfaceStandSupportsAircraft, validateAirportSurfaceGraph, type SurfaceGraphValidation, type SurfaceRoute, type SurfaceRouteCrossingWindow } from './surfaceGraph';
 import { validateAirportObstacleEnvelopes, type AirportObstacleValidation } from './airportObstacles';
 import { departureTrajectoryTiming, landingTrajectoryTiming } from './flightTrajectory';
 import { runwaySupportsAircraft, WORLD_METERS_PER_UNIT } from './runwayPerformance';
 import { sampleAircraftSurfaceMotion } from './surfaceMotion';
 import { progressAfterDistance, syncFlightMotion } from './flightMotion';
 import { intersectingRunways, runwaysConflict } from './runwayConflict';
+import { SurfaceReservationLedger, surfaceCongestionPlanning, surfaceRouteOperationalState, surfaceRouteReservationClaims, type SurfaceReservationClaim, type SurfaceTrafficMovement } from './surfaceOperations';
 
 const PHASE_DURATION: Record<FlightPhase, number> = {
   approach: 38,
@@ -131,6 +132,7 @@ export class AirportSimulation {
     } else {
       for (const flight of this.state.flights) {
         flight.automaticHold = false;
+        flight.automaticHoldReason = undefined;
         if (this.state.paused && flight.phase === 'approach') {
           flight.cleared = false;
           flight.clearanceLeft = Math.max(2, flight.duration * 0.96 - flight.phaseElapsed);
@@ -920,6 +922,7 @@ export class AirportSimulation {
     flight.controlPace = 1;
     flight.controlHold = false;
     flight.automaticHold = false;
+    flight.automaticHoldReason = undefined;
     flight.controlPattern = undefined;
     flight.controlPatternStart = undefined;
     flight.duration = this.phaseDuration(flight.aircraft, next, flight.runway);
@@ -958,8 +961,17 @@ export class AirportSimulation {
       flight.taxiway = undefined;
       flight.surfaceRoute = undefined;
       flight.surfaceRouteEdges = undefined;
+      flight.surfaceRoutingCost = undefined;
+      flight.surfaceCongestionPenalty = undefined;
+      flight.surfaceCongestedEdgeIds = undefined;
       flight.surfaceNode = undefined;
       flight.surfaceEdge = undefined;
+      flight.rampControlZoneId = undefined;
+      flight.rampControlZoneName = undefined;
+      flight.rampControlZoneCapacity = undefined;
+      flight.surfaceAlleyId = undefined;
+      flight.surfaceFlowDirection = undefined;
+      flight.standPath = undefined;
       flight.holdShortRunway = undefined;
     }
     syncFlightMotion(this.config, flight);
@@ -994,13 +1006,21 @@ export class AirportSimulation {
     }
   }
 
-  /** Auto mode reserves only converging nodes and opposing taxiway segments. */
+  /**
+   * Auto/Watch reserve intersections, opposing edges, directional ramp
+   * alleys, exclusive stand paths, and finite-capacity ramp-control zones.
+   */
   private coordinateAutomaticSurfaceTraffic(): void {
     if (!this.isAutomaticMode()) {
-      for (const flight of this.state.flights) flight.automaticHold = false;
+      for (const flight of this.state.flights) {
+        flight.automaticHold = false;
+        flight.automaticHoldReason = undefined;
+      }
       return;
     }
-    const surfaceFlights = this.state.flights.filter((flight) => flight.phase === 'taxi-in' || flight.phase === 'taxi-out');
+    const surfaceFlights = this.state.flights.filter((flight): flight is Flight & { phase: 'taxi-in' | 'taxi-out' } => (
+      flight.phase === 'taxi-in' || flight.phase === 'taxi-out'
+    ));
     const candidates = surfaceFlights
       .filter((flight) => flight.emergency !== 'disabled')
       .sort((first, second) => {
@@ -1013,32 +1033,36 @@ export class AirportSimulation {
         if (first.progress !== second.progress) return second.progress - first.progress;
         return first.id - second.id;
       });
-    const reservedNodes = new Map<string, number>();
-    const reservedEdges = new Map<string, { direction: string; flight: number }>();
+    const reservations = new SurfaceReservationLedger();
     for (const flight of candidates) {
-      const keys = surfaceRouteReservationKeys(this.config.surfaceGraph, flight.surfaceRoute, flight.progress, 1, flight.surfaceRouteEdges);
-      const conflict = keys.some((key) => {
-        if (key.startsWith('node:')) return reservedNodes.has(key);
-        const match = /^edge:([^:]+):(.+)$/.exec(key);
-        if (!match) return false;
-        const reservation = reservedEdges.get(match[1]);
-        return Boolean(reservation && reservation.direction !== match[2]);
-      });
-      const shouldHold = conflict;
+      const claims = surfaceRouteReservationClaims(
+        this.config.surfaceGraph,
+        flight.surfaceRoute,
+        flight.surfaceRouteEdges,
+        flight.progress,
+        flight.phase,
+        2,
+      );
+      const conflict = reservations.firstConflict(claims);
+      const shouldHold = Boolean(conflict);
       if (shouldHold && !flight.automaticHold) this.metrics.preventedConflicts += 1;
       flight.automaticHold = shouldHold;
+      flight.automaticHoldReason = conflict ? this.surfaceReservationConflictReason(conflict) : undefined;
       if (shouldHold) continue;
-      for (const key of keys) {
-        if (key.startsWith('node:')) reservedNodes.set(key, flight.id);
-        else {
-          const match = /^edge:([^:]+):(.+)$/.exec(key);
-          if (match && !reservedEdges.has(match[1])) reservedEdges.set(match[1], { direction: match[2], flight: flight.id });
-        }
-      }
+      reservations.reserve(flight.id, claims);
     }
     for (const flight of surfaceFlights.filter((item) => item.emergency === 'disabled')) {
       flight.automaticHold = true;
+      flight.automaticHoldReason = 'disabled aircraft blocks surface movement';
     }
+  }
+
+  private surfaceReservationConflictReason(claim: SurfaceReservationClaim): string {
+    if (claim.kind === 'alley') return `opposing traffic has one-way control of ${claim.label}`;
+    if (claim.kind === 'ramp-zone') return `${claim.label} ramp-control zone is at capacity (${claim.capacity})`;
+    if (claim.kind === 'stand') return `${claim.label} is occupied`;
+    if (claim.kind === 'node') return `${claim.label} is reserved`;
+    return `opposing traffic occupies ${claim.label}`;
   }
 
   private availableGateSlot(aircraft: AircraftModel): number | null {
@@ -1070,6 +1094,7 @@ export class AirportSimulation {
       duration: this.phaseDuration(flight.aircraft, next, flight.runway),
       surfaceRoute: flight.surfaceRoute ? [...flight.surfaceRoute] : undefined,
       surfaceRouteEdges: flight.surfaceRouteEdges ? [...flight.surfaceRouteEdges] : undefined,
+      surfaceCongestedEdgeIds: flight.surfaceCongestedEdgeIds ? [...flight.surfaceCongestedEdgeIds] : undefined,
       requiredCrossings: flight.requiredCrossings ? [...flight.requiredCrossings] : undefined,
       crossingClearances: flight.crossingClearances ? [...flight.crossingClearances] : undefined,
       crossingClearanceIds: flight.crossingClearanceIds ? [...flight.crossingClearanceIds] : undefined,
@@ -1080,8 +1105,17 @@ export class AirportSimulation {
       preview.taxiway = undefined;
       preview.surfaceRoute = undefined;
       preview.surfaceRouteEdges = undefined;
+      preview.surfaceRoutingCost = undefined;
+      preview.surfaceCongestionPenalty = undefined;
+      preview.surfaceCongestedEdgeIds = undefined;
       preview.surfaceNode = undefined;
       preview.surfaceEdge = undefined;
+      preview.rampControlZoneId = undefined;
+      preview.rampControlZoneName = undefined;
+      preview.rampControlZoneCapacity = undefined;
+      preview.surfaceAlleyId = undefined;
+      preview.surfaceFlowDirection = undefined;
+      preview.standPath = undefined;
     }
     syncFlightMotion(this.config, preview);
     const traffic = [preview, ...this.state.flights.filter((item) => item.id !== flight.id)];
@@ -1416,6 +1450,11 @@ export class AirportSimulation {
       wingspanM: profile.wingspanM,
       minimumWingtipClearanceM: profile.minimumWingtipClearanceM,
     };
+    const congestionPlanning = surfaceCongestionPlanning(
+      this.config.surfaceGraph,
+      this.surfaceTrafficMovements(),
+      flight.id,
+    );
     const route = surfaceRouteForFlight(
       this.config.surfaceGraph,
       flight.runway,
@@ -1423,9 +1462,13 @@ export class AirportSimulation {
       phase,
       flight.gateSlot,
       routeRequirements,
+      congestionPlanning,
     );
     flight.surfaceRoute = route?.nodeIds;
     flight.surfaceRouteEdges = route?.edgeIds;
+    flight.surfaceRoutingCost = route?.routingCost;
+    flight.surfaceCongestionPenalty = route?.congestionPenalty;
+    flight.surfaceCongestedEdgeIds = route?.congestedEdgeIds;
     flight.standId = stand?.id;
     flight.surfaceNode = route?.nodeIds[0];
     flight.surfaceEdge = route?.edgeIds[0];
@@ -1437,6 +1480,7 @@ export class AirportSimulation {
           'taxi-out',
           flight.gateSlot,
           routeRequirements,
+          congestionPlanning,
         )
       : phase === 'taxi-out'
         ? route
@@ -1474,6 +1518,7 @@ export class AirportSimulation {
     if (phase === 'resting') {
       const apron = this.config.surfaceGraph.taxiways.find((taxiway) => taxiway.id === stand?.apronTaxiwayId);
       flight.taxiway = apron?.name ?? 'Terminal Apron';
+      this.updateSurfaceRouteState(flight);
       return;
     }
     const firstTaxiwayId = route?.taxiwayIds[0];
@@ -1503,10 +1548,40 @@ export class AirportSimulation {
 
   private updateSurfaceRouteState(flight: Flight): void {
     const sample = sampleSurfaceRouteWithEdges(this.config.surfaceGraph, flight.surfaceRoute, flight.surfaceRouteEdges, flight.progress);
-    if (!sample) return;
-    flight.surfaceNode = sample.nearestNodeId;
-    flight.surfaceEdge = sample.edge?.id;
-    if (sample.edge?.taxiwayId) flight.taxiway = sample.edge.name;
+    if (sample) {
+      flight.surfaceNode = sample.nearestNodeId;
+      flight.surfaceEdge = sample.edge?.id;
+      if (sample.edge?.taxiwayId) flight.taxiway = sample.edge.name;
+    }
+    if (flight.phase !== 'taxi-in' && flight.phase !== 'resting' && flight.phase !== 'taxi-out') return;
+    const operation = surfaceRouteOperationalState(
+      this.config.surfaceGraph,
+      flight.surfaceRoute,
+      flight.surfaceRouteEdges,
+      flight.progress,
+      flight.phase,
+      flight.standId,
+    );
+    flight.rampControlZoneId = operation.rampControlZoneId ?? undefined;
+    flight.rampControlZoneName = operation.rampControlZoneName ?? undefined;
+    flight.rampControlZoneCapacity = operation.rampControlZoneCapacity ?? undefined;
+    flight.surfaceAlleyId = operation.alleyId ?? undefined;
+    flight.surfaceFlowDirection = operation.flowDirection;
+    flight.standPath = operation.standPath ?? undefined;
+  }
+
+  private surfaceTrafficMovements(): SurfaceTrafficMovement[] {
+    return this.state.flights
+      .filter((flight): flight is Flight & { phase: 'taxi-in' | 'taxi-out' } => (
+        flight.phase === 'taxi-in' || flight.phase === 'taxi-out'
+      ))
+      .map((flight) => ({
+        flightId: flight.id,
+        phase: flight.phase,
+        nodeIds: flight.surfaceRoute,
+        edgeIds: flight.surfaceRouteEdges,
+        progress: flight.progress,
+      }));
   }
 
   private nextUnclearedCrossing(flight: Flight): SurfaceRouteCrossingWindow | null {

@@ -4,6 +4,7 @@ import { generateAirportConfig, generateHubConfig, HUB_AIRPORTS } from './simula
 import { aircraftProfile } from './simulation/aircraftProfiles';
 import { airlineProfile } from './simulation/airlineProfiles';
 import { sampleAircraftSurfaceMotion, surfaceStoppingDistanceM } from './simulation/surfaceMotion';
+import { surfaceRampControlZones, surfaceStandFlow } from './simulation/surfaceOperations';
 import type { ClearanceProposal, ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, ReplayFrame, TrafficScenario, WeatherCondition } from './simulation/types';
 import { AmbientAudio, type AudioChannel, type AudioPreset } from './audio/ambientAudio';
 import { createWorld, type SurfaceLayer } from './render/createWorld';
@@ -726,6 +727,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
       ...flight,
       surfaceRoute: flight.surfaceRoute ? [...flight.surfaceRoute] : undefined,
       surfaceRouteEdges: flight.surfaceRouteEdges ? [...flight.surfaceRouteEdges] : undefined,
+      surfaceCongestedEdgeIds: flight.surfaceCongestedEdgeIds ? [...flight.surfaceCongestedEdgeIds] : undefined,
       requiredCrossings: flight.requiredCrossings ? [...flight.requiredCrossings] : undefined,
       crossingClearances: flight.crossingClearances ? [...flight.crossingClearances] : undefined,
       crossingClearanceIds: flight.crossingClearanceIds ? [...flight.crossingClearanceIds] : undefined,
@@ -738,7 +740,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
 function replayRecording(): ReplayRecording {
   return {
     schemaVersion: 1,
-    simulationVersion: window.airportControl?.version ?? '2.4.0',
+    simulationVersion: window.airportControl?.version ?? '2.5.0',
     recordedAt: new Date().toISOString(),
     seed: config.seed,
     airport: { code: config.code, name: config.name, scope: config.scope },
@@ -809,7 +811,8 @@ function updateFlightChip(item: HTMLElement, flight: Flight): void {
   button.className = ['flight-chip', focusedFlightId === flight.id ? 'flight-chip--selected' : '', held ? 'flight-chip--hold' : '', flight.emergency ? 'flight-chip--emergency' : '', fuel < 15 ? 'flight-chip--low-fuel' : ''].filter(Boolean).join(' ');
   button.style.setProperty('--flight-accent', flight.palette === 'rose' ? 'var(--rose)' : flight.palette === 'sage' ? '#9bc8a0' : 'var(--blue)');
   button.style.setProperty('--fuel', `${fuel.toFixed(1)}%`);
-  button.setAttribute('aria-label', `${flight.callsign}, ${flight.aircraft}, ${phase}${gateLabel ? `, ${gateLabel}` : ''}, fuel ${fuel.toFixed(0)} percent, ${speedLabel} ${speed.toFixed(0)} knots, altitude ${altitude} feet`);
+  const holdDetail = flight.automaticHoldReason ?? flight.safetyHoldReason;
+  button.setAttribute('aria-label', `${flight.callsign}, ${flight.aircraft}, ${phase}${holdDetail ? `, ${holdDetail}` : ''}${gateLabel ? `, ${gateLabel}` : ''}, fuel ${fuel.toFixed(0)} percent, ${speedLabel} ${speed.toFixed(0)} knots, altitude ${altitude} feet`);
   const identity = button.querySelector('.flight-chip__identity')!;
   identity.querySelector('strong')!.textContent = flight.callsign;
   identity.querySelector('span')!.textContent = phase;
@@ -820,7 +823,9 @@ function updateFlightChip(item: HTMLElement, flight: Flight): void {
   metrics[2].querySelector('b')!.innerHTML = `${altitude.toLocaleString()}<em>FT</em>`;
   const detail = button.querySelector('.flight-chip__detail')!;
   detail.children[0].textContent = `${flight.aircraft} · ${operation} · ${gateLabel ?? `RWY ${runwayDesignation(flight.runway)}`}`;
-  detail.children[1].textContent = `${surface ? flight.engineState.toUpperCase() + ' ENGINES · ' : ''}${verticalText} · ${motionText}`;
+  detail.children[1].textContent = held && holdDetail
+    ? `HOLD · ${holdDetail.toUpperCase()}`
+    : `${surface ? flight.engineState.toUpperCase() + ' ENGINES · ' : ''}${verticalText} · ${motionText}`;
 }
 
 function formatPhase(phase: FlightPhase): string {
@@ -1520,7 +1525,7 @@ function airportSnapshot() {
   const diagnostics = simulation.diagnostics();
   const movingPhases = new Set(['approach', 'landing', 'taxi-in', 'taxi-out', 'takeoff']);
   return {
-    schemaVersion: 6,
+    schemaVersion: 7,
     airport: {
       code: config.code,
       name: config.name,
@@ -1654,6 +1659,10 @@ function airportSnapshot() {
         position: [...stand.position],
         supportedCategories: [...stand.supportedCategories],
       })),
+      rampControlZones: surfaceRampControlZones(config.surfaceGraph),
+      standFlows: config.surfaceGraph.stands
+        .map((stand) => surfaceStandFlow(config.surfaceGraph, stand.id))
+        .filter((flow) => flow !== null),
       passengerFacilities: config.surfaceGraph.passengerFacilities.map((facility) => ({
         ...facility,
         center: [...facility.center],
@@ -1704,6 +1713,20 @@ function airportSnapshot() {
         edge: flight.surfaceEdge,
         progress: Number(flight.progress.toFixed(3)),
         operation: flightOperationLabel(flight),
+        routePlanning: {
+          routingCost: flight.surfaceRoutingCost === undefined ? null : Number(flight.surfaceRoutingCost.toFixed(2)),
+          congestionPenalty: flight.surfaceCongestionPenalty === undefined ? null : Number(flight.surfaceCongestionPenalty.toFixed(2)),
+          congestedEdgeIds: flight.surfaceCongestedEdgeIds ?? [],
+        },
+        rampControl: {
+          zoneId: flight.rampControlZoneId ?? null,
+          zoneName: flight.rampControlZoneName ?? null,
+          capacity: flight.rampControlZoneCapacity ?? null,
+          alleyId: flight.surfaceAlleyId ?? null,
+          flowDirection: flight.surfaceFlowDirection ?? null,
+          standPath: flight.standPath ?? null,
+          holdReason: flight.automaticHoldReason ?? null,
+        },
         pushback: {
           cleared: flight.pushbackCleared,
           direction: flight.pushbackDirection,
@@ -1806,6 +1829,18 @@ function airportSnapshot() {
         pushbackReleaseProgress: Number(flight.pushbackReleaseProgress.toFixed(3)),
         tugAttached: flight.tugAttached,
         engineState: flight.engineState,
+        rampControlZoneId: flight.rampControlZoneId ?? null,
+        rampControlZoneName: flight.rampControlZoneName ?? null,
+        rampControlZoneCapacity: flight.rampControlZoneCapacity ?? null,
+        alleyId: flight.surfaceAlleyId ?? null,
+        flowDirection: flight.surfaceFlowDirection ?? null,
+        standPath: flight.standPath ?? null,
+        automaticHoldReason: flight.automaticHoldReason ?? null,
+      },
+      surfaceRoutePlanning: {
+        routingCost: flight.surfaceRoutingCost === undefined ? null : Number(flight.surfaceRoutingCost.toFixed(2)),
+        congestionPenalty: flight.surfaceCongestionPenalty === undefined ? null : Number(flight.surfaceCongestionPenalty.toFixed(2)),
+        congestedEdgeIds: flight.surfaceCongestedEdgeIds ?? [],
       },
       taxiPerformance: (() => {
         const profile = aircraftProfile(flight.aircraft);
@@ -1862,6 +1897,7 @@ function airportSnapshot() {
         pace: flight.controlPace ?? 1,
         held: flight.controlHold ?? false,
         automaticHold: flight.automaticHold ?? false,
+        automaticHoldReason: flight.automaticHoldReason ?? null,
         safetyHold: flight.safetyHold ?? false,
         safetyHoldReason: flight.safetyHoldReason ?? null,
         pattern: flight.controlPattern ?? null,
@@ -1989,7 +2025,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
 }
 
 window.airportControl = {
-  version: '2.4.0',
+  version: '2.5.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },

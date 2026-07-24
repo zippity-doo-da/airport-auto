@@ -185,6 +185,12 @@ export interface SurfaceRoute {
   edgeIds: string[];
   distance: number;
   taxiwayIds: string[];
+  /** Weighted path-finding cost; physical distance remains authoritative for motion. */
+  routingCost: number;
+  /** Portion of routingCost contributed by live traffic rather than geometry. */
+  congestionPenalty: number;
+  /** Occupied edges whose live cost influenced the selected route. */
+  congestedEdgeIds: string[];
 }
 
 export interface SurfaceRouteSample {
@@ -222,6 +228,11 @@ export interface SurfaceGraphValidation {
 export interface SurfaceRouteRequirements {
   wingspanM: number;
   minimumWingtipClearanceM: number;
+}
+
+export interface SurfaceRoutePlanning {
+  /** Non-negative world-distance penalties applied only while choosing a path. */
+  edgePenaltyById?: ReadonlyMap<string, number>;
 }
 
 type SurfaceGraphConfig = Pick<AirportConfig, 'code' | 'seed' | 'scope' | 'terminal' | 'runways'>;
@@ -563,16 +574,25 @@ export function surfaceRouteForFlight(
   phase: 'taxi-in' | 'resting' | 'taxi-out',
   gateSlot: number,
   requirements?: SurfaceRouteRequirements,
+  planning?: SurfaceRoutePlanning,
 ): SurfaceRoute | null {
   const stand = graph.stands.find((item) => item.slot === gateSlot) ?? graph.stands[gateSlot % Math.max(1, graph.stands.length)];
   if (!stand) return null;
-  if (phase === 'resting') return { nodeIds: [stand.nodeId], edgeIds: [], distance: 0, taxiwayIds: [stand.apronTaxiwayId] };
+  if (phase === 'resting') return {
+    nodeIds: [stand.nodeId],
+    edgeIds: [],
+    distance: 0,
+    taxiwayIds: [stand.apronTaxiwayId],
+    routingCost: 0,
+    congestionPenalty: 0,
+    congestedEdgeIds: [],
+  };
   const end = phase === 'taxi-in' ? -operatingEnd as -1 | 1 : operatingEnd;
   const access = graph.runwayAccess.find((item) => item.runwayId === runwayId && item.end === end);
   if (!access) return null;
   const from = phase === 'taxi-in' ? access.exitNodeId : stand.nodeId;
   const to = phase === 'taxi-in' ? stand.nodeId : access.holdShortNodeId;
-  return findSurfaceRoute(graph, from, to, requirements);
+  return findSurfaceRoute(graph, from, to, requirements, planning);
 }
 
 /**
@@ -626,8 +646,17 @@ export function findSurfaceRoute(
   fromNodeId: string,
   toNodeId: string,
   requirements?: SurfaceRouteRequirements,
+  planning?: SurfaceRoutePlanning,
 ): SurfaceRoute | null {
-  if (fromNodeId === toNodeId) return { nodeIds: [fromNodeId], edgeIds: [], distance: 0, taxiwayIds: [] };
+  if (fromNodeId === toNodeId) return {
+    nodeIds: [fromNodeId],
+    edgeIds: [],
+    distance: 0,
+    taxiwayIds: [],
+    routingCost: 0,
+    congestionPenalty: 0,
+    congestedEdgeIds: [],
+  };
   const { nodeById, edgeById, adjacency } = surfaceGraphIndex(graph);
   if (!nodeById.has(fromNodeId) || !nodeById.has(toNodeId)) return null;
 
@@ -643,7 +672,8 @@ export function findSurfaceRoute(
     if (current === toNodeId) break;
     for (const next of adjacency.get(current) ?? []) {
       if (requirements && !surfaceEdgeSupportsAircraft(next.edge, requirements)) continue;
-      const nextDistance = currentDistance + next.cost;
+      const trafficPenalty = Math.max(0, planning?.edgePenaltyById?.get(next.edge.id) ?? 0);
+      const nextDistance = currentDistance + next.cost + trafficPenalty;
       if (nextDistance >= (distanceByNode.get(next.nodeId) ?? Infinity)) continue;
       distanceByNode.set(next.nodeId, nextDistance);
       previous.set(next.nodeId, { nodeId: current, edge: next.edge });
@@ -665,7 +695,22 @@ export function findSurfaceRoute(
   nodeIds.reverse();
   edgeIds.reverse();
   const taxiwayIds = [...new Set(edgeIds.map((id) => edgeById.get(id)?.taxiwayId).filter((id): id is string => Boolean(id)))];
-  return { nodeIds, edgeIds, distance: distanceByNode.get(toNodeId) ?? 0, taxiwayIds };
+  const physicalDistance = edgeIds.reduce((total, edgeId, index) => {
+    const from = nodeById.get(nodeIds[index]);
+    const to = nodeById.get(nodeIds[index + 1]);
+    return total + (from && to ? distance(from.position, to.position) : 0);
+  }, 0);
+  const routingCost = distanceByNode.get(toNodeId) ?? physicalDistance;
+  const congestedEdgeIds = edgeIds.filter((edgeId) => (planning?.edgePenaltyById?.get(edgeId) ?? 0) > 0);
+  return {
+    nodeIds,
+    edgeIds,
+    distance: physicalDistance,
+    taxiwayIds,
+    routingCost,
+    congestionPenalty: Math.max(0, routingCost - physicalDistance),
+    congestedEdgeIds,
+  };
 }
 
 export function surfaceEdgeWingtipClearanceM(edge: SurfaceEdge, wingspanM: number): number {
