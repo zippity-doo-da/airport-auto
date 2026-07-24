@@ -62,6 +62,7 @@ export type WorldDiagnostics = {
   textures: number;
   detail: 'low' | 'high';
   pooledAircraft: number;
+  passengerFacilities: number;
   surfaceLayers: Record<SurfaceLayer, boolean>;
   context: AirportContextDiagnostics | { status: 'procedural' };
 };
@@ -541,6 +542,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
         textures: renderer.info.memory.textures,
         detail: lowDetail ? 'low' : 'high',
         pooledAircraft: [...flightPool.values()].reduce((sum, pool) => sum + pool.length, 0),
+        passengerFacilities: config.surfaceGraph.passengerFacilities.length,
         surfaceLayers: {
           'taxiway-labels': airportBuild.surfaceLayers['taxiway-labels'].visible,
           'operational-zones': airportBuild.surfaceLayers['operational-zones'].visible,
@@ -757,6 +759,7 @@ function buildAirport(root: THREE.Group, config: AirportConfig): AirportBuild {
     }
     root.add(terminal);
   }
+  addPassengerFacilityLabels(root, config.surfaceGraph.passengerFacilities);
 
   const towerEnvelope = config.obstacles.find((obstacle) => obstacle.kind === 'control-tower');
   const towerCenter = towerEnvelope?.center ?? [config.terminal[0] - 17, config.terminal[1] + 6];
@@ -1423,6 +1426,50 @@ function createMapLabel(label: string, tone: 'taxiway' | 'zone' | 'hotspot'): TH
   sprite.scale.set(width, tone === 'taxiway' ? 1.55 : 2.15, 1);
   sprite.renderOrder = 9;
   return sprite;
+}
+
+function addPassengerFacilityLabels(
+  root: THREE.Group,
+  facilities: AirportConfig['surfaceGraph']['passengerFacilities'],
+): void {
+  if (!facilities.length) return;
+  const group = new THREE.Group();
+  group.name = 'passenger-facilities';
+  for (const facility of facilities) {
+    const terminal = facility.kind === 'terminal';
+    const canvas = document.createElement('canvas');
+    canvas.width = terminal ? 192 : 96;
+    canvas.height = 72;
+    const context = canvas.getContext('2d');
+    if (context) {
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.fillStyle = terminal ? 'rgba(19, 49, 51, 0.82)' : 'rgba(237, 220, 184, 0.88)';
+      context.strokeStyle = terminal ? 'rgba(238, 194, 103, 0.82)' : 'rgba(34, 68, 68, 0.72)';
+      context.lineWidth = 3;
+      context.beginPath();
+      context.roundRect(3, 3, canvas.width - 6, canvas.height - 6, terminal ? 14 : 24);
+      context.fill();
+      context.stroke();
+      context.fillStyle = terminal ? '#fff0c6' : '#173d3e';
+      context.font = terminal ? '800 30px Arial, sans-serif' : '900 42px Arial, sans-serif';
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      context.fillText(terminal ? facility.terminalId : facility.concourse ?? facility.name, canvas.width / 2, canvas.height / 2 + 1);
+    }
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true,
+      depthWrite: false,
+    }));
+    sprite.position.set(facility.center[0], facility.center[1], terminal ? 8.7 : 7.8);
+    sprite.scale.set(terminal ? 5.2 : 2.6, terminal ? 1.95 : 1.95, 1);
+    sprite.renderOrder = 8;
+    sprite.userData.facilityId = facility.id;
+    group.add(sprite);
+  }
+  root.add(group);
 }
 
 function addSurfaceMapLayers(root: THREE.Group, config: AirportConfig): Record<SurfaceLayer, THREE.Group> {

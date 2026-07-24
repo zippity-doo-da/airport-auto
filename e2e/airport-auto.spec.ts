@@ -18,7 +18,17 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   expect(initial.airport.surfaceData?.attribution).toContain('OpenStreetMap contributors');
   expect(initial.airport.contextData?.counts).toMatchObject({ roads: 6_016, rails: 1_127, waterways: 35, areas: 1_568, boundaryRings: 1 });
   expect(initial.airport.contextData?.attribution).toContain('OpenStreetMap contributors');
-  expect(initial.surfaceGraph.schemaVersion).toBe(2);
+  expect(initial.surfaceGraph.schemaVersion).toBe(3);
+  expect(initial.airport.surfaceData?.passengerFacilityReference).toMatchObject({
+    provider: 'Chicago Department of Aviation',
+    totalPassengerGates: 199,
+  });
+  expect(initial.surfaceGraph.passengerFacilities).toHaveLength(13);
+  expect(initial.surfaceGraph.passengerFacilities.filter((facility) => facility.kind === 'terminal').map((facility) => facility.terminalId).sort()).toEqual(['T1', 'T2', 'T3', 'T5']);
+  expect(initial.renderer.passengerFacilities).toBe(13);
+  for (const concourse of ['B', 'C', 'E', 'F', 'G', 'H', 'K', 'L', 'M']) {
+    expect(initial.surfaceGraph.stands.filter((stand) => stand.concourse === concourse).length).toBeGreaterThanOrEqual(2);
+  }
   expect(initial.surfaceGraph.hotspots).toHaveLength(2);
   expect(initial.surfaceGraph.controlPoints.length).toBeGreaterThanOrEqual(200);
   expect(initial.surfaceGraph.edges.filter((edge) => edge.gradeSeparation === 'bridge')).toHaveLength(2);
@@ -33,25 +43,40 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   expect(initial.renderer.drawCalls).toBeLessThan(800);
   expect(initial.flights.some((flight) => flight.phase === 'approach')).toBeTruthy();
   expect(initial.flights.some((flight) => flight.phase === 'taxi-out' || flight.phase === 'resting')).toBeTruthy();
+  expect(initial.flights.some((flight) => flight.gate?.ref)).toBeTruthy();
   expect(initial.traffic.collisions).toHaveLength(0);
   expect(initial.traffic.obstacleCollisions).toHaveLength(0);
   const importedVectorCounts = await page.evaluate(async () => {
-    const [vectorResponse, contextResponse] = await Promise.all([
+    const [vectorResponse, contextResponse, surfaceResponse] = await Promise.all([
       fetch('./data/airports/KORD.vector.json'),
       fetch('./data/airports/KORD.context.json'),
+      fetch('./data/airports/KORD.osm-surface.json'),
     ]);
     if (!vectorResponse.ok) throw new Error(`airport vector request failed: ${vectorResponse.status}`);
     if (!contextResponse.ok) throw new Error(`airport context request failed: ${contextResponse.status}`);
+    if (!surfaceResponse.ok) throw new Error(`airport surface request failed: ${surfaceResponse.status}`);
     const vectorAsset = await vectorResponse.json();
     const contextAsset = await contextResponse.json();
+    const surfaceAsset = await surfaceResponse.json();
     return {
       runways: vectorAsset.layers.runways.length,
       taxiways: vectorAsset.layers.taxiways.length,
       roads: contextAsset.roads.length,
       boundary: contextAsset.airportBoundary.sourceId,
+      gates: surfaceAsset.gates.length,
+      parkingPositions: surfaceAsset.parkingPositions.length,
+      passengerFacilities: surfaceAsset.passengerFacilities.length,
     };
   });
-  expect(importedVectorCounts).toEqual({ runways: 8, taxiways: 743, roads: 6_016, boundary: 'relation/13423944' });
+  expect(importedVectorCounts).toEqual({
+    runways: 8,
+    taxiways: 743,
+    roads: 6_016,
+    boundary: 'relation/13423944',
+    gates: 219,
+    parkingPositions: 364,
+    passengerFacilities: 13,
+  });
 
   const proposalButton = page.locator('#clearance-advisor button[data-proposal-id]');
   await expect(proposalButton).toBeVisible();
@@ -81,6 +106,9 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await page.locator('.advanced-tools summary').click();
   await expect(page.locator('#map-data-version')).toContainText('FAA geometry + OSM surface and surroundings');
   await expect(page.locator('#map-data-attribution')).toContainText('not for navigation');
+  await expect(page.locator('#map-data-attribution')).toContainText('Chicago Department of Aviation');
+  await expect(page.locator('#map-facility-source')).toBeVisible();
+  await expect(page.locator('#map-facility-source')).toHaveAttribute('href', initial.airport.surfaceData?.passengerFacilityReference.url ?? '');
   const hotspotLayer = page.locator('input[data-surface-layer="hotspots"]');
   await expect(hotspotLayer).not.toBeChecked();
   await hotspotLayer.check();

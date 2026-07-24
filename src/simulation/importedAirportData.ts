@@ -3,7 +3,7 @@ import kordSurfaceManifestJson from '../data/airports/KORD.surface.manifest.json
 import type { AirportSurfaceGraph } from './surfaceGraph';
 
 export interface AirportSurfaceDataManifest {
-  schemaVersion: 2;
+  schemaVersion: 3;
   airport: {
     faaId: string;
     icaoId: string;
@@ -35,7 +35,18 @@ export interface AirportSurfaceDataManifest {
     copyrightUrl: string;
   };
   counts: Record<string, number>;
-  validationRules: { minimumBuildingClearanceMeters: number };
+  passengerFacilityReference: {
+    provider: string;
+    url: string;
+    retrievedOn: string;
+    totalPassengerGates: number;
+  };
+  validationRules: {
+    minimumBuildingClearanceMeters: number;
+    minimumStandReferenceClearanceMeters: number;
+    minimumStandReferenceOffsetMeters: number;
+    standLeadInWidthWorld: number;
+  };
   license: string;
   attribution: string;
   copyrightUrl: string;
@@ -71,6 +82,26 @@ export function importedAirportSurfaceGraph(airportCode: string, seed: number): 
       position: [...stand.position] as [number, number],
       supportedCategories: [...stand.supportedCategories],
     })),
+    passengerFacilities: KORD_SURFACE_GRAPH.passengerFacilities.map((facility) => ({
+      ...facility,
+      center: [...facility.center] as [number, number],
+      concourses: facility.concourses ? [...facility.concourses] : undefined,
+      sections: facility.sections ? [...facility.sections] : undefined,
+      sourceElementIds: [...facility.sourceElementIds],
+      standIds: [...facility.standIds],
+    })),
+    passengerFacilityReference: KORD_SURFACE_GRAPH.passengerFacilityReference
+      ? {
+          ...KORD_SURFACE_GRAPH.passengerFacilityReference,
+          terminals: KORD_SURFACE_GRAPH.passengerFacilityReference.terminals.map((terminal) => ({
+            ...terminal,
+            concourses: terminal.concourses.map((concourse) => ({
+              ...concourse,
+              sections: concourse.sections ? [...concourse.sections] : undefined,
+            })),
+          })),
+        }
+      : undefined,
     runwayAccess: KORD_SURFACE_GRAPH.runwayAccess.map((access) => ({ ...access })),
     controlPoints: KORD_SURFACE_GRAPH.controlPoints.map((point) => ({ ...point, position: [...point.position] as [number, number] })),
     zones: KORD_SURFACE_GRAPH.zones.map((zone) => ({

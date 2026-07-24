@@ -11,7 +11,7 @@ const configs = [
   ...HUB_AIRPORTS.map((_, index) => generateHubConfig(index)),
 ];
 
-const totals = { airports: configs.length, nodes: 0, edges: 0, taxiways: 0, stands: 0, controlPoints: 0, zones: 0, hotspots: 0, gradeSeparatedEdges: 0, routes: 0, trafficRuns: 0, simulatedMinutes: 0 };
+const totals = { airports: configs.length, nodes: 0, edges: 0, taxiways: 0, stands: 0, passengerFacilities: 0, controlPoints: 0, zones: 0, hotspots: 0, gradeSeparatedEdges: 0, routes: 0, trafficRuns: 0, simulatedMinutes: 0 };
 for (const config of configs) {
   const validation = validateAirportSurfaceGraph(config);
   if (!validation.valid) throw new Error(config.code + ': ' + validation.errors.join('; '));
@@ -19,6 +19,7 @@ for (const config of configs) {
   totals.edges += validation.counts.edges;
   totals.taxiways += validation.counts.taxiways;
   totals.stands += validation.counts.stands;
+  totals.passengerFacilities += validation.counts.passengerFacilities;
   totals.controlPoints += validation.counts.controlPoints;
   totals.zones += validation.counts.zones;
   totals.hotspots += validation.counts.hotspots;
@@ -70,7 +71,11 @@ for (const config of configs) {
     for (const reference of ['A', 'B', 'C', 'G', 'M', 'N', 'V', 'Y']) {
       if (!taxiwayReferences.has(reference)) throw new Error('ORD: missing major taxiway ' + reference);
     }
-    if (config.surfaceGraph.schemaVersion !== 2) throw new Error('ORD: imported surface graph is not schema v2');
+    if (config.surfaceGraph.schemaVersion !== 3) throw new Error('ORD: imported surface graph is not schema v3');
+    if (validation.counts.passengerFacilities !== 13) throw new Error('ORD: expected four terminals and nine concourses');
+    for (const concourse of ['B', 'C', 'E', 'F', 'G', 'H', 'K', 'L', 'M']) {
+      if (config.surfaceGraph.stands.filter((stand) => stand.concourse === concourse).length < 2) throw new Error('ORD: insufficient sourced stands for Concourse ' + concourse);
+    }
     if (validation.counts.hotspots !== 2) throw new Error('ORD: expected two FAA hot spots');
     if (validation.counts.gradeSeparatedEdges !== 2) throw new Error('ORD: expected two sourced bridge edges');
     if (validation.counts.controlPoints < 200) throw new Error('ORD: imported control point set is incomplete');

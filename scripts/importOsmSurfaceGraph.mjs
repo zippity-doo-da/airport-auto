@@ -3,14 +3,66 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const WORLD_METERS_PER_UNIT = 38;
 const OSM_LICENSE = "Open Data Commons Open Database License 1.0";
 const OSM_ATTRIBUTION = "© OpenStreetMap contributors";
 const OSM_COPYRIGHT_URL = "https://www.openstreetmap.org/copyright";
 const DEFAULT_ENDPOINT = "https://overpass-api.de/api/interpreter";
 const MINIMUM_BUILDING_CLEARANCE_METERS = 51;
+// OSM parking-position ways terminate at the nose-wheel stop. Aircraft in the
+// simulation are positioned from their visual/collision center, so gate nodes
+// must sit farther back on the sourced lead-in. This covers the largest ORD
+// visual footprint plus the FAA-building buffer used by runtime collision
+// checks without pretending that the nose-wheel stop itself is the center.
+const MINIMUM_STAND_REFERENCE_CLEARANCE_METERS = 42;
+const MINIMUM_STAND_REFERENCE_OFFSET_METERS = 24;
+const STAND_LEAD_IN_WIDTH_WORLD = 0.7;
 const graphNodeIndexes = new WeakMap();
+const CDA_FACILITY_REFERENCE = Object.freeze({
+  provider: "Chicago Department of Aviation",
+  url: "https://www.flychicago.com/business/CDA/factsfigures/Pages/facility.aspx",
+  retrievedOn: "2026-07-24",
+  totalPassengerGates: 199,
+  terminals: [
+    {
+      id: "T1",
+      name: "Terminal 1",
+      concourses: [
+        { id: "B", publishedGateCount: 22 },
+        { id: "C", publishedGateCount: 29 },
+      ],
+    },
+    {
+      id: "T2",
+      name: "Terminal 2",
+      concourses: [
+        { id: "E", publishedGateCount: 16 },
+        { id: "F", publishedGateCount: 27 },
+      ],
+    },
+    {
+      id: "T3",
+      name: "Terminal 3",
+      concourses: [
+        { id: "G", publishedGateCount: 17 },
+        { id: "H", publishedGateCount: 17 },
+        { id: "K", publishedGateCount: 16 },
+        { id: "L", publishedGateCount: 25, sections: ["main", "stinger"] },
+      ],
+    },
+    {
+      id: "T5",
+      name: "Terminal 5",
+      concourses: [{ id: "M", publishedGateCount: 30 }],
+    },
+  ],
+});
+const CONCOURSE_TO_TERMINAL = new Map(
+  CDA_FACILITY_REFERENCE.terminals.flatMap((terminal) =>
+    terminal.concourses.map((concourse) => [concourse.id, terminal]),
+  ),
+);
 
 async function main() {
   const options = parseArguments(process.argv.slice(2));
@@ -29,9 +81,18 @@ async function main() {
   let normalized;
   if (options.input) {
     const cached = JSON.parse(await readFile(options.input, "utf8"));
+    for (const field of ["parkingPositions", "gates", "passengerFacilities", "passengerFacilityReference"])
+      if (!Array.isArray(cached[field]) && field !== "passengerFacilityReference")
+        throw new Error(`Cached surface asset is missing ${field}; run import:ord:refresh once`);
+    if (!cached.passengerFacilityReference)
+      throw new Error("Cached surface asset is missing passengerFacilityReference; run import:ord:refresh once");
     normalized = {
       nodes: cached.nodes,
       ways: cached.ways,
+      parkingPositions: cached.parkingPositions,
+      gates: cached.gates,
+      passengerFacilities: cached.passengerFacilities,
+      passengerFacilityReference: cached.passengerFacilityReference,
       source: cached.source,
     };
     process.stdout.write(`Rebuilding ${options.icaoId} from committed OSM source data... `);
@@ -52,10 +113,17 @@ async function main() {
     source: normalized.source,
     nodes: normalized.nodes,
     ways: normalized.ways,
+    parkingPositions: normalized.parkingPositions,
+    gates: normalized.gates,
+    passengerFacilities: normalized.passengerFacilities,
+    passengerFacilityReference: normalized.passengerFacilityReference,
     excludedWays: graphBuild.excludedWays,
     excludedSegments: graphBuild.excludedSegments,
     validationRules: {
       minimumBuildingClearanceMeters: MINIMUM_BUILDING_CLEARANCE_METERS,
+      minimumStandReferenceClearanceMeters: MINIMUM_STAND_REFERENCE_CLEARANCE_METERS,
+      minimumStandReferenceOffsetMeters: MINIMUM_STAND_REFERENCE_OFFSET_METERS,
+      standLeadInWidthWorld: STAND_LEAD_IN_WIDTH_WORLD,
     },
   };
   const graph = graphBuild.graph;
@@ -71,16 +139,29 @@ async function main() {
     retrievedOn: options.retrievedOn,
     coordinateSystem: faa.coordinateSystem,
     source: normalized.source,
+    passengerFacilityReference: {
+      provider: normalized.passengerFacilityReference.provider,
+      url: normalized.passengerFacilityReference.url,
+      retrievedOn: normalized.passengerFacilityReference.retrievedOn,
+      totalPassengerGates: normalized.passengerFacilityReference.totalPassengerGates,
+    },
     validationRules: asset.validationRules,
     counts: {
       sourceNodes: normalized.nodes.length,
       sourceWays: normalized.ways.length,
+      parkingPositions: normalized.parkingPositions.length,
+      passengerParkingPositions: normalized.parkingPositions.filter((position) => position.concourse).length,
+      gates: normalized.gates.length,
+      passengerFacilities: normalized.passengerFacilities.length,
+      passengerTerminals: normalized.passengerFacilities.filter((facility) => facility.kind === "terminal").length,
+      passengerConcourses: normalized.passengerFacilities.filter((facility) => facility.kind === "concourse").length,
       excludedWays: graphBuild.excludedWays.length,
       excludedSegments: graphBuild.excludedSegments.length,
       graphNodes: graph.nodes.length,
       graphEdges: graph.edges.length,
       taxiways: graph.taxiways.length,
       stands: graph.stands.length,
+      passengerStands: graph.stands.filter((stand) => stand.concourse).length,
       runwayAccess: graph.runwayAccess.length,
       controlPoints: graph.controlPoints.length,
       operationalZones: graph.zones.length,
@@ -173,38 +254,45 @@ function buildQuery(faa, marginMeters) {
   const box = [southwest[1], southwest[0], northeast[1], northeast[0]]
     .map((value) => value.toFixed(7))
     .join(",");
-  return `[out:json][timeout:120];(way(${box})["aeroway"~"^(taxiway|taxilane|runway)$"];node(${box})["aeroway"="parking_position"];);out body;>;out skel qt;`;
+  return `[out:json][timeout:180];(way(${box})["aeroway"~"^(taxiway|taxilane|runway)$"];nwr(${box})["aeroway"="parking_position"];node(${box})["aeroway"="gate"];nwr(${box})["aeroway"="terminal"];);out body center;>;out skel qt;`;
 }
 
 async function fetchOverpass(endpoint, query) {
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-      "User-Agent": "AirportAutoDataImporter/1.0",
-    },
-    body: `data=${encodeURIComponent(query)}`,
-  });
-  if (!response.ok)
-    throw new Error(
-      `${response.status} ${response.statusText} from ${endpoint}: ${(await response.text()).slice(0, 300)}`,
-    );
-  const data = await response.json();
-  if (!Array.isArray(data.elements))
-    throw new Error("Overpass response has no elements array");
-  return data;
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+          "User-Agent": "AirportAutoDataImporter/1.0",
+        },
+        body: `data=${encodeURIComponent(query)}`,
+        signal: AbortSignal.timeout(190_000),
+      });
+      if (!response.ok)
+        throw new Error(
+          `${response.status} ${response.statusText} from ${endpoint}: ${(await response.text()).slice(0, 300)}`,
+        );
+      const data = await response.json();
+      if (!Array.isArray(data.elements))
+        throw new Error("Overpass response has no elements array");
+      return data;
+    } catch (error) {
+      lastError = error;
+      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, attempt * 3_000));
+    }
+  }
+  throw lastError;
 }
 
 function normalizeOverpass(response, faa, options, query) {
-  const rawNodes = new Map(
-    response.elements
-      .filter((element) => element.type === "node")
-      .map((node) => [node.id, node]),
-  );
-  const rawWays = response.elements.filter(
+  const rawNodes = mergeOsmElements(response.elements, "node");
+  const rawWayMap = mergeOsmElements(response.elements, "way");
+  const rawRelationMap = mergeOsmElements(response.elements, "relation");
+  const rawWays = [...rawWayMap.values()].filter(
     (element) =>
-      element.type === "way" &&
       ["taxiway", "taxilane", "runway"].includes(element.tags?.aeroway),
   );
   const ways = rawWays
@@ -247,9 +335,79 @@ function normalizeOverpass(response, faa, options, query) {
       };
     })
     .sort((first, second) => first.id - second.id);
+  const gates = [...rawNodes.values()]
+    .filter((node) => node.tags?.aeroway === "gate")
+    .filter((node) => Number.isFinite(node.lon) && Number.isFinite(node.lat))
+    .map((node) => {
+      const ref = normalizedReference(node.tags?.ref ?? node.tags?.name);
+      const identity = passengerIdentityForReference(ref);
+      return {
+        id: node.id,
+        ref,
+        positionMeters: projectPoint([node.lon, node.lat], faa.coordinateSystem),
+        ...(identity ?? {}),
+      };
+    })
+    .filter((gate) => gate.ref)
+    .sort((first, second) => first.id - second.id);
+  const parkingPositions = [
+    ...[...rawNodes.values()]
+      .filter((node) => node.tags?.aeroway === "parking_position")
+      .filter((node) => Number.isFinite(node.lon) && Number.isFinite(node.lat))
+      .map((node) => ({
+        sourceType: "node",
+        sourceElementId: node.id,
+        ref: normalizedReference(node.tags?.ref),
+        entryNodeId: node.id,
+        positionMeters: projectPoint([node.lon, node.lat], faa.coordinateSystem),
+        leadInMeters: [projectPoint([node.lon, node.lat], faa.coordinateSystem)],
+      })),
+    ...[...rawWayMap.values()]
+      .filter((way) => way.tags?.aeroway === "parking_position")
+      .filter((way) => Array.isArray(way.nodes) && way.nodes.length >= 2)
+      .filter((way) => way.nodes.every((nodeId) => rawNodes.has(nodeId)))
+      .map((way) => {
+        const leadInMeters = way.nodes.map((nodeId) => {
+          const node = rawNodes.get(nodeId);
+          return projectPoint([node.lon, node.lat], faa.coordinateSystem);
+        });
+        return {
+          sourceType: "way",
+          sourceElementId: way.id,
+          ref: normalizedReference(way.tags?.ref),
+          entryNodeId: way.nodes[0],
+          positionMeters: leadInMeters.at(-1),
+          leadInMeters,
+        };
+      }),
+  ]
+    .map((position) => {
+      const identity = passengerIdentityForReference(position.ref);
+      const gate = closestMatchingGate(position, gates);
+      return {
+        ...position,
+        ...(identity ?? {}),
+        ...(gate ? { sourceGateNodeId: gate.id } : {}),
+      };
+    })
+    .sort(
+      (first, second) =>
+        first.sourceType.localeCompare(second.sourceType) ||
+        first.sourceElementId - second.sourceElementId,
+    );
+  const passengerFacilities = buildPassengerFacilities(
+    [...rawNodes.values(), ...rawWayMap.values(), ...rawRelationMap.values()],
+    rawNodes,
+    gates,
+    faa,
+  );
   return {
     nodes,
     ways,
+    parkingPositions,
+    gates,
+    passengerFacilities,
+    passengerFacilityReference: structuredClone(CDA_FACILITY_REFERENCE),
     source: {
       provider: "OpenStreetMap",
       endpoint: options.endpoint,
@@ -260,6 +418,191 @@ function normalizeOverpass(response, faa, options, query) {
       copyrightUrl: OSM_COPYRIGHT_URL,
     },
   };
+}
+
+function mergeOsmElements(elements, type) {
+  const merged = new Map();
+  for (const element of elements.filter((candidate) => candidate.type === type)) {
+    const existing = merged.get(element.id) ?? {};
+    merged.set(element.id, {
+      ...existing,
+      ...element,
+      ...(existing.tags || element.tags
+        ? { tags: { ...(existing.tags ?? {}), ...(element.tags ?? {}) } }
+        : {}),
+    });
+  }
+  return merged;
+}
+
+function normalizedReference(value) {
+  const normalized = cleanTag(value)?.toUpperCase().replaceAll(" ", "");
+  return normalized || null;
+}
+
+function passengerIdentityForReference(reference) {
+  const match = String(reference ?? "").match(/^([BCEFGHKLM])\d/i);
+  if (!match) return null;
+  const concourse = match[1].toUpperCase();
+  const terminal = CONCOURSE_TO_TERMINAL.get(concourse);
+  if (!terminal) return null;
+  return {
+    terminalId: terminal.id,
+    terminal: terminal.name,
+    concourse,
+  };
+}
+
+function closestMatchingGate(parkingPosition, gates) {
+  if (!parkingPosition.ref) return null;
+  return gates
+    .filter((gate) => gate.ref === parkingPosition.ref)
+    .map((gate) => ({
+      gate,
+      distance: distance2d(gate.positionMeters, parkingPosition.positionMeters),
+    }))
+    .filter((candidate) => candidate.distance <= 180)
+    .sort((first, second) => first.distance - second.distance)[0]?.gate ?? null;
+}
+
+function buildPassengerFacilities(elements, rawNodes, gates, faa) {
+  const candidates = [];
+  for (const element of elements.filter(
+    (candidate) => candidate.tags?.aeroway === "terminal",
+  )) {
+    const name = cleanTag(element.tags?.name);
+    const centerMeters = osmElementCenter(element, rawNodes, faa.coordinateSystem);
+    if (!name || !centerMeters) continue;
+    const terminalMatch = name.match(/^Terminal\s*([1235])(?:\b|\s|-)/i);
+    const concourseMatch = name.match(/^Concourse\s+([BCEFGHKL])(?:\s+Stinger|\s*\(|$)/i);
+    if (terminalMatch) {
+      const terminal = CDA_FACILITY_REFERENCE.terminals.find(
+        (item) => item.id === `T${terminalMatch[1]}`,
+      );
+      if (terminal)
+        candidates.push({
+          kind: "terminal",
+          terminal,
+          name,
+          centerMeters,
+          sourceElementId: `${element.type}/${element.id}`,
+          sourceType: element.type,
+        });
+    } else if (concourseMatch) {
+      const concourse = concourseMatch[1].toUpperCase();
+      const terminal = CONCOURSE_TO_TERMINAL.get(concourse);
+      if (terminal)
+        candidates.push({
+          kind: "concourse",
+          terminal,
+          concourse,
+          name,
+          centerMeters,
+          sourceElementId: `${element.type}/${element.id}`,
+          sourceType: element.type,
+        });
+    }
+  }
+
+  const facilities = [];
+  for (const terminal of CDA_FACILITY_REFERENCE.terminals) {
+    const terminalCandidates = candidates.filter(
+      (candidate) => candidate.kind === "terminal" && candidate.terminal.id === terminal.id,
+    );
+    const terminalCenter = preferredFacilityCenter(terminalCandidates)
+      ?? averagePoint(
+        gates
+          .filter((gate) => gate.terminalId === terminal.id)
+          .map((gate) => gate.positionMeters),
+      );
+    if (!terminalCenter) continue;
+    facilities.push({
+      id: `ORD-${terminal.id}`,
+      kind: "terminal",
+      name: terminal.name,
+      terminalId: terminal.id,
+      terminal: terminal.name,
+      concourses: terminal.concourses.map((concourse) => concourse.id),
+      centerMeters: roundPoint(terminalCenter, 1),
+      publishedGateCount: terminal.concourses.reduce(
+        (total, concourse) => total + concourse.publishedGateCount,
+        0,
+      ),
+      sourceElementIds: terminalCandidates.map((candidate) => candidate.sourceElementId).sort(),
+      positionSource: terminalCandidates.length ? "osm-terminal" : "osm-gate-centroid",
+    });
+  }
+
+  for (const terminal of CDA_FACILITY_REFERENCE.terminals) {
+    for (const officialConcourse of terminal.concourses) {
+      const concourseCandidates = candidates.filter(
+        (candidate) =>
+          candidate.kind === "concourse" &&
+          candidate.concourse === officialConcourse.id,
+      );
+      const matchingGates = gates.filter(
+        (gate) => gate.concourse === officialConcourse.id,
+      );
+      const center = preferredFacilityCenter(concourseCandidates)
+        ?? averagePoint(matchingGates.map((gate) => gate.positionMeters));
+      if (!center) continue;
+      facilities.push({
+        id: `ORD-CONCOURSE-${officialConcourse.id}`,
+        kind: "concourse",
+        name: `Concourse ${officialConcourse.id}`,
+        terminalId: terminal.id,
+        terminal: terminal.name,
+        concourse: officialConcourse.id,
+        centerMeters: roundPoint(center, 1),
+        publishedGateCount: officialConcourse.publishedGateCount,
+        sourceElementIds: concourseCandidates.length
+          ? concourseCandidates.map((candidate) => candidate.sourceElementId).sort()
+          : matchingGates.map((gate) => `node/${gate.id}`).sort(),
+        positionSource: concourseCandidates.length
+          ? "osm-terminal"
+          : "osm-gate-centroid",
+        ...(officialConcourse.sections
+          ? { sections: [...officialConcourse.sections] }
+          : {}),
+      });
+    }
+  }
+  return facilities.sort(
+    (first, second) =>
+      first.kind.localeCompare(second.kind) || first.id.localeCompare(second.id),
+  );
+}
+
+function preferredFacilityCenter(candidates) {
+  const preferred = [...candidates].sort((first, second) => {
+    const typeRank = { relation: 0, way: 1, node: 2 };
+    const firstStinger = /stinger/i.test(first.name) ? 1 : 0;
+    const secondStinger = /stinger/i.test(second.name) ? 1 : 0;
+    return firstStinger - secondStinger
+      || (typeRank[first.sourceType] ?? 3) - (typeRank[second.sourceType] ?? 3);
+  })[0];
+  return preferred?.centerMeters ?? null;
+}
+
+function osmElementCenter(element, rawNodes, coordinateSystem) {
+  if (Number.isFinite(element.lon) && Number.isFinite(element.lat))
+    return projectPoint([element.lon, element.lat], coordinateSystem);
+  if (Number.isFinite(element.center?.lon) && Number.isFinite(element.center?.lat))
+    return projectPoint([element.center.lon, element.center.lat], coordinateSystem);
+  if (!Array.isArray(element.nodes)) return null;
+  const points = element.nodes
+    .map((nodeId) => rawNodes.get(nodeId))
+    .filter((node) => Number.isFinite(node?.lon) && Number.isFinite(node?.lat))
+    .map((node) => projectPoint([node.lon, node.lat], coordinateSystem));
+  return averagePoint(points);
+}
+
+function averagePoint(points) {
+  if (!points.length) return null;
+  return [
+    points.reduce((total, point) => total + point[0], 0) / points.length,
+    points.reduce((total, point) => total + point[1], 0) / points.length,
+  ];
 }
 
 function buildSurfaceGraph(surface, faa) {
@@ -461,7 +804,7 @@ function buildSurfaceGraph(surface, faa) {
   const degree = nodeDegrees(edges);
   for (const node of nodeMap.values())
     if ((degree.get(node.id) ?? 0) >= 3) node.kind = "intersection";
-  const zones = buildOperationalZones(faa, nodeMap, edges);
+  const zones = buildOperationalZones(faa, nodeMap, edges, surface);
   const stands = selectStands(
     nodeMap,
     edges,
@@ -471,6 +814,7 @@ function buildSurfaceGraph(surface, faa) {
     zones,
     48,
   );
+  const passengerFacilities = graphPassengerFacilities(surface, stands);
   for (const stand of stands) {
     const zone = zones.find((candidate) => candidate.id === stand.zoneId);
     if (zone) zone.standIds.push(stand.id);
@@ -545,7 +889,7 @@ function buildSurfaceGraph(surface, faa) {
     excludedWays,
     excludedSegments,
     graph: {
-      schemaVersion: 2,
+      schemaVersion: SCHEMA_VERSION,
       airportCode: "ORD",
       seed: 10_004,
       source: {
@@ -559,6 +903,8 @@ function buildSurfaceGraph(surface, faa) {
         first.id.localeCompare(second.id),
       ),
       stands,
+      passengerFacilities,
+      passengerFacilityReference: structuredClone(surface.passengerFacilityReference),
       runwayAccess,
       controlPoints,
       zones,
@@ -638,28 +984,33 @@ function connectedComponents(edges) {
 
 function attachParkingPositions(surface, faa, nodeMap, edges, taxiwayMap, edgeSequence) {
   const existingNodes = [...nodeMap.values()];
-  for (const source of surface.nodes.filter(
-    (node) => node.parkingPosition && !nodeMap.has(node.id),
+  for (const source of surface.parkingPositions.filter(
+    (position) => position.concourse && position.sourceGateNodeId,
   )) {
-    if (pointInLayer(source.positionMeters, faa.layers.buildings)) continue;
+    const referenceMeters = parkingAircraftReferencePoint(source, faa.layers.buildings);
+    if (!referenceMeters) continue;
     const position = roundPoint(
-      source.positionMeters.map((value) => value / WORLD_METERS_PER_UNIT),
+      referenceMeters.map((value) => value / WORLD_METERS_PER_UNIT),
       3,
     );
-    const neighbor = existingNodes
+    const sharedEntryNode = nodeMap.get(source.entryNodeId);
+    const neighbor = sharedEntryNode ?? existingNodes
       .map((node) => ({ node, distance: distance2d(position, node.position) }))
-      .filter((candidate) => candidate.distance <= 4)
+      .filter((candidate) => candidate.distance <= 5)
       .filter((candidate) => segmentLayerClearance(
-        source.positionMeters,
+        source.leadInMeters[0] ?? source.positionMeters,
         candidate.node.position.map((value) => value * WORLD_METERS_PER_UNIT),
         faa.layers.buildings,
         4,
       ) > 0)
       .sort((first, second) => first.distance - second.distance)[0]?.node;
     if (!neighbor) continue;
+    if (distance2d(position, neighbor.position) < 0.2) continue;
+    const sourceParkingPositionId = `${source.sourceType}/${source.sourceElementId}`;
     const node = {
-      id: `OSM-N${source.id}`,
-      sourceNodeId: source.id,
+      id: `OSM-P${source.sourceType === "way" ? "W" : "N"}${source.sourceElementId}`,
+      ...(source.sourceType === "node" ? { sourceNodeId: source.sourceElementId } : {}),
+      sourceParkingPositionId,
       kind: "taxiway",
       position,
       taxiwayIds: [],
@@ -675,13 +1026,12 @@ function attachParkingPositions(surface, faa, nodeMap, edges, taxiwayMap, edgeSe
       kind: "stand-lead-in",
       name: source.ref ? `Stand ${source.ref} lead-in` : "Parking stand lead-in",
       direction: "both",
-      width: 1.8,
+      width: STAND_LEAD_IN_WIDTH_WORLD,
       taxiwayId,
     };
     node.taxiwayIds.push(taxiwayId);
-    nodeMap.set(source.id, node);
+    nodeMap.set(sourceParkingPositionId, node);
     edges.push(edge);
-    existingNodes.push(node);
     let taxiway = taxiwayMap.get(taxiwayId);
     if (!taxiway) {
       taxiway = { id: taxiwayId, name: taxiwayName, edgeIds: [], sourceKind: "taxilane" };
@@ -692,7 +1042,39 @@ function attachParkingPositions(surface, faa, nodeMap, edges, taxiwayMap, edgeSe
   return edgeSequence;
 }
 
-function buildOperationalZones(faa, nodeMap, edges) {
+function parkingAircraftReferencePoint(source, buildingFeatures) {
+  if (source.sourceType !== "way" || source.leadInMeters.length < 2) return null;
+  const entry = source.leadInMeters[0];
+  const noseWheelStop = source.positionMeters;
+  const samples = reversePolylineSamples(source.leadInMeters, 2);
+  return samples.find((candidate) =>
+    distance2d(entry, candidate) >= 8
+    && distance2d(noseWheelStop, candidate) >= MINIMUM_STAND_REFERENCE_OFFSET_METERS
+    && segmentLayerClearance(entry, candidate, buildingFeatures, 3)
+      >= MINIMUM_STAND_REFERENCE_CLEARANCE_METERS
+  ) ?? null;
+}
+
+function reversePolylineSamples(points, stepMeters) {
+  const samples = [];
+  for (let index = points.length - 1; index > 0; index -= 1) {
+    const from = points[index];
+    const to = points[index - 1];
+    const length = distance2d(from, to);
+    const steps = Math.max(1, Math.ceil(length / stepMeters));
+    for (let step = 0; step <= steps; step += 1) {
+      if (samples.length && step === 0) continue;
+      const amount = step / steps;
+      samples.push([
+        from[0] + (to[0] - from[0]) * amount,
+        from[1] + (to[1] - from[1]) * amount,
+      ]);
+    }
+  }
+  return samples;
+}
+
+function buildOperationalZones(faa, nodeMap, edges, surface) {
   const zones = [];
   for (const obstacle of faa.runtimeReference.obstacles.filter(
     (candidate) => candidate.kind === "terminal",
@@ -754,6 +1136,27 @@ function buildOperationalZones(faa, nodeMap, edges) {
       standIds: [],
       classification: published ? "published" : "derived",
     });
+  }
+
+  for (const zone of zones.filter(
+    (candidate) =>
+      candidate.rings.length &&
+      ["remote-ramp", "terminal-apron"].includes(candidate.kind),
+  )) {
+    const terminalIds = new Set(
+      surface.parkingPositions
+        .filter((position) => position.terminalId)
+        .filter((position) => pointInRings(
+          position.positionMeters.map((value) => value / WORLD_METERS_PER_UNIT),
+          zone.rings,
+        ))
+        .map((position) => position.terminalId),
+    );
+    if (!terminalIds.size) continue;
+    zone.kind = "terminal-apron";
+    zone.name = terminalIds.size === 1
+      ? `${CDA_FACILITY_REFERENCE.terminals.find((terminal) => terminal.id === [...terminalIds][0])?.name ?? [...terminalIds][0]} apron`
+      : `Terminals ${[...terminalIds].map((id) => id.slice(1)).sort().join("–")} aprons`;
   }
 
   const maintenanceCandidate = zones
@@ -1033,6 +1436,12 @@ function buildSurfaceHotspots(faa, nodeMap, edges) {
 
 function selectStands(nodeMap, edges, degree, surface, faa, zones, maximum) {
   const sourceNodeById = new Map(surface.nodes.map((node) => [node.id, node]));
+  const parkingPositionById = new Map(
+    surface.parkingPositions.map((position) => [
+      `${position.sourceType}/${position.sourceElementId}`,
+      position,
+    ]),
+  );
   const edgeByNode = new Map();
   for (const edge of edges) {
     addArrayValue(edgeByNode, edge.from, edge);
@@ -1045,15 +1454,26 @@ function selectStands(nodeMap, edges, degree, surface, faa, zones, maximum) {
   const fallback = [];
   const airportWideEndpoints = [];
   for (const node of nodeMap.values()) {
-    if (typeof node.sourceNodeId !== "number") continue;
     if ((degree.get(node.id) ?? 0) !== 1) continue;
-    const source = sourceNodeById.get(node.sourceNodeId);
+    const parkingPosition = node.sourceParkingPositionId
+      ? parkingPositionById.get(node.sourceParkingPositionId)
+      : null;
+    const source = parkingPosition ?? sourceNodeById.get(node.sourceNodeId);
     if (!source) continue;
-    const positionMeters = source.positionMeters;
+    const positionMeters = node.position.map(
+      (value) => value * WORLD_METERS_PER_UNIT,
+    );
     const distance = distance2d(positionMeters, terminalMeters);
     const connectedEdges = edgeByNode.get(node.id) ?? [];
     const zone = operationalZoneForPoint(zones, node.position);
-    const candidate = { node, source, edge: connectedEdges[0], distance, zone };
+    const candidate = {
+      node,
+      source,
+      parkingPosition,
+      edge: connectedEdges[0],
+      distance,
+      zone,
+    };
     const rampEndpoint = connectedEdges.some((edge) =>
       edge.taxiwayId?.startsWith("RAMP-"),
     );
@@ -1079,12 +1499,21 @@ function selectStands(nodeMap, edges, degree, surface, faa, zones, maximum) {
       first.source.id - second.source.id,
   );
   const selected = [];
-  const addCandidates = (predicate, requested) => {
-    for (const minimumSpacing of [2.6, 2.4, 2.25]) {
+  const addCandidates = (predicate, requested, spacings = [2.6, 2.4, 2.25]) => {
+    for (const minimumSpacing of spacings) {
       for (const candidate of candidates.filter(predicate)) {
         if (selected.includes(candidate)) continue;
         const matching = selected.filter(predicate).length;
         if (matching >= requested || selected.length >= maximum) return;
+        if (
+          candidate.parkingPosition?.ref &&
+          selected.some(
+            (other) =>
+              other.parkingPosition?.terminalId === candidate.parkingPosition.terminalId &&
+              other.parkingPosition?.ref === candidate.parkingPosition.ref,
+          )
+        )
+          continue;
         if (
           selected.every(
             (other) =>
@@ -1097,14 +1526,23 @@ function selectStands(nodeMap, edges, degree, surface, faa, zones, maximum) {
       if (selected.filter(predicate).length >= requested) return;
     }
   };
+  for (const terminal of CDA_FACILITY_REFERENCE.terminals)
+    for (const concourse of terminal.concourses)
+      addCandidates(
+        (candidate) =>
+          candidate.parkingPosition?.concourse === concourse.id &&
+          Boolean(candidate.parkingPosition.sourceGateNodeId),
+        2,
+        [2.2, 2, 1.8],
+      );
   addCandidates((candidate) => candidate.zone?.kind === "cargo-ramp", 4);
-  addCandidates((candidate) => candidate.zone?.kind === "terminal-apron", 20);
+  addCandidates((candidate) => candidate.zone?.kind === "terminal-apron", 28, [2.2, 2, 1.8]);
   addCandidates((candidate) => candidate.zone?.kind === "general-aviation", 2);
   addCandidates(
     (candidate) => ["maintenance", "remote-ramp"].includes(candidate.zone?.kind),
     6,
   );
-  const target = Math.min(maximum, Math.max(24, Math.min(32, candidates.length)));
+  const target = Math.min(maximum, Math.max(32, Math.min(40, candidates.length)));
   addCandidates(() => true, target);
   if (selected.length < 16)
     throw new Error(
@@ -1126,12 +1564,15 @@ function selectStands(nodeMap, edges, degree, surface, faa, zones, maximum) {
           ? candidate.edge.to
           : candidate.edge.from;
       const neighbor = graphNodeById(nodeMap, neighborId);
-      const heading = neighbor
+      const sourcedHeading = candidate.parkingPosition
+        ? parkingPositionHeading(candidate.parkingPosition, candidate.node.position)
+        : null;
+      const heading = sourcedHeading ?? (neighbor
         ? Math.atan2(
             candidate.node.position[1] - neighbor.position[1],
             candidate.node.position[0] - neighbor.position[0],
           )
-        : 0;
+        : 0);
       const pushbackHeading = neighbor
         ? Math.atan2(
             neighbor.position[1] - candidate.node.position[1],
@@ -1152,6 +1593,7 @@ function selectStands(nodeMap, edges, degree, surface, faa, zones, maximum) {
         supportedCategories.push("widebody");
       if (
         maximumWingspanM >= 64.8
+        && !candidate.parkingPosition?.concourse
         && ["cargo-ramp", "maintenance", "remote-ramp"].includes(candidate.zone?.kind)
       )
         supportedCategories.push("cargo");
@@ -1160,7 +1602,16 @@ function selectStands(nodeMap, edges, degree, surface, faa, zones, maximum) {
         slot,
         nodeId: candidate.node.id,
         apronTaxiwayId: candidate.edge.taxiwayId,
-        terminal: standTerminal(candidate.zone),
+        terminal: candidate.parkingPosition?.terminal ?? standTerminal(candidate.zone),
+        ...(candidate.parkingPosition?.terminalId
+          ? { terminalId: candidate.parkingPosition.terminalId }
+          : {}),
+        ...(candidate.parkingPosition?.concourse
+          ? { concourse: candidate.parkingPosition.concourse }
+          : {}),
+        ...(candidate.parkingPosition?.ref
+          ? { gateRef: candidate.parkingPosition.ref }
+          : {}),
         position: candidate.node.position,
         heading: round(heading, 6),
         zoneId: candidate.zone?.id ?? "ZONE-TERMINAL-COMPLEX",
@@ -1169,11 +1620,55 @@ function selectStands(nodeMap, edges, degree, surface, faa, zones, maximum) {
         pushbackDirection: "straight",
         pushbackHeading: round(normalizeRadians(pushbackHeading), 6),
         rampNodeId: neighbor?.id ?? candidate.node.id,
-        ...(candidate.source.parkingPosition
-          ? { sourceParkingNodeId: candidate.source.id }
-          : {}),
+        ...(candidate.parkingPosition
+          ? {
+              sourceParkingPositionId: `${candidate.parkingPosition.sourceType}/${candidate.parkingPosition.sourceElementId}`,
+              ...(candidate.parkingPosition.sourceType === "node"
+                ? { sourceParkingNodeId: candidate.parkingPosition.sourceElementId }
+                : { sourceParkingWayId: candidate.parkingPosition.sourceElementId }),
+              ...(candidate.parkingPosition.sourceGateNodeId
+                ? { sourceGateNodeId: candidate.parkingPosition.sourceGateNodeId }
+                : {}),
+            }
+          : candidate.source.parkingPosition
+            ? { sourceParkingNodeId: candidate.source.id }
+            : {}),
       };
     });
+}
+
+function parkingPositionHeading(parkingPosition, worldPosition) {
+  const positionMeters = worldPosition.map(
+    (value) => value * WORLD_METERS_PER_UNIT,
+  );
+  let nearest = null;
+  for (let index = 0; index < parkingPosition.leadInMeters.length - 1; index += 1) {
+    const from = parkingPosition.leadInMeters[index];
+    const to = parkingPosition.leadInMeters[index + 1];
+    const distance = pointSegmentDistance(positionMeters, from, to);
+    if (!nearest || distance < nearest.distance)
+      nearest = { from, to, distance };
+  }
+  return nearest
+    ? Math.atan2(nearest.to[1] - nearest.from[1], nearest.to[0] - nearest.from[0])
+    : null;
+}
+
+function graphPassengerFacilities(surface, stands) {
+  return surface.passengerFacilities.map((facility) => ({
+    ...facility,
+    center: roundPoint(
+      facility.centerMeters.map((value) => value / WORLD_METERS_PER_UNIT),
+      3,
+    ),
+    standIds: stands
+      .filter((stand) =>
+        facility.kind === "terminal"
+          ? stand.terminalId === facility.terminalId
+          : stand.concourse === facility.concourse,
+      )
+      .map((stand) => stand.id),
+  })).map(({ centerMeters: _centerMeters, ...facility }) => facility);
 }
 
 function uniqueCandidates(candidates) {

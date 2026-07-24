@@ -28,6 +28,7 @@ export type SurfaceOperationalZoneKind =
 export interface SurfaceNode {
   id: string;
   sourceNodeId?: number;
+  sourceParkingPositionId?: string;
   kind: SurfaceNodeKind;
   position: [number, number];
   taxiwayIds: string[];
@@ -66,6 +67,9 @@ export interface SurfaceStand {
   nodeId: string;
   apronTaxiwayId: string;
   terminal: string;
+  terminalId?: string;
+  concourse?: string;
+  gateRef?: string;
   position: [number, number];
   heading: number;
   zoneId: string;
@@ -75,6 +79,41 @@ export interface SurfaceStand {
   pushbackHeading: number;
   rampNodeId: string;
   sourceParkingNodeId?: number;
+  sourceParkingWayId?: number;
+  sourceParkingPositionId?: string;
+  sourceGateNodeId?: number;
+}
+
+export interface SurfacePassengerFacility {
+  id: string;
+  kind: 'terminal' | 'concourse';
+  name: string;
+  terminalId: string;
+  terminal: string;
+  concourse?: string;
+  concourses?: string[];
+  sections?: string[];
+  center: [number, number];
+  publishedGateCount: number;
+  sourceElementIds: string[];
+  positionSource: 'osm-terminal' | 'osm-gate-centroid';
+  standIds: string[];
+}
+
+export interface PassengerFacilityReference {
+  provider: string;
+  url: string;
+  retrievedOn: string;
+  totalPassengerGates: number;
+  terminals: Array<{
+    id: string;
+    name: string;
+    concourses: Array<{
+      id: string;
+      publishedGateCount: number;
+      sections?: string[];
+    }>;
+  }>;
 }
 
 export interface SurfaceControlPoint {
@@ -120,7 +159,7 @@ export interface RunwaySurfaceAccess {
 }
 
 export interface AirportSurfaceGraph {
-  schemaVersion: 2;
+  schemaVersion: 3;
   airportCode: string;
   seed: number;
   source?: {
@@ -132,6 +171,8 @@ export interface AirportSurfaceGraph {
   edges: SurfaceEdge[];
   taxiways: SurfaceTaxiway[];
   stands: SurfaceStand[];
+  passengerFacilities: SurfacePassengerFacility[];
+  passengerFacilityReference?: PassengerFacilityReference;
   runwayAccess: RunwaySurfaceAccess[];
   controlPoints: SurfaceControlPoint[];
   zones: SurfaceOperationalZone[];
@@ -167,6 +208,7 @@ export interface SurfaceGraphValidation {
     edges: number;
     taxiways: number;
     stands: number;
+    passengerFacilities: number;
     intersections: number;
     holdShorts: number;
     controlPoints: number;
@@ -478,13 +520,14 @@ export function buildAirportSurfaceGraph(config: SurfaceGraphConfig): AirportSur
   }
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     airportCode: config.code,
     seed: config.seed,
     nodes,
     edges,
     taxiways: [...taxiwayById.values()],
     stands: stands.sort((first, second) => first.slot - second.slot),
+    passengerFacilities: [],
     runwayAccess,
     controlPoints,
     zones,
@@ -880,6 +923,14 @@ export function validateAirportSurfaceGraph(config: SurfaceGraphConfig & { surfa
     if (!graph.zones.some((zone) => zone.id === stand.zoneId)) errors.push(`stand ${stand.id} references missing zone ${stand.zoneId}`);
     if (stand.maximumWingspanM <= 0 || !stand.supportedCategories.length) errors.push(`stand ${stand.id} has no aircraft compatibility`);
   }
+  const passengerFacilityIds = new Set<string>();
+  for (const facility of graph.passengerFacilities) {
+    if (passengerFacilityIds.has(facility.id)) errors.push(`duplicate passenger facility ${facility.id}`);
+    passengerFacilityIds.add(facility.id);
+    if (!facility.center.every(Number.isFinite)) errors.push(`passenger facility ${facility.id} has a non-finite center`);
+    for (const standId of facility.standIds)
+      if (!graph.stands.some((stand) => stand.id === standId)) errors.push(`passenger facility ${facility.id} references missing stand ${standId}`);
+  }
   const controlPointIds = new Set<string>();
   for (const point of graph.controlPoints) {
     if (controlPointIds.has(point.id)) errors.push(`duplicate control point ${point.id}`);
@@ -926,6 +977,7 @@ export function validateAirportSurfaceGraph(config: SurfaceGraphConfig & { surfa
       edges: graph.edges.length,
       taxiways: graph.taxiways.length,
       stands: graph.stands.length,
+      passengerFacilities: graph.passengerFacilities.length,
       intersections: graph.nodes.filter((node) => node.kind === 'intersection').length,
       holdShorts: graph.nodes.filter((node) => node.kind === 'hold-short').length,
       controlPoints: graph.controlPoints.length,

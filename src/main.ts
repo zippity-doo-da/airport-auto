@@ -126,6 +126,7 @@ const mapDataVersion = $<HTMLElement>('#map-data-version');
 const mapDataAttribution = $<HTMLElement>('#map-data-attribution');
 const mapDataSource = $<HTMLAnchorElement>('#map-data-source');
 const mapSurfaceSource = $<HTMLAnchorElement>('#map-surface-source');
+const mapFacilitySource = $<HTMLAnchorElement>('#map-facility-source');
 const instructionCopy = $<HTMLElement>('#instruction-copy');
 const airportSelect = $<HTMLSelectElement>('#airport-select');
 const controlSelect = $<HTMLSelectElement>('#control-select');
@@ -775,11 +776,13 @@ function updateFlightChip(item: HTMLElement, flight: Flight): void {
   const motionText = acceleration > 0.06 ? `ACC +${acceleration.toFixed(1)} M/S²` : acceleration < -0.06 ? `BRAKE ${acceleration.toFixed(1)} M/S²` : 'SPEED STABLE';
   const fuel = Math.max(0, Math.min(100, kinematics.fuelPercent));
   const phase = held ? 'Hold' : formatPhase(flight.phase);
+  const stand = config.surfaceGraph.stands.find((candidate) => candidate.slot === flight.gateSlot);
+  const gateLabel = stand?.gateRef ? `Gate ${stand.gateRef}` : stand?.id ? `Stand ${stand.id}` : null;
   button.dataset.flightChip = String(flight.id);
   button.className = ['flight-chip', focusedFlightId === flight.id ? 'flight-chip--selected' : '', held ? 'flight-chip--hold' : '', flight.emergency ? 'flight-chip--emergency' : '', fuel < 15 ? 'flight-chip--low-fuel' : ''].filter(Boolean).join(' ');
   button.style.setProperty('--flight-accent', flight.palette === 'rose' ? 'var(--rose)' : flight.palette === 'sage' ? '#9bc8a0' : 'var(--blue)');
   button.style.setProperty('--fuel', `${fuel.toFixed(1)}%`);
-  button.setAttribute('aria-label', `${flight.callsign}, ${flight.aircraft}, ${phase}, fuel ${fuel.toFixed(0)} percent, ${speedLabel} ${speed.toFixed(0)} knots, altitude ${altitude} feet`);
+  button.setAttribute('aria-label', `${flight.callsign}, ${flight.aircraft}, ${phase}${gateLabel ? `, ${gateLabel}` : ''}, fuel ${fuel.toFixed(0)} percent, ${speedLabel} ${speed.toFixed(0)} knots, altitude ${altitude} feet`);
   const identity = button.querySelector('.flight-chip__identity')!;
   identity.querySelector('strong')!.textContent = flight.callsign;
   identity.querySelector('span')!.textContent = phase;
@@ -789,7 +792,7 @@ function updateFlightChip(item: HTMLElement, flight: Flight): void {
   metrics[1].querySelector('b')!.innerHTML = `${Math.round(speed)}<em>KT</em>`;
   metrics[2].querySelector('b')!.innerHTML = `${altitude.toLocaleString()}<em>FT</em>`;
   const detail = button.querySelector('.flight-chip__detail')!;
-  detail.children[0].textContent = `${flight.aircraft} · ${formatPhase(flight.phase)} · RWY ${runwayDesignation(flight.runway)}`;
+  detail.children[0].textContent = `${flight.aircraft} · ${formatPhase(flight.phase)} · ${gateLabel ?? `RWY ${runwayDesignation(flight.runway)}`}`;
   detail.children[1].textContent = `${verticalText} · ${motionText}`;
 }
 
@@ -842,7 +845,8 @@ function renderFlightActions(): void {
   const heading = document.createElement('header');
   heading.innerHTML = '<div><b></b><small></small></div><span></span>';
   heading.querySelector('b')!.textContent = flight.callsign;
-  heading.querySelector('small')!.textContent = `${flight.aircraft} · ${flight.origin} → ${flight.destination}`;
+  const stand = config.surfaceGraph.stands.find((candidate) => candidate.slot === flight.gateSlot);
+  heading.querySelector('small')!.textContent = `${flight.aircraft} · ${flight.origin} → ${flight.destination}${stand?.gateRef ? ` · Gate ${stand.gateRef}` : ''}`;
   heading.querySelector('span')!.textContent = simulation.state.station.toUpperCase();
   flightActions.append(heading);
   const controls = document.createElement('div');
@@ -1227,17 +1231,21 @@ function updateAirportUi(): void {
         ? `FAA geometry + OSM surface graph · ${effective}`
         : `FAA vector foundation · ${effective}`;
     mapDataAttribution.textContent = config.contextData
-      ? `${config.vectorData.attribution} Retrieved ${config.vectorData.retrievedOn}. ${config.contextData.attribution} Surface and surroundings retrieved through ${config.contextData.retrievedOn} · not for navigation.`
+      ? `${config.vectorData.attribution} Retrieved ${config.vectorData.retrievedOn}. ${config.contextData.attribution} Surface and surroundings retrieved through ${config.contextData.retrievedOn}.${config.surfaceData?.passengerFacilityReference ? ` ${config.surfaceData.passengerFacilityReference.provider} terminal inventory retrieved ${config.surfaceData.passengerFacilityReference.retrievedOn}.` : ''} · not for navigation.`
       : config.surfaceData
-        ? `${config.vectorData.attribution} Retrieved ${config.vectorData.retrievedOn}. ${config.surfaceData.attribution} Retrieved ${config.surfaceData.retrievedOn} · not for navigation.`
+        ? `${config.vectorData.attribution} Retrieved ${config.vectorData.retrievedOn}. ${config.surfaceData.attribution} Retrieved ${config.surfaceData.retrievedOn}.${config.surfaceData.passengerFacilityReference ? ` ${config.surfaceData.passengerFacilityReference.provider} terminal inventory retrieved ${config.surfaceData.passengerFacilityReference.retrievedOn}.` : ''} · not for navigation.`
         : `${config.vectorData.attribution} Retrieved ${config.vectorData.retrievedOn} · imported geometry staged · not for navigation.`;
     mapDataSource.hidden = false;
     mapSurfaceSource.hidden = !config.surfaceData;
+    mapFacilitySource.hidden = !config.surfaceData?.passengerFacilityReference;
+    if (config.surfaceData?.passengerFacilityReference)
+      mapFacilitySource.href = config.surfaceData.passengerFacilityReference.url;
   } else {
     mapDataVersion.textContent = center ? 'Purpose-built ATC schematic' : 'Procedural airfield';
     mapDataAttribution.textContent = 'Original generated scenery · not for navigation';
     mapDataSource.hidden = true;
     mapSurfaceSource.hidden = true;
+    mapFacilitySource.hidden = true;
   }
   document.title = `${config.code === 'LOCAL' ? config.name : config.code} · Airport Auto`;
   scopeButton.setAttribute('aria-pressed', String(center));
@@ -1416,6 +1424,7 @@ function airportSnapshot() {
           axes: { ...config.surfaceData.coordinateSystem.axes },
         },
         counts: { ...config.surfaceData.counts },
+        passengerFacilityReference: { ...config.surfaceData.passengerFacilityReference },
         validationRules: { ...config.surfaceData.validationRules },
         license: config.surfaceData.license,
         attribution: config.surfaceData.attribution,
@@ -1513,6 +1522,26 @@ function airportSnapshot() {
         position: [...stand.position],
         supportedCategories: [...stand.supportedCategories],
       })),
+      passengerFacilities: config.surfaceGraph.passengerFacilities.map((facility) => ({
+        ...facility,
+        center: [...facility.center],
+        concourses: facility.concourses ? [...facility.concourses] : undefined,
+        sections: facility.sections ? [...facility.sections] : undefined,
+        sourceElementIds: [...facility.sourceElementIds],
+        standIds: [...facility.standIds],
+      })),
+      passengerFacilityReference: config.surfaceGraph.passengerFacilityReference
+        ? {
+            ...config.surfaceGraph.passengerFacilityReference,
+            terminals: config.surfaceGraph.passengerFacilityReference.terminals.map((terminal) => ({
+              ...terminal,
+              concourses: terminal.concourses.map((concourse) => ({
+                ...concourse,
+                sections: concourse.sections ? [...concourse.sections] : undefined,
+              })),
+            })),
+          }
+        : undefined,
       runwayAccess: config.surfaceGraph.runwayAccess.map((access) => ({ ...access })),
       controlPoints: config.surfaceGraph.controlPoints.map((point) => ({ ...point, position: [...point.position] })),
       zones: config.surfaceGraph.zones.map((zone) => ({
@@ -1610,6 +1639,17 @@ function airportSnapshot() {
       trajectory: flightTrajectorySnapshot(flight),
       gateSlot: flight.gateSlot,
       stand: flight.standId,
+      gate: (() => {
+        const stand = config.surfaceGraph.stands.find((candidate) => candidate.slot === flight.gateSlot);
+        return stand ? {
+          id: stand.id,
+          ref: stand.gateRef ?? null,
+          terminalId: stand.terminalId ?? null,
+          terminal: stand.terminal,
+          concourse: stand.concourse ?? null,
+          maximumWingspanM: stand.maximumWingspanM,
+        } : null;
+      })(),
       cleared: flight.cleared,
       taxiway: flight.taxiway,
       surfaceRoute: flight.surfaceRoute ?? [],

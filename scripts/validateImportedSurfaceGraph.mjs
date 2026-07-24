@@ -26,9 +26,9 @@ check(manifest.assetSha256 === sha256(osmText), "OSM surface checksum mismatch")
 check(manifest.graphSha256 === sha256(graphText), "surface graph checksum mismatch");
 check(osm.airport?.icaoId === "KORD", "OSM asset is not for KORD");
 check(graph.airportCode === "ORD", "surface graph is not for ORD");
-check(osm.schemaVersion === 2, "OSM surface schemaVersion must be 2");
-check(graph.schemaVersion === 2, "surface graph schemaVersion must be 2");
-check(manifest.schemaVersion === 2, "surface manifest schemaVersion must be 2");
+check(osm.schemaVersion === 3, "OSM surface schemaVersion must be 3");
+check(graph.schemaVersion === 3, "surface graph schemaVersion must be 3");
+check(manifest.schemaVersion === 3, "surface manifest schemaVersion must be 3");
 check(
   osm.source?.license === "Open Data Commons Open Database License 1.0",
   "OSM ODbL license is missing",
@@ -53,6 +53,18 @@ check(
     minimumBuildingClearanceMeters,
   "surface manifest building-clearance rule differs from the asset",
 );
+check(
+  osm.validationRules?.minimumStandReferenceClearanceMeters === 42,
+  "gate stands must declare the 42 m aircraft-reference clearance rule",
+);
+check(
+  osm.validationRules?.minimumStandReferenceOffsetMeters === 24,
+  "gate stands must declare the 24 m nose-wheel-stop offset rule",
+);
+check(
+  osm.validationRules?.standLeadInWidthWorld === 0.7,
+  "gate stands must declare the 0.7-world-unit lead-in width",
+);
 
 const sourceNodes = new Map();
 for (const node of osm.nodes ?? []) {
@@ -76,6 +88,31 @@ for (const way of osm.ways ?? []) {
     check(sourceNodes.has(nodeId), `OSM way ${way.id} references node ${nodeId}`);
 }
 
+const sourceGates = new Map();
+for (const gate of osm.gates ?? []) {
+  check(!sourceGates.has(gate.id), `duplicate OSM gate node ${gate.id}`);
+  sourceGates.set(gate.id, gate);
+  check(String(gate.ref).trim(), `OSM gate ${gate.id} has no reference`);
+  validatePoint(gate.positionMeters, `OSM gate ${gate.id}`);
+}
+const sourceParkingPositions = new Map();
+for (const position of osm.parkingPositions ?? []) {
+  const id = `${position.sourceType}/${position.sourceElementId}`;
+  check(!sourceParkingPositions.has(id), `duplicate OSM parking position ${id}`);
+  sourceParkingPositions.set(id, position);
+  check(["node", "way"].includes(position.sourceType), `parking position ${id} has invalid source type`);
+  validatePoint(position.positionMeters, `parking position ${id}`);
+  check(Array.isArray(position.leadInMeters) && position.leadInMeters.length, `parking position ${id} has no lead-in geometry`);
+  for (const point of position.leadInMeters ?? []) validatePoint(point, `parking position ${id} lead-in`);
+  if (position.sourceGateNodeId !== undefined)
+    check(sourceGates.has(position.sourceGateNodeId), `parking position ${id} references missing gate ${position.sourceGateNodeId}`);
+}
+check(sourceGates.size >= 190, `expected at least 190 sourced gates, found ${sourceGates.size}`);
+check(sourceParkingPositions.size >= 200, `expected at least 200 sourced parking positions, found ${sourceParkingPositions.size}`);
+check(osm.passengerFacilityReference?.provider === "Chicago Department of Aviation", "official passenger-facility provider is missing");
+check(osm.passengerFacilityReference?.totalPassengerGates === 199, "official ORD passenger-gate total must be 199");
+check(manifest.passengerFacilityReference?.url === osm.passengerFacilityReference?.url, "manifest passenger-facility source differs");
+
 const nodes = new Map();
 for (const node of graph.nodes ?? []) {
   check(!nodes.has(node.id), `duplicate graph node ${node.id}`);
@@ -85,6 +122,11 @@ for (const node of graph.nodes ?? []) {
     check(
       sourceNodes.has(node.sourceNodeId),
       `graph node ${node.id} references missing source node ${node.sourceNodeId}`,
+    );
+  if (node.sourceParkingPositionId !== undefined)
+    check(
+      sourceParkingPositions.has(node.sourceParkingPositionId),
+      `graph node ${node.id} references missing parking position ${node.sourceParkingPositionId}`,
     );
 }
 const edges = new Map();
@@ -107,7 +149,8 @@ for (const edge of graph.edges ?? []) {
     `edge ${edge.id} has unknown kind ${edge.kind}`,
   );
   check(
-    Number.isFinite(edge.width) && edge.width >= 1.8,
+    Number.isFinite(edge.width)
+      && edge.width >= (edge.kind === "stand-lead-in" ? 0.55 : 1.8),
     `edge ${edge.id} has undersized width ${edge.width}`,
   );
   const from = nodes.get(edge.from)?.position;
@@ -307,6 +350,43 @@ for (const stand of stands) {
       sourceNodes.get(stand.sourceParkingNodeId)?.parkingPosition,
       `stand ${stand.id} references a non-parking OSM node`,
     );
+  if (stand.sourceParkingWayId !== undefined)
+    check(
+      sourceParkingPositions.has(`way/${stand.sourceParkingWayId}`),
+      `stand ${stand.id} references missing parking way ${stand.sourceParkingWayId}`,
+    );
+  if (stand.sourceParkingPositionId !== undefined)
+    check(
+      sourceParkingPositions.has(stand.sourceParkingPositionId),
+      `stand ${stand.id} references missing parking position ${stand.sourceParkingPositionId}`,
+    );
+  if (stand.sourceParkingPositionId !== undefined) {
+    const sourceParking = sourceParkingPositions.get(stand.sourceParkingPositionId);
+    const standMeters = stand.position.map((value) => value * 38);
+    const leadInDistance = Math.min(
+      ...(sourceParking?.leadInMeters ?? []).slice(1).map((point, index) =>
+        pointSegmentDistance(standMeters, sourceParking.leadInMeters[index], point),
+      ),
+    );
+    check(sourceParking?.sourceType === "way", `stand ${stand.id} is not derived from a directed parking way`);
+    check(leadInDistance <= 0.1, `stand ${stand.id} aircraft reference is not on its sourced lead-in`);
+    check(
+      sourceParking && distance(standMeters, sourceParking.positionMeters) >= 23.9,
+      `stand ${stand.id} incorrectly uses the OSM nose-wheel stop as its aircraft center`,
+    );
+  }
+  if (stand.sourceGateNodeId !== undefined)
+    check(sourceGates.has(stand.sourceGateNodeId), `stand ${stand.id} references missing gate ${stand.sourceGateNodeId}`);
+  if (stand.concourse) {
+    const expectedTerminal = new Map([
+      ["B", "T1"], ["C", "T1"], ["E", "T2"], ["F", "T2"],
+      ["G", "T3"], ["H", "T3"], ["K", "T3"], ["L", "T3"], ["M", "T5"],
+    ]).get(stand.concourse);
+    check(stand.terminalId === expectedTerminal, `stand ${stand.id} has inconsistent terminal/concourse identity`);
+    check(String(stand.gateRef).startsWith(stand.concourse), `stand ${stand.id} gate reference does not match its concourse`);
+    check(stand.sourceParkingPositionId, `passenger stand ${stand.id} has no sourced parking position`);
+    check(stand.sourceGateNodeId !== undefined, `passenger stand ${stand.id} has no sourced gate`);
+  }
 }
 for (const zone of zones.values())
   for (const standId of zone.standIds)
@@ -315,6 +395,11 @@ for (const category of categoryWingspans.keys())
   check(
     stands.filter((stand) => stand.supportedCategories.includes(category)).length >= 2,
     `ORD has fewer than two ${category}-compatible stands`,
+  );
+for (const concourse of ["B", "C", "E", "F", "G", "H", "K", "L", "M"])
+  check(
+    stands.filter((stand) => stand.concourse === concourse).length >= 2,
+    `ORD has fewer than two sampled stands for Concourse ${concourse}`,
   );
 for (let first = 0; first < stands.length; first += 1)
   for (let second = first + 1; second < stands.length; second += 1)
@@ -325,6 +410,28 @@ for (let first = 0; first < stands.length; first += 1)
 check(
   minimumStandSpacing >= 1.8,
   `stand spacing ${minimumStandSpacing.toFixed(3)} is undersized`,
+);
+
+const passengerFacilities = new Map();
+for (const facility of graph.passengerFacilities ?? []) {
+  check(!passengerFacilities.has(facility.id), `duplicate passenger facility ${facility.id}`);
+  passengerFacilities.set(facility.id, facility);
+  validatePoint(facility.center, `passenger facility ${facility.id}`);
+  check(["terminal", "concourse"].includes(facility.kind), `passenger facility ${facility.id} has invalid kind`);
+  check(Number.isInteger(facility.publishedGateCount) && facility.publishedGateCount > 0, `passenger facility ${facility.id} has no published gate count`);
+  check(Array.isArray(facility.sourceElementIds) && facility.sourceElementIds.length, `passenger facility ${facility.id} has no source elements`);
+  for (const standId of facility.standIds)
+    check(standIds.has(standId), `passenger facility ${facility.id} references missing stand ${standId}`);
+}
+for (const terminal of ["T1", "T2", "T3", "T5"])
+  check(passengerFacilities.has(`ORD-${terminal}`), `ORD passenger facility ${terminal} is missing`);
+for (const concourse of ["B", "C", "E", "F", "G", "H", "K", "L", "M"])
+  check(passengerFacilities.has(`ORD-CONCOURSE-${concourse}`), `ORD Concourse ${concourse} is missing`);
+check(
+  [...passengerFacilities.values()]
+    .filter((facility) => facility.kind === "terminal")
+    .reduce((total, facility) => total + facility.publishedGateCount, 0) === 199,
+  "passenger terminal gate counts do not sum to the official 199-gate total",
 );
 
 check(
@@ -486,9 +593,13 @@ check(sharpTurns === 0, `${sharpTurns} degree-two nodes require an impossible re
 
 check(manifest.counts.sourceNodes === osm.nodes.length, "manifest source-node count differs");
 check(manifest.counts.sourceWays === osm.ways.length, "manifest source-way count differs");
+check(manifest.counts.parkingPositions === sourceParkingPositions.size, "manifest parking-position count differs");
+check(manifest.counts.gates === sourceGates.size, "manifest gate count differs");
+check(manifest.counts.passengerFacilities === (osm.passengerFacilities ?? []).length, "manifest passenger-facility count differs");
 check(manifest.counts.graphNodes === graph.nodes.length, "manifest graph-node count differs");
 check(manifest.counts.graphEdges === graph.edges.length, "manifest graph-edge count differs");
 check(manifest.counts.stands === stands.length, "manifest stand count differs");
+check(manifest.counts.passengerStands === stands.filter((stand) => stand.concourse).length, "manifest passenger-stand count differs");
 check(manifest.counts.controlPoints === controlPoints.size, "manifest control-point count differs");
 check(manifest.counts.operationalZones === zones.size, "manifest operational-zone count differs");
 check(manifest.counts.hotspots === hotspots.length, "manifest hot-spot count differs");
@@ -506,7 +617,7 @@ if (errors.length) {
   process.exitCode = 1;
 } else {
   process.stdout.write(
-    `KORD imported surface graph valid: ${nodes.size} nodes, ${edges.size} edges, ${taxiways.size} named/source routes, ${stands.length} compatible stands, ${zones.size} operational zones, ${controlPoints.size} control points, ${hotspots.length} FAA hot spots, ${crossingEdges} protected crossing edges, ${routeChecks} stand/runway routes\n`,
+    `KORD imported surface graph valid: ${nodes.size} nodes, ${edges.size} edges, ${taxiways.size} named/source routes, ${stands.length} compatible stands across ${passengerFacilities.size} passenger facilities, ${zones.size} operational zones, ${controlPoints.size} control points, ${hotspots.length} FAA hot spots, ${crossingEdges} protected crossing edges, ${routeChecks} stand/runway routes\n`,
   );
 }
 

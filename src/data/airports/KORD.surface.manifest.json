@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "airport": {
     "faaId": "ORD",
     "icaoId": "KORD",
@@ -9,8 +9,8 @@
   },
   "assetPath": "data/airports/KORD.osm-surface.json",
   "graphPath": "src/data/airports/KORD.surfaceGraph.json",
-  "assetSha256": "0dfeffa8c14e40577ef60d0eeb1ef705e97b213ef7ada89be8bd3a4460896880",
-  "graphSha256": "9ed462ab45bf68559799b4ed8dcc3e540dc27fcc0e95d714545bce2563e356a3",
+  "assetSha256": "e7d614ab31bf650741aa7109749caeefc446e7e36c12901b09ed0edc0befdbf9",
+  "graphSha256": "4ca4bba51ed8e6c777f5288fc7e4910958f459167e4f6854497d8c4d5d7ac7bc",
   "retrievedOn": "2026-07-24",
   "coordinateSystem": {
     "source": "EPSG:4326",
@@ -30,24 +30,40 @@
   "source": {
     "provider": "OpenStreetMap",
     "endpoint": "https://overpass-api.de/api/interpreter",
-    "query": "[out:json][timeout:120];(way(41.9424586,-87.9451272,42.0169882,-87.8659851)[\"aeroway\"~\"^(taxiway|taxilane|runway)$\"];node(41.9424586,-87.9451272,42.0169882,-87.8659851)[\"aeroway\"=\"parking_position\"];);out body;>;out skel qt;",
-    "osmBaseTimestamp": "2026-07-24T05:08:06Z",
+    "query": "[out:json][timeout:180];(way(41.9424586,-87.9451272,42.0169882,-87.8659851)[\"aeroway\"~\"^(taxiway|taxilane|runway)$\"];nwr(41.9424586,-87.9451272,42.0169882,-87.8659851)[\"aeroway\"=\"parking_position\"];node(41.9424586,-87.9451272,42.0169882,-87.8659851)[\"aeroway\"=\"gate\"];nwr(41.9424586,-87.9451272,42.0169882,-87.8659851)[\"aeroway\"=\"terminal\"];);out body center;>;out skel qt;",
+    "osmBaseTimestamp": "2026-07-24T08:44:06Z",
     "license": "Open Data Commons Open Database License 1.0",
     "attribution": "© OpenStreetMap contributors",
     "copyrightUrl": "https://www.openstreetmap.org/copyright"
   },
+  "passengerFacilityReference": {
+    "provider": "Chicago Department of Aviation",
+    "url": "https://www.flychicago.com/business/CDA/factsfigures/Pages/facility.aspx",
+    "retrievedOn": "2026-07-24",
+    "totalPassengerGates": 199
+  },
   "validationRules": {
-    "minimumBuildingClearanceMeters": 51
+    "minimumBuildingClearanceMeters": 51,
+    "minimumStandReferenceClearanceMeters": 42,
+    "minimumStandReferenceOffsetMeters": 24,
+    "standLeadInWidthWorld": 0.7
   },
   "counts": {
     "sourceNodes": 7012,
     "sourceWays": 1008,
+    "parkingPositions": 364,
+    "passengerParkingPositions": 232,
+    "gates": 219,
+    "passengerFacilities": 13,
+    "passengerTerminals": 4,
+    "passengerConcourses": 9,
     "excludedWays": 42,
     "excludedSegments": 133,
-    "graphNodes": 2799,
-    "graphEdges": 3524,
+    "graphNodes": 2958,
+    "graphEdges": 3683,
     "taxiways": 939,
-    "stands": 25,
+    "stands": 40,
+    "passengerStands": 28,
     "runwayAccess": 16,
     "controlPoints": 248,
     "operationalZones": 35,

@@ -36,7 +36,7 @@ This document contains only unfinished, still-valid work. Shipped behavior belon
 - [x] Import the major named taxiways, direction-aware segments, intersections, bridges/tunnels where relevant, and published hot spots.
 - [x] Generate explicit hold-short, runway-entry, crossing, line-up, and departure-release points from the graph.
 - [x] Model the terminal complex, terminal/remote ramps, cargo areas, maintenance area, deicing pads, holding pads, and perimeter routes as separate operational zones.
-- [ ] Split ORD passenger facilities into distinct terminals and concourses and associate sourced gate/stand positions with them.
+- [x] Split ORD passenger facilities into distinct terminals and concourses and associate sourced gate/stand positions with them.
 - [x] Add unique stands with aircraft-size compatibility, pushback direction, ramp access, and occupancy constraints.
 - [x] Derive actual route-crossing clearances from the imported route and protected runway zones.
 - [x] Support coherent ORD east-flow and west-flow runway configurations without moving visual markers to the wrong threshold.
