@@ -16,6 +16,12 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
 
   const proposalButton = page.locator('#clearance-advisor button[data-proposal-id]');
   await expect(proposalButton).toBeVisible();
+  const advisorControlStayedMounted = await page.evaluate(async () => {
+    const button = document.querySelector('#clearance-advisor button[data-proposal-id]');
+    await new Promise((resolve) => window.setTimeout(resolve, 350));
+    return button === document.querySelector('#clearance-advisor button[data-proposal-id]');
+  });
+  expect(advisorControlStayedMounted).toBeTruthy();
   await proposalButton.click();
   await expect(page.locator('#status-detail')).not.toHaveText('');
 

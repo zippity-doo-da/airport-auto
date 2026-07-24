@@ -157,6 +157,16 @@ const flightStripCount = $<HTMLElement>('#flight-strip-count');
 const flightChips = $<HTMLElement>('#flight-chips');
 const flightActions = $<HTMLElement>('#flight-actions');
 const clearanceAdvisor = $<HTMLElement>('#clearance-advisor');
+const clearanceAdvisorHeader = document.createElement('header');
+const clearanceAdvisorIdentity = document.createElement('div');
+const clearanceAdvisorTitle = document.createElement('b');
+const clearanceAdvisorStation = document.createElement('small');
+const clearanceAdvisorButton = document.createElement('button');
+const clearanceAdvisorReason = document.createElement('p');
+clearanceAdvisorButton.type = 'button';
+clearanceAdvisorIdentity.append(clearanceAdvisorTitle, clearanceAdvisorStation);
+clearanceAdvisorHeader.append(clearanceAdvisorIdentity, clearanceAdvisorButton);
+clearanceAdvisor.replaceChildren(clearanceAdvisorHeader, clearanceAdvisorReason);
 const zoomInButton = $<HTMLButtonElement>('#zoom-in');
 const zoomOutButton = $<HTMLButtonElement>('#zoom-out');
 const cameraResetButton = $<HTMLButtonElement>('#camera-reset');
@@ -814,7 +824,6 @@ function renderFlightActions(): void {
 }
 
 function renderClearanceAdvisor(): void {
-  clearanceAdvisor.replaceChildren();
   clearanceAdvisor.hidden = simulation.state.mode !== 'assisted' || replayMode;
   if (clearanceAdvisor.hidden) return;
   const authority = (proposal: ClearanceProposal): boolean => {
@@ -826,28 +835,22 @@ function renderClearanceAdvisor(): void {
   const available = simulation.clearanceProposals().filter(authority);
   const proposal = available.find((item) => item.flightId === focusedFlightId) ?? available[0];
   if (!proposal) {
-    const quiet = document.createElement('p');
-    quiet.textContent = 'Advisor monitoring · no clearance needs approval';
-    clearanceAdvisor.append(quiet);
+    clearanceAdvisorHeader.hidden = true;
+    delete clearanceAdvisorButton.dataset.proposalId;
+    clearanceAdvisorReason.textContent = 'Advisor monitoring · no clearance needs approval';
+    clearanceAdvisorReason.style.marginTop = '0';
+    clearanceAdvisor.dataset.priority = 'quiet';
     return;
   }
   const flight = simulation.state.flights.find((item) => item.id === proposal.flightId);
-  const header = document.createElement('header');
-  const identity = document.createElement('div');
-  const title = document.createElement('b');
-  const station = document.createElement('small');
-  title.textContent = `${proposal.priority === 'urgent' ? 'Priority · ' : ''}${flight?.callsign ?? `Flight ${proposal.flightId}`}`;
-  station.textContent = `${proposal.station.toUpperCase()} PROPOSAL`;
-  identity.append(title, station);
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.dataset.proposalId = proposal.id;
-  button.textContent = proposal.label;
-  header.append(identity, button);
-  const reason = document.createElement('p');
-  reason.textContent = proposal.reason;
+  clearanceAdvisorHeader.hidden = false;
+  clearanceAdvisorTitle.textContent = `${proposal.priority === 'urgent' ? 'Priority · ' : ''}${flight?.callsign ?? `Flight ${proposal.flightId}`}`;
+  clearanceAdvisorStation.textContent = `${proposal.station.toUpperCase()} PROPOSAL`;
+  clearanceAdvisorButton.dataset.proposalId = proposal.id;
+  clearanceAdvisorButton.textContent = proposal.label;
+  clearanceAdvisorReason.textContent = proposal.reason;
+  clearanceAdvisorReason.style.removeProperty('margin-top');
   clearanceAdvisor.dataset.priority = proposal.priority;
-  clearanceAdvisor.append(header, reason);
 }
 
 function applyClearanceProposal(proposal: ClearanceProposal): void {
