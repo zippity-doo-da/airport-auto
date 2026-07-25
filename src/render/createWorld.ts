@@ -120,7 +120,7 @@ export type WorldDiagnostics = {
 };
 
 export interface AirportWorld {
-  update(state: AirportState, delta: number, renderFrame?: boolean): void;
+  update(state: AirportState, delta: number): void;
   nextView(): void;
   pickFlight(clientX: number, clientY: number): number | null;
   pickRunway(clientX: number, clientY: number): number | null;
@@ -276,7 +276,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     camera.updateProjectionMatrix();
   }
 
-  function update(state: AirportState, delta: number, renderFrame = true): void {
+  function update(state: AirportState, delta: number): void {
     currentState = state;
     cameraTime += delta;
     const baseWeatherFog = state.weather.condition === 'fog' ? 0.0074 : state.weather.condition === 'snow' ? 0.0064 : state.weather.condition === 'rain' ? 0.0052 : 0.0032;
@@ -479,7 +479,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     }
     const drift = reducedMotion || manualCameraActive ? 0 : 1;
     applyCameraPose(drift);
-    if (renderFrame) renderer.render(scene, camera);
+    renderer.render(scene, camera);
   }
 
   function applyCameraPose(drift: number): void {

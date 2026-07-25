@@ -351,6 +351,7 @@ const minimumRenderInterval = Number.isFinite(requestedRenderFps) && requestedRe
   ? 1_000 / requestedRenderFps
   : 0;
 let lastWorldRender = -Infinity;
+let worldDeltaAccumulator = 0;
 debugPanel.hidden = !debugEnabled;
 updateAirportUi();
 updateNightControl();
@@ -798,6 +799,7 @@ function clearRoute(): void {
 function frame(now: number): void {
   const delta = Math.min(0.1, (now - lastTime) / 1000);
   lastTime = now;
+  worldDeltaAccumulator = Math.min(0.25, worldDeltaAccumulator + delta);
   const renderWorld = minimumRenderInterval === 0 || now - lastWorldRender >= minimumRenderInterval;
   if (renderWorld) {
     renderedFrames += 1;
@@ -963,7 +965,10 @@ function frame(now: number): void {
     if (event.type === 'recovery-complete') setStatus(`${event.flight.callsign} recovered`, event.detail ?? 'movement area inspected and reopened');
   }
 
-  world.update(replayMode ? displayedState : presentationState(), delta, renderWorld);
+  if (renderWorld) {
+    world.update(replayMode ? displayedState : presentationState(), worldDeltaAccumulator);
+    worldDeltaAccumulator = 0;
+  }
   if (radarVisible && now - lastRadarUpdate >= 80) {
     drawRadar(displayedState);
     lastRadarUpdate = now;
