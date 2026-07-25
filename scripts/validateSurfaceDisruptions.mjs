@@ -149,10 +149,11 @@ assert(advanceUntil(recoveryHarness, () => Boolean(activeTaxiFlight(recoverySimu
 const disabled = activeTaxiFlight(recoverySimulation);
 assert(disabled, 'taxi flight disappeared before disabled-aircraft test');
 recoverySimulation.setMode('manual');
-recoverySimulation.setStation('ground');
+recoverySimulation.setStation('supervisor');
 assert(recoverySimulation.triggerEmergency(disabled.id, 'disabled'), 'surface disable command was rejected: ' + recoverySimulation.lastCommandReason());
 const disabledRestriction = recoverySimulation.state.surfaceDisruptions.find((candidate) => candidate.flightId === disabled.id);
 assert(disabledRestriction?.status === 'active', 'disabled aircraft did not protect its occupied pavement');
+recoverySimulation.setStation('ground');
 assert(recoverySimulation.recoverDisabledAircraft(disabled.id), 'Ground could not dispatch disabled-aircraft recovery');
 assert(disabledRestriction.status === 'recovering', 'recovery dispatch did not enter recovering state');
 recoverySimulation.setMode('auto');

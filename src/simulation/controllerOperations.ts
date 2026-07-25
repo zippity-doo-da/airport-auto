@@ -87,10 +87,56 @@ export function controllerStationIsAhead(
   required: OperationalControllerStation,
 ): boolean {
   if (current === 'supervisor') return false;
-  const sequence: OperationalControllerStation[] = flight.phase === 'taxi-out' || flight.phase === 'takeoff'
+  const sequence = controllerFlowSequence(flight);
+  return sequence.indexOf(current) === sequence.indexOf(required) + 1;
+}
+
+export function controllerFlowSequence(flight: Flight): OperationalControllerStation[] {
+  return flight.flightPlan.direction === 'departure'
     ? ['ramp', 'ground', 'tower', 'approach']
     : ['approach', 'tower', 'ground', 'ramp'];
-  return sequence.indexOf(current) === sequence.indexOf(required) + 1;
+}
+
+export function nextControllerStation(
+  flight: Flight,
+  current: ControllerStation = flight.navigation.frequencyOwner,
+): OperationalControllerStation | null {
+  if (!isOperationalControllerStation(current)) return null;
+  const sequence = controllerFlowSequence(flight);
+  const index = sequence.indexOf(current);
+  return index >= 0 && index < sequence.length - 1 ? sequence[index + 1] : null;
+}
+
+/**
+ * The next controller that should be coordinated now. The readiness window
+ * opens before the physical boundary so a human position has time to respond.
+ */
+export function suggestedHandoffStation(flight: Flight): OperationalControllerStation | null {
+  const owner = flight.navigation.frequencyOwner;
+  if (!isOperationalControllerStation(owner)) return null;
+  const required = requiredControllerStation(flight);
+  if (required !== owner) {
+    return controllerStationIsAhead(flight, owner, required) ? null : required;
+  }
+  const next = nextControllerStation(flight, owner);
+  if (!next) return null;
+  if (owner === 'approach') return flight.phase === 'approach' && flight.progress >= 0.56 ? 'tower' : null;
+  if (owner === 'tower' && flight.flightPlan.direction === 'arrival') {
+    return flight.phase === 'landing' || (flight.phase === 'taxi-in' && flight.progress >= 0.08) ? 'ground' : null;
+  }
+  if (owner === 'ground' && flight.flightPlan.direction === 'arrival') {
+    return flight.phase === 'taxi-in' && (flight.progress >= 0.72 || Boolean(flight.rampControlZoneId)) ? 'ramp' : null;
+  }
+  if (owner === 'ramp') {
+    return flight.phase === 'taxi-out'
+      && !flight.tugAttached
+      && flight.progress >= Math.max(0.025, flight.pushbackReleaseProgress)
+      ? 'ground'
+      : null;
+  }
+  if (owner === 'ground') return flight.phase === 'taxi-out' && flight.progress >= 0.94 ? 'tower' : null;
+  if (owner === 'tower') return flight.phase === 'takeoff' && !flight.motion.onGround ? 'approach' : null;
+  return null;
 }
 
 export function controllerWorkloadSnapshots(
@@ -100,11 +146,15 @@ export function controllerWorkloadSnapshots(
   return OPERATIONAL_CONTROLLER_STATIONS.map((station) => {
     const relevant = flights.filter((flight) => requiredControllerStation(flight) === station);
     const owned = flights.filter((flight) => flight.navigation.frequencyOwner === station);
-    const pendingHandoffs = relevant.filter((flight) => (
-      flight.navigation.frequencyOwner !== station
-      && !controllerStationIsAhead(flight, flight.navigation.frequencyOwner, station)
-    )).length;
+    const pendingHandoffs = flights.filter((flight) => {
+      const handoff = flight.navigation.handoff;
+      if (handoff && handoff.to === station && (handoff.status === 'offered' || handoff.status === 'accepted' || handoff.status === 'overdue')) return true;
+      return requiredControllerStation(flight) === station
+        && flight.navigation.frequencyOwner !== station
+        && !controllerStationIsAhead(flight, flight.navigation.frequencyOwner, station);
+    }).length;
     const overdueFlights = relevant.filter((flight) => {
+      if (flight.navigation.handoff?.to === station && flight.navigation.handoff.status === 'overdue') return true;
       if (flight.navigation.frequencyOwner === station) return false;
       if (station === 'tower') return flight.phase === 'landing' || (flight.phase === 'taxi-out' && flight.progress >= 0.99);
       if (station === 'ground') return flight.phase === 'taxi-in' && flight.progress >= 0.08;

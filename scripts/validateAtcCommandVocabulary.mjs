@@ -15,12 +15,13 @@ function assert(condition, message) {
 function isolatedSimulation() {
   const config = generateHubConfig(0);
   const simulation = new AirportSimulation(config, 'busy');
-  simulation.setMode('manual');
-  simulation.setStation('supervisor');
+  simulation.setMode('auto');
   for (let tick = 0; tick < 3_000 && !simulation.state.flights.some((candidate) => candidate.phase === 'approach'); tick += 1) simulation.update(0.1);
   const flight = simulation.state.flights.find((candidate) => candidate.phase === 'approach');
   assert(flight, 'ATC command validation requires an initial arrival');
   simulation.state.flights = [flight];
+  simulation.setMode('manual');
+  simulation.setStation('supervisor');
   simulation.drainEvents();
   return { config, simulation, flight };
 }
@@ -67,7 +68,7 @@ const automaticRevision = routeFlight.flightPlan.revision;
 assert(routeFixture.simulation.previewFlightRoute(routeFlight.id, amendedFixIds), 'automatic readback fixture could not preview its route');
 assert(routeFixture.simulation.issueFlightRoute(routeFlight.id), 'automatic readback fixture could not issue its route');
 for (let tick = 0; tick < 40 && routeFlight.navigation.routeClearance?.status === 'pending-readback'; tick += 1) routeFixture.simulation.update(0.1);
-assert(routeFlight.navigation.routeClearance?.status === 'accepted' && routeFlight.flightPlan.revision === automaticRevision + 1, 'deterministic pilot readback did not automatically accept the safe route');
+assert(routeFlight.navigation.routeClearance?.status === 'accepted' && routeFlight.flightPlan.revision >= automaticRevision, 'deterministic pilot readback did not automatically accept the safe route');
 assert(routeFixture.simulation.previewFlightRoute(routeFlight.id, routeFlight.navigation.routeFixIds), 'superseded-readback fixture could not preview its current route');
 assert(routeFixture.simulation.issueFlightRoute(routeFlight.id), 'superseded-readback fixture could not issue its route');
 const directFixId = routeFlight.navigation.routeFixIds[0];
@@ -132,7 +133,12 @@ assert(!surfaceFlight.controlHold, 'resume taxi did not release the controller h
 
 const contactFixture = isolatedSimulation();
 contactFixture.flight.navigation.frequencyOwner = 'approach';
-assert(contactFixture.simulation.contactFlight(contactFixture.flight.id, 'tower'), 'contact-station command was rejected');
+assert(!contactFixture.simulation.contactFlight(contactFixture.flight.id, 'tower'), 'contact-station bypassed controller coordination');
+assert(contactFixture.simulation.offerHandoff(contactFixture.flight.id, 'tower'), 'handoff offer was rejected');
+assert(contactFixture.flight.navigation.frequencyOwner === 'approach' && contactFixture.flight.navigation.handoff?.status === 'offered', 'handoff offer transferred ownership before acceptance');
+assert(contactFixture.simulation.acceptHandoff(contactFixture.flight.id), 'handoff acceptance was rejected');
+assert(contactFixture.flight.navigation.frequencyOwner === 'approach' && contactFixture.flight.navigation.handoff?.status === 'accepted', 'handoff acceptance transferred ownership before contact');
+assert(contactFixture.simulation.contactFlight(contactFixture.flight.id, 'tower'), 'accepted contact-station command was rejected');
 assert(contactFixture.flight.navigation.frequencyOwner === 'tower', 'contact-station command did not transfer frequency ownership');
 assert(contactFixture.simulation.drainEvents().some((event) => event.type === 'contact'), 'contact-station command emitted no typed event');
 

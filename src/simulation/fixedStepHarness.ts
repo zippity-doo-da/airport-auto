@@ -586,6 +586,10 @@ function snapshotMetrics(metrics: ShiftMetrics): ShiftMetrics {
     runwayIncursions: metrics.runwayIncursions,
     unexplainedPauses: metrics.unexplainedPauses,
     longestHoldSeconds: round(metrics.longestHoldSeconds),
+    handoffOffers: metrics.handoffOffers,
+    handoffAcceptances: metrics.handoffAcceptances,
+    handoffRejections: metrics.handoffRejections,
+    missedHandoffs: metrics.missedHandoffs,
   };
 }
 

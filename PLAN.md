@@ -303,6 +303,16 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Expose non-mutating preview and atomic issue commands, structured data, current UI selection, and per-aircraft `group-instruction` events through API 2.19 / snapshot schema 21 while keeping multi-flight `controlFlights` as an atomic legacy alias.
 - [x] Add deterministic coverage for airborne pace, surface hold/resume, safety-hold preservation, ownership, mixed domain/authority, duplicate/unknown IDs, and forbidden expedite plus a browser interaction and screenshot regression.
 
+## Airport Auto 2.20 — staged controller coordination
+
+- [x] Replace instant ownership swaps with explicit offer, accept/reject, contact, cancel, overdue, and completed handoff states; only the final contact instruction changes frequency ownership.
+- [x] Preserve Approach → Tower → Ground → Ramp arrival flow and Ramp → Ground → Tower → Approach departure flow with adjacency checks and Supervisor authority.
+- [x] Make unstaffed positions use the same deterministic staged protocol with delayed receipt and contact instead of bypassing coordination.
+- [x] Add a compact per-station coordination inbox and selected-flight controls for requests, responses, cancellation, contact, status, deadline, and camera focus.
+- [x] Convert unanswered and boundary-missed handoffs into typed overdue requests, workload pressure, shift metrics, explainable delay, and protected Ramp/Ground boundary holds.
+- [x] Expose versioned handoff records, structured commands, typed events, deep-cloned replay/snapshot state, and compatibility `handoffFlight` offer behavior through API 2.20 / snapshot schema 22.
+- [x] Add deterministic manual, automated, rejection, overdue, recovery, wrong-station, event, metric, and surface-boundary validation plus a browser coordination-inbox workflow and screenshot gate.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.

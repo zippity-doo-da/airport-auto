@@ -10,11 +10,12 @@ function assert(condition, message) {
 
 const config = generateHubConfig(0);
 const simulation = new AirportSimulation(config, 'quiet');
-simulation.setMode('manual');
-simulation.setStation('supervisor');
+simulation.setMode('auto');
 for (let tick = 0; tick < 3_000 && !simulation.state.flights.some((flight) => flight.phase === 'approach'); tick += 1) simulation.update(0.1);
 const first = simulation.state.flights.find((flight) => flight.phase === 'approach');
 assert(first, 'group validation requires an initial arrival');
+simulation.setMode('manual');
+simulation.setStation('supervisor');
 const second = structuredClone(first);
 second.id += 10_000;
 second.callsign = 'GROUP 2';

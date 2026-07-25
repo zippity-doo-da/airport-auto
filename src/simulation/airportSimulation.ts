@@ -1,5 +1,5 @@
 import type { AirportConfig, AirportRunwayConfiguration, RunwayOperationalRole } from './airportConfig';
-import type { AirportEvent, AirportState, ClearanceProposal, ConflictPrediction, ControlMode, ControllerStation, ControllerWorkloadSnapshot, EmergencyType, Flight, FlightInstruction, FlightNavigationState, FlightOperationPlan, FlightPhase, FlightRouteClearanceState, FlightRunwayExitState, GroupInstructionIssueResult, GroupInstructionPreview, OperationalControllerStation, ServiceVehicleState, ShiftMetrics, SurfaceDisruptionKind, SurfaceDisruptionSource, SurfaceDisruptionState, TrafficScenario, WeatherCondition } from './types';
+import type { AirportEvent, AirportState, ClearanceProposal, ConflictPrediction, ControlMode, ControllerStation, ControllerWorkloadSnapshot, EmergencyType, Flight, FlightHandoffState, FlightInstruction, FlightNavigationState, FlightOperationPlan, FlightPhase, FlightRouteClearanceState, FlightRunwayExitState, GroupInstructionIssueResult, GroupInstructionPreview, OperationalControllerStation, ServiceVehicleState, ShiftMetrics, SurfaceDisruptionKind, SurfaceDisruptionSource, SurfaceDisruptionState, TrafficScenario, WeatherCondition } from './types';
 import { aircraftProfile, type AircraftModel } from './aircraftProfiles';
 import { airlineProfile, type AirlineCode } from './airlineProfiles';
 import { aircraftCollisionEnvelope, detectCommittedRunwaySweepConflict, detectFlightConflict, findFlightConflicts, findObstacleConflicts, findProposedConflict } from './collisionDetection';
@@ -32,9 +32,11 @@ import {
   controllerWorkloadSnapshots,
   createStationAutomation,
   isOperationalControllerStation,
+  nextControllerStation,
   OPERATIONAL_CONTROLLER_STATIONS,
   requiredControllerStation,
   stationCanIssue,
+  suggestedHandoffStation,
 } from './controllerOperations';
 import {
   assessAirborneSeparation,
@@ -55,6 +57,11 @@ const PHASE_DURATION: Record<FlightPhase, number> = {
   'taxi-out': 20,
   takeoff: 48,
 };
+
+const HANDOFF_RESPONSE_SECONDS = 12;
+const AUTOMATIC_HANDOFF_ACCEPT_SECONDS = 0.75;
+const AUTOMATIC_HANDOFF_CONTACT_SECONDS = 0.65;
+const AUTOMATIC_HANDOFF_RETRY_SECONDS = 4;
 
 const SERVICE_VEHICLE_SURFACE_PRIORITY: Record<ServiceVehicleState['status'], number> = {
   clearing: 3,
@@ -175,6 +182,10 @@ export class AirportSimulation {
     longestHoldSeconds: 0,
     diversions: 0,
     cancellations: 0,
+    handoffOffers: 0,
+    handoffAcceptances: 0,
+    handoffRejections: 0,
+    missedHandoffs: 0,
   };
 
   private readonly stationarySeconds = new Map<number, number>();
@@ -215,10 +226,8 @@ export class AirportSimulation {
         flight.controlPattern = undefined;
         flight.controlPatternStart = undefined;
         if (flight.phase === 'approach' && !flight.cleared && !flight.goAround && !flight.diversion) {
-          flight.cleared = true;
           flight.navigation.approachCleared = true;
-          flight.clearanceLeft = 99;
-          this.events.push({ type: 'auto-clear', flight });
+          flight.clearanceLeft = Math.max(flight.clearanceLeft, flight.duration * 0.96 - flight.phaseElapsed);
         }
         if (flight.phase === 'takeoff' && !flight.takeoffCleared) {
           flight.takeoffCleared = true;
@@ -1304,28 +1313,198 @@ export class AirportSimulation {
   }
 
   handoffFlight(id: number, station: ControllerStation): boolean {
-    return this.transferFlightFrequency(id, station, 'handoff');
+    return this.offerHandoff(id, station);
+  }
+
+  offerHandoff(id: number, station: ControllerStation): boolean {
+    const flight = this.state.flights.find((item) => item.id === id);
+    if (!flight) return this.rejectDecision('flight is not active');
+    const owner = flight.navigation.frequencyOwner;
+    if (!isOperationalControllerStation(owner) || !isOperationalControllerStation(station)) {
+      return this.rejectDecision('handoffs require two operational controller positions', flight);
+    }
+    if (this.state.station !== 'supervisor' && this.state.station !== owner) {
+      return this.rejectDecision(`${this.state.station} does not own ${flight.callsign}`, flight);
+    }
+    if (station === owner) return this.rejectDecision(`${flight.callsign} is already on ${station}`, flight);
+    const expected = nextControllerStation(flight, owner);
+    if (station !== expected) {
+      return this.rejectDecision(`${flight.callsign} must coordinate with ${expected ?? 'no further controller'} next`, flight);
+    }
+    if (this.activeHandoff(flight)) return this.rejectDecision(`${flight.callsign} already has active coordination`, flight);
+    this.beginHandoff(flight, station, this.state.station, `coordination requested by ${this.state.station}`);
+    this.metrics.manualCommands += 1;
+    return true;
+  }
+
+  acceptHandoff(id: number): boolean {
+    const flight = this.state.flights.find((item) => item.id === id);
+    if (!flight) return this.rejectDecision('flight is not active');
+    const handoff = flight.navigation.handoff;
+    if (!handoff || (handoff.status !== 'offered' && handoff.status !== 'overdue')) {
+      return this.rejectDecision(`${flight.callsign} has no incoming handoff to accept`, flight);
+    }
+    if (this.state.station !== 'supervisor' && this.state.station !== handoff.to) {
+      return this.rejectDecision(`${this.state.station} cannot accept coordination addressed to ${handoff.to}`, flight);
+    }
+    this.acceptHandoffInternal(flight, this.state.station, 'controller accepted coordination');
+    this.metrics.manualCommands += 1;
+    return true;
+  }
+
+  rejectHandoff(id: number): boolean {
+    const flight = this.state.flights.find((item) => item.id === id);
+    if (!flight) return this.rejectDecision('flight is not active');
+    const handoff = flight.navigation.handoff;
+    if (!handoff || (handoff.status !== 'offered' && handoff.status !== 'overdue')) {
+      return this.rejectDecision(`${flight.callsign} has no incoming handoff to reject`, flight);
+    }
+    if (this.state.station !== 'supervisor' && this.state.station !== handoff.to) {
+      return this.rejectDecision(`${this.state.station} cannot reject coordination addressed to ${handoff.to}`, flight);
+    }
+    handoff.status = 'rejected';
+    handoff.respondedAtSeconds = this.state.elapsed;
+    handoff.responseBy = this.state.station;
+    handoff.reason = `coordination rejected by ${this.state.station}`;
+    flight.navigation.handoffStatus = 'rejected';
+    this.metrics.handoffRejections += 1;
+    this.metrics.manualCommands += 1;
+    this.decisionReason = `${flight.callsign} handoff to ${handoff.to} rejected`;
+    this.events.push({ type: 'handoff-reject', flight, detail: this.decisionReason });
+    return true;
+  }
+
+  cancelHandoff(id: number): boolean {
+    const flight = this.state.flights.find((item) => item.id === id);
+    if (!flight) return this.rejectDecision('flight is not active');
+    const handoff = this.activeHandoff(flight);
+    if (!handoff) return this.rejectDecision(`${flight.callsign} has no active handoff to cancel`, flight);
+    if (this.state.station !== 'supervisor' && this.state.station !== handoff.from) {
+      return this.rejectDecision(`${this.state.station} cannot cancel ${handoff.from} coordination`, flight);
+    }
+    handoff.status = 'cancelled';
+    handoff.respondedAtSeconds = this.state.elapsed;
+    handoff.responseBy = this.state.station;
+    handoff.reason = `coordination cancelled by ${this.state.station}`;
+    flight.navigation.handoffStatus = 'owned';
+    this.metrics.manualCommands += 1;
+    this.decisionReason = `${flight.callsign} handoff to ${handoff.to} cancelled`;
+    this.events.push({ type: 'handoff-cancel', flight, detail: this.decisionReason });
+    return true;
   }
 
   contactFlight(id: number, station: ControllerStation): boolean {
-    return this.transferFlightFrequency(id, station, 'contact');
-  }
-
-  private transferFlightFrequency(id: number, station: ControllerStation, eventType: 'handoff' | 'contact'): boolean {
     const flight = this.state.flights.find((item) => item.id === id);
     if (!flight) return this.rejectDecision('flight is not active');
-    if (this.state.station !== 'supervisor' && flight.navigation.frequencyOwner !== this.state.station) {
-      return this.rejectDecision(`${this.state.station} does not own ${flight.callsign}`, flight);
+    const handoff = flight.navigation.handoff;
+    if (!handoff || handoff.status !== 'accepted') {
+      return this.rejectDecision(`${flight.callsign} requires an accepted handoff before contact`, flight);
     }
-    if (station === flight.navigation.frequencyOwner) return this.rejectDecision(`${flight.callsign} is already on ${station}`, flight);
-    flight.navigation.frequencyOwner = station;
-    flight.navigation.handoffStatus = 'accepted';
-    flight.navigation.readbackStatus = 'accepted';
-    amendFlightPlan(flight.flightPlan, 'clearance', this.state.elapsed, `contact ${station}`);
+    if (!isOperationalControllerStation(station) || station !== handoff.to) {
+      return this.rejectDecision(`${flight.callsign} is coordinated for ${handoff.to}, not ${station}`, flight);
+    }
+    if (this.state.station !== 'supervisor' && this.state.station !== handoff.from) {
+      return this.rejectDecision(`${this.state.station} cannot issue contact for ${handoff.from}`, flight);
+    }
+    this.completeHandoff(flight, 'controller contact instruction');
     this.metrics.manualCommands += 1;
-    this.decisionReason = eventType === 'contact' ? `${flight.callsign} contact ${station} accepted` : `${flight.callsign} handed to ${station}`;
-    this.events.push({ type: eventType, flight, detail: this.decisionReason });
     return true;
+  }
+
+  private activeHandoff(flight: Flight): FlightHandoffState | undefined {
+    const handoff = flight.navigation.handoff;
+    return handoff && (handoff.status === 'offered' || handoff.status === 'accepted' || handoff.status === 'overdue')
+      ? handoff
+      : undefined;
+  }
+
+  private beginHandoff(
+    flight: Flight,
+    target: OperationalControllerStation,
+    offeredBy: ControllerStation,
+    reason: string,
+    overdue = false,
+  ): void {
+    const owner = flight.navigation.frequencyOwner;
+    if (!isOperationalControllerStation(owner)) return;
+    const previousRevision = flight.navigation.handoff?.revision ?? 0;
+    flight.navigation.handoff = {
+      schemaVersion: 1,
+      revision: previousRevision + 1,
+      from: owner,
+      to: target,
+      status: overdue ? 'overdue' : 'offered',
+      offeredAtSeconds: this.state.elapsed,
+      responseDueSeconds: overdue ? this.state.elapsed : this.state.elapsed + HANDOFF_RESPONSE_SECONDS,
+      offeredBy,
+      reason,
+    };
+    flight.navigation.handoffStatus = overdue ? 'overdue' : 'offered';
+    this.metrics.handoffOffers += 1;
+    if (overdue) this.metrics.missedHandoffs += 1;
+    this.decisionReason = overdue
+      ? `${flight.callsign} missed ${owner} → ${target} handoff · coordination overdue`
+      : `${flight.callsign} handoff offered ${owner} → ${target}`;
+    this.events.push({
+      type: overdue ? 'handoff-overdue' : 'handoff-offer',
+      flight,
+      runway: flight.runway,
+      taxiway: flight.taxiway,
+      detail: `${this.decisionReason} · ${reason}`,
+    });
+  }
+
+  private markHandoffOverdue(flight: Flight, reason: string): void {
+    const handoff = flight.navigation.handoff;
+    if (!handoff || handoff.status !== 'offered') return;
+    handoff.status = 'overdue';
+    handoff.reason = reason;
+    flight.navigation.handoffStatus = 'overdue';
+    this.metrics.missedHandoffs += 1;
+    this.decisionReason = `${flight.callsign} ${handoff.from} → ${handoff.to} handoff overdue`;
+    this.events.push({ type: 'handoff-overdue', flight, runway: flight.runway, taxiway: flight.taxiway, detail: `${this.decisionReason} · ${reason}` });
+  }
+
+  private acceptHandoffInternal(flight: Flight, responseBy: ControllerStation, reason: string): void {
+    const handoff = flight.navigation.handoff;
+    if (!handoff || (handoff.status !== 'offered' && handoff.status !== 'overdue')) return;
+    handoff.status = 'accepted';
+    handoff.respondedAtSeconds = this.state.elapsed;
+    handoff.responseBy = responseBy;
+    handoff.reason = reason;
+    flight.navigation.handoffStatus = 'accepted';
+    this.metrics.handoffAcceptances += 1;
+    this.decisionReason = `${flight.callsign} handoff accepted by ${handoff.to} · contact pending`;
+    this.events.push({ type: 'handoff-accept', flight, runway: flight.runway, taxiway: flight.taxiway, detail: `${this.decisionReason} · ${reason}` });
+  }
+
+  private completeHandoff(flight: Flight, reason: string): void {
+    const handoff = flight.navigation.handoff;
+    if (!handoff || handoff.status !== 'accepted') return;
+    flight.navigation.frequencyOwner = handoff.to;
+    flight.navigation.handoffStatus = 'owned';
+    handoff.status = 'completed';
+    handoff.completedAtSeconds = this.state.elapsed;
+    handoff.reason = reason;
+    amendFlightPlan(flight.flightPlan, 'clearance', this.state.elapsed, `contact ${handoff.to}`);
+    this.decisionReason = `${flight.callsign} contact ${handoff.to} · frequency ownership transferred`;
+    this.events.push({ type: 'handoff-complete', flight, runway: flight.runway, taxiway: flight.taxiway, detail: `${this.decisionReason} · ${reason}` });
+    this.events.push({ type: 'contact', flight, runway: flight.runway, taxiway: flight.taxiway, detail: this.decisionReason });
+  }
+
+  private surfaceHandoffHoldReason(flight: Flight): string | null {
+    if (flight.phase !== 'taxi-in' && flight.phase !== 'taxi-out') return null;
+    const owner = flight.navigation.frequencyOwner;
+    const required = requiredControllerStation(flight);
+    if (controllerStationIsAhead(flight, owner, required)) return null;
+    const rampGroundBoundary = (owner === 'ramp' && required === 'ground') || (owner === 'ground' && required === 'ramp');
+    if (!rampGroundBoundary) return null;
+    const handoff = flight.navigation.handoff;
+    if (handoff?.status === 'accepted' && handoff.to === required) {
+      return `${required} accepted ${flight.callsign}; ${owner} must issue contact`;
+    }
+    if (handoff?.to === required) return `${owner} → ${required} handoff ${handoff.status}`;
+    return `${owner} must coordinate ${flight.callsign} with ${required}`;
   }
 
   previewGroupedInstruction(ids: readonly number[], instruction: FlightInstruction): GroupInstructionPreview {
@@ -1498,7 +1677,7 @@ export class AirportSimulation {
         ?? this.config.runwayConfigurations[0],
     );
     this.stationarySeconds.clear();
-    Object.assign(this.metrics, { safeArrivals: 0, safeDepartures: 0, preventedConflicts: 0, holdsIssued: 0, manualCommands: 0, maxConcurrent: 0, airborneSeconds: 0, taxiSeconds: 0, estimatedDelaySeconds: 0, emergencyResponses: 0, safetyHolds: 0, collisionAlerts: 0, runwayIncursions: 0, unexplainedPauses: 0, longestHoldSeconds: 0, diversions: 0, cancellations: 0 });
+    Object.assign(this.metrics, { safeArrivals: 0, safeDepartures: 0, preventedConflicts: 0, holdsIssued: 0, manualCommands: 0, maxConcurrent: 0, airborneSeconds: 0, taxiSeconds: 0, estimatedDelaySeconds: 0, emergencyResponses: 0, safetyHolds: 0, collisionAlerts: 0, runwayIncursions: 0, unexplainedPauses: 0, longestHoldSeconds: 0, diversions: 0, cancellations: 0, handoffOffers: 0, handoffAcceptances: 0, handoffRejections: 0, missedHandoffs: 0 });
     this.updateWeather();
     this.seedInitialTraffic();
   }
@@ -2208,7 +2387,6 @@ export class AirportSimulation {
       return null;
     }
     const departureRunway = [...departureRunways].sort((first, second) => this.headwindComponent(second.id) - this.headwindComponent(first.id))[(id - 1) % departureRunways.length].id;
-    const automatic = this.stationRunsAutomatically('tower');
     const airline = airlineProfile(airlineCode);
     const profile = aircraftProfile(aircraft);
     const flightNumber = 100 + ((id * 37 + Math.abs(this.config.seed)) % 890);
@@ -2295,8 +2473,8 @@ export class AirportSimulation {
       progress: 0,
       phaseElapsed: 0,
       duration: approachDuration,
-      cleared: automatic,
-      clearanceLeft: automatic ? 99 : approachDuration * 0.96,
+      cleared: false,
+      clearanceLeft: approachDuration * 0.96,
       gateSlot,
       gateAssignment,
       pushbackCleared: false,
@@ -2374,7 +2552,6 @@ export class AirportSimulation {
       taxiway: flight.runwayExit?.taxiwayName,
       detail: this.runwayExitDetail(flight.runwayExit, 'initial arrival plan'),
     });
-    if (automatic) this.events.push({ type: 'auto-clear', flight });
     if (flight.emergency) this.events.push({ type: 'emergency', flight });
     return aircraft;
   }
@@ -2407,12 +2584,11 @@ export class AirportSimulation {
       flight.progress = 0;
       flight.phaseElapsed = 0;
       flight.duration = this.phaseDuration(flight.aircraft, 'approach', flight.runway);
-      flight.cleared = this.stationRunsAutomatically('tower');
-      flight.navigation.approachCleared = flight.cleared;
-      flight.clearanceLeft = flight.cleared ? 99 : flight.duration * 0.96;
+      flight.cleared = false;
+      flight.navigation.approachCleared = this.stationRunsAutomatically('approach');
+      flight.clearanceLeft = flight.duration * 0.96;
       syncFlightMotion(this.config, flight);
       flight.kinematics.altitudeFt = this.motionAltitudeFt(flight);
-      if (flight.cleared) this.events.push({ type: 'auto-clear', flight });
       return;
     }
     if (flight.phase === 'takeoff') {
@@ -2633,22 +2809,50 @@ export class AirportSimulation {
 
   private coordinateControllerStations(): void {
     for (const flight of this.state.flights) {
-      const required = requiredControllerStation(flight);
-      if (!this.stationRunsAutomatically(required)) continue;
-      if (flight.navigation.frequencyOwner !== required) {
-        if (controllerStationIsAhead(flight, flight.navigation.frequencyOwner, required)) continue;
-        const previous = flight.navigation.frequencyOwner;
-        flight.navigation.frequencyOwner = required;
-        flight.navigation.handoffStatus = 'accepted';
-        flight.navigation.readbackStatus = 'accepted';
-        this.events.push({
-          type: 'handoff',
-          flight,
-          runway: flight.runway,
-          taxiway: flight.taxiway,
-          detail: `automatic ${previous} → ${required} handoff`,
-        });
+      let handoff = flight.navigation.handoff;
+      if (handoff?.status === 'offered' && this.state.elapsed + 1e-6 >= handoff.responseDueSeconds) {
+        this.markHandoffOverdue(flight, 'coordination response window expired');
+        handoff = flight.navigation.handoff;
       }
+      if (
+        handoff
+        && (handoff.status === 'offered' || handoff.status === 'overdue')
+        && this.stationRunsAutomatically(handoff.to)
+        && this.state.elapsed - handoff.offeredAtSeconds >= AUTOMATIC_HANDOFF_ACCEPT_SECONDS
+      ) {
+        this.acceptHandoffInternal(flight, handoff.to, 'automated receiving position accepted coordination');
+        handoff = flight.navigation.handoff;
+      }
+      if (
+        handoff?.status === 'accepted'
+        && this.stationRunsAutomatically(handoff.from)
+        && this.state.elapsed - (handoff.respondedAtSeconds ?? handoff.offeredAtSeconds) >= AUTOMATIC_HANDOFF_CONTACT_SECONDS
+      ) {
+        this.completeHandoff(flight, 'automated contact instruction');
+        handoff = flight.navigation.handoff;
+      }
+
+      const required = requiredControllerStation(flight);
+      const owner = flight.navigation.frequencyOwner;
+      const ownerAhead = controllerStationIsAhead(flight, owner, required);
+      const active = this.activeHandoff(flight);
+      const terminalAt = handoff?.completedAtSeconds ?? handoff?.respondedAtSeconds ?? -Infinity;
+      const retryReady = !handoff || this.state.elapsed - terminalAt >= AUTOMATIC_HANDOFF_RETRY_SECONDS;
+      const suggested = suggestedHandoffStation(flight);
+      if (!active && suggested && isOperationalControllerStation(owner) && this.stationRunsAutomatically(owner) && retryReady) {
+        this.beginHandoff(flight, suggested, owner, 'automated controller coordination');
+      } else if (
+        !active
+        && owner !== required
+        && !ownerAhead
+        && isOperationalControllerStation(owner)
+        && retryReady
+      ) {
+        const target = nextControllerStation(flight, owner) ?? required;
+        this.beginHandoff(flight, target, owner, `missed ${owner} → ${target} handoff at control boundary`, true);
+      }
+
+      if (flight.navigation.frequencyOwner !== required) continue;
       if (required === 'approach' && flight.phase === 'approach' && !flight.diversion && !flight.navigation.approachCleared) {
         flight.navigation.approachCleared = true;
         amendFlightPlan(flight.flightPlan, 'clearance', this.state.elapsed, 'automated approach clearance');
@@ -2728,10 +2932,12 @@ export class AirportSimulation {
       );
       const conflict = reservations.firstConflictDetail(claims, flight.id);
       const vehicleConflict = typeof conflict?.ownerId === 'string' && conflict.ownerId.startsWith('vehicle:');
-      const shouldHold = vehicleConflict || (this.stationRunsAutomatically('ground') && Boolean(conflict));
-      if (shouldHold && !flight.automaticHold) this.metrics.preventedConflicts += 1;
+      const coordinationHold = this.surfaceHandoffHoldReason(flight);
+      const reservationHold = vehicleConflict || (this.stationRunsAutomatically('ground') && Boolean(conflict));
+      const shouldHold = Boolean(coordinationHold) || reservationHold;
+      if (reservationHold && !flight.automaticHold) this.metrics.preventedConflicts += 1;
       flight.automaticHold = shouldHold;
-      flight.automaticHoldReason = conflict ? this.surfaceReservationConflictReason(conflict.claim) : undefined;
+      flight.automaticHoldReason = coordinationHold ?? (conflict ? this.surfaceReservationConflictReason(conflict.claim) : undefined);
       if (shouldHold) continue;
       reservations.reserve(flight.id, claims);
     }

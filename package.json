@@ -1,7 +1,7 @@
 {
   "name": "airport-auto",
   "private": true,
-  "version": "2.19.0",
+  "version": "2.20.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,7 +10,7 @@
     "lint": "eslint src scripts e2e vite.config.ts playwright.config.ts",
     "format": "prettier --write src scripts e2e *.md *.json *.ts .github/workflows/*.yml",
     "test": "npm run test:operations && npm run test:simulation && npm run test:trajectory-safety",
-    "test:operations": "npm run test:airport-data && npm run test:surface && npm run test:surface-motion && npm run test:ramp-operations && npm run test:gate-assignments && npm run test:turnaround && npm run test:service-vehicles && npm run test:deicing && npm run test:runway-exits && npm run test:surface-disruptions && npm run test:queues && npm run test:traffic-profiles && npm run test:traffic-flow && npm run test:airspace && npm run test:controllers && npm run test:atc-commands && npm run test:group-commands",
+    "test:operations": "npm run test:airport-data && npm run test:surface && npm run test:surface-motion && npm run test:ramp-operations && npm run test:gate-assignments && npm run test:turnaround && npm run test:service-vehicles && npm run test:deicing && npm run test:runway-exits && npm run test:surface-disruptions && npm run test:queues && npm run test:traffic-profiles && npm run test:traffic-flow && npm run test:airspace && npm run test:controllers && npm run test:controller-handoffs && npm run test:atc-commands && npm run test:group-commands",
     "test:trajectory-safety": "npm run test:trajectories && npm run test:collisions",
     "test:e2e": "playwright test",
     "test:airport-data": "node scripts/validateAirportVectorAssets.mjs && node scripts/validateImportedSurfaceGraph.mjs && node scripts/validateOsmContext.mjs",
@@ -31,6 +31,7 @@
     "test:traffic-flow": "node scripts/validateTrafficFlowManagement.mjs",
     "test:airspace": "node scripts/validateAirspaceProcedures.mjs",
     "test:controllers": "node scripts/validateControllerOperations.mjs",
+    "test:controller-handoffs": "node scripts/validateControllerHandoffs.mjs",
     "test:atc-commands": "node scripts/validateAtcCommandVocabulary.mjs",
     "test:group-commands": "node scripts/validateGroupedFlightInstructions.mjs",
     "profile:runtime": "node scripts/profileRuntime.mjs",

@@ -264,6 +264,20 @@ manual.simulation.setStation('supervisor');
 let manualDepartureReady = false;
 for (let tick = 0; tick < 3_000 && !manualDepartureReady; tick += 1) {
   for (const flight of manual.simulation.state.flights) {
+    const handoff = flight.navigation.handoff;
+    if (
+      flight.phase === 'taxi-out'
+      && handoff
+      && (handoff.status === 'offered' || handoff.status === 'overdue')
+    ) {
+      assert(manual.simulation.acceptHandoff(flight.id), 'ORD manual: staged handoff acceptance was rejected');
+    }
+    if (flight.phase === 'taxi-out' && flight.navigation.handoff?.status === 'accepted') {
+      assert(
+        manual.simulation.contactFlight(flight.id, flight.navigation.handoff.to),
+        'ORD manual: staged controller contact was rejected',
+      );
+    }
     if (flight.crossingHoldRunway !== undefined) {
       assert(
         manual.simulation.clearRunwayCrossing(flight.id, flight.crossingHoldRunway),

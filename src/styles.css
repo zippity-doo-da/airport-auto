@@ -72,6 +72,23 @@ body.night-mode #app::after {
 .flight-strip__tools button { min-height: 34px; border: 1px solid rgba(121, 200, 232, 0.36); padding: 6px 9px; color: var(--ivory); background: rgba(121, 200, 232, 0.08); font-size: 9px; font-weight: 900; letter-spacing: 0.06em; cursor: pointer; }
 .flight-strip__tools button:hover, .flight-strip__tools button[aria-pressed="true"] { border-color: var(--amber); color: var(--ink); background: var(--amber); }
 .flight-strip__tools span { color: rgba(244, 232, 206, 0.55); font-size: 9px; font-weight: 800; letter-spacing: 0.06em; text-align: right; }
+.coordination-inbox { display: grid; gap: 6px; margin-top: 5px; border: 1px solid rgba(239, 199, 117, 0.35); padding: 8px; background: rgba(8, 29, 31, 0.88); backdrop-filter: blur(18px); }
+.coordination-inbox > header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.coordination-inbox > header b { font: 400 12px/1.2 Georgia, serif; }
+.coordination-inbox > header span { color: rgba(244, 232, 206, 0.56); font-size: 8px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; }
+.coordination-inbox__list { display: grid; gap: 5px; }
+.coordination-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 8px; border-left: 2px solid rgba(121, 200, 232, 0.65); padding: 5px 0 5px 7px; background: rgba(121, 200, 232, 0.045); }
+.coordination-card[data-status="accepted"] { border-left-color: rgba(153, 214, 170, 0.9); }
+.coordination-card[data-status="overdue"] { border-left-color: #e6a26f; background: rgba(230, 162, 111, 0.08); }
+.coordination-card__identity b, .coordination-card__identity span, .coordination-card__state strong, .coordination-card__state small { display: block; }
+.coordination-card__identity b { overflow: hidden; font: 400 11px/1.15 Georgia, serif; text-overflow: ellipsis; white-space: nowrap; }
+.coordination-card__identity span, .coordination-card__state small { margin-top: 2px; color: rgba(244, 232, 206, 0.55); font-size: 8px; font-weight: 800; }
+.coordination-card__state { text-align: right; }
+.coordination-card__state strong { color: var(--amber); font-size: 8px; letter-spacing: 0.08em; text-transform: uppercase; }
+.coordination-card__controls { display: flex; grid-column: 1 / -1; flex-wrap: wrap; gap: 4px; }
+.coordination-card__controls button { min-height: 27px; flex: 1 1 auto; border: 1px solid rgba(244, 232, 206, 0.26); padding: 4px 6px; color: var(--ivory); background: rgba(121, 200, 232, 0.08); font-size: 8px; font-weight: 900; cursor: pointer; }
+.coordination-card__controls button:hover, .coordination-card__controls button:focus-visible { border-color: var(--amber); outline: none; background: rgba(239, 199, 117, 0.14); }
+.coordination-card__controls button:disabled { opacity: 0.4; cursor: not-allowed; }
 .flight-chips { display: grid; gap: 5px; margin-top: 5px; }
 .flight-strip--collapsed { width: 164px; }
 .flight-strip--collapsed .flight-strip__body { display: none; }
@@ -302,6 +319,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
 .runway-exit-panel__heading span, .navigation-panel__heading span { color: var(--amber); font-size: 8px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; }
 .runway-exit-panel p, .navigation-panel p { margin: 0; color: rgba(244, 232, 206, 0.72); font-size: 8px; font-weight: 800; letter-spacing: 0.06em; }
 .runway-exit-panel small, .navigation-panel small { overflow: hidden; color: rgba(244, 232, 206, 0.5); font-size: 8px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.navigation-panel .navigation-panel__handoff { color: rgba(239, 199, 117, 0.82); white-space: normal; }
 .route-clearance { display: grid; gap: 4px; margin-top: 3px; border-top: 1px solid rgba(244, 232, 206, 0.13); padding-top: 7px; }
 .route-clearance__heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .route-clearance__heading b { color: var(--ivory); font: 400 11px/1.2 Georgia, serif; }

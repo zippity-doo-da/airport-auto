@@ -151,7 +151,11 @@ assert(motionDistance(beforeHold, arrival.motion) < 1e-6 && arrival.motion.stage
 const beforeRelease = { ...arrival.motion };
 assert(simulation.releaseAirborneHold(arrival.id), 'approach rejected a hold release');
 assert(!arrival.navigation.hold && arrival.navigation.vector && motionDistance(beforeRelease, arrival.motion) < 1e-6, 'hold release did not continuously rejoin the arrival');
-assert(simulation.handoffFlight(arrival.id, 'tower') && arrival.navigation.frequencyOwner === 'tower', 'approach-to-tower handoff failed');
+assert(simulation.handoffFlight(arrival.id, 'tower') && arrival.navigation.frequencyOwner === 'approach' && arrival.navigation.handoff?.status === 'offered', 'approach-to-tower offer changed ownership or failed');
+simulation.setStation('tower');
+assert(simulation.acceptHandoff(arrival.id) && arrival.navigation.frequencyOwner === 'approach' && arrival.navigation.handoff?.status === 'accepted', 'Tower could not accept the handoff without prematurely taking ownership');
+simulation.setStation('approach');
+assert(simulation.contactFlight(arrival.id, 'tower') && arrival.navigation.frequencyOwner === 'tower' && arrival.navigation.handoff?.status === 'completed', 'accepted handoff did not complete on contact');
 assert(arrival.flightPlan.revision >= initialRevision + 7 && arrival.flightPlan.amendments.some((amendment) => amendment.detail.includes('contact tower')), 'ATC commands were not recorded in the flight plan');
 assert(!simulation.assignHeading(arrival.id, presentHeading), 'tower improperly issued an approach vector');
 assert(/does not own|handoff required/.test(simulation.lastCommandReason()), 'station-ownership rejection was not explainable');

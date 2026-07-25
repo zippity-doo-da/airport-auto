@@ -465,12 +465,35 @@ export interface FlightNavigationState {
   initialClimbAltitudeFt?: number;
   handoffFixId?: string;
   frequencyOwner: ControllerStation;
-  handoffStatus: 'owned' | 'offered' | 'accepted';
+  /** Compact compatibility state; `handoff` carries the complete coordination record. */
+  handoffStatus: 'owned' | 'offered' | 'accepted' | 'rejected' | 'overdue';
+  handoff?: FlightHandoffState;
   readbackStatus: 'not-required' | 'pending' | 'accepted' | 'rejected';
   routeClearance?: FlightRouteClearanceState;
   vector?: FlightVectorClearance;
   hold?: FlightHoldingClearance;
   missedApproachId?: string;
+}
+
+export type FlightHandoffStatus = 'offered' | 'accepted' | 'rejected' | 'overdue' | 'completed' | 'cancelled';
+
+/**
+ * Versioned controller-to-controller coordination. Ownership remains with
+ * `from` until that controller issues the final contact instruction.
+ */
+export interface FlightHandoffState {
+  schemaVersion: 1;
+  revision: number;
+  from: OperationalControllerStation;
+  to: OperationalControllerStation;
+  status: FlightHandoffStatus;
+  offeredAtSeconds: number;
+  responseDueSeconds: number;
+  respondedAtSeconds?: number;
+  completedAtSeconds?: number;
+  offeredBy: ControllerStation;
+  responseBy?: ControllerStation;
+  reason: string;
 }
 
 export interface ControllerWorkloadSnapshot {
@@ -645,6 +668,10 @@ export interface ShiftMetrics {
   longestHoldSeconds: number;
   diversions: number;
   cancellations: number;
+  handoffOffers: number;
+  handoffAcceptances: number;
+  handoffRejections: number;
+  missedHandoffs: number;
 }
 
 export interface ReplayFrame {
@@ -657,7 +684,7 @@ export interface ReplayFrame {
 }
 
 export interface AirportEvent {
-  type: 'spawn' | 'gate-assignment' | 'gate-reassignment' | 'gate-release' | 'runway-exit-plan' | 'surface-reroute' | 'taxi-route-clearance' | 'hold-position' | 'taxi-resume' | 'group-instruction' | 'recovery-start' | 'recovery-complete' | 'turnaround-start' | 'service-start' | 'service-complete' | 'turnaround-ready' | 'service-vehicle-dispatch' | 'service-vehicle-arrive' | 'service-vehicle-hold' | 'service-vehicle-release' | 'service-vehicle-return' | 'service-vehicle-clear' | 'deicing-planned' | 'deicing-queue' | 'deicing-pad-entry' | 'deicing-start' | 'deicing-complete' | 'deicing-expired' | 'deicing-return' | 'land' | 'chime' | 'depart' | 'diversion' | 'divert' | 'clear' | 'auto-clear' | 'pushback-clearance' | 'pushback-start' | 'engine-start' | 'tug-release' | 'reject' | 'conflict' | 'safety-hold' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'takeoff-clearance' | 'vector' | 'route-preview' | 'route-clearance-issued' | 'route-readback-accepted' | 'route-readback-rejected' | 'route-clearance-cancelled' | 'route-amendment' | 'airborne-hold' | 'hold-release' | 'approach-clearance' | 'handoff' | 'contact' | 'go-around' | 'emergency';
+  type: 'spawn' | 'gate-assignment' | 'gate-reassignment' | 'gate-release' | 'runway-exit-plan' | 'surface-reroute' | 'taxi-route-clearance' | 'hold-position' | 'taxi-resume' | 'group-instruction' | 'recovery-start' | 'recovery-complete' | 'turnaround-start' | 'service-start' | 'service-complete' | 'turnaround-ready' | 'service-vehicle-dispatch' | 'service-vehicle-arrive' | 'service-vehicle-hold' | 'service-vehicle-release' | 'service-vehicle-return' | 'service-vehicle-clear' | 'deicing-planned' | 'deicing-queue' | 'deicing-pad-entry' | 'deicing-start' | 'deicing-complete' | 'deicing-expired' | 'deicing-return' | 'land' | 'chime' | 'depart' | 'diversion' | 'divert' | 'clear' | 'auto-clear' | 'pushback-clearance' | 'pushback-start' | 'engine-start' | 'tug-release' | 'reject' | 'conflict' | 'safety-hold' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'takeoff-clearance' | 'vector' | 'route-preview' | 'route-clearance-issued' | 'route-readback-accepted' | 'route-readback-rejected' | 'route-clearance-cancelled' | 'route-amendment' | 'airborne-hold' | 'hold-release' | 'approach-clearance' | 'handoff' | 'handoff-offer' | 'handoff-accept' | 'handoff-reject' | 'handoff-overdue' | 'handoff-cancel' | 'handoff-complete' | 'contact' | 'go-around' | 'emergency';
   flight: Flight;
   runway?: number;
   taxiway?: string;

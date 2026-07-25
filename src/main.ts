@@ -15,6 +15,7 @@ import {
   isControllerStation,
   OPERATIONAL_CONTROLLER_STATIONS,
   requiredControllerStation,
+  suggestedHandoffStation,
 } from './simulation/controllerOperations';
 import type { ClearanceProposal, ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, GroupFlightInstruction, GroupInstructionIssueResult, GroupInstructionPreview, OperationalControllerStation, ReplayFrame, SurfaceDisruptionKind, TrafficScenario, TurnaroundServiceType, WeatherCondition } from './simulation/types';
 import { AmbientAudio, type AudioChannel, type AudioPreset } from './audio/ambientAudio';
@@ -31,6 +32,7 @@ import {
   surfaceDisruptionPanelKey,
   updateSurfaceDisruptionTargetOptions,
 } from './ui/surfaceDisruptionPanel';
+import { coordinationInboxKey, renderCoordinationInbox } from './ui/coordinationInbox';
 
 type AirportControlCommand =
   | { action: 'pause' | 'resume' | 'nextView' | 'zoomIn' | 'zoomOut' | 'rotateLeft' | 'rotateRight' | 'resetCamera' | 'restart' }
@@ -67,6 +69,10 @@ type AirportControlCommand =
   | { action: 'holdFlight'; flightId: number; patternId?: string; efcMinutes?: number }
   | { action: 'releaseHold'; flightId: number }
   | { action: 'handoffFlight'; flightId: number; station: ControllerStation }
+  | { action: 'offerHandoff'; flightId: number; station: ControllerStation }
+  | { action: 'acceptHandoff'; flightId: number }
+  | { action: 'rejectHandoff'; flightId: number }
+  | { action: 'cancelHandoff'; flightId: number }
   | { action: 'contactStation'; flightId: number; station: ControllerStation }
   | { action: 'assignTaxiRoute'; flightId: number; viaNodeIds?: string[] }
   | { action: 'holdPosition'; flightId: number }
@@ -248,6 +254,7 @@ const flightChips = $<HTMLElement>('#flight-chips');
 const groupSelectToggle = $<HTMLButtonElement>('#group-select-toggle');
 const groupSelectCount = $<HTMLElement>('#group-select-count');
 const groupActions = $<HTMLElement>('#group-actions');
+const coordinationInbox = $<HTMLElement>('#coordination-inbox');
 const flightActions = $<HTMLElement>('#flight-actions');
 const clearanceAdvisor = $<HTMLElement>('#clearance-advisor');
 const clearanceAdvisorHeader = document.createElement('header');
@@ -331,6 +338,7 @@ let focusedFlightId: number | null = null;
 let flightActionsRenderKey = '';
 let groupSelectActive = false;
 let groupActionsRenderKey = '';
+let coordinationInboxRenderKey = '';
 const groupedFlightIds = new Set<number>();
 let runwayLabelsVisible = false;
 const surfaceLayerVisibility: Record<SurfaceLayer, boolean> = {
@@ -438,6 +446,27 @@ groupActions.addEventListener('click', (event) => {
   const result = executeAirportRequest({ action: 'issueGroupInstruction', flightIds: [...groupedFlightIds], instruction });
   if (result.accepted) setGroupSelectActive(false, false);
   else renderGroupActions();
+});
+coordinationInbox.addEventListener('click', (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-coordination-action]');
+  if (!button) return;
+  const flightId = Number(button.dataset.flight);
+  const station = button.dataset.station as ControllerStation;
+  const action = button.dataset.coordinationAction;
+  if (action === 'focus') {
+    executeAirportRequest({ action: 'focusFlight', flightId });
+    return;
+  }
+  const result = action === 'accept'
+    ? executeAirportRequest({ action: 'acceptHandoff', flightId })
+    : action === 'reject'
+      ? executeAirportRequest({ action: 'rejectHandoff', flightId })
+      : action === 'cancel'
+        ? executeAirportRequest({ action: 'cancelHandoff', flightId })
+        : executeAirportRequest({ action: 'contactStation', flightId, station });
+  setStatus(result.accepted ? 'Coordination updated' : 'Coordination rejected', result.reason);
+  coordinationInboxRenderKey = '';
+  renderFlightStrip();
 });
 flightActions.addEventListener('click', (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-flight-action]');
@@ -1026,6 +1055,11 @@ function frame(now: number): void {
     if (event.type === 'hold-position') setStatus(`${event.flight.callsign} hold position`, event.detail ?? 'decelerating normally');
     if (event.type === 'taxi-resume') setStatus(`${event.flight.callsign} resume taxi`, event.detail ?? 'controller hold released');
     if (event.type === 'group-instruction') setStatus('Group instruction accepted', event.detail ?? 'shared command applied atomically');
+    if (event.type === 'handoff-offer') setStatus(`${event.flight.callsign} coordination offered`, event.detail ?? 'receiving controller response pending');
+    if (event.type === 'handoff-accept') setStatus(`${event.flight.callsign} handoff accepted`, event.detail ?? 'sending controller must issue contact');
+    if (event.type === 'handoff-reject') setStatus(`${event.flight.callsign} handoff rejected`, event.detail ?? 'retain frequency ownership and re-coordinate');
+    if (event.type === 'handoff-overdue') setStatus(`${event.flight.callsign} handoff overdue`, event.detail ?? 'control-boundary coordination missed');
+    if (event.type === 'handoff-cancel') setStatus(`${event.flight.callsign} handoff cancelled`, event.detail ?? 'frequency ownership retained');
     if (event.type === 'contact') setStatus(`${event.flight.callsign} frequency changed`, event.detail ?? 'contact accepted');
     if (event.type === 'diversion') setStatus(`${event.flight.callsign} diverting`, event.detail ?? 'climbing toward the edge of terminal scope');
     if (event.type === 'divert') setStatus(`${event.flight.callsign} left the scope`, event.detail ?? 'diversion complete');
@@ -1192,6 +1226,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
       navigation: {
         ...flight.navigation,
         routeFixIds: [...flight.navigation.routeFixIds],
+        handoff: flight.navigation.handoff ? { ...flight.navigation.handoff } : undefined,
         routeClearance: flight.navigation.routeClearance ? {
           ...flight.navigation.routeClearance,
           routeFixIds: [...flight.navigation.routeClearance.routeFixIds],
@@ -1221,7 +1256,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
 function replayRecording(): ReplayRecording {
   return {
     schemaVersion: 1,
-    simulationVersion: window.airportControl?.version ?? '2.19.0',
+    simulationVersion: window.airportControl?.version ?? '2.20.0',
     recordedAt: new Date().toISOString(),
     seed: config.seed,
     airport: { code: config.code, name: config.name, scope: config.scope },
@@ -1236,6 +1271,7 @@ function replayRecording(): ReplayRecording {
 function renderFlightStrip(): void {
   const phaseOrder: Record<FlightPhase, number> = { landing: 0, approach: 1, takeoff: 2, 'taxi-in': 3, 'taxi-out': 4, resting: 5 };
   const allFlights = displayState().flights;
+  renderControllerCoordination(allFlights);
   const flights = visibleFlightsForStation(allFlights).sort((first, second) => phaseOrder[first.phase] - phaseOrder[second.phase] || first.id - second.id);
   const selectedWorkload = simulation.state.station === 'supervisor'
     ? null
@@ -1279,11 +1315,28 @@ function renderFlightStrip(): void {
   renderClearanceAdvisor();
 }
 
+function renderControllerCoordination(flights: readonly Flight[]): void {
+  const state = displayState();
+  const options = {
+    flights,
+    station: state.station,
+    elapsedSeconds: state.elapsed,
+    enabled: state.mode === 'manual' || state.mode === 'assisted',
+    readOnly: replayMode,
+  };
+  const key = coordinationInboxKey(options);
+  if (key === coordinationInboxRenderKey) return;
+  coordinationInboxRenderKey = key;
+  renderCoordinationInbox(coordinationInbox, options);
+}
+
 function visibleFlightsForStation(flights: Flight[]): Flight[] {
   if (simulation.state.mode === 'auto' || simulation.state.mode === 'watch' || simulation.state.station === 'supervisor') return [...flights];
   return flights.filter((flight) => (
     flight.navigation.frequencyOwner === simulation.state.station
     || requiredControllerStation(flight) === simulation.state.station
+    || flight.navigation.handoff?.from === simulation.state.station
+    || flight.navigation.handoff?.to === simulation.state.station
   ));
 }
 
@@ -1735,6 +1788,11 @@ function renderFlightActions(): void {
         flight.navigation.assignedSpeedKts ?? 'no-speed',
         flight.navigation.hold?.cycle ?? 'no-hold',
         flight.navigation.frequencyOwner,
+        flight.navigation.handoff?.revision ?? 'no-handoff',
+        flight.navigation.handoff?.status ?? 'no-handoff-status',
+        flight.navigation.handoff && (flight.navigation.handoff.status === 'offered' || flight.navigation.handoff.status === 'overdue')
+          ? Math.floor(displayState().elapsed)
+          : 'no-handoff-clock',
         flight.navigation.readbackStatus,
         flight.navigation.routeClearance?.revision ?? 'no-route-clearance',
         flight.navigation.routeClearance?.status ?? 'no-route-status',
@@ -1762,9 +1820,7 @@ function renderFlightActions(): void {
   heading.querySelector('small')!.textContent = `${flight.aircraft} · ${flight.origin} → ${flight.destination}${standLabel ? ` · ${standLabel}` : ''}`;
   heading.querySelector('span')!.textContent = simulation.state.station.toUpperCase();
   flightActions.append(heading);
-  if (flight.phase === 'approach' || flight.phase === 'landing' || flight.phase === 'takeoff') {
-    flightActions.append(createNavigationPanel(flight));
-  }
+  if (flight.phase !== 'resting') flightActions.append(createNavigationPanel(flight));
   if (flight.runwayExit && (flight.phase === 'approach' || flight.phase === 'landing' || flight.phase === 'taxi-in')) {
     flightActions.append(createRunwayExitPanel(flight));
   }
@@ -1815,8 +1871,26 @@ function renderFlightActions(): void {
     }
     if (flight.phase === 'approach') add('divert', `Divert ${flight.origin}`, !simulation.canIssue('approach') || !ownsFlight);
   }
-  const handoffTarget = suggestedHandoffStation(flight);
-  if (handoffTarget && flight.phase !== 'resting') add('handoff', `Contact ${handoffTarget}`, !ownsFlight);
+  const handoff = flight.navigation.handoff;
+  const handoffActive = handoff && (handoff.status === 'offered' || handoff.status === 'accepted' || handoff.status === 'overdue')
+    ? handoff
+    : undefined;
+  const supervisor = simulation.state.station === 'supervisor';
+  if (handoffActive && (handoffActive.status === 'offered' || handoffActive.status === 'overdue')) {
+    if (supervisor || simulation.state.station === handoffActive.to) {
+      add('handoff-accept', `Accept ${controllerStationLabel(handoffActive.from)}`);
+      add('handoff-reject', 'Reject handoff');
+    }
+    if (supervisor || simulation.state.station === handoffActive.from) add('handoff-cancel', 'Cancel request');
+  } else if (handoffActive?.status === 'accepted') {
+    if (supervisor || simulation.state.station === handoffActive.from) {
+      add('handoff-contact', `Contact ${controllerStationLabel(handoffActive.to)}`);
+      add('handoff-cancel', 'Cancel handoff');
+    }
+  } else {
+    const handoffTarget = suggestedHandoffStation(flight);
+    if (handoffTarget && flight.phase !== 'resting') add('handoff-offer', `Request ${controllerStationLabel(handoffTarget)}`, !ownsFlight);
+  }
   if (flight.phase === 'approach' && !flight.cleared && !flight.goAround && !flight.diversion) add('clear', `Land ${runwayDesignation(flight.runway)}`, !simulation.canIssue('tower') || !ownsFlight);
   if ((flight.phase === 'approach' || flight.phase === 'landing') && !flight.goAround && !flight.diversion) add('go-around', 'Go around', (!simulation.canIssue('approach') && !simulation.canIssue('tower')) || !ownsFlight);
   if (flight.phase === 'resting' && flight.turnaround.status === 'ready' && !flight.pushbackCleared && !serviceVehiclesBlockingPush(flight.id).length) add('pushback', `Push ${flight.pushbackDirection}`, !simulation.canIssue('ramp') || !ownsFlight || flight.deicing.status === 'unavailable');
@@ -1884,6 +1958,20 @@ function createNavigationPanel(flight: Flight): HTMLElement {
   const detail = document.createElement('small');
   detail.textContent = nextFix ? `Next ${nextFix.name} · ${nextFix.altitudeFt.toLocaleString()} ft · non-navigational schematic` : 'Procedure complete · non-navigational schematic';
   panel.append(heading, metrics, detail);
+  const handoff = flight.navigation.handoff;
+  if (handoff) {
+    const coordination = document.createElement('small');
+    coordination.className = 'navigation-panel__handoff';
+    const timing = handoff.status === 'offered'
+      ? `reply in ${Math.max(0, Math.ceil(handoff.responseDueSeconds - displayState().elapsed))}s`
+      : handoff.status === 'overdue'
+        ? `${Math.max(0, Math.ceil(displayState().elapsed - handoff.responseDueSeconds))}s late`
+        : handoff.status === 'accepted'
+          ? 'contact instruction pending'
+          : handoff.status;
+    coordination.textContent = `${controllerStationLabel(handoff.from)} → ${controllerStationLabel(handoff.to)} · ${timing}`;
+    panel.append(coordination);
+  }
   const clearance = flight.navigation.routeClearance;
   if (clearance) {
     const route = document.createElement('div');
@@ -2117,20 +2205,6 @@ function applyClearanceProposal(proposal: ClearanceProposal): void {
   renderFlightStrip();
 }
 
-function suggestedHandoffStation(flight: Flight): ControllerStation | null {
-  const owner = flight.navigation.frequencyOwner;
-  if (owner === 'supervisor') return null;
-  const required = requiredControllerStation(flight);
-  if (required !== owner) return required;
-  if (owner === 'approach' && flight.phase === 'approach' && flight.progress >= 0.56) return 'tower';
-  if (owner === 'tower' && (flight.phase === 'landing' || (flight.phase === 'taxi-in' && flight.progress >= 0.08))) return 'ground';
-  if (owner === 'ground' && flight.phase === 'taxi-in' && (flight.progress >= 0.72 || Boolean(flight.rampControlZoneId))) return 'ramp';
-  if (owner === 'ramp' && flight.phase === 'taxi-out' && !flight.tugAttached && flight.progress >= Math.max(0.025, flight.pushbackReleaseProgress)) return 'ground';
-  if (owner === 'ground' && flight.phase === 'taxi-out' && flight.progress >= 0.94) return 'tower';
-  if (owner === 'tower' && flight.phase === 'takeoff' && !flight.motion.onGround) return 'approach';
-  return null;
-}
-
 function suggestedRouteAmendment(flight: Flight): string[] | null {
   return routeAmendmentOptions(flight)[0]?.fixIds ?? null;
 }
@@ -2208,9 +2282,15 @@ function handleFlightAction(flightId: number, action: string, runwayValue?: stri
   if (action === 'route-issue') executeAirportRequest({ action: 'issueRouteAmendment', flightId });
   if (action === 'route-cancel') executeAirportRequest({ action: 'cancelRouteAmendment', flightId });
   if (action === 'divert') executeAirportRequest({ action: 'divertFlight', flightId, airportCode: flight.origin, reason: 'controller-selected alternate' });
-  if (action === 'handoff') {
+  if (action === 'handoff-offer') {
     const station = suggestedHandoffStation(flight);
-    if (station) executeAirportRequest({ action: 'contactStation', flightId, station });
+    if (station) executeAirportRequest({ action: 'offerHandoff', flightId, station });
+  }
+  if (action === 'handoff-accept') executeAirportRequest({ action: 'acceptHandoff', flightId });
+  if (action === 'handoff-reject') executeAirportRequest({ action: 'rejectHandoff', flightId });
+  if (action === 'handoff-cancel') executeAirportRequest({ action: 'cancelHandoff', flightId });
+  if (action === 'handoff-contact' && flight.navigation.handoff) {
+    executeAirportRequest({ action: 'contactStation', flightId, station: flight.navigation.handoff.to });
   }
   if (action === 'slow' || action === 'normal' || action === 'expedite') executeAirportRequest({ action: 'controlFlights', flightIds: [flightId], instruction: action });
   renderFlightStrip();
@@ -2738,6 +2818,7 @@ function setStation(station: ControllerStation): void {
   groupSelectActive = false;
   groupedFlightIds.clear();
   groupActionsRenderKey = '';
+  coordinationInboxRenderKey = '';
   world.selectFlight(null);
   renderFlightStrip();
   surfaceDisruptionUiKey = '';
@@ -2884,7 +2965,7 @@ function airportSnapshot() {
   const operations = simulation.operationProfileSnapshot();
   const movingPhases = new Set(['approach', 'landing', 'taxi-in', 'taxi-out', 'takeoff']);
   return {
-    schemaVersion: 21,
+    schemaVersion: 22,
     airport: {
       code: config.code,
       name: config.name,
@@ -2992,6 +3073,12 @@ function airportSnapshot() {
     controllers: {
       automation: { ...simulation.state.stationAutomation },
       workloads: simulation.controllerWorkloads(),
+      coordination: simulation.state.flights.flatMap((flight) => {
+        const handoff = flight.navigation.handoff;
+        return handoff && (handoff.status === 'offered' || handoff.status === 'accepted' || handoff.status === 'overdue')
+          ? [{ flightId: flight.id, callsign: flight.callsign, ...handoff }]
+          : [];
+      }),
     },
     scenario: simulation.state.scenario,
     trafficDensity: simulation.state.trafficFlow.density,
@@ -3238,6 +3325,7 @@ function airportSnapshot() {
       navigation: {
         ...flight.navigation,
         routeFixIds: [...flight.navigation.routeFixIds],
+        handoff: flight.navigation.handoff ? { ...flight.navigation.handoff } : null,
         routeClearance: flight.navigation.routeClearance ? {
           ...flight.navigation.routeClearance,
           routeFixIds: [...flight.navigation.routeClearance.routeFixIds],
@@ -3673,6 +3761,25 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
       ? simulation.lastCommandReason()
       : 'unknown controller station';
   }
+  if (command.action === 'offerHandoff') {
+    accepted = isControllerStation(command.station)
+      && simulation.offerHandoff(command.flightId, command.station);
+    reason = isControllerStation(command.station)
+      ? simulation.lastCommandReason()
+      : 'unknown controller station';
+  }
+  if (command.action === 'acceptHandoff') {
+    accepted = simulation.acceptHandoff(command.flightId);
+    reason = simulation.lastCommandReason();
+  }
+  if (command.action === 'rejectHandoff') {
+    accepted = simulation.rejectHandoff(command.flightId);
+    reason = simulation.lastCommandReason();
+  }
+  if (command.action === 'cancelHandoff') {
+    accepted = simulation.cancelHandoff(command.flightId);
+    reason = simulation.lastCommandReason();
+  }
   if (command.action === 'contactStation') {
     accepted = isControllerStation(command.station)
       && simulation.contactFlight(command.flightId, command.station);
@@ -3797,7 +3904,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
 }
 
 window.airportControl = {
-  version: '2.19.0',
+  version: '2.20.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },
@@ -3843,8 +3950,11 @@ window.airportControl = {
       approach: "airportControl.request({ action: 'clearApproach', flightId: 1 })",
       airborneHold: "airportControl.request({ action: 'holdFlight', flightId: 1, efcMinutes: 4 })",
       releaseHold: "airportControl.request({ action: 'releaseHold', flightId: 1 })",
-      handoff: "airportControl.request({ action: 'handoffFlight', flightId: 1, station: 'tower' })",
-      contact: "airportControl.request({ action: 'contactStation', flightId: 1, station: 'tower' })",
+      handoffOffer: "airportControl.request({ action: 'offerHandoff', flightId: 1, station: 'tower' }) // handoffFlight is a legacy offer alias",
+      handoffAccept: "airportControl.request({ action: 'acceptHandoff', flightId: 1 }) // receiving station",
+      handoffReject: "airportControl.request({ action: 'rejectHandoff', flightId: 1 }) // receiving station",
+      handoffCancel: "airportControl.request({ action: 'cancelHandoff', flightId: 1 }) // sending station",
+      contact: "airportControl.request({ action: 'contactStation', flightId: 1, station: 'tower' }) // sending station after acceptance",
       taxiRoute: "airportControl.request({ action: 'assignTaxiRoute', flightId: 3, viaNodeIds: ['OSM-N26630147'] }) // inspect snapshot().surfaceGraph.nodes",
       surfaceHold: "airportControl.request({ action: 'holdPosition', flightId: 3 })",
       resumeTaxi: "airportControl.request({ action: 'resumeTaxi', flightId: 3 })",
