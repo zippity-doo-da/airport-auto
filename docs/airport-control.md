@@ -4,7 +4,7 @@ Airport Auto exposes a local, versioned interface for playtests, scripted contro
 
 ## Browser API
 
-The current API version is `2.24.0`; snapshots use schema version `26`.
+The current API version is `2.25.0`; snapshots use schema version `27`.
 
 ```js
 airportControl.version;
@@ -96,6 +96,25 @@ airportControl.request({
   enabled: true,
 });
 ```
+
+Sandbox lifecycle and traffic injection:
+
+```js
+airportControl.request({ action: "startSandbox", backgroundTraffic: false });
+airportControl.request({
+  action: "injectSandboxTraffic",
+  direction: "arrival", // arrival | departure
+  trafficClass: "passenger", // auto | passenger | regional | cargo | general-aviation
+  runwayId: null, // null chooses an open, role-compatible runway
+  count: 4, // integer from 1 through 8
+});
+airportControl.request({ action: "setSandboxBackgroundTraffic", enabled: true });
+airportControl.request({ action: "cancelSandboxInjections" });
+airportControl.request({ action: "clearSandboxTraffic" });
+airportControl.request({ action: "stopSandbox" });
+```
+
+`snapshot().sandbox` reports the no-score/no-fail lifecycle, request state and reasons, totals, released and active injected IDs, active-aircraft count, compatible runway choices, and traffic-class catalog. Arrivals enter at the terminal-scope edge; departures stage on a compatible unoccupied stand and use the complete pushback/taxi/runway lifecycle. Releases still obey traffic caps, stand/runway performance, protected paths, controller authority, separation, and collision prevention. `clearSandboxTraffic` preserves weather and runway configuration. See [sandbox-lab.md](sandbox-lab.md).
 
 Map panning is a direct presentation interaction: drag with a mouse or one finger, including when the gesture begins over ordinary traffic, middle-drag from anywhere, or use WASD/arrow keys. Q/E and the `rotateLeft`/`rotateRight` commands orbit the camera in 15-degree steps; runway-entry clearance moved to the R keyboard shortcut and remains available in the selected-flight panel. The only reserved left-drag is an uncleared arrival in a hands-on mode because that gesture draws its approach clearance. Wheel and pinch zoom remain anchored under the pointer; wide zoom smoothly becomes a map-like overhead view so the ground continues beneath the full viewport. Selecting a flight resumes smooth follow; selecting it again, clicking empty ground, or pressing Escape releases follow; `resetCamera` restores the centered default. `snapshot().renderer.camera` exposes the current focus, zoom, orbit angle, pan limits, detailed-map footprint, much larger plain-terrain dimensions, `groundFillsViewport`, and the nearest visible ground margin for browser verification.
 

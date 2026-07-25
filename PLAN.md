@@ -354,6 +354,17 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Expose the catalog, definition, lifecycle, locked conditions, objectives, score, grade, summary, and start/begin/end/continue commands through API 2.24 / snapshot schema 26, BroadcastChannel, recording, replay, and shareable `?challenge=` links.
 - [x] Validate catalog weights, grades, safety caps, condition locks, desk automation, fuel accounting, closure protection, emergency seeding, exact clock completion, training exclusivity, deep cloning, desktop/mobile control flow, viewport containment, focus, and screenshot presentation.
 
+## Airport Auto 2.25 — no-score traffic sandbox
+
+- [x] Add a clean sandbox lifecycle that preserves airport, density, mode, pace, pause state, access to weather/runway controls, and the shared safety arbiter while removing prior traffic, queues, services, counters, challenges, training, and disruptions.
+- [x] Add deterministic one-, two-, four-, and eight-aircraft injection requests for arrivals or departures, airport mix/passenger/regional/cargo/general-aviation classes, and automatic or explicitly compatible active runways.
+- [x] Release arrivals from the terminal-scope edge through normal procedures; stage departures on immediately free, aircraft-compatible stands at zero altitude with complete flight plans and the ordinary pushback, taxi, hold-short, runway-entry, takeoff-roll, and climb lifecycle.
+- [x] Keep requested departure runways through pushback and taxi while the runway remains open and compatible; retain normal safe re-planning when later weather, configuration, disruption, or performance makes that request invalid.
+- [x] Add background-demand on/off, pending-request cancellation, and a clear-board operation that preserves weather and runway configuration; surface every wait or rejection through the same structured command reason used by human and agent controllers.
+- [x] Remove grade, timer, failure closure, and station scorecard pressure without weakening collisions, separation, runway protection, graph routing, gate exclusivity, traffic caps, or controller authority.
+- [x] Add a compact responsive Controls section and map badge, `?sandbox=1&background=1` launch support, BroadcastChannel commands, API 2.25 / snapshot schema 27, telemetry events, replay cloning, documentation, and desktop/mobile screenshot coverage.
+- [x] Validate clean entry, exact class/runway release, multi-arrival batches, grounded departures, background traffic, cancellation, weather/configuration preservation, deep cloning, training/challenge interlocks, no-fail clock advancement, ordinary-flow exit, and responsive browser control.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.

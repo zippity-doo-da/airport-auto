@@ -26,6 +26,8 @@ import type {
   GroupInstructionPreview,
   OperationalControllerStation,
   ReplayFrame,
+  SandboxTrafficClass,
+  SandboxTrafficDirection,
   SurfaceDisruptionKind,
   TrafficScenario,
   TrainingLessonId,
@@ -49,6 +51,7 @@ import {
 } from './ui/surfaceDisruptionPanel';
 import { coordinationInboxKey, renderCoordinationInbox } from './ui/coordinationInbox';
 import { createChallengePanel, type ChallengeSnapshot } from './ui/challengePanel';
+import { createSandboxPanel } from './ui/sandboxPanel';
 
 type AirportControlCommand =
   | {
@@ -158,7 +161,17 @@ type AirportControlCommand =
       action: 'stopTrainingLesson' | 'continueTraining' | 'trainingHint' | 'retryTrainingStep' | 'skipTrainingStep';
     }
   | { action: 'startChallenge'; challengeId: ChallengeId }
-  | { action: 'beginChallenge' | 'endChallenge' | 'continueAfterChallenge' };
+  | { action: 'beginChallenge' | 'endChallenge' | 'continueAfterChallenge' }
+  | { action: 'startSandbox'; backgroundTraffic?: boolean }
+  | { action: 'stopSandbox' | 'cancelSandboxInjections' | 'clearSandboxTraffic' }
+  | { action: 'setSandboxBackgroundTraffic'; enabled: boolean }
+  | {
+      action: 'injectSandboxTraffic';
+      direction: SandboxTrafficDirection;
+      trafficClass?: SandboxTrafficClass;
+      runwayId?: number | null;
+      count?: number;
+    };
 
 type AirportControlResult = {
   accepted: boolean;
@@ -324,6 +337,20 @@ const challengeResultEmergencies = $<HTMLElement>('#challenge-result-emergencies
 const challengeResultObjectives = $<HTMLElement>('#challenge-result-objectives');
 const challengeRetry = $<HTMLButtonElement>('#challenge-retry');
 const challengeContinue = $<HTMLButtonElement>('#challenge-continue');
+const sandboxSetup = $<HTMLDetailsElement>('#sandbox-setup');
+const sandboxToggle = $<HTMLButtonElement>('#sandbox-toggle');
+const sandboxBackground = $<HTMLInputElement>('#sandbox-background');
+const sandboxDirection = $<HTMLSelectElement>('#sandbox-direction');
+const sandboxTrafficClass = $<HTMLSelectElement>('#sandbox-traffic-class');
+const sandboxRunway = $<HTMLSelectElement>('#sandbox-runway');
+const sandboxCount = $<HTMLSelectElement>('#sandbox-count');
+const sandboxInject = $<HTMLButtonElement>('#sandbox-inject');
+const sandboxStatus = $<HTMLElement>('#sandbox-status');
+const sandboxDetail = $<HTMLElement>('#sandbox-detail');
+const sandboxCancel = $<HTMLButtonElement>('#sandbox-cancel');
+const sandboxClear = $<HTMLButtonElement>('#sandbox-clear');
+const sandboxHud = $<HTMLElement>('#sandbox-hud');
+const sandboxHudStatus = $<HTMLElement>('#sandbox-hud-status');
 const introAirportSelect = $<HTMLSelectElement>('#intro-airport-select');
 const introControlSelect = $<HTMLSelectElement>('#intro-control-select');
 const introDensitySelect = $<HTMLSelectElement>('#intro-density-select');
@@ -455,6 +482,22 @@ const challengePanel = createChallengePanel({
   resultEmergencies: challengeResultEmergencies,
   resultObjectives: challengeResultObjectives,
 });
+const sandboxPanel = createSandboxPanel({
+  setup: sandboxSetup,
+  toggle: sandboxToggle,
+  background: sandboxBackground,
+  direction: sandboxDirection,
+  trafficClass: sandboxTrafficClass,
+  runway: sandboxRunway,
+  count: sandboxCount,
+  inject: sandboxInject,
+  cancel: sandboxCancel,
+  clear: sandboxClear,
+  status: sandboxStatus,
+  detail: sandboxDetail,
+  hud: sandboxHud,
+  hudStatus: sandboxHudStatus,
+});
 
 let lastTime = performance.now();
 let simulationAccumulator = 0;
@@ -468,6 +511,7 @@ let audioUpdateIn = 0;
 let lastHudSecond = -1;
 let trainingCoachRenderKey = '';
 let lastChallengeStatus: ChallengeSnapshot['status'] = 'inactive';
+let lastSandboxActive = false;
 let lastArrivals = -1;
 let lastDepartures = -1;
 let hubIndex = 0;
@@ -565,6 +609,7 @@ renderSurfaceDisruptionControls();
 renderFlightStrip();
 renderTrainingCoach(true);
 renderChallengeExperience(true);
+renderSandboxExperience(true);
 setExclusiveModal(intro);
 requestAnimationFrame(() => enterButton.focus());
 
@@ -786,6 +831,37 @@ challengeRetry.addEventListener('click', () => {
   if (challengeId) executeAirportRequest({ action: 'startChallenge', challengeId });
 });
 challengeContinue.addEventListener('click', () => executeAirportRequest({ action: 'continueAfterChallenge' }));
+sandboxToggle.addEventListener('click', () => {
+  const action: AirportControlCommand = simulation.state.sandbox.active
+    ? { action: 'stopSandbox' }
+    : { action: 'startSandbox', backgroundTraffic: sandboxBackground.checked };
+  const result = executeAirportRequest(action);
+  setStatus(result.accepted ? (simulation.state.sandbox.active ? 'Sandbox ready' : 'Sandbox closed') : 'Sandbox unchanged', result.reason);
+});
+sandboxBackground.addEventListener('change', () => {
+  const result = executeAirportRequest({ action: 'setSandboxBackgroundTraffic', enabled: sandboxBackground.checked });
+  setStatus(result.accepted ? 'Sandbox demand updated' : 'Sandbox demand unchanged', result.reason);
+});
+sandboxInject.addEventListener('click', () => {
+  const runwayId = sandboxRunway.value === 'auto' ? null : Number(sandboxRunway.value);
+  const result = executeAirportRequest({
+    action: 'injectSandboxTraffic',
+    direction: sandboxDirection.value as SandboxTrafficDirection,
+    trafficClass: sandboxTrafficClass.value as SandboxTrafficClass,
+    runwayId,
+    count: Number(sandboxCount.value),
+  });
+  setStatus(result.accepted ? 'Sandbox traffic queued' : 'Traffic request rejected', result.reason);
+});
+sandboxCancel.addEventListener('click', () => {
+  const result = executeAirportRequest({ action: 'cancelSandboxInjections' });
+  setStatus(result.accepted ? 'Sandbox queue cancelled' : 'Sandbox queue unchanged', result.reason);
+});
+sandboxClear.addEventListener('click', () => {
+  const result = executeAirportRequest({ action: 'clearSandboxTraffic' });
+  if (result.accepted) clearFlightFocus();
+  setStatus(result.accepted ? 'Sandbox board cleared' : 'Sandbox board unchanged', result.reason);
+});
 for (const control of stationAutomationControls) {
   control.addEventListener('change', () => {
     const station = control.dataset.stationAutomation;
@@ -1126,6 +1202,7 @@ function frame(now: number): void {
     renderFlightStrip();
     renderTrainingCoach();
     renderChallengeExperience();
+    renderSandboxExperience();
     lastFlightStripRender = now;
   }
 
@@ -1268,7 +1345,11 @@ function frame(now: number): void {
     if (event.type === 'runway-crossing') setStatus(`${event.flight.callsign} crossing clearance`, `cross runway ${runwayDesignation(event.runway ?? event.flight.runway)}`);
     if (event.type === 'safety-hold') setStatus(`${event.flight.callsign} held for separation`, event.flight.safetyHoldReason ?? 'protected traffic envelope occupied');
     if (event.type === 'depart') setStatus(`${event.flight.callsign} is away`, 'departure corridor is clear');
-    if (event.type === 'conflict') showGameOver(event.flight.callsign);
+    if (event.type === 'conflict') {
+      if (simulation.state.sandbox.active) setStatus(`${event.flight.callsign} protected`, 'sandbox safety arbiter retained control; the session remains open');
+      else showGameOver(event.flight.callsign);
+    }
+    if (event.type === 'sandbox-injection') setStatus(`${event.flight.callsign} staged`, event.detail ?? 'sandbox release accepted by the safety arbiter');
     if (event.type === 'emergency') setStatus(`${event.flight.callsign} emergency`, `${event.flight.emergency} · priority handling active`);
     if (event.type === 'go-around') setStatus(`${event.flight.callsign} going around`, `${event.detail ?? 'spacing reset'} · re-entering the arrival sequence`);
     if (event.type === 'route-preview') setStatus(`${event.flight.callsign} route preview`, event.detail ?? 'candidate route checked');
@@ -1420,6 +1501,14 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
         safety: { ...state.challenge.summary.safety },
       },
     },
+    sandbox: {
+      ...state.sandbox,
+      injections: state.sandbox.injections.map((request) => ({
+        ...request,
+        releasedFlightIds: [...request.releasedFlightIds],
+      })),
+      totals: { ...state.sandbox.totals },
+    },
     activeRunwayEnds: { ...state.activeRunwayEnds },
     activeRunwayRoles: { ...state.activeRunwayRoles },
     runwayConfigurationTransition: state.runwayConfigurationTransition ? {
@@ -1501,7 +1590,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
 function replayRecording(): ReplayRecording {
   return {
     schemaVersion: 1,
-    simulationVersion: window.airportControl?.version ?? '2.24.0',
+    simulationVersion: window.airportControl?.version ?? '2.25.0',
     recordedAt: new Date().toISOString(),
     seed: config.seed,
     airport: { code: config.code, name: config.name, scope: config.scope },
@@ -1654,6 +1743,57 @@ function renderChallengeExperience(force = false): void {
   lastChallengeStatus = snapshot.status;
 }
 
+function renderSandboxExperience(force = false): void {
+  const snapshot = simulation.sandboxSnapshot();
+  sandboxPanel.render(snapshot, force);
+  document.body.classList.toggle('sandbox-active', snapshot.active);
+  if (snapshot.active !== lastSandboxActive) {
+    stationBriefingRenderKey = '';
+    renderStationBriefing();
+  }
+  lastSandboxActive = snapshot.active;
+}
+
+function openSandbox(backgroundTraffic = false): boolean {
+  const accepted = simulation.startSandbox(backgroundTraffic);
+  if (!accepted) return false;
+  simulationAccumulator = 0;
+  previousPresentation = capturePresentation(simulation.state);
+  world.snapToAuthoritativeState();
+  replayFrames.length = 0;
+  commandHistory.length = 0;
+  initialReplayState = cloneAirportState(simulation.state);
+  lastArrivals = -1;
+  lastDepartures = -1;
+  lastHudSecond = -1;
+  scenarioSelect.value = simulation.state.scenario;
+  densitySelect.value = simulation.state.trafficFlow.density;
+  introDensitySelect.value = simulation.state.trafficFlow.density;
+  stationSelect.value = simulation.state.station;
+  focusedFlightId = null;
+  groupSelectActive = false;
+  groupedFlightIds.clear();
+  groupActionsRenderKey = '';
+  flightActionsRenderKey = '';
+  setFlightStripCollapsed(false);
+  clearRoute();
+  renderFlightStrip();
+  renderFlightActions();
+  renderTrainingCoach(true);
+  renderChallengeExperience(true);
+  renderSandboxExperience(true);
+  updateModeControl();
+  updateStationAutomationUi();
+  updateWeatherUi();
+  updateQueueInspectorControl();
+  renderQueueInspector();
+  updateSurfaceDisruptionTargets();
+  surfaceDisruptionUiKey = '';
+  renderSurfaceDisruptionControls();
+  updatePauseControl();
+  return true;
+}
+
 function beginTrainingLesson(lessonId: TrainingLessonId): boolean {
   simulation.setMode('manual');
   simulation.setTrafficDensity('quiet');
@@ -1728,7 +1868,7 @@ function currentControllerPerformance(): ControllerPerformanceSnapshot[] {
 
 function renderStationBriefing(): void {
   const state = displayState();
-  const enabled = !replayMode && (state.mode === 'manual' || state.mode === 'assisted');
+  const enabled = !replayMode && !state.sandbox.active && (state.mode === 'manual' || state.mode === 'assisted');
   stationBriefing.hidden = !enabled;
   if (!enabled) {
     stationBriefingRenderKey = '';
@@ -3158,6 +3298,9 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   challengePanel.reset();
   lastChallengeStatus = 'inactive';
   renderChallengeExperience(true);
+  sandboxPanel.reset();
+  lastSandboxActive = false;
+  renderSandboxExperience(true);
   updatePauseControl();
 }
 
@@ -3568,9 +3711,10 @@ function airportSnapshot() {
   const operations = simulation.operationProfileSnapshot();
   const movingPhases = new Set(['approach', 'landing', 'taxi-in', 'taxi-out', 'takeoff']);
   return {
-    schemaVersion: 26,
+    schemaVersion: 27,
     training: simulation.trainingSnapshot(),
     challenge: simulation.challengeSnapshot(),
+    sandbox: simulation.sandboxSnapshot(),
     airport: {
       code: config.code,
       name: config.name,
@@ -4586,6 +4730,41 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
     accepted = simulation.continueAfterChallenge();
     reason = simulation.lastCommandReason();
   }
+  if (command.action === 'startSandbox') {
+    accepted = openSandbox(command.backgroundTraffic ?? false);
+    reason = simulation.lastCommandReason();
+  }
+  if (command.action === 'stopSandbox') {
+    accepted = simulation.stopSandbox();
+    reason = simulation.lastCommandReason();
+  }
+  if (command.action === 'setSandboxBackgroundTraffic') {
+    accepted = simulation.setSandboxBackgroundTraffic(command.enabled);
+    reason = simulation.lastCommandReason();
+  }
+  if (command.action === 'injectSandboxTraffic') {
+    accepted = simulation.queueSandboxTraffic(
+      command.direction,
+      command.trafficClass ?? 'auto',
+      command.runwayId ?? null,
+      command.count ?? 1,
+    );
+    reason = simulation.lastCommandReason();
+  }
+  if (command.action === 'cancelSandboxInjections') {
+    accepted = simulation.cancelSandboxInjections();
+    reason = simulation.lastCommandReason();
+  }
+  if (command.action === 'clearSandboxTraffic') {
+    accepted = simulation.clearSandboxTraffic();
+    reason = simulation.lastCommandReason();
+    if (accepted) {
+      simulationAccumulator = 0;
+      previousPresentation = capturePresentation(simulation.state);
+      world.snapToAuthoritativeState();
+      clearFlightFocus();
+    }
+  }
   if (command.action === 'restart') {
     if (simulation.challengeSnapshot().conditionsLocked) {
       accepted = false;
@@ -4608,6 +4787,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
   }
   renderTrainingCoach();
   renderChallengeExperience();
+  renderSandboxExperience();
   updatePauseControl();
   recordTelemetry(`command:${command.action}`, undefined, undefined, undefined, { accepted, detail: reason, payload: command });
   const snapshot = airportSnapshot();
@@ -4619,7 +4799,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
 }
 
 window.airportControl = {
-  version: '2.24.0',
+  version: '2.25.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },
@@ -4693,6 +4873,12 @@ window.airportControl = {
       challengeBegin: "airportControl.request({ action: 'beginChallenge' })",
       challengeEnd: "airportControl.request({ action: 'endChallenge' }) // closes early and opens the debrief",
       challengeContinue: "airportControl.request({ action: 'continueAfterChallenge' })",
+      sandboxStart: "airportControl.request({ action: 'startSandbox', backgroundTraffic: false }) // clear board, no score, no fail",
+      sandboxInject: "airportControl.request({ action: 'injectSandboxTraffic', direction: 'arrival', trafficClass: 'passenger', runwayId: null, count: 4 })",
+      sandboxBackground: "airportControl.request({ action: 'setSandboxBackgroundTraffic', enabled: true })",
+      sandboxCancel: "airportControl.request({ action: 'cancelSandboxInjections' })",
+      sandboxClear: "airportControl.request({ action: 'clearSandboxTraffic' }) // preserves weather and runway configuration",
+      sandboxStop: "airportControl.request({ action: 'stopSandbox' })",
       emergency: "airportControl.command({ action: 'triggerEmergency', flightId: 1, type: 'medical' })",
       aircraft: 'airportControl.snapshot().flights[0].aircraft',
       surfaceGraph: 'airportControl.snapshot().surfaceGraph',
@@ -4789,6 +4975,10 @@ if (launchDensity && isTrafficDensity(launchDensity)) {
 }
 const launchRuleset = launchOptions.get('rules');
 if (launchRuleset === 'forgiving' || launchRuleset === 'realistic') setSeparationRules(launchRuleset);
+if (launchOptions.get('sandbox') === '1') {
+  openSandbox(launchOptions.get('background') === '1');
+  sandboxSetup.open = true;
+}
 const launchStation = launchOptions.get('station') as ControllerStation | null;
 if (launchStation && isControllerStation(launchStation)) setStation(launchStation);
 const launchWeatherValue = launchOptions.get('weather');

@@ -105,6 +105,24 @@
             <small id="challenge-setup-note">Choose a deterministic shift with locked conditions, live objectives, and a full operational debrief.</small>
           </div>
         </details>
+        <details class="sandbox-setup" id="sandbox-setup">
+          <summary>Sandbox lab <span>no score · no fail</span></summary>
+          <div>
+            <button id="sandbox-toggle" type="button">Enter clean sandbox</button>
+            <label class="sandbox-background"><input id="sandbox-background" type="checkbox" />Continuous background traffic</label>
+            <fieldset class="sandbox-injection" aria-label="Sandbox traffic injection">
+              <legend>Traffic injection</legend>
+              <label><span>Flow</span><select id="sandbox-direction"><option value="arrival">Arrival</option><option value="departure">Departure</option></select></label>
+              <label><span>Class</span><select id="sandbox-traffic-class"><option value="auto">Airport mix</option><option value="passenger">Passenger</option><option value="regional">Regional</option><option value="cargo">Cargo</option><option value="general-aviation">General aviation</option></select></label>
+              <label><span>Runway</span><select id="sandbox-runway"><option value="auto">Automatic safe runway</option></select></label>
+              <label><span>Count</span><select id="sandbox-count"><option value="1">1 aircraft</option><option value="2">2 aircraft</option><option value="4">4 aircraft</option><option value="8">8 aircraft</option></select></label>
+              <button id="sandbox-inject" type="button">Queue traffic</button>
+            </fieldset>
+            <p class="sandbox-setup__status"><b id="sandbox-status">Sandbox inactive</b><span id="sandbox-detail">Enter with a clear board, then stage only the traffic you want.</span></p>
+            <footer><button id="sandbox-cancel" type="button">Cancel pending</button><button id="sandbox-clear" type="button">Clear board</button></footer>
+            <small>Injected aircraft still obey runway performance, stand compatibility, spacing, protected routes, and collision prevention. Weather and runway controls remain live.</small>
+          </div>
+        </details>
         <label class="speed-control"><span>Speed <output id="speed-output" for="speed-control">1×</output></span><input id="speed-control" type="range" min="0.5" max="3" step="0.25" value="1" aria-label="Simulation speed" /></label>
         <div class="weather-readout" aria-label="Current weather">
           <span id="weather-condition">WX off</span><b id="weather-wind">calm · wind off</b><small id="weather-visibility">10 mi visibility</small><small id="operation-bank">06:20 local · Morning traffic</small><small id="traffic-flow">Realistic · metering clear</small><small id="runway-configuration">Primary flow</small>
@@ -213,6 +231,10 @@
           <div id="challenge-objectives" class="challenge-objectives"></div>
         </details>
         <footer><button id="challenge-primary" type="button">Begin timed shift</button><button id="challenge-end" type="button">Leave challenge</button></footer>
+      </aside>
+
+      <aside id="sandbox-hud" class="sandbox-hud" aria-label="Active traffic sandbox" hidden>
+        <span>Sandbox</span><b>No score · no fail</b><small id="sandbox-hud-status">Clear board · background demand off</small>
       </aside>
 
       <aside id="flight-strip" class="flight-strip" aria-label="Live flight information">

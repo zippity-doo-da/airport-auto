@@ -21,6 +21,8 @@ import type {
   GroupInstructionIssueResult,
   GroupInstructionPreview,
   OperationalControllerStation,
+  SandboxTrafficClass,
+  SandboxTrafficDirection,
   ServiceVehicleState,
   ShiftMetrics,
   SurfaceDisruptionKind,
@@ -72,6 +74,7 @@ import {
 import { controllerPerformanceSnapshots } from './controllerPerformance';
 import { cloneTrainingState, createInactiveTrainingState, currentTrainingStep, trainingContext, trainingLesson, trainingLessons, trainingObservationCompletesStep, type TrainingCommandObservation } from './trainingProgram';
 import { challengeDefinition, challengeDefinitions, cloneChallengeState, createInactiveChallengeState, evaluateChallenge } from './challengeProgram';
+import { cloneSandboxState, createInactiveSandboxState, SANDBOX_TRAFFIC_CLASSES } from './sandboxProgram';
 import { assessAirborneSeparation, requiredRadarSeparationNm, runwayPairIndependent, runwayReleaseReason, separationRuleset, weatherCapacityMultiplier, type RunwayOperationRecord, type SeparationRulesetId } from './separationRules';
 
 const PHASE_DURATION: Record<FlightPhase, number> = {
@@ -87,6 +90,36 @@ const HANDOFF_RESPONSE_SECONDS = 12;
 const AUTOMATIC_HANDOFF_ACCEPT_SECONDS = 0.75;
 const AUTOMATIC_HANDOFF_CONTACT_SECONDS = 0.65;
 const AUTOMATIC_HANDOFF_RETRY_SECONDS = 4;
+
+function createShiftMetrics(): ShiftMetrics {
+  return {
+    safeArrivals: 0,
+    safeDepartures: 0,
+    preventedConflicts: 0,
+    holdsIssued: 0,
+    manualCommands: 0,
+    maxConcurrent: 0,
+    airborneSeconds: 0,
+    taxiSeconds: 0,
+    estimatedDelaySeconds: 0,
+    emergencyResponses: 0,
+    safetyHolds: 0,
+    collisionAlerts: 0,
+    runwayIncursions: 0,
+    unexplainedPauses: 0,
+    longestHoldSeconds: 0,
+    diversions: 0,
+    cancellations: 0,
+    handoffOffers: 0,
+    handoffAcceptances: 0,
+    handoffRejections: 0,
+    missedHandoffs: 0,
+    fuelBurnKg: 0,
+    holdingFuelBurnKg: 0,
+    goArounds: 0,
+    emergencyResolutions: 0,
+  };
+}
 
 const SERVICE_VEHICLE_SURFACE_PRIORITY: Record<ServiceVehicleState['status'], number> = {
   clearing: 3,
@@ -194,6 +227,7 @@ export class AirportSimulation {
     closedRunway: null,
     training: createInactiveTrainingState(),
     challenge: createInactiveChallengeState(),
+    sandbox: createInactiveSandboxState(),
   };
 
   private nextId = 1;
@@ -212,33 +246,7 @@ export class AirportSimulation {
   private runwayConfigurationOverrideId: string | null = null;
   private readonly surfaceGraphValidation: SurfaceGraphValidation;
   private readonly obstacleEnvelopeValidation: AirportObstacleValidation;
-  private readonly metrics: ShiftMetrics = {
-    safeArrivals: 0,
-    safeDepartures: 0,
-    preventedConflicts: 0,
-    holdsIssued: 0,
-    manualCommands: 0,
-    maxConcurrent: 0,
-    airborneSeconds: 0,
-    taxiSeconds: 0,
-    estimatedDelaySeconds: 0,
-    emergencyResponses: 0,
-    safetyHolds: 0,
-    collisionAlerts: 0,
-    runwayIncursions: 0,
-    unexplainedPauses: 0,
-    longestHoldSeconds: 0,
-    diversions: 0,
-    cancellations: 0,
-    handoffOffers: 0,
-    handoffAcceptances: 0,
-    handoffRejections: 0,
-    missedHandoffs: 0,
-    fuelBurnKg: 0,
-    holdingFuelBurnKg: 0,
-    goArounds: 0,
-    emergencyResolutions: 0,
-  };
+  private readonly metrics: ShiftMetrics = createShiftMetrics();
 
   private readonly stationarySeconds = new Map<number, number>();
   private decisionReason = 'accepted';
@@ -638,6 +646,178 @@ export class AirportSimulation {
     this.weatherOverrideUntil = 0;
     this.decisionReason = `${title} debrief closed; continuing the current airport as free play`;
     return true;
+  }
+
+  sandboxSnapshot() {
+    const snapshot = cloneSandboxState(this.state.sandbox);
+    const activeFlightIds = new Set(this.state.flights.map((flight) => flight.id));
+    return {
+      ...snapshot,
+      trafficClasses: SANDBOX_TRAFFIC_CLASSES.map((trafficClass) => ({ ...trafficClass })),
+      runwayOptions: this.config.runways.map((runway) => {
+        const role = this.runwayRole(runway.id);
+        return {
+          id: runway.id,
+          designation: this.activeRunwayDesignation(runway.id),
+          role,
+          closed: runwayClosedByDisruption(this.state.surfaceDisruptions, runway.id),
+        };
+      }),
+      activeInjectedFlightIds: snapshot.injections
+        .flatMap((request) => request.releasedFlightIds)
+        .filter((flightId) => activeFlightIds.has(flightId)),
+      activeAircraftCount: this.state.flights.length,
+      pendingCount: snapshot.injections.reduce((total, request) => total + request.remainingCount, 0),
+    };
+  }
+
+  startSandbox(backgroundTraffic = false): boolean {
+    if (this.challengeConditionsLocked()) return this.rejectDecision('end the active challenge before entering sandbox');
+    if (this.state.training.status !== 'inactive') return this.rejectDecision('end the active training lesson before entering sandbox');
+    const paused = this.state.paused;
+    const station = this.state.station;
+    const stationAutomation = { ...this.state.stationAutomation };
+    this.reset('normal');
+    this.state.paused = paused;
+    this.state.station = station;
+    this.state.stationAutomation = stationAutomation;
+    this.state.sandbox = {
+      ...createInactiveSandboxState(),
+      active: true,
+      backgroundTraffic,
+      startedAtSeconds: this.state.elapsed,
+      lastMessage: backgroundTraffic
+        ? 'Sandbox ready with continuous background demand.'
+        : 'Sandbox ready with a clear board and background demand off.',
+    };
+    this.clearSandboxBoardState(true);
+    this.decisionReason = this.state.sandbox.lastMessage;
+    return true;
+  }
+
+  stopSandbox(): boolean {
+    if (!this.state.sandbox.active) return this.rejectDecision('sandbox is not active');
+    this.state.sandbox = createInactiveSandboxState();
+    scheduleNextArrivalDemand(this.state.trafficFlow, this.state.elapsed, this.arrivalDemandInterval());
+    this.spawnIn = Math.max(0, this.state.trafficFlow.nextArrivalDemandSeconds - this.state.elapsed);
+    this.decisionReason = 'sandbox closed; the current airport continues as ordinary free play';
+    return true;
+  }
+
+  setSandboxBackgroundTraffic(enabled: boolean): boolean {
+    if (!this.state.sandbox.active) return this.rejectDecision('enter sandbox before changing background traffic');
+    this.state.sandbox.backgroundTraffic = enabled;
+    if (enabled) {
+      scheduleNextArrivalDemand(this.state.trafficFlow, this.state.elapsed, this.arrivalDemandInterval());
+    } else {
+      this.state.trafficFlow.arrivalQueue = [];
+      this.state.trafficFlow.nextArrivalDemandSeconds = this.state.elapsed + this.arrivalDemandInterval();
+    }
+    this.spawnIn = Math.max(0, this.state.trafficFlow.nextArrivalDemandSeconds - this.state.elapsed);
+    this.state.sandbox.lastMessage = enabled
+      ? 'Continuous background demand enabled.'
+      : 'Background demand disabled; only queued injections will add aircraft.';
+    this.decisionReason = this.state.sandbox.lastMessage;
+    return true;
+  }
+
+  queueSandboxTraffic(
+    direction: SandboxTrafficDirection,
+    trafficClass: SandboxTrafficClass,
+    runwayId: number | null,
+    count: number,
+  ): boolean {
+    if (!this.state.sandbox.active) return this.rejectDecision('enter sandbox before injecting traffic');
+    if (direction !== 'arrival' && direction !== 'departure') return this.rejectDecision('sandbox direction must be arrival or departure');
+    if (!SANDBOX_TRAFFIC_CLASSES.some((candidate) => candidate.id === trafficClass)) return this.rejectDecision('unknown sandbox traffic class');
+    if (!Number.isInteger(count) || count < 1 || count > 8) return this.rejectDecision('sandbox injection count must be an integer from 1 to 8');
+    const liveRequests = this.state.sandbox.injections.filter((request) => request.status === 'queued' || request.status === 'releasing');
+    if (liveRequests.length >= 12) return this.rejectDecision('sandbox injection queue is full; wait or cancel pending traffic');
+    if (runwayId !== null) {
+      const runway = this.config.runways.find((candidate) => candidate.id === runwayId);
+      if (!runway) return this.rejectDecision(`unknown runway ${runwayId}`);
+      const role = this.runwayRole(runwayId);
+      const compatibleRole = direction === 'arrival'
+        ? role === 'arrival' || role === 'mixed'
+        : role === 'departure' || role === 'mixed';
+      if (!compatibleRole) return this.rejectDecision(`${this.activeRunwayDesignation(runwayId)} is not active for ${direction}s`);
+      if (runwayClosedByDisruption(this.state.surfaceDisruptions, runwayId)) return this.rejectDecision(`${this.activeRunwayDesignation(runwayId)} is closed`);
+    }
+    const id = this.state.sandbox.nextInjectionId;
+    this.state.sandbox.nextInjectionId += 1;
+    this.state.sandbox.injections.push({
+      id,
+      direction,
+      trafficClass,
+      runwayId,
+      requestedCount: count,
+      remainingCount: count,
+      releasedFlightIds: [],
+      status: 'queued',
+      createdAtSeconds: this.state.elapsed,
+      updatedAtSeconds: this.state.elapsed,
+      nextAttemptSeconds: this.state.elapsed,
+      lastReason: 'awaiting a safe release opportunity',
+    });
+    this.state.sandbox.totals.requested += count;
+    this.state.sandbox.lastMessage = `${count} ${trafficClass === 'auto' ? 'airport-mix' : trafficClass} ${direction}${count === 1 ? '' : 's'} queued safely.`;
+    this.decisionReason = this.state.sandbox.lastMessage;
+    return true;
+  }
+
+  cancelSandboxInjections(): boolean {
+    if (!this.state.sandbox.active) return this.rejectDecision('sandbox is not active');
+    let cancelled = 0;
+    for (const request of this.state.sandbox.injections) {
+      if (request.status !== 'queued' && request.status !== 'releasing') continue;
+      cancelled += request.remainingCount;
+      request.remainingCount = 0;
+      request.status = 'cancelled';
+      request.updatedAtSeconds = this.state.elapsed;
+      request.lastReason = 'cancelled by sandbox controller';
+    }
+    if (!cancelled) return this.rejectDecision('no sandbox injections are pending');
+    this.state.sandbox.totals.cancelled += cancelled;
+    this.state.sandbox.lastMessage = `${cancelled} pending injection${cancelled === 1 ? '' : 's'} cancelled.`;
+    this.decisionReason = this.state.sandbox.lastMessage;
+    return true;
+  }
+
+  clearSandboxTraffic(): boolean {
+    if (!this.state.sandbox.active) return this.rejectDecision('sandbox is not active');
+    let cancelled = 0;
+    for (const request of this.state.sandbox.injections) {
+      if (request.status !== 'queued' && request.status !== 'releasing') continue;
+      cancelled += request.remainingCount;
+      request.remainingCount = 0;
+      request.status = 'cancelled';
+      request.updatedAtSeconds = this.state.elapsed;
+      request.lastReason = 'cancelled when the sandbox board was cleared';
+    }
+    this.state.sandbox.totals.cancelled += cancelled;
+    this.clearSandboxBoardState(true);
+    this.state.sandbox.lastMessage = 'Sandbox board cleared; weather and runway configuration were preserved.';
+    this.decisionReason = this.state.sandbox.lastMessage;
+    return true;
+  }
+
+  private clearSandboxBoardState(resetCounters: boolean): void {
+    const density = this.state.trafficFlow.density;
+    this.state.flights = [];
+    this.state.serviceVehicles = [];
+    this.state.trafficFlow = createTrafficFlowState(density, this.state.elapsed, this.arrivalDemandInterval());
+    this.spawnIn = Math.max(0, this.state.trafficFlow.nextArrivalDemandSeconds - this.state.elapsed);
+    this.events = [];
+    this.runwayReservations.clear();
+    this.runwayOperationHistory = [];
+    this.stationarySeconds.clear();
+    this.taxiOutReleaseIn = 0;
+    this.lastArrivalAdmissionReason = 'sandbox injection queue is clear';
+    if (resetCounters) {
+      this.state.arrivals = 0;
+      this.state.departures = 0;
+      Object.assign(this.metrics, createShiftMetrics());
+    }
   }
 
   private challengeConditionsLocked(): boolean {
@@ -2175,6 +2355,7 @@ export class AirportSimulation {
     this.state.paused = false;
     this.state.training = createInactiveTrainingState();
     this.state.challenge = createInactiveChallengeState();
+    this.state.sandbox = createInactiveSandboxState();
     this.trainingCheckpoint = null;
     this.nextId = 1;
     this.nextDisruptionId = 1;
@@ -2198,7 +2379,7 @@ export class AirportSimulation {
         ?? this.config.runwayConfigurations[0],
     );
     this.stationarySeconds.clear();
-    Object.assign(this.metrics, { safeArrivals: 0, safeDepartures: 0, preventedConflicts: 0, holdsIssued: 0, manualCommands: 0, maxConcurrent: 0, airborneSeconds: 0, taxiSeconds: 0, estimatedDelaySeconds: 0, emergencyResponses: 0, safetyHolds: 0, collisionAlerts: 0, runwayIncursions: 0, unexplainedPauses: 0, longestHoldSeconds: 0, diversions: 0, cancellations: 0, handoffOffers: 0, handoffAcceptances: 0, handoffRejections: 0, missedHandoffs: 0, fuelBurnKg: 0, holdingFuelBurnKg: 0, goArounds: 0, emergencyResolutions: 0 });
+    Object.assign(this.metrics, createShiftMetrics());
     this.updateWeather();
     this.seedInitialTraffic();
   }
@@ -2225,6 +2406,7 @@ export class AirportSimulation {
     this.updateWeather();
     this.updateSurfaceDisruptions(delta);
     this.taxiOutReleaseIn = Math.max(0, this.taxiOutReleaseIn - delta);
+    this.updateSandboxInjections();
     this.updateTrafficFlow();
     this.coordinateControllerStations();
     this.updateRouteReadbacks();
@@ -2513,12 +2695,157 @@ export class AirportSimulation {
     return trafficFlowSnapshot(state.trafficFlow, state.elapsed);
   }
 
+  private updateSandboxInjections(): void {
+    const sandbox = this.state.sandbox;
+    if (!sandbox.active) return;
+    const request = sandbox.injections.find((candidate) => (
+      (candidate.status === 'queued' || candidate.status === 'releasing')
+      && candidate.remainingCount > 0
+    ));
+    if (!request || this.state.elapsed + 1e-6 < request.nextAttemptSeconds) return;
+    request.status = 'releasing';
+    request.updatedAtSeconds = this.state.elapsed;
+    if (this.state.flights.length >= this.effectiveTrafficCap()) {
+      request.lastReason = `${this.state.flights.length}/${this.effectiveTrafficCap()} sandbox aircraft budget occupied`;
+      request.nextAttemptSeconds = this.state.elapsed + 1;
+      sandbox.lastMessage = request.lastReason;
+      return;
+    }
+
+    const trafficClass = request.trafficClass === 'auto' ? undefined : request.trafficClass;
+    const aircraft = this.spawnFlight({
+      trafficClass,
+      requestedArrivalRunwayId: request.direction === 'arrival' ? request.runwayId ?? undefined : undefined,
+      stagingDeparture: request.direction === 'departure',
+    });
+    const flight = aircraft ? this.state.flights.find((candidate) => candidate.id === this.nextId - 1) : undefined;
+    if (!aircraft || !flight) {
+      request.lastReason = this.lastArrivalAdmissionReason;
+      request.nextAttemptSeconds = this.state.elapsed + 1;
+      sandbox.lastMessage = `Injection waiting: ${request.lastReason}.`;
+      return;
+    }
+    if (request.direction === 'departure' && !this.prepareSandboxDeparture(flight, request.runwayId)) {
+      this.discardSandboxStagingFlight(flight);
+      request.lastReason = this.lastArrivalAdmissionReason;
+      request.nextAttemptSeconds = this.state.elapsed + 1;
+      sandbox.lastMessage = `Injection waiting: ${request.lastReason}.`;
+      return;
+    }
+
+    request.remainingCount -= 1;
+    request.releasedFlightIds.push(flight.id);
+    request.updatedAtSeconds = this.state.elapsed;
+    request.lastReason = `${flight.callsign} released as a sandbox ${request.direction}`;
+    request.nextAttemptSeconds = this.state.elapsed + (request.direction === 'arrival'
+      ? Math.max(1, this.arrivalSpacing(aircraftProfile(flight.aircraft)) * 0.55)
+      : 0.75);
+    if (request.direction === 'arrival') sandbox.totals.releasedArrivals += 1;
+    else sandbox.totals.releasedDepartures += 1;
+    if (request.remainingCount === 0) request.status = 'complete';
+    sandbox.lastMessage = request.remainingCount
+      ? `${flight.callsign} released; ${request.remainingCount} request${request.remainingCount === 1 ? '' : 's'} remain in this injection.`
+      : `${flight.callsign} released; injection ${request.id} complete.`;
+    this.events.push({
+      type: 'sandbox-injection',
+      flight,
+      runway: flight.runway,
+      detail: `${request.direction} · ${request.trafficClass} · request ${request.id}`,
+    });
+    const activeFlightIds = new Set(this.state.flights.map((candidate) => candidate.id));
+    const terminalRequests = sandbox.injections.filter((candidate) => (
+      (candidate.status === 'complete' || candidate.status === 'cancelled')
+      && !candidate.releasedFlightIds.some((flightId) => activeFlightIds.has(flightId))
+    ));
+    if (terminalRequests.length > 40) {
+      const removeIds = new Set(terminalRequests.slice(0, terminalRequests.length - 40).map((candidate) => candidate.id));
+      sandbox.injections = sandbox.injections.filter((candidate) => !removeIds.has(candidate.id));
+    }
+  }
+
+  private prepareSandboxDeparture(flight: Flight, requestedRunwayId: number | null): boolean {
+    const compatible = this.config.runways
+      .filter((runway) => {
+        const role = this.runwayRole(runway.id);
+        return (role === 'departure' || role === 'mixed')
+          && !runwayClosedByDisruption(this.state.surfaceDisruptions, runway.id)
+          && runwaySupportsAircraft(runway, flight.aircraft, 'takeoff');
+      })
+      .sort((first, second) => this.headwindComponent(second.id) - this.headwindComponent(first.id));
+    const candidates = requestedRunwayId === null
+      ? compatible
+      : compatible.filter((runway) => runway.id === requestedRunwayId);
+    if (!candidates.length) {
+      this.lastArrivalAdmissionReason = requestedRunwayId === null
+        ? `${flight.aircraft} has no active compatible departure runway`
+        : `${this.activeRunwayDesignation(requestedRunwayId)} cannot launch ${flight.aircraft} under current configuration, weather, or runway performance`;
+      return false;
+    }
+    if (!this.ensureArrivalGate(flight)) {
+      this.lastArrivalAdmissionReason = `no immediately available compatible stand can stage ${flight.aircraft}`;
+      return false;
+    }
+    const standAlreadyOccupied = this.state.flights.some((candidate) => (
+      candidate.id !== flight.id
+      && candidate.standId === flight.standId
+      && (candidate.phase === 'taxi-in' || candidate.phase === 'resting' || (candidate.phase === 'taxi-out' && (candidate.tugAttached || candidate.pushbackProgress < 1)))
+    ));
+    if (standAlreadyOccupied) {
+      this.lastArrivalAdmissionReason = `${flight.gateAssignment?.gateRef ?? flight.standId ?? 'planned stand'} is physically occupied`;
+      return false;
+    }
+
+    const runway = candidates[0];
+    flight.runway = runway.id;
+    flight.departureRunway = runway.id;
+    flight.operatingEnd = this.preferredOperatingEnd(runway.id);
+    flight.runwayExit = undefined;
+    flight.palette = runway.color;
+    if (flight.gateAssignment) flight.gateAssignment.scheduledDepartureSeconds = this.state.elapsed + 1;
+    this.prepareDepartureFlightPlan(flight, this.state.elapsed + 1, true, runway.id);
+    flight.phase = 'resting';
+    flight.progress = 1;
+    flight.phaseElapsed = flight.duration;
+    flight.cleared = true;
+    flight.clearanceLeft = 99;
+    flight.kinematics.fuelPercent = flight.turnaround.targetFuelPercent;
+    flight.kinematics.altitudeFt = 0;
+    flight.kinematics.airspeedKts = 0;
+    flight.kinematics.groundSpeedKts = 0;
+    flight.runwayEntryCleared = false;
+    flight.takeoffCleared = false;
+    flight.pushbackCleared = false;
+    flight.pushbackProgress = 0;
+    flight.tugAttached = false;
+    flight.engineState = 'off';
+    flight.holdShortRunway = undefined;
+    completeTurnaround(flight.turnaround, this.state.elapsed);
+    if (flight.gateAssignment) {
+      flight.gateAssignment.actualGateInSeconds = this.state.elapsed;
+      flight.gateAssignment.scheduledGateInSeconds = this.state.elapsed;
+      flight.gateAssignment.actualGateOutSeconds = undefined;
+      flight.gateAssignment.scheduledDepartureSeconds = this.state.elapsed + 1;
+    }
+    this.assignSurfaceRoute(flight, 'resting');
+    syncFlightMotion(this.config, flight);
+    this.events = this.events.filter((event) => !(event.flight.id === flight.id && event.type === 'runway-exit-plan'));
+    return true;
+  }
+
+  private discardSandboxStagingFlight(flight: Flight): void {
+    this.state.flights = this.state.flights.filter((candidate) => candidate.id !== flight.id);
+    this.state.serviceVehicles = this.state.serviceVehicles.filter((vehicle) => vehicle.flightId !== flight.id);
+    this.events = this.events.filter((event) => event.flight.id !== flight.id);
+    this.stationarySeconds.delete(flight.id);
+    removeDepartureDemand(this.state.trafficFlow, flight.id);
+  }
+
   private updateTrafficFlow(): void {
     const flow = this.state.trafficFlow;
     const density = trafficDensityProfile(flow.density);
     const now = this.state.elapsed;
 
-    if (now + 1e-6 >= flow.nextArrivalDemandSeconds) {
+    if ((!this.state.sandbox.active || this.state.sandbox.backgroundTraffic) && now + 1e-6 >= flow.nextArrivalDemandSeconds) {
       const demand = enqueueArrivalDemand(
         flow,
         now,
@@ -2613,6 +2940,9 @@ export class AirportSimulation {
   private effectiveTrafficCap(): number {
     const density = trafficDensityProfile(this.state.trafficFlow.density);
     const scaled = Math.max(3, Math.round(this.config.trafficCap * density.activeTrafficMultiplier));
+    if (this.state.sandbox.active) {
+      return Math.max(scaled, Math.round(this.config.trafficCap * trafficDensityProfile('extreme').activeTrafficMultiplier));
+    }
     return this.state.scenario === 'training' ? Math.min(4, scaled) : scaled;
   }
 
@@ -2882,19 +3212,23 @@ export class AirportSimulation {
     }
   }
 
-  private spawnFlight(): AircraftModel | null {
+  private spawnFlight(options: {
+    trafficClass?: OperationTrafficClass;
+    requestedArrivalRunwayId?: number;
+    stagingDeparture?: boolean;
+  } = {}): AircraftModel | null {
     if (this.state.runwayConfigurationTransition) {
       this.lastArrivalAdmissionReason = `runway plan transition is draining ${this.state.runwayConfigurationTransition.blockingFlightIds.length} protected flight${this.state.runwayConfigurationTransition.blockingFlightIds.length === 1 ? '' : 's'}`;
       return null;
     }
     const approachLimit = this.weatherApproachCapacity();
-    if (this.state.flights.filter((flight) => flight.phase === 'approach' || flight.phase === 'landing').length >= approachLimit) {
+    if (!options.stagingDeparture && this.state.flights.filter((flight) => flight.phase === 'approach' || flight.phase === 'landing').length >= approachLimit) {
       this.lastArrivalAdmissionReason = `${approachLimit} approach position${approachLimit === 1 ? '' : 's'} occupied`;
       return null;
     }
     const id = this.nextId;
     const operationState = airportOperationStateAt(this.config.operationProfile, this.state.elapsed);
-    const trafficClass = selectOperationTrafficClass(operationState, id, this.config.seed);
+    const trafficClass = options.trafficClass ?? selectOperationTrafficClass(operationState, id, this.config.seed);
     const trafficSelection = selectTrafficProgram(this.config.trafficProgram, {
       trafficClass,
       direction: 'arrival',
@@ -2910,7 +3244,9 @@ export class AirportSimulation {
       && !runwayClosedByDisruption(this.state.surfaceDisruptions, runway.id)
       && runwaySupportsAircraft(runway, aircraft, 'landing')
     ));
-    const unblocked = arrivalRunways.filter((runway) => !this.arrivalBlocked(runway.id));
+    const unblocked = options.stagingDeparture
+      ? arrivalRunways
+      : arrivalRunways.filter((runway) => !this.arrivalBlocked(runway.id));
     const releaseReasons = new Map<number, string | null>(unblocked.map((runway) => [
       runway.id,
       runwayReleaseReason(
@@ -2921,9 +3257,18 @@ export class AirportSimulation {
         { runwayId: runway.id, operatingEnd: this.preferredOperatingEnd(runway.id), kind: 'arrival', wakeClass: aircraftProfile(aircraft).wakeClass },
       ),
     ]));
-    const released = unblocked.filter((runway) => !releaseReasons.get(runway.id));
+    const released = options.stagingDeparture
+      ? unblocked
+      : unblocked.filter((runway) => !releaseReasons.get(runway.id));
     const usable = released.filter((runway) => this.headwindComponent(runway.id) >= -5);
-    const candidates = (usable.length ? usable : released).sort((first, second) => this.headwindComponent(second.id) - this.headwindComponent(first.id));
+    let candidates = (usable.length ? usable : released).sort((first, second) => this.headwindComponent(second.id) - this.headwindComponent(first.id));
+    if (options.requestedArrivalRunwayId !== undefined) {
+      candidates = candidates.filter((runway) => runway.id === options.requestedArrivalRunwayId);
+      if (!candidates.length) {
+        this.lastArrivalAdmissionReason = `${this.activeRunwayDesignation(options.requestedArrivalRunwayId)} cannot accept the requested arrival under current configuration, weather, separation, or aircraft performance`;
+        return null;
+      }
+    }
     if (candidates.length === 0) {
       const spacing = [...releaseReasons.values()].find((reason): reason is string => Boolean(reason));
       this.lastArrivalAdmissionReason = spacing ?? 'no wind-compatible arrival runway is available';
@@ -3094,7 +3439,7 @@ export class AirportSimulation {
     // Do not inject a new arrival whose low-altitude/final rollout sweep is
     // already occupied by surface traffic. The stream will retry on the next
     // spawn interval after the protected corridor clears.
-    const pathBlocker = this.arrivalPathBlocker(flight);
+    const pathBlocker = options.stagingDeparture ? null : this.arrivalPathBlocker(flight);
     if (pathBlocker) {
       this.lastArrivalAdmissionReason = `protected arrival sweep occupied by ${pathBlocker.callsign}`;
       return null;
@@ -3956,6 +4301,17 @@ export class AirportSimulation {
       ))
       .sort((first, second) => this.headwindComponent(second.id) - this.headwindComponent(first.id));
     if (candidates.length === 0) return null;
+    const requestedSandboxRunway = this.state.sandbox.active
+      ? this.state.sandbox.injections.find((request) => (
+          request.direction === 'departure'
+          && request.runwayId !== null
+          && request.releasedFlightIds.includes(flight.id)
+        ))?.runwayId
+      : undefined;
+    if (requestedSandboxRunway !== undefined && requestedSandboxRunway !== null) {
+      const requested = candidates.find((runway) => runway.id === requestedSandboxRunway);
+      if (requested && this.canStartTaxiOut(flight, requested.id)) return requested.id;
+    }
     const offset = flight.id % candidates.length;
     const rotated = [...candidates.slice(offset), ...candidates.slice(0, offset)];
     return rotated.find((runway) => this.canStartTaxiOut(flight, runway.id))?.id ?? null;
