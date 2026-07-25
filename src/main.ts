@@ -10,7 +10,13 @@ import { cloneFlightPlan } from './simulation/flightPlanning';
 import { isTrafficDensity, trafficDensityProfile, type TrafficDensity } from './simulation/trafficDensity';
 import { cloneTrafficFlowState } from './simulation/trafficFlowManagement';
 import { separationRuleset, type SeparationRulesetId } from './simulation/separationRules';
-import type { ClearanceProposal, ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, ReplayFrame, SurfaceDisruptionKind, TrafficScenario, TurnaroundServiceType, WeatherCondition } from './simulation/types';
+import {
+  controllerStationLabel,
+  isControllerStation,
+  OPERATIONAL_CONTROLLER_STATIONS,
+  requiredControllerStation,
+} from './simulation/controllerOperations';
+import type { ClearanceProposal, ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, OperationalControllerStation, ReplayFrame, SurfaceDisruptionKind, TrafficScenario, TurnaroundServiceType, WeatherCondition } from './simulation/types';
 import { AmbientAudio, type AudioChannel, type AudioPreset } from './audio/ambientAudio';
 import { createWorld, type AirspaceLayer, type SurfaceLayer } from './render/createWorld';
 import { drawRadarInset } from './render/radarInset';
@@ -59,6 +65,7 @@ type AirportControlCommand =
   | { action: 'setTrafficDensity'; density: TrafficDensity }
   | { action: 'setSeparationRuleset'; ruleset: SeparationRulesetId }
   | { action: 'setStation'; station: ControllerStation }
+  | { action: 'setStationAutomation'; station: OperationalControllerStation; enabled: boolean }
   | { action: 'triggerEmergency'; flightId: number; type: EmergencyType }
   | { action: 'setWeather'; condition: WeatherCondition; directionDegrees: number; windSpeed: number }
   | { action: 'setWeatherEnabled'; enabled: boolean }
@@ -185,6 +192,8 @@ const scenarioSelect = $<HTMLSelectElement>('#scenario-select');
 const densitySelect = $<HTMLSelectElement>('#density-select');
 const separationRulesSelect = $<HTMLSelectElement>('#separation-rules-select');
 const stationSelect = $<HTMLSelectElement>('#station-select');
+const stationAutomationControls = [...document.querySelectorAll<HTMLInputElement>('[data-station-automation]')];
+const stationWorkloadControls = [...document.querySelectorAll<HTMLButtonElement>('[data-station-workload]')];
 const introAirportSelect = $<HTMLSelectElement>('#intro-airport-select');
 const introControlSelect = $<HTMLSelectElement>('#intro-control-select');
 const introDensitySelect = $<HTMLSelectElement>('#intro-density-select');
@@ -220,6 +229,7 @@ const replayExport = $<HTMLButtonElement>('#replay-export');
 const safetyScore = $<HTMLElement>('#safety-score');
 const flightStrip = $<HTMLElement>('#flight-strip');
 const flightStripToggle = $<HTMLButtonElement>('#flight-strip-toggle');
+const flightStripTitle = $<HTMLElement>('#flight-strip-title');
 const flightStripCount = $<HTMLElement>('#flight-strip-count');
 const flightChips = $<HTMLElement>('#flight-chips');
 const flightActions = $<HTMLElement>('#flight-actions');
@@ -271,7 +281,12 @@ const airspaceLayerControls = [...document.querySelectorAll<HTMLInputElement>('[
 
 let lastTime = performance.now();
 let simulationAccumulator = 0;
-const SIMULATION_STEP = 1 / 60;
+// The deterministic harness and production runtime share a 20 Hz authority
+// clock. Rendering interpolates between states at the display refresh rate, so
+// pavement safety stays fixed-step without making every visual frame pay for a
+// 60 Hz surface-graph/reservation pass.
+const SIMULATION_STEP = 0.05;
+const MAX_SIMULATION_TICKS_PER_FRAME = 3;
 let audioUpdateIn = 0;
 let lastHudSecond = -1;
 let lastArrivals = -1;
@@ -467,6 +482,26 @@ scenarioSelect.addEventListener('change', () => setScenario(scenarioSelect.value
 densitySelect.addEventListener('change', () => setTrafficDensity(densitySelect.value as TrafficDensity));
 separationRulesSelect.addEventListener('change', () => setSeparationRules(separationRulesSelect.value as SeparationRulesetId));
 stationSelect.addEventListener('change', () => setStation(stationSelect.value as ControllerStation));
+for (const control of stationAutomationControls) {
+  control.addEventListener('change', () => {
+    const station = control.dataset.stationAutomation;
+    if (!station || !OPERATIONAL_CONTROLLER_STATIONS.includes(station as OperationalControllerStation)) return;
+    const result = executeAirportRequest({
+      action: 'setStationAutomation',
+      station: station as OperationalControllerStation,
+      enabled: control.checked,
+    });
+    updateStationAutomationUi();
+    setStatus(result.accepted ? `${controllerStationLabel(station as OperationalControllerStation)} automation updated` : 'Automation unchanged', result.reason);
+  });
+}
+for (const control of stationWorkloadControls) {
+  control.addEventListener('click', () => {
+    const station = control.dataset.stationWorkload;
+    if (!station || !OPERATIONAL_CONTROLLER_STATIONS.includes(station as OperationalControllerStation)) return;
+    setStation(station as OperationalControllerStation);
+  });
+}
 introControlSelect.addEventListener('change', () => selectControl(introControlSelect.value as ControlMode));
 introDensitySelect.addEventListener('change', () => {
   const density = introDensitySelect.value as TrafficDensity;
@@ -756,7 +791,7 @@ function clearRoute(): void {
 }
 
 function frame(now: number): void {
-  const delta = Math.min(0.25, (now - lastTime) / 1000);
+  const delta = Math.min(0.1, (now - lastTime) / 1000);
   lastTime = now;
   renderedFrames += 1;
   if (now - frameWindowStarted >= 1_000) {
@@ -765,9 +800,9 @@ function frame(now: number): void {
     frameWindowStarted = now;
   }
   if (!replayMode) {
-    simulationAccumulator = Math.min(0.3, simulationAccumulator + delta);
+    simulationAccumulator = Math.min(SIMULATION_STEP * MAX_SIMULATION_TICKS_PER_FRAME, simulationAccumulator + delta);
     let ticks = 0;
-    while (simulationAccumulator >= SIMULATION_STEP && ticks < 18) {
+    while (simulationAccumulator >= SIMULATION_STEP && ticks < MAX_SIMULATION_TICKS_PER_FRAME) {
       previousPresentation = capturePresentation(simulation.state);
       simulation.update(SIMULATION_STEP);
       simulationAccumulator -= SIMULATION_STEP;
@@ -779,7 +814,7 @@ function frame(now: number): void {
     audio.setEnvironment(simulation.state);
     audioUpdateIn = 0.25;
   }
-  if (now - lastFlightStripRender >= 200) {
+  if (now - lastFlightStripRender >= 400) {
     renderFlightStrip();
     lastFlightStripRender = now;
   }
@@ -1026,6 +1061,7 @@ function presentationState(): typeof simulation.state {
 function cloneAirportState(state: typeof simulation.state): typeof simulation.state {
   return {
     ...state,
+    stationAutomation: { ...state.stationAutomation },
     trafficFlow: cloneTrafficFlowState(state.trafficFlow),
     weather: { ...state.weather },
     activeRunwayEnds: { ...state.activeRunwayEnds },
@@ -1094,7 +1130,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
 function replayRecording(): ReplayRecording {
   return {
     schemaVersion: 1,
-    simulationVersion: window.airportControl?.version ?? '2.15.0',
+    simulationVersion: window.airportControl?.version ?? '2.16.0',
     recordedAt: new Date().toISOString(),
     seed: config.seed,
     airport: { code: config.code, name: config.name, scope: config.scope },
@@ -1110,8 +1146,16 @@ function renderFlightStrip(): void {
   const phaseOrder: Record<FlightPhase, number> = { landing: 0, approach: 1, takeoff: 2, 'taxi-in': 3, 'taxi-out': 4, resting: 5 };
   const allFlights = displayState().flights;
   const flights = visibleFlightsForStation(allFlights).sort((first, second) => phaseOrder[first.phase] - phaseOrder[second.phase] || first.id - second.id);
+  const selectedWorkload = simulation.state.station === 'supervisor'
+    ? null
+    : simulation.controllerWorkloads().find((workload) => workload.station === simulation.state.station);
+  flightStripTitle.textContent = simulation.state.station === 'supervisor'
+    ? 'Live traffic'
+    : `${controllerStationLabel(simulation.state.station)} bay`;
   if (focusedFlightId !== null && !flights.some((flight) => flight.id === focusedFlightId)) focusedFlightId = null;
-  flightStripCount.textContent = flights.length === allFlights.length ? `${flights.length} aircraft` : `${flights.length} of ${allFlights.length} on frequency`;
+  flightStripCount.textContent = selectedWorkload
+    ? `${flights.length} tracks · ${selectedWorkload.workload}`
+    : `${flights.length} aircraft`;
   if (!flights.length) {
     flightChips.replaceChildren(Object.assign(document.createElement('p'), { className: 'flight-chips__empty', textContent: simulation.state.station === 'supervisor' ? 'No active tracks · waiting at the edge of the scope' : `No ${simulation.state.station} traffic awaiting action` }));
     renderFlightActions();
@@ -1139,9 +1183,10 @@ function renderFlightStrip(): void {
 
 function visibleFlightsForStation(flights: Flight[]): Flight[] {
   if (simulation.state.mode === 'auto' || simulation.state.mode === 'watch' || simulation.state.station === 'supervisor') return [...flights];
-  if (simulation.state.station === 'approach') return flights.filter((flight) => flight.phase === 'approach' || flight.phase === 'landing');
-  if (simulation.state.station === 'ground') return flights.filter((flight) => flight.phase === 'taxi-in' || flight.phase === 'resting' || flight.phase === 'taxi-out');
-  return flights.filter((flight) => flight.phase === 'approach' || flight.phase === 'landing' || flight.phase === 'takeoff' || (flight.phase === 'taxi-out' && flight.progress > 0.72));
+  return flights.filter((flight) => (
+    flight.navigation.frequencyOwner === simulation.state.station
+    || requiredControllerStation(flight) === simulation.state.station
+  ));
 }
 
 function updateFlightChip(item: HTMLElement, flight: Flight): void {
@@ -1529,9 +1574,10 @@ function renderFlightActions(): void {
   if (handoffTarget && flight.phase !== 'resting') add('handoff', `Contact ${handoffTarget}`, !ownsFlight);
   if (flight.phase === 'approach' && !flight.cleared && !flight.goAround) add('clear', `Land ${runwayDesignation(flight.runway)}`, !simulation.canIssue('tower') || !ownsFlight);
   if ((flight.phase === 'approach' || flight.phase === 'landing') && !flight.goAround) add('go-around', 'Go around', (!simulation.canIssue('approach') && !simulation.canIssue('tower')) || !ownsFlight);
-  if (flight.phase === 'resting' && flight.turnaround.status === 'ready' && !flight.pushbackCleared && !serviceVehiclesBlockingPush(flight.id).length) add('pushback', `Push ${flight.pushbackDirection}`, !simulation.canIssue('ground') || !ownsFlight || flight.deicing.status === 'unavailable');
+  if (flight.phase === 'resting' && flight.turnaround.status === 'ready' && !flight.pushbackCleared && !serviceVehiclesBlockingPush(flight.id).length) add('pushback', `Push ${flight.pushbackDirection}`, !simulation.canIssue('ramp') || !ownsFlight || flight.deicing.status === 'unavailable');
   if (flight.emergency === 'disabled' && recovery?.status !== 'recovering') add('recover', 'Dispatch recovery', !simulation.canIssue('ground') || !ownsFlight);
-  if (ground && flight.emergency !== 'disabled') add('hold-toggle', flight.controlHold ? 'Resume taxi' : 'Hold position', !simulation.canIssue('ground') || !ownsFlight);
+  const surfaceAuthority = requiredControllerStation(flight) === 'ramp' ? 'ramp' : 'ground';
+  if (ground && flight.emergency !== 'disabled') add('hold-toggle', flight.controlHold ? 'Resume taxi' : 'Hold position', !simulation.canIssue(surfaceAuthority) || !ownsFlight);
   for (const runway of flight.crossingHoldRunway === undefined ? [] : [flight.crossingHoldRunway]) {
     add('cross', `Cross ${runwayDesignation(runway)}`, !simulation.canIssue('ground') || !ownsFlight, runway);
   }
@@ -1542,7 +1588,7 @@ function renderFlightActions(): void {
   }
   if (flight.phase === 'takeoff' && !flight.takeoffCleared) add('takeoff', `Take off ${runwayDesignation(flight.runway)}`, !simulation.canIssue('tower') || !ownsFlight);
   if (flight.phase !== 'resting' && flight.emergency !== 'disabled') {
-    const paceAuthority = ground ? simulation.canIssue('ground') : simulation.canIssue('approach');
+    const paceAuthority = ground ? simulation.canIssue(surfaceAuthority) : simulation.canIssue('approach');
     add('slow', 'Slow', !paceAuthority || !ownsFlight);
     add('normal', 'Normal', !paceAuthority || !ownsFlight);
     if (!ground) add('expedite', 'Expedite', !paceAuthority || !ownsFlight);
@@ -1715,9 +1761,7 @@ function renderClearanceAdvisor(): void {
   if (clearanceAdvisor.hidden) return;
   const authority = (proposal: ClearanceProposal): boolean => {
     if (simulation.state.station === 'supervisor') return true;
-    if (proposal.station === 'approach') return simulation.canIssue('approach');
-    if (proposal.station === 'tower') return simulation.canIssue('tower');
-    return simulation.canIssue('ground');
+    return proposal.station !== 'supervisor' && simulation.canIssue(proposal.station);
   };
   const available = simulation.clearanceProposals().filter((proposal) => {
     if (!authority(proposal)) return false;
@@ -1762,10 +1806,15 @@ function applyClearanceProposal(proposal: ClearanceProposal): void {
 function suggestedHandoffStation(flight: Flight): ControllerStation | null {
   const owner = flight.navigation.frequencyOwner;
   if (owner === 'supervisor') return null;
-  if (owner === 'approach') return 'tower';
-  if (owner === 'ground') return flight.phase === 'resting' ? null : 'tower';
-  if (flight.phase === 'landing' || flight.phase === 'taxi-in') return 'ground';
-  return 'approach';
+  const required = requiredControllerStation(flight);
+  if (required !== owner) return required;
+  if (owner === 'approach' && flight.phase === 'approach' && flight.progress >= 0.56) return 'tower';
+  if (owner === 'tower' && (flight.phase === 'landing' || (flight.phase === 'taxi-in' && flight.progress >= 0.08))) return 'ground';
+  if (owner === 'ground' && flight.phase === 'taxi-in' && (flight.progress >= 0.72 || Boolean(flight.rampControlZoneId))) return 'ramp';
+  if (owner === 'ramp' && flight.phase === 'taxi-out' && !flight.tugAttached && flight.progress >= Math.max(0.025, flight.pushbackReleaseProgress)) return 'ground';
+  if (owner === 'ground' && flight.phase === 'taxi-out' && flight.progress >= 0.94) return 'tower';
+  if (owner === 'tower' && flight.phase === 'takeoff' && !flight.motion.onGround) return 'approach';
+  return null;
 }
 
 function handleFlightAction(flightId: number, action: string, runwayValue?: string): void {
@@ -2300,14 +2349,38 @@ function setSeparationRules(ruleset: SeparationRulesetId): void {
 function setStation(station: ControllerStation): void {
   simulation.setStation(station);
   stationSelect.value = station;
+  updateStationAutomationUi();
   updateWeatherUi();
-  const labels: Record<ControllerStation, string> = { supervisor: 'Supervisor', approach: 'Approach', tower: 'Tower', ground: 'Ground' };
+  const label = controllerStationLabel(station);
   focusedFlightId = null;
   world.selectFlight(null);
   renderFlightStrip();
   surfaceDisruptionUiKey = '';
   renderSurfaceDisruptionControls();
-  setStatus(`${labels[station]} station`, station === 'supervisor' ? 'full picture · all clearances available' : `${labels[station].toLowerCase()} frequency selected`);
+  setStatus(`${label} station`, station === 'supervisor' ? 'full picture · all clearances available' : `${label.toLowerCase()} frequency selected · other desks automated`);
+}
+
+function updateStationAutomationUi(): void {
+  const supervisor = simulation.state.station === 'supervisor';
+  const globallyAutomated = simulation.state.mode === 'auto' || simulation.state.mode === 'watch';
+  for (const control of stationAutomationControls) {
+    const station = control.dataset.stationAutomation as OperationalControllerStation;
+    const automated = globallyAutomated || simulation.state.stationAutomation[station];
+    control.checked = automated;
+    control.disabled = !supervisor || globallyAutomated;
+    control.closest('label')?.classList.toggle('station-automation__manual', !automated);
+  }
+  const workloads = new Map(simulation.controllerWorkloads().map((workload) => [workload.station, workload]));
+  for (const control of stationWorkloadControls) {
+    const station = control.dataset.stationWorkload as OperationalControllerStation;
+    const workload = workloads.get(station);
+    if (!workload) continue;
+    control.classList.toggle('station-workloads__selected', simulation.state.station === station);
+    control.dataset.pressure = workload.workload;
+    control.setAttribute('aria-pressed', String(simulation.state.station === station));
+    control.querySelector('span')!.textContent = `${workload.phaseRelevantFlights} track${workload.phaseRelevantFlights === 1 ? '' : 's'}${workload.pendingHandoffs ? ` · ${workload.pendingHandoffs} inbound` : ''}`;
+    control.querySelector('i')!.textContent = `${workload.automated ? 'Auto' : 'Manual'} · ${workload.workload}`;
+  }
 }
 
 function modeName(mode: ControlMode): string {
@@ -2373,6 +2446,7 @@ function updateWeatherUi(): void {
   windToggle.setAttribute('aria-pressed', String(weather.windEnabled));
   windToggle.textContent = weather.windEnabled ? 'WIND ON' : 'WIND OFF';
   weatherConditionSelect.value = weatherSelection;
+  updateStationAutomationUi();
   if (lastWeatherCondition !== null && weather.condition !== lastWeatherCondition) {
     setStatus(`${weather.condition === 'clear' ? 'Weather improving' : `${weather.condition} moving onto the field`}`, weather.condition === 'snow' ? 'deicing routes active · contaminated-surface performance' : weather.condition === 'fog' ? 'reduced arrival rate · slower taxi' : weather.condition === 'rain' ? 'wet runway spacing is active' : 'normal spacing restored');
   }
@@ -2425,7 +2499,7 @@ function airportSnapshot() {
   const operations = simulation.operationProfileSnapshot();
   const movingPhases = new Set(['approach', 'landing', 'taxi-in', 'taxi-out', 'takeoff']);
   return {
-    schemaVersion: 17,
+    schemaVersion: 18,
     airport: {
       code: config.code,
       name: config.name,
@@ -2525,6 +2599,10 @@ function airportSnapshot() {
     windOverlayVisible,
     serviceVehiclesVisible,
     station: simulation.state.station,
+    controllers: {
+      automation: { ...simulation.state.stationAutomation },
+      workloads: simulation.controllerWorkloads(),
+    },
     scenario: simulation.state.scenario,
     trafficDensity: simulation.state.trafficFlow.density,
     separationRuleset: diagnostics.separation,
@@ -3125,9 +3203,9 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
     reason = simulation.lastCommandReason();
   }
   if (command.action === 'handoffFlight') {
-    accepted = ['supervisor', 'approach', 'tower', 'ground'].includes(command.station)
+    accepted = isControllerStation(command.station)
       && simulation.handoffFlight(command.flightId, command.station);
-    reason = ['supervisor', 'approach', 'tower', 'ground'].includes(command.station)
+    reason = isControllerStation(command.station)
       ? simulation.lastCommandReason()
       : 'unknown controller station';
   }
@@ -3157,9 +3235,17 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
     else reason = 'separation ruleset must be forgiving or realistic';
   }
   if (command.action === 'setStation') {
-    accepted = ['supervisor', 'approach', 'tower', 'ground'].includes(command.station);
+    accepted = isControllerStation(command.station);
     if (accepted) setStation(command.station);
     else reason = 'unknown controller station';
+  }
+  if (command.action === 'setStationAutomation') {
+    accepted = OPERATIONAL_CONTROLLER_STATIONS.includes(command.station)
+      && simulation.setStationAutomation(command.station, command.enabled);
+    reason = OPERATIONAL_CONTROLLER_STATIONS.includes(command.station)
+      ? simulation.lastCommandReason()
+      : 'automation station must be approach, tower, ground, or ramp';
+    updateStationAutomationUi();
   }
   if (command.action === 'triggerEmergency') {
     accepted = simulation.triggerEmergency(command.flightId, command.type);
@@ -3213,7 +3299,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
 }
 
 window.airportControl = {
-  version: '2.15.0',
+  version: '2.16.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },
@@ -3239,7 +3325,7 @@ window.airportControl = {
       windOverlay: "airportControl.command({ action: 'setWindOverlayVisible', enabled: true })",
       serviceVehicles: "airportControl.command({ action: 'setServiceVehiclesVisible', enabled: false })",
       clearance: "airportControl.command({ action: 'clearFlight', flightId: 1, runway: 0 })",
-      pushback: "airportControl.request({ action: 'clearPushback', flightId: 1 }) // Ground or Supervisor",
+      pushback: "airportControl.request({ action: 'clearPushback', flightId: 1 }) // Ramp or Supervisor",
       runwayEntry: "airportControl.command({ action: 'clearRunwayEntry', flightId: 1 })",
       takeoff: "airportControl.request({ action: 'clearTakeoff', flightId: 1 })",
       runwayCrossing: "airportControl.command({ action: 'clearRunwayCrossing', flightId: 1, runway: 4 })",
@@ -3259,6 +3345,7 @@ window.airportControl = {
       trafficDensity: "airportControl.command({ action: 'setTrafficDensity', density: 'busy' })",
       separationRules: "airportControl.command({ action: 'setSeparationRuleset', ruleset: 'realistic' })",
       station: "airportControl.command({ action: 'setStation', station: 'ground' })",
+      stationAutomation: "airportControl.request({ action: 'setStationAutomation', station: 'tower', enabled: true }) // Supervisor",
       emergency: "airportControl.command({ action: 'triggerEmergency', flightId: 1, type: 'medical' })",
       aircraft: 'airportControl.snapshot().flights[0].aircraft',
       surfaceGraph: 'airportControl.snapshot().surfaceGraph',
@@ -3350,7 +3437,7 @@ if (launchDensity && isTrafficDensity(launchDensity)) {
 const launchRuleset = launchOptions.get('rules');
 if (launchRuleset === 'forgiving' || launchRuleset === 'realistic') setSeparationRules(launchRuleset);
 const launchStation = launchOptions.get('station') as ControllerStation | null;
-if (launchStation && ['supervisor', 'approach', 'tower', 'ground'].includes(launchStation)) setStation(launchStation);
+if (launchStation && isControllerStation(launchStation)) setStation(launchStation);
 const launchWeatherValue = launchOptions.get('weather');
 const launchWeather = launchWeatherValue as WeatherCondition | null;
 const launchWindDirection = Number(launchOptions.get('windDir') ?? 270);

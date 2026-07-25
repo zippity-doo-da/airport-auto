@@ -227,10 +227,10 @@ assert(pushReady, 'ORD pushback: startup has no push-ready departure');
 assert(pushReady.engineState === 'off' && !pushReady.tugAttached && !pushReady.pushbackCleared, 'ORD pushback: gate state was not cold and uncleared');
 assert(['left', 'right', 'straight'].includes(pushReady.pushbackDirection), 'ORD pushback: route has no declared push direction');
 pushback.simulation.setStation('tower');
-assert(!pushback.simulation.clearPushback(pushReady.id), 'ORD pushback: tower issued a ground pushback clearance');
-assert(pushback.simulation.lastCommandReason().includes('no pushback authority'), 'ORD pushback: rejected authority had no structured reason');
-pushback.simulation.setStation('ground');
-assert(pushback.simulation.clearPushback(pushReady.id), 'ORD pushback: ground clearance was rejected');
+assert(!pushback.simulation.clearPushback(pushReady.id), 'ORD pushback: Tower issued a Ramp pushback clearance');
+assert(pushback.simulation.lastCommandReason().includes('no ramp pushback authority'), 'ORD pushback: rejected authority had no structured reason');
+pushback.simulation.setStation('ramp');
+assert(pushback.simulation.clearPushback(pushReady.id), 'ORD pushback: Ramp clearance was rejected');
 pushback.advanceTicks(1);
 let pushing = pushback.simulation.state.flights.find((flight) => flight.id === pushReady.id);
 assert(pushing?.phase === 'taxi-out', 'ORD pushback: cleared departure did not leave the stand lifecycle');
@@ -254,7 +254,7 @@ assert(pushbackSnapshot.diagnostics.collisionPairs.length === 0 && pushbackSnaps
 totals.pushbackLifecycleVerified = true;
 
 const assistedPushback = createHubSimulationHarness('ORD', { stepSeconds: 0.05, mode: 'assisted' });
-assistedPushback.simulation.setStation('ground');
+assistedPushback.simulation.setStation('ramp');
 assert(assistedPushback.simulation.clearanceProposals().some((proposal) => proposal.action === 'pushback'), 'ORD pushback: Assisted mode did not propose the ready push');
 totals.assistedPushbackProposalVerified = true;
 

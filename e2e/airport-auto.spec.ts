@@ -9,13 +9,16 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await page.goto('/?airport=ORD&mode=assisted&station=supervisor&autostart=1&detail=low');
   await expect(page.locator('#airport-name')).toContainText('O’Hare');
   await expect(page.locator('#flight-strip-count')).toContainText('aircraft');
-  await page.waitForFunction(() => window.airportControl?.version === '2.15.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.16.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
-  expect(initial.schemaVersion).toBe(17);
+  expect(initial.schemaVersion).toBe(18);
   expect(initial.mode).toBe('assisted');
   expect(initial.airport.code).toBe('ORD');
+  expect(initial.controllers.automation).toEqual({ approach: false, tower: false, ground: false, ramp: false });
+  expect(initial.controllers.workloads.map((workload) => workload.station)).toEqual(['approach', 'tower', 'ground', 'ramp']);
+  expect(initial.controllers.workloads.every((workload) => workload.responsibilities.length >= 4)).toBeTruthy();
   expect(initial.airport.airspaceProgram).toMatchObject({
     schemaVersion: 1,
     dataVersion: 'airport-auto-schematic-ord-2026.07',
@@ -148,7 +151,8 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   });
   expect(initial.renderer.context).toMatchObject({ status: 'loaded', roads: 6_016, rails: 1_127, boundaryRings: 1 });
   expect(initial.renderer.context.drawGroups).toBeLessThanOrEqual(20);
-  expect(initial.renderer.drawCalls).toBeLessThan(800);
+  expect(initial.renderer.drawCalls).toBeLessThan(320);
+  expect(initial.renderer.geometries).toBeLessThan(280);
   expect(initial.flights.some((flight) => flight.phase === 'approach')).toBeTruthy();
   expect(initial.flights.some((flight) => flight.phase === 'taxi-out' || flight.phase === 'resting')).toBeTruthy();
   expect(initial.flights.some((flight) => flight.gate?.ref)).toBeTruthy();
@@ -303,7 +307,9 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   expect(exploredCamera.groundFillsViewport).toBeTruthy();
   expect(exploredCamera.minimumGroundMargin).toBeGreaterThan(1_000);
   await page.screenshot({ path: testInfo.outputPath('map-exploration.png') });
-  await page.evaluate(() => window.airportControl.request({ action: 'setStation', station: 'ground' }));
+  const rampStation = await page.evaluate(() => window.airportControl.request({ action: 'setStation', station: 'ramp' }));
+  expect(rampStation.accepted).toBeTruthy();
+  expect(rampStation.resultingState.controllers.automation).toEqual({ approach: true, tower: true, ground: true, ramp: false });
   await page.evaluate((flightId) => window.airportControl.request({ action: 'focusFlight', flightId }), pushReady!.id);
   await expect(page.locator('.turnaround-panel')).toBeVisible();
   await expect(page.locator('.turnaround-panel__summary')).toContainText('Turnaround 100%');
@@ -397,6 +403,10 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
 
   await page.locator('#menu-toggle').click();
   await expect(page.locator('#control-panel')).toHaveClass(/control-panel--open/);
+  await expect(page.locator('#station-select option')).toHaveCount(5);
+  await expect(page.locator('[data-station-workload]')).toHaveCount(4);
+  await expect(page.locator('[data-station-automation]')).toHaveCount(4);
+  await expect(page.locator('[data-station-automation]').first()).toBeEnabled();
   await expect(page.locator('#runway-configuration-select')).toBeEnabled();
   await expect(page.locator('#runway-configuration-select option')).toHaveCount(7);
   await page.screenshot({ path: testInfo.outputPath('runway-plans.png') });
@@ -467,7 +477,7 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await page.evaluate(() => window.airportControl.command({ action: 'resetCamera' }));
   await page.waitForTimeout(250);
   await page.locator('#station-select').selectOption('ground');
-  await expect(page.locator('#flight-strip-count')).toContainText('on frequency');
+  await expect(page.locator('#flight-strip-count')).toContainText('tracks');
   await page.screenshot({ path: testInfo.outputPath('assisted-ord.png') });
 });
 
@@ -475,7 +485,7 @@ test('Manual ORD supports live procedure control, ownership handoffs, and physic
   test.skip(testInfo.project.name !== 'desktop-chromium', 'The live ATC protocol is covered once in desktop Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=manual&station=approach&autostart=1&detail=low');
-  await page.waitForFunction(() => window.airportControl?.version === '2.15.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.16.0');
   const arrival = await page.evaluate(() => window.airportControl.snapshot().flights.find((flight) => flight.phase === 'approach'));
   expect(arrival).toBeTruthy();
   const headingDegrees = ((90 - arrival!.motion.heading * 180 / Math.PI) % 360 + 360) % 360;
@@ -525,7 +535,7 @@ test('ORD snow exposes the deicing route and holdover model in the normal UI', a
   test.skip(testInfo.project.name !== 'desktop-chromium', 'Winter operations are viewport-independent and covered once in Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=auto&autostart=1&detail=low&weather=snow&windDir=270&wind=12');
-  await page.waitForFunction(() => window.airportControl?.version === '2.15.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.16.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
   await page.locator('#menu-toggle').click();
@@ -577,7 +587,7 @@ test('Go-around climbs from the live pose and flies a visible missed-approach pa
   test.skip(testInfo.project.name !== 'desktop-chromium', 'The authoritative go-around is viewport-independent and covered once in Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ATL&mode=auto&autostart=1&detail=low&speed=3');
-  await page.waitForFunction(() => window.airportControl?.version === '2.15.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.16.0');
   await page.waitForFunction(() => {
     const flight = window.airportControl.snapshot().flights.find((candidate) => candidate.phase === 'approach');
     return Boolean(flight && flight.progress > 0.18);
@@ -611,7 +621,7 @@ test('Mobile Watch mode keeps non-ORD and procedural maps navigable in low detai
   test.skip(testInfo.project.name !== 'mobile-chromium', 'This test is the dedicated responsive/mobile browser gate.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ATL&mode=watch&autostart=1&detail=low');
-  await page.waitForFunction(() => window.airportControl?.version === '2.15.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.16.0');
   await expect(page.locator('body')).toHaveClass(/watch-mode/);
   await expect(page.locator('#menu-toggle')).toBeVisible();
   await expect(page.locator('#zoom-in')).toBeVisible();
@@ -667,4 +677,78 @@ test('Mobile Watch mode keeps non-ORD and procedural maps navigable in low detai
     groundFillsViewport: true,
   });
   await page.screenshot({ path: testInfo.outputPath('procedural-local.png') });
+});
+
+test('Laptop viewports keep the complete controls menu reachable', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chromium', 'Laptop viewport coverage runs once in desktop Chromium.');
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1024, height: 600 });
+  await page.goto('/?airport=ORD&detail=low');
+  await page.waitForFunction(() => window.airportControl?.version === '2.16.0');
+  const introPanel = page.locator('#intro .intro__panel');
+  const introBounds = await introPanel.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right };
+  });
+  expect(introBounds.top).toBeGreaterThanOrEqual(0);
+  expect(introBounds.bottom).toBeLessThanOrEqual(600);
+  expect(introBounds.left).toBeGreaterThanOrEqual(0);
+  expect(introBounds.right).toBeLessThanOrEqual(1024);
+  await introPanel.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  await expect(page.locator('#enter')).toBeVisible();
+
+  await page.goto('/?airport=ORD&mode=auto&autostart=1&detail=low');
+  await page.waitForFunction(() => window.airportControl?.version === '2.16.0');
+  await page.waitForFunction(() => window.airportControl.snapshot().renderer.drawCalls > 100);
+  const renderBudget = await page.evaluate(() => window.airportControl.snapshot().renderer);
+  expect(renderBudget.detail).toBe('low');
+  expect(renderBudget.drawCalls).toBeLessThan(320);
+  expect(renderBudget.geometries).toBeLessThan(280);
+
+  for (const viewport of [
+    { width: 1366, height: 768 },
+    { width: 1280, height: 720 },
+    { width: 1024, height: 600 },
+  ]) {
+    await page.setViewportSize(viewport);
+    const menu = page.locator('#menu-toggle');
+    const panel = page.locator('#control-panel');
+    await expect(menu).toBeVisible();
+    if (!await panel.evaluate((element) => element.classList.contains('control-panel--open'))) await menu.click();
+    await expect(panel).toHaveClass(/control-panel--open/);
+    await page.waitForTimeout(220);
+
+    const bounds = await panel.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        left: rect.left,
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight,
+      };
+    });
+    expect(bounds.top).toBeGreaterThanOrEqual(0);
+    expect(bounds.left).toBeGreaterThanOrEqual(0);
+    expect(bounds.right).toBeLessThanOrEqual(viewport.width);
+    expect(bounds.bottom).toBeLessThanOrEqual(viewport.height);
+    expect(bounds.clientHeight).toBeGreaterThan(300);
+
+    await panel.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    const advancedBounds = await page.locator('.advanced-tools summary').evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { top: rect.top, bottom: rect.bottom };
+    });
+    expect(advancedBounds.top).toBeGreaterThanOrEqual(bounds.top);
+    expect(advancedBounds.bottom).toBeLessThanOrEqual(bounds.bottom);
+    await menu.click();
+    await expect(panel).not.toHaveClass(/control-panel--open/);
+  }
+
+  await page.locator('#menu-toggle').click();
+  await expect(page.locator('#control-panel')).toHaveClass(/control-panel--open/);
+  await page.locator('#control-panel').evaluate((element) => { element.scrollTop = 0; });
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: testInfo.outputPath('laptop-controls-1024x600.png') });
 });

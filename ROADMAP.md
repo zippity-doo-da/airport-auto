@@ -1,7 +1,7 @@
 # Airport Auto — Forward Roadmap
 
 Last reconciled: July 24, 2026
-Baseline: Airport Auto 2.15.0
+Baseline: Airport Auto 2.16.0
 
 Airport Auto is an **ASMR-first web airport simulation with an optional serious ATC layer**. The simulation should remain enjoyable as a calm, hands-off miniature world while also supporting increasingly authentic controller work when the player asks for it.
 
@@ -123,7 +123,7 @@ Make each controller position a complete, satisfying job rather than a filtered 
 - [ ] Add multi-select and grouped commands only where aircraft share a safe, compatible instruction.
 - [ ] Add controller handoffs, frequency ownership, strip bays, coordination requests, and late/missed-handoff consequences.
 - [ ] Give Approach, Tower, Ground, Ramp, and Supervisor distinct traffic, authority, alerts, workload, and success measures.
-- [ ] Add configurable automation for unstaffed positions so one player can work a single station while the airport continues safely.
+- [x] Add configurable automation for unstaffed positions so one player can work a single station while the airport continues safely. (2.16: Supervisor can automate each desk; selecting Approach, Tower, Ground, or Ramp staffs the other positions.)
 - [ ] Add training lessons, contextual explanations, pause-and-recover tools, and a no-fail learning mode.
 - [ ] Add challenge shifts, runway-closure/storm/emergency scenarios, objectives, grades, delay, fuel, throughput, and safety summaries.
 - [ ] Add a true sandbox with traffic injection, weather/configuration controls, and no score pressure.
@@ -208,7 +208,7 @@ These tasks travel with the milestones above rather than waiting for a final cle
 - [ ] Add accessibility regression checks for focus, keyboard flow, touch targets, readable labels, captions, contrast, and reduced motion.
 - [x] Refresh GitHub Actions to current Node-supported action releases and keep dependencies routinely audited. (2.15: Checkout/Setup Node/Upload Artifact 7 and current Pages action generations; source tests split into bounded parallel jobs.)
 - [x] Keep source and Pages CI separate, additive, and capable of proving that the menagerie root still works. (2.15: private source CI and public Pages deployment remain separate; deployment mirrors only `airport-auto/` and verifies the menagerie root.)
-- [ ] Profile before adopting Web Workers or WASM; document the measured problem and target budget first.
+- [x] Profile before adopting Web Workers or WASM; document the measured problem and target budget first. (2.16: the measured limits are WebGL submission, repeated graph/sweep work, and catch-up spirals; [the runtime budget](docs/performance-budget.md) records before/after measurements and adoption thresholds.)
 
 ## Decisions still needed
 

@@ -44,7 +44,7 @@ assert(harness.runUntil((snapshot) => snapshot.flights.some((flight) => flight.i
   vehicles: harness.simulation.state.serviceVehicles.filter((vehicle) => vehicle.flightId === arrival.id),
 }));
 harness.simulation.setMode('manual');
-harness.simulation.setStation('ground');
+harness.simulation.setStation('ramp');
 let live = harness.simulation.state.flights.find((flight) => flight.id === arrival.id);
 assert(live?.turnaround.status === 'servicing', 'gate-in did not start the vehicle-gated turnaround');
 assert(harness.simulation.state.serviceVehicles.some((vehicle) => vehicle.flightId === arrival.id), 'gate-in did not dispatch service equipment');
@@ -128,7 +128,7 @@ assert(harness.runUntil(() => {
   const blockers = harness.simulation.state.serviceVehicles.filter((vehicle) => vehicle.flightId === arrival.id && ['approaching', 'servicing', 'clearing'].includes(vehicle.status));
   return blockers.length === 0;
 }, 180), 'service vehicles never cleared the stand lane');
-assert(harness.simulation.clearPushback(arrival.id), 'ground could not clear pushback after the stand was physically clear');
+assert(harness.simulation.clearPushback(arrival.id), 'Ramp could not clear pushback after the stand was physically clear');
 
 const snapshot = harness.snapshot();
 const vehicleEvents = snapshot.events.filter((event) => event.serviceVehicleId);

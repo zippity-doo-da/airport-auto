@@ -67,7 +67,21 @@
           <option value="approach">Approach</option>
           <option value="tower">Tower</option>
           <option value="ground">Ground</option>
+          <option value="ramp">Ramp</option>
         </select></label>
+        <fieldset class="station-automation" id="station-automation"><legend>Unstaffed desks</legend>
+          <label><input type="checkbox" data-station-automation="approach" /> Approach</label>
+          <label><input type="checkbox" data-station-automation="tower" /> Tower</label>
+          <label><input type="checkbox" data-station-automation="ground" /> Ground</label>
+          <label><input type="checkbox" data-station-automation="ramp" /> Ramp</label>
+          <small>Supervisor can automate any desk. Your selected desk remains under your control.</small>
+        </fieldset>
+        <div class="station-workloads" id="station-workloads" aria-label="Controller station workload">
+          <button type="button" data-station-workload="approach"><b>Approach</b><span>0 tracks</span><i>Idle</i></button>
+          <button type="button" data-station-workload="tower"><b>Tower</b><span>0 tracks</span><i>Idle</i></button>
+          <button type="button" data-station-workload="ground"><b>Ground</b><span>0 tracks</span><i>Idle</i></button>
+          <button type="button" data-station-workload="ramp"><b>Ramp</b><span>0 tracks</span><i>Idle</i></button>
+        </div>
         <label class="speed-control"><span>Speed <output id="speed-output" for="speed-control">1×</output></span><input id="speed-control" type="range" min="0.5" max="3" step="0.25" value="1" aria-label="Simulation speed" /></label>
         <div class="weather-readout" aria-label="Current weather">
           <span id="weather-condition">WX off</span><b id="weather-wind">calm · wind off</b><small id="weather-visibility">10 mi visibility</small><small id="operation-bank">06:20 local · Morning traffic</small><small id="traffic-flow">Realistic · metering clear</small><small id="runway-configuration">Primary flow</small>
@@ -150,7 +164,7 @@
 
       <aside id="flight-strip" class="flight-strip" aria-label="Live flight information">
         <button id="flight-strip-toggle" class="flight-strip__toggle" type="button" aria-controls="flight-chips" aria-expanded="true">
-          <span><b>Live traffic</b><small id="flight-strip-count">0 aircraft</small></span>
+          <span><b id="flight-strip-title">Live traffic</b><small id="flight-strip-count">0 aircraft</small></span>
           <i aria-hidden="true">−</i>
         </button>
         <section id="flight-actions" class="flight-actions" aria-live="polite" hidden></section>

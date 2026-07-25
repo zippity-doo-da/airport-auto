@@ -8,7 +8,7 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 
 ### Stop-the-line review
 
-- [x] One fixed 60 Hz clock advances arrivals, departures, and taxi traffic uniformly at every playback speed.
+- [x] One fixed authority clock advances arrivals, departures, and taxi traffic uniformly at every playback speed; presentation interpolates those states at display refresh.
 - [x] Edge, node, stand, intersection, and runway-zone reservations permit concurrent nonconflicting ground movements.
 - [x] Full Manual exposes landing, go-around, taxi hold/resume, runway crossing, line-up, and takeoff actions in the normal flight strip.
 - [x] Approach, Tower, Ground, and Supervisor enforce different authority and show different workloads.
@@ -258,6 +258,20 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] API 2.15 / snapshot schema 17 exposes the full airspace program, per-flight navigation state, active separation ruleset, physical coordinate basis, runway-operation history, and violation diagnostics.
 - [x] Validate 74 airports, 3,562 fixes, 660 procedures, 1,571 configuration/weather selections, 296 holds, 330 missed approaches, live ATC authority/continuity, physical separation rules, 57,644 fixed-step ticks, 919,530 trajectory samples, 225,000 collision ticks, the second deicing cycle, selected missed-approach fixes, deterministic twin runs, and applicable desktop/mobile Chromium UI/API flows with fresh screenshot review.
 - [x] Replace the obsolete single 15-minute CI wrapper with parallel static, operations, fixed-step, trajectory/collision, and browser jobs; use current Node-24 action generations in both the private source repository and the separate additive Pages repository.
+
+## Airport Auto 2.16 — controller desks and smooth laptop runtime
+
+- [x] Add Ramp as a first-class controller position for stands, ramp alleys, and pushback; movement-area taxi remains Ground authority.
+- [x] Model Approach → Tower → Ground → Ramp arrival handoffs and Ramp → Ground → Tower → Approach departure handoffs with authoritative frequency ownership.
+- [x] Add compact per-desk strip bays, responsibility-aware traffic filtering, live workload/late-handoff diagnostics, and station selection from the workload row.
+- [x] Allow Supervisor to automate individual unstaffed desks; selecting one operational position automatically staffs every other desk so a single-player shift continues safely.
+- [x] Expose effective automation and workload through API 2.16 / snapshot schema 18, and validate authority, phase ownership, automated coordination, and proposal routing deterministically.
+- [x] Move the production authority clock to the tested 20 Hz fixed step while retaining display-rate pose interpolation; cap delayed-frame catch-up to three ticks so one slow frame cannot become a visible stutter cascade.
+- [x] Cache immutable surface indexes, service-vehicle route geometry, and the established high-resolution committed-runway sweep; the reproducible Extreme ORD profile measures about 6 ms mean / 9 ms p95 per tick while preserving trajectory clearance.
+- [x] Batch runway lights, center/edge/threshold markings, departure chevrons, closure marks, and hold-short bars; ORD low detail drops to roughly 252 draw calls and 220 geometries.
+- [x] Automatically choose low detail for center-scale airports, short/narrow laptop viewports, and low-memory devices; cap low-detail pixel ratio at 1.0 and high detail at 1.5.
+- [x] Keep the Controls surface inside 1366×768, 1280×720, and 1024×600 laptop viewports with compact chrome, opaque overlap handling, contained scrolling, and regression coverage that reaches the final Advanced section.
+- [x] Document measured browser/simulation budgets and explicit Worker/WASM adoption thresholds; the hardware-accelerated in-app browser sustains about 58 FPS at ORD Auto 3× low detail.
 
 ## Airport fidelity policy
 

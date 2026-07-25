@@ -72,6 +72,14 @@ const AIR_SURFACE_HORIZONTAL = 10;
 const AIR_SURFACE_ALTITUDE = 8;
 const SURFACE_GAP = 1.4;
 const PHYSICAL_GAP = 0.35;
+const COMMITTED_SWEEP_SEGMENTS = 96;
+
+interface CommittedSweepCache {
+  key: string;
+  envelopes: AircraftCollisionEnvelope[];
+}
+
+const committedSweepCaches = new WeakMap<Flight, CommittedSweepCache>();
 
 export function aircraftCollisionEnvelope(config: AirportConfig, flight: Flight, progress = flight.progress): AircraftCollisionEnvelope {
   const runway = config.runways[flight.runway] ?? config.runways[0];
@@ -420,41 +428,18 @@ export function findProposedConflict(
   if (flight.phase === 'taxi-in' || flight.phase === 'taxi-out') {
     for (const other of otherFlights) {
       if (other.id === flight.id || (other.phase !== 'approach' && other.phase !== 'landing' && other.phase !== 'takeoff')) continue;
-      const landingPreview: Flight | undefined = other.phase === 'approach'
-        ? {
-            ...other,
-            phase: 'landing',
-            progress: 0,
-            phaseElapsed: 0,
-            motion: { ...other.motion },
-            kinematics: { ...other.kinematics },
-          }
-        : undefined;
-      if (landingPreview) landingPreview.motion = sampleFlightMotion(config, landingPreview, 0);
-      for (const trajectory of landingPreview ? [other, landingPreview] : [other]) {
-        const startProgress = trajectory === other ? other.progress : 0;
-        for (let sampleIndex = 0; sampleIndex <= 96; sampleIndex += 1) {
-          const futureProgress = startProgress + (1 - startProgress) * sampleIndex / 96;
-          const futureEnvelope = aircraftCollisionEnvelope(config, trajectory, futureProgress);
-          // Cover the distance between discrete trajectory samples as well as
-          // a controller buffer, so the aircraft stops before—not exactly on—
-          // the tangent point of the committed wing sweep.
-          const protectedFutureEnvelope = {
-            ...futureEnvelope,
-            bodyRadius: futureEnvelope.bodyRadius + (config.scope === 'center' ? 0.35 : 1.2),
-          };
-          const conflict = detectFlightConflict(
-            proposed,
-            protectedFutureEnvelope,
-            flight.wakeClass,
-            other.wakeClass,
-            runwaysConflict(config, flight.runway, other.runway),
-            false,
-          );
-          if (conflict) return conflict;
-          const sweepConflict = detectCommittedRunwaySweepConflict(proposed, protectedFutureEnvelope);
-          if (sweepConflict) return sweepConflict;
-        }
+      for (const protectedFutureEnvelope of committedRunwaySweep(config, other)) {
+        const conflict = detectFlightConflict(
+          proposed,
+          protectedFutureEnvelope,
+          flight.wakeClass,
+          other.wakeClass,
+          runwaysConflict(config, flight.runway, other.runway),
+          false,
+        );
+        if (conflict) return conflict;
+        const sweepConflict = detectCommittedRunwaySweepConflict(proposed, protectedFutureEnvelope);
+        if (sweepConflict) return sweepConflict;
       }
     }
   }
@@ -551,6 +536,49 @@ export function findProposedConflict(
     if (!existingConflict && distanceToCurrentOther < currentDistance) return conflict;
   }
   return null;
+}
+
+/**
+ * Cache the high-resolution runway-trajectory sweep for all surface movers in
+ * the same authority tick. Keeping the established 96-segment controller
+ * buffer avoids over-inflating a parallel runway sweep, while sharing it
+ * removes the former surface-mover × trajectory recomputation cost.
+ */
+function committedRunwaySweep(config: AirportConfig, flight: Flight): AircraftCollisionEnvelope[] {
+  const key = [
+    flight.phase,
+    flight.progress,
+    flight.runway,
+    flight.operatingEnd,
+    flight.goAround?.startedAt ?? '',
+    flight.navigation.assignedHeadingDegrees ?? '',
+    flight.navigation.routeFixIds.join(','),
+  ].join(':');
+  const cached = committedSweepCaches.get(flight);
+  if (cached?.key === key) return cached.envelopes;
+  const landingPreview: Flight | undefined = flight.phase === 'approach'
+    ? {
+        ...flight,
+        phase: 'landing',
+        progress: 0,
+        phaseElapsed: 0,
+        motion: { ...flight.motion },
+        kinematics: { ...flight.kinematics },
+      }
+    : undefined;
+  if (landingPreview) landingPreview.motion = sampleFlightMotion(config, landingPreview, 0);
+  const controllerBuffer = config.scope === 'center' ? 0.35 : 1.2;
+  const envelopes: AircraftCollisionEnvelope[] = [];
+  for (const trajectory of landingPreview ? [flight, landingPreview] : [flight]) {
+    const startProgress = trajectory === flight ? flight.progress : 0;
+    for (let sampleIndex = 0; sampleIndex <= COMMITTED_SWEEP_SEGMENTS; sampleIndex += 1) {
+      const futureProgress = startProgress + (1 - startProgress) * sampleIndex / COMMITTED_SWEEP_SEGMENTS;
+      const envelope = aircraftCollisionEnvelope(config, trajectory, futureProgress);
+      envelopes.push({ ...envelope, bodyRadius: envelope.bodyRadius + controllerBuffer });
+    }
+  }
+  committedSweepCaches.set(flight, { key, envelopes });
+  return envelopes;
 }
 
 function surfaceMergeEscapeIsClear(

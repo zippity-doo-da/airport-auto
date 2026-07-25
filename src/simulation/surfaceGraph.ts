@@ -969,6 +969,16 @@ export function sampleSurfaceRouteWithEdges(
   return sampleSurfaceRouteGeometry(surfaceRouteGeometry(graph, nodeIds, edgeIds), progress);
 }
 
+/** Reuse immutable graph lookup tables across every fixed-step consumer. */
+export function surfaceNodeIndex(graph: AirportSurfaceGraph): ReadonlyMap<string, SurfaceNode> {
+  return surfaceGraphIndex(graph).nodeById;
+}
+
+/** Reuse immutable graph lookup tables across every fixed-step consumer. */
+export function surfaceEdgeIndex(graph: AirportSurfaceGraph): ReadonlyMap<string, SurfaceEdge> {
+  return surfaceGraphIndex(graph).edgeById;
+}
+
 function surfaceGraphIndex(graph: AirportSurfaceGraph): SurfaceGraphIndex {
   const cached = surfaceGraphIndexes.get(graph);
   if (cached) return cached;

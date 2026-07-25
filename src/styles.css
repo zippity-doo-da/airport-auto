@@ -105,13 +105,27 @@ body.center-scope .brand__mark { font-size: 11px; letter-spacing: -0.04em; }
 .menu-toggle--open .menu-toggle__icon i:nth-child(2) { opacity: 0; }
 .menu-toggle--open .menu-toggle__icon i:last-child { transform: translateY(-4px) rotate(-45deg); }
 
-.control-panel { top: 145px; left: clamp(22px, 4vw, 54px); z-index: 9; width: min(370px, calc(100vw - 44px)); max-height: calc(100vh - 178px); overflow: auto; padding: 16px; border: 1px solid rgba(244, 232, 206, 0.32); background: rgba(10, 34, 37, 0.9); box-shadow: 0 24px 70px rgba(5, 22, 23, 0.32); opacity: 0; pointer-events: none; transform: translateY(-8px) scale(0.985); transform-origin: top left; backdrop-filter: blur(22px); clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); transition: opacity 180ms ease, transform 180ms ease; }
+.control-panel { top: 145px; left: clamp(22px, 4vw, 54px); z-index: 9; width: min(370px, calc(100vw - 44px)); max-height: calc(100vh - 178px); overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 16px; border: 1px solid rgba(244, 232, 206, 0.32); background: rgba(10, 34, 37, 0.9); box-shadow: 0 24px 70px rgba(5, 22, 23, 0.32); opacity: 0; pointer-events: none; transform: translateY(-8px) scale(0.985); transform-origin: top left; backdrop-filter: blur(22px); clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); transition: opacity 180ms ease, transform 180ms ease; }
 .control-panel--open { opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); }
 .quick-setup { display: grid; grid-template-columns: 1.35fr 1fr; gap: 10px 8px; }
 .quick-setup label, .intro-setup label { display: grid; gap: 5px; }
 .quick-setup label > span, .intro-setup label > span { color: rgba(244, 232, 206, 0.62); font-size: 7px; font-weight: 800; letter-spacing: 0.18em; text-transform: uppercase; }
 .quick-setup select, .intro-setup select { height: 34px; border: 1px solid rgba(244, 232, 206, 0.38); border-radius: 0; color: var(--ivory); background: rgba(16, 46, 48, 0.82); padding: 0 28px 0 10px; font: 700 9px/1 "Avenir Next Condensed", "Segoe UI", sans-serif; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; }
 .quick-setup select:focus-visible, .intro-setup select:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.station-automation { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin: 0; border: 1px solid rgba(244, 232, 206, 0.18); padding: 9px 10px; }
+.station-automation legend { padding: 0 5px; color: rgba(244, 232, 206, 0.56); font-size: 7px; font-weight: 800; letter-spacing: 0.15em; text-transform: uppercase; }
+.station-automation label { display: flex; grid-auto-flow: column; grid-template-columns: auto 1fr; align-items: center; justify-content: start; gap: 5px; color: rgba(244, 232, 206, 0.76); font-size: 7px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
+.station-automation input { margin: 0; accent-color: var(--amber); }
+.station-automation label:has(input:disabled) { opacity: 0.58; }
+.station-automation label.station-automation__manual { color: var(--amber); }
+.station-automation small { grid-column: 1 / -1; color: rgba(244, 232, 206, 0.42); font-size: 7px; line-height: 1.35; }
+.station-workloads { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+.station-workloads button { display: grid; min-width: 0; gap: 2px; border: 1px solid rgba(244, 232, 206, 0.17); padding: 7px 6px; color: rgba(244, 232, 206, 0.7); background: rgba(16, 46, 48, 0.46); text-align: left; cursor: pointer; }
+.station-workloads button:hover, .station-workloads button:focus-visible, .station-workloads button.station-workloads__selected { border-color: rgba(239, 199, 117, 0.62); color: var(--ivory); outline: none; }
+.station-workloads button[data-pressure="heavy"], .station-workloads button[data-pressure="overload"] { border-color: rgba(232, 151, 100, 0.7); }
+.station-workloads b { overflow: hidden; font-size: 7px; letter-spacing: 0.08em; text-overflow: ellipsis; text-transform: uppercase; }
+.station-workloads span, .station-workloads i { overflow: hidden; color: rgba(244, 232, 206, 0.46); font-size: 6px; font-style: normal; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+.station-workloads i { color: var(--amber); text-transform: uppercase; }
 .weather-readout { grid-column: 1 / -1; min-width: 150px; display: grid; grid-template-columns: auto 1fr; align-content: center; gap: 2px 8px; margin-top: 2px; padding-top: 10px; border-top: 1px solid rgba(244, 232, 206, 0.2); text-transform: uppercase; }
 .weather-readout span { color: var(--amber); font-size: 7px; font-weight: 900; letter-spacing: 0.17em; }
 .weather-readout b { color: var(--ivory); font-size: 10px; letter-spacing: 0.07em; }
@@ -200,8 +214,8 @@ body.center-scope .brand__mark { font-size: 11px; letter-spacing: -0.04em; }
   .scoreboard i { height: 18px; }
   .status { top: 70px; right: 16px; left: 16px; max-width: none; }
   .menu-toggle { top: 116px; left: 16px; height: 38px; }
-  .control-panel { top: 162px; right: 16px; left: 16px; width: auto; max-height: calc(100vh - 178px); }
-  .flight-strip { top: 162px; left: 16px; width: min(224px, calc(100vw - 32px)); max-height: calc(100vh - 238px); }
+  .control-panel { top: 162px; right: 16px; bottom: max(12px, env(safe-area-inset-bottom)); left: 16px; width: auto; max-height: none; }
+  .flight-strip { top: 162px; bottom: max(72px, calc(env(safe-area-inset-bottom) + 64px)); left: 16px; width: min(224px, calc(100vw - 32px)); max-height: none; }
   .flight-chips { max-height: calc(100vh - 284px); }
   .instruction { right: 16px; bottom: 18px; left: 16px; justify-content: center; font-size: 11px; }
   .control { height: 48px; }
@@ -331,6 +345,42 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
   .intro__panel { max-height: calc(100vh - 24px); overflow: auto; padding: 28px 22px; }
   .modal--intro h1 { margin: 16px 0; font-size: 38px; }
   .modal--intro p { font-size: 13px; line-height: 1.45; }
+}
+
+@media (max-height: 820px) and (min-width: 761px) {
+  .modal { padding: 12px; }
+  .intro__panel, .gameover__panel { max-height: calc(100dvh - 24px); overflow-y: auto; }
+  .intro__panel { padding: 28px 30px; }
+  .modal--intro h1 { margin: 16px 0; font-size: clamp(38px, 7vh, 56px); }
+  .modal--intro p { margin-bottom: 16px; line-height: 1.45; }
+  .runway-key { margin-bottom: 18px; padding: 10px 0; }
+  .brand { top: 18px; left: 20px; }
+  .brand__mark { width: 30px; height: 30px; }
+  .brand p { font-size: 17px; }
+  .brand div > span { margin-top: 3px; font-size: 8px; }
+  .scoreboard { top: 16px; right: 20px; }
+  .status { top: 56px; right: 20px; }
+  .menu-toggle { top: 72px; left: 20px; height: 38px; }
+  .control-panel { top: 118px; bottom: 12px; left: 20px; width: min(400px, calc(100vw - 40px)); max-height: none; padding: 14px; background: rgba(10, 34, 37, 0.97); }
+  body:has(.control-panel--open) .flight-strip { opacity: 0; pointer-events: none; }
+  .flight-strip { top: 118px; bottom: 68px; left: 20px; max-height: none; }
+  .telemetry { top: 118px; right: 20px; bottom: 68px; max-height: none; }
+  .wind-overlay, .queue-panel { top: 118px; }
+  .queue-panel { bottom: 68px; max-height: none; }
+  .radar-panel { bottom: 76px; width: min(270px, calc(100vw - 40px)); }
+  .instruction { bottom: 18px; left: 20px; }
+  .camera-tools { right: 20px; bottom: 18px; }
+}
+
+@media (max-height: 640px) and (min-width: 761px) {
+  .brand div > span, .instruction { display: none; }
+  .status { top: 18px; right: 320px; max-width: min(330px, 32vw); }
+  .status small { display: none; }
+  .menu-toggle { top: 64px; }
+  .control-panel, .flight-strip, .telemetry { top: 108px; }
+  .flight-strip { bottom: 14px; }
+  .control-panel { bottom: 10px; }
+  .camera-tools { bottom: 12px; }
 }
 
 /* 2.1 ATC advisor, soak diagnostics, and ASMR presentation. */

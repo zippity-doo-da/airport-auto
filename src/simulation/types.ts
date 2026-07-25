@@ -11,7 +11,9 @@ import type { SeparationRulesetId } from './separationRules';
 export type ControlMode = 'auto' | 'assisted' | 'manual' | 'watch';
 export type WeatherCondition = 'clear' | 'rain' | 'fog' | 'snow';
 export type TrafficScenario = 'normal' | 'rush' | 'storm' | 'closure' | 'training' | 'emergency';
-export type ControllerStation = 'tower' | 'ground' | 'approach' | 'supervisor';
+export type OperationalControllerStation = 'approach' | 'tower' | 'ground' | 'ramp';
+export type ControllerStation = OperationalControllerStation | 'supervisor';
+export type StationAutomationState = Record<OperationalControllerStation, boolean>;
 export type FlightInstruction = 'slow' | 'normal' | 'expedite' | 'hold' | 'resume' | 'zigzag';
 export type AircraftCategory = 'regional' | 'narrowbody' | 'widebody' | 'cargo';
 export type WakeClass = 'light' | 'medium' | 'heavy';
@@ -404,6 +406,18 @@ export interface FlightNavigationState {
   missedApproachId?: string;
 }
 
+export interface ControllerWorkloadSnapshot {
+  station: OperationalControllerStation;
+  label: string;
+  automated: boolean;
+  ownedFlights: number;
+  phaseRelevantFlights: number;
+  pendingHandoffs: number;
+  overdueFlights: number;
+  workload: 'idle' | 'light' | 'moderate' | 'heavy' | 'overload';
+  responsibilities: string[];
+}
+
 export type TrafficFlowStatus = 'scheduled' | 'metered' | 'holding' | 'released' | 'diverted' | 'cancelled';
 
 export interface TrafficFlowEntry {
@@ -607,6 +621,7 @@ export interface AirportState {
   mode: ControlMode;
   nightMode: boolean;
   station: ControllerStation;
+  stationAutomation: StationAutomationState;
   weather: WeatherState;
   scenario: TrafficScenario;
   trafficFlow: TrafficFlowState;

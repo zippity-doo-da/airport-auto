@@ -1,12 +1,26 @@
 import type { AirportConfig } from './airportConfig';
 import { aircraftProfile } from './aircraftProfiles';
 import { aircraftCollisionEnvelope } from './collisionDetection';
-import { findSurfaceRoute, sampleSurfaceRouteWithEdges, type AirportSurfaceGraph, type SurfaceRoute, type SurfaceRoutePlanning, type SurfaceStand } from './surfaceGraph';
+import { findSurfaceRoute, sampleSurfaceRouteWithEdges, surfaceEdgeIndex, surfaceNodeIndex, type AirportSurfaceGraph, type SurfaceRoute, type SurfaceRoutePlanning, type SurfaceStand } from './surfaceGraph';
 import { surfaceRouteReservationClaims, type SurfaceReservationClaim } from './surfaceOperations';
 import { WORLD_METERS_PER_UNIT } from './runwayPerformance';
 import type { Flight, ServiceVehicleState, ServiceVehicleStatus, ServiceVehicleType, TurnaroundServiceType } from './types';
 
 type Point = [number, number];
+
+interface ServiceVehicleRouteGeometry {
+  outboundRoute: string[];
+  returnRoute: string[];
+  standPath: Point[];
+  dispatchPoints: Point[];
+  returnPoints: Point[];
+  outboundGraphDistance: number;
+  returnGraphDistance: number;
+  dispatchDistance: number;
+  returnDistance: number;
+}
+
+const serviceVehicleRouteGeometryCache = new WeakMap<ServiceVehicleState, ServiceVehicleRouteGeometry>();
 
 interface VehicleSpec {
   type: ServiceVehicleType;
@@ -197,7 +211,7 @@ export function serviceVehicleReservationClaims(graph: AirportSurfaceGraph, vehi
       const boundaryEdgeId = vehicle.status === 'dispatching'
         ? vehicle.outboundRouteEdges[vehicle.outboundRouteEdges.length - 1]
         : vehicle.returnRouteEdges[0];
-      const boundaryEdge = graph.edges.find((edge) => edge.id === boundaryEdgeId);
+      const boundaryEdge = surfaceEdgeIndex(graph).get(boundaryEdgeId);
       const claims: SurfaceReservationClaim[] = [
         {
           kind: 'node',
@@ -353,7 +367,7 @@ export function syncServiceVehiclePose(graph: AirportSurfaceGraph, vehicle: Serv
   } else if (vehicle.status === 'servicing') {
     sample = samplePolyline(vehicle.standPath, 1);
   } else {
-    const depot = graph.nodes.find((node) => node.id === vehicle.depotNodeId);
+    const depot = surfaceNodeIndex(graph).get(vehicle.depotNodeId);
     if (depot)
       sample = {
         x: depot.position[0],
@@ -430,8 +444,8 @@ export function serviceVehicleRadius(config: Pick<AirportConfig, 'scope'>, vehic
 
 function serviceDepotRoutes(graph: AirportSurfaceGraph, stand: SurfaceStand, service: TurnaroundServiceType, flightId: number, reservedDepotNodeIds: ReadonlySet<string>, minimumDepotSeparation: number, planning?: SurfaceRoutePlanning): { depotNodeId: string; outbound: SurfaceRoute; returning: SurfaceRoute } {
   const blockedEdgeIds = new Set([...serviceVehicleProtectedEdgeIds(graph), ...(planning?.blockedEdgeIds ?? [])]);
-  const edgeById = new Map(graph.edges.map((edge) => [edge.id, edge]));
-  const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+  const edgeById = surfaceEdgeIndex(graph);
+  const nodeById = surfaceNodeIndex(graph);
   const zone = graph.zones.find((candidate) => candidate.id === stand.zoneId);
   const zoneEdges = (zone?.edgeIds ?? []).map((edgeId) => edgeById.get(edgeId)).filter((edge) => edge && !blockedEdgeIds.has(edge.id));
   const nearbyEdges = graph.edges.filter((edge) => {
@@ -514,25 +528,24 @@ function serviceStandPath(config: AirportConfig, flight: Flight, stand: SurfaceS
 }
 
 function serviceVehicleStageDistance(graph: AirportSurfaceGraph, vehicle: ServiceVehicleState): number {
-  if (vehicle.status === 'dispatching' || vehicle.status === 'returning') return polylineLength(serviceVehicleTravelPoints(graph, vehicle));
+  if (vehicle.status === 'dispatching' || vehicle.status === 'returning') {
+    const geometry = serviceVehicleRouteGeometry(graph, vehicle);
+    return vehicle.status === 'returning' ? geometry.returnDistance : geometry.dispatchDistance;
+  }
   if (vehicle.status === 'approaching' || vehicle.status === 'clearing') return polylineLength(vehicle.standPath);
   return 0;
 }
 
 function serviceVehicleTravelPoints(graph: AirportSurfaceGraph, vehicle: ServiceVehicleState): Point[] {
-  const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
-  if (vehicle.status === 'returning') {
-    return dedupePoints([vehicle.standPath[0], ...vehicle.returnRoute.map((nodeId) => nodeById.get(nodeId)?.position).filter((point): point is Point => Boolean(point))]);
-  }
-  return dedupePoints([...vehicle.outboundRoute.map((nodeId) => nodeById.get(nodeId)?.position).filter((point): point is Point => Boolean(point)), vehicle.standPath[0]]);
+  const geometry = serviceVehicleRouteGeometry(graph, vehicle);
+  return vehicle.status === 'returning' ? geometry.returnPoints : geometry.dispatchPoints;
 }
 
 /** Null means the vehicle is on the stand-to-graph staging connector. */
 function serviceVehicleGraphProgress(graph: AirportSurfaceGraph, vehicle: ServiceVehicleState): number | null {
-  const graphNodeIds = vehicle.status === 'returning' ? vehicle.returnRoute : vehicle.outboundRoute;
-  const graphDistance = routeDistance(graph, graphNodeIds);
-  const points = serviceVehicleTravelPoints(graph, vehicle);
-  const totalDistance = polylineLength(points);
+  const geometry = serviceVehicleRouteGeometry(graph, vehicle);
+  const graphDistance = vehicle.status === 'returning' ? geometry.returnGraphDistance : geometry.outboundGraphDistance;
+  const totalDistance = vehicle.status === 'returning' ? geometry.returnDistance : geometry.dispatchDistance;
   if (totalDistance <= 1e-9 || graphDistance <= 1e-9) return null;
   const travelled = clamp(vehicle.progress, 0, 1) * totalDistance;
   if (vehicle.status === 'returning') {
@@ -545,12 +558,44 @@ function serviceVehicleGraphProgress(graph: AirportSurfaceGraph, vehicle: Servic
 }
 
 function routeDistance(graph: AirportSurfaceGraph, nodeIds: string[]): number {
-  const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+  const nodeById = surfaceNodeIndex(graph);
   return nodeIds.slice(0, -1).reduce((total, nodeId, index) => {
     const from = nodeById.get(nodeId);
     const to = nodeById.get(nodeIds[index + 1]);
     return total + (from && to ? distance(from.position, to.position) : 0);
   }, 0);
+}
+
+function serviceVehicleRouteGeometry(graph: AirportSurfaceGraph, vehicle: ServiceVehicleState): ServiceVehicleRouteGeometry {
+  const cached = serviceVehicleRouteGeometryCache.get(vehicle);
+  if (
+    cached
+    && cached.outboundRoute === vehicle.outboundRoute
+    && cached.returnRoute === vehicle.returnRoute
+    && cached.standPath === vehicle.standPath
+  ) return cached;
+  const nodeById = surfaceNodeIndex(graph);
+  const dispatchPoints = dedupePoints([
+    ...vehicle.outboundRoute.map((nodeId) => nodeById.get(nodeId)?.position).filter((point): point is Point => Boolean(point)),
+    vehicle.standPath[0],
+  ]);
+  const returnPoints = dedupePoints([
+    vehicle.standPath[0],
+    ...vehicle.returnRoute.map((nodeId) => nodeById.get(nodeId)?.position).filter((point): point is Point => Boolean(point)),
+  ]);
+  const geometry: ServiceVehicleRouteGeometry = {
+    outboundRoute: vehicle.outboundRoute,
+    returnRoute: vehicle.returnRoute,
+    standPath: vehicle.standPath,
+    dispatchPoints,
+    returnPoints,
+    outboundGraphDistance: routeDistance(graph, vehicle.outboundRoute),
+    returnGraphDistance: routeDistance(graph, vehicle.returnRoute),
+    dispatchDistance: polylineLength(dispatchPoints),
+    returnDistance: polylineLength(returnPoints),
+  };
+  serviceVehicleRouteGeometryCache.set(vehicle, geometry);
+  return geometry;
 }
 
 function samplePolyline(points: Point[], progress: number): { x: number; y: number; heading: number } | null {

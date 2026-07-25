@@ -93,7 +93,7 @@ const arrival = harness.simulation.state.flights
 assert(arrival, 'ORD startup has no arrival for turnaround integration');
 assert(harness.runUntil((snapshot) => snapshot.flights.some((flight) => flight.id === arrival.id && flight.phase === 'resting'), 420), 'arrival never reached its stand');
 harness.simulation.setMode('manual');
-harness.simulation.setStation('ground');
+harness.simulation.setStation('ramp');
 let live = harness.simulation.state.flights.find((flight) => flight.id === arrival.id);
 assert(live?.turnaround.status === 'servicing', 'gate arrival did not start service state machine');
 assert(harness.simulation.state.serviceVehicles.some((vehicle) => vehicle.flightId === arrival.id), 'gate arrival did not dispatch service vehicles');
@@ -105,7 +105,7 @@ live = harness.simulation.state.flights.find((flight) => flight.id === arrival.i
 assert(live && live.turnaround.tasks.every((task) => !task.required || task.status === 'complete'), 'ready aircraft retains incomplete required service');
 assert(Math.abs(live.kinematics.fuelPercent - live.turnaround.targetFuelPercent) < 0.01, 'integrated aircraft fuel differs from completed fueling state');
 assert(harness.runUntil(() => !harness.simulation.state.serviceVehicles.some((vehicle) => vehicle.flightId === arrival.id && ['approaching', 'servicing', 'clearing'].includes(vehicle.status)), 180), 'stand equipment did not clear for pushback');
-assert(harness.simulation.clearPushback(arrival.id), 'ground could not clear pushback after all services completed');
+assert(harness.simulation.clearPushback(arrival.id), 'Ramp could not clear pushback after all services completed');
 harness.advanceTicks(1);
 live = harness.simulation.state.flights.find((flight) => flight.id === arrival.id);
 assert(live?.phase === 'taxi-out' && live.turnaround.status === 'released', 'pushback did not release completed turnaround state');

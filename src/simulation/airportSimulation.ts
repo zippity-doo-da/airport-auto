@@ -1,5 +1,5 @@
 import type { AirportConfig, AirportRunwayConfiguration, RunwayOperationalRole } from './airportConfig';
-import type { AirportEvent, AirportState, ClearanceProposal, ConflictPrediction, ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightNavigationState, FlightOperationPlan, FlightPhase, FlightRunwayExitState, ServiceVehicleState, ShiftMetrics, SurfaceDisruptionKind, SurfaceDisruptionSource, SurfaceDisruptionState, TrafficScenario, WeatherCondition } from './types';
+import type { AirportEvent, AirportState, ClearanceProposal, ConflictPrediction, ControlMode, ControllerStation, ControllerWorkloadSnapshot, EmergencyType, Flight, FlightInstruction, FlightNavigationState, FlightOperationPlan, FlightPhase, FlightRunwayExitState, OperationalControllerStation, ServiceVehicleState, ShiftMetrics, SurfaceDisruptionKind, SurfaceDisruptionSource, SurfaceDisruptionState, TrafficScenario, WeatherCondition } from './types';
 import { aircraftProfile, type AircraftModel } from './aircraftProfiles';
 import { airlineProfile, type AirlineCode } from './airlineProfiles';
 import { aircraftCollisionEnvelope, detectCommittedRunwaySweepConflict, detectFlightConflict, findFlightConflicts, findObstacleConflicts, findProposedConflict } from './collisionDetection';
@@ -24,6 +24,15 @@ import { trafficDensityProfile, type TrafficDensity } from './trafficDensity';
 import { createTrafficFlowState, enqueueArrivalDemand, expireTrafficFlow, markArrivalHolding, refreshTrafficFlow, registerDepartureDemand, releaseArrivalDemand, releaseDepartureDemand, removeDepartureDemand, scheduleNextArrivalDemand, setTrafficFlowDensity, trafficFlowSnapshot, type TrafficFlowSnapshot } from './trafficFlowManagement';
 import { amendFlightPlan, cloneFlightPlan, createFlightPlan, setFlightPlanStatus } from './flightPlanning';
 import { selectTerminalProcedure, type SelectedTerminalProcedure, type TerminalProcedureKind } from './airspaceProcedures';
+import {
+  controllerStationIsAhead,
+  controllerWorkloadSnapshots,
+  createStationAutomation,
+  isOperationalControllerStation,
+  OPERATIONAL_CONTROLLER_STATIONS,
+  requiredControllerStation,
+  stationCanIssue,
+} from './controllerOperations';
 import {
   assessAirborneSeparation,
   requiredRadarSeparationNm,
@@ -116,6 +125,7 @@ export class AirportSimulation {
     mode: 'auto',
     nightMode: false,
     station: 'supervisor',
+    stationAutomation: createStationAutomation(),
     weather: { weatherEnabled: false, windEnabled: false, condition: 'clear', windDirection: Math.PI, windSpeed: 0, gustSpeed: 0, visibility: 10, ceilingFt: 12_000, temperatureC: 18, surfaceCondition: 'dry' },
     scenario: 'normal',
     trafficFlow: createTrafficFlowState(),
@@ -243,6 +253,29 @@ export class AirportSimulation {
 
   setStation(station: ControllerStation): void {
     this.state.station = station;
+    if (isOperationalControllerStation(station)) {
+      for (const candidate of OPERATIONAL_CONTROLLER_STATIONS) {
+        this.state.stationAutomation[candidate] = candidate !== station;
+      }
+      this.coordinateControllerStations();
+    }
+  }
+
+  setStationAutomation(station: OperationalControllerStation, enabled: boolean): boolean {
+    if (this.state.station !== 'supervisor') {
+      return this.rejectDecision(`${this.state.station} station cannot configure unstaffed-position automation`);
+    }
+    this.state.stationAutomation[station] = enabled;
+    this.decisionReason = `${station} automation ${enabled ? 'enabled' : 'disabled'}`;
+    this.coordinateControllerStations();
+    return true;
+  }
+
+  controllerWorkloads(): ControllerWorkloadSnapshot[] {
+    return controllerWorkloadSnapshots(
+      this.state.flights,
+      this.isAutomaticMode() ? createStationAutomation(true) : this.state.stationAutomation,
+    );
   }
 
   lastCommandReason(): string {
@@ -280,12 +313,8 @@ export class AirportSimulation {
     return true;
   }
 
-  canIssue(kind: 'approach' | 'tower' | 'ground'): boolean {
-    const station = this.state.station;
-    if (station === 'supervisor') return true;
-    if (kind === 'approach') return station === 'approach';
-    if (kind === 'tower') return station === 'tower';
-    return station === 'ground';
+  canIssue(kind: OperationalControllerStation): boolean {
+    return stationCanIssue(this.state.station, kind);
   }
 
   private ownsFlight(flight: Flight): boolean {
@@ -392,7 +421,7 @@ export class AirportSimulation {
           flightId: flight.id,
           action: 'land',
           runway: flight.runway,
-          station: 'approach',
+          station: 'tower',
           label: `Clear to land ${this.activeRunwayDesignation(flight.runway)}`,
           reason: flight.progress > 0.72
             ? 'Established on final; landing clearance is becoming time-critical.'
@@ -402,13 +431,13 @@ export class AirportSimulation {
       }
       if ((flight.phase === 'approach' || flight.phase === 'landing') && flight.safetyHold) {
         proposals.push({
-          id: `${flight.id}:go-around`, flightId: flight.id, action: 'go-around', runway: flight.runway, station: 'approach',
+          id: `${flight.id}:go-around`, flightId: flight.id, action: 'go-around', runway: flight.runway, station: requiredControllerStation(flight) === 'tower' ? 'tower' : 'approach',
           label: 'Issue go-around', reason: flight.safetyHoldReason ?? 'Protected approach spacing cannot be maintained.', priority: 'urgent',
         });
       }
       if (flight.phase === 'resting' && flight.turnaround.status === 'ready' && !flight.pushbackCleared) {
         proposals.push({
-          id: `${flight.id}:pushback`, flightId: flight.id, action: 'pushback', station: 'ground',
+          id: `${flight.id}:pushback`, flightId: flight.id, action: 'pushback', station: 'ramp',
           label: `Push ${flight.pushbackDirection}`,
           reason: `Turnaround is complete; tug and engine-start sequence are ready for a ${flight.pushbackDirection} push to the ramp lane.`,
           priority: 'attention',
@@ -562,7 +591,7 @@ export class AirportSimulation {
   clearPushback(id: number): boolean {
     if (this.state.gameOver) return this.rejectDecision('shift is closed');
     if (this.state.paused) return this.rejectDecision('resume the simulation before issuing a clearance');
-    if (!this.canIssue('ground')) return this.rejectDecision(`${this.state.station} station has no pushback authority`);
+    if (!this.canIssue('ramp')) return this.rejectDecision(`${this.state.station} station has no ramp pushback authority`);
     const flight = this.state.flights.find((item) => item.id === id && item.phase === 'resting');
     if (!flight) return this.rejectDecision('flight is not at a stand awaiting pushback');
     if (!this.ownsFlight(flight)) return this.rejectDecision(`${this.state.station} does not own ${flight.callsign}; handoff required`, flight);
@@ -849,16 +878,17 @@ export class AirportSimulation {
       if (!requested.has(flight.id)) continue;
       if (!this.ownsFlight(flight)) continue;
       const surface = flight.phase === 'taxi-in' || flight.phase === 'taxi-out' || flight.phase === 'resting';
+      const surfaceStation: OperationalControllerStation = requiredControllerStation(flight) === 'ramp' ? 'ramp' : 'ground';
       if ((instruction === 'slow' || instruction === 'normal' || instruction === 'expedite')
-        && !(surface ? this.canIssue('ground') : this.canIssue('approach'))) continue;
+        && !(surface ? this.canIssue(surfaceStation) : this.canIssue('approach'))) continue;
       if (instruction === 'hold') {
         if (flight.phase !== 'taxi-in' && flight.phase !== 'taxi-out') continue;
-        if (!this.canIssue('ground')) continue;
+        if (!this.canIssue(surfaceStation)) continue;
         flight.controlHold = true;
         this.metrics.holdsIssued += 1;
       }
       if (instruction === 'resume') {
-        if ((flight.phase === 'taxi-in' || flight.phase === 'taxi-out') && !this.canIssue('ground')) continue;
+        if ((flight.phase === 'taxi-in' || flight.phase === 'taxi-out') && !this.canIssue(surfaceStation)) continue;
         flight.controlHold = false;
       }
       if (instruction === 'slow') flight.controlPace = 0.55;
@@ -932,7 +962,7 @@ export class AirportSimulation {
     flight.phaseElapsed = 0;
     flight.duration = this.phaseDuration(flight.aircraft, 'approach', flight.runway);
     flight.clearanceLeft = flight.duration * 0.96;
-    flight.cleared = this.isAutomaticMode();
+    flight.cleared = this.stationRunsAutomatically('tower');
     flight.navigation.approachCleared = flight.cleared;
     syncFlightMotion(this.config, flight);
     amendFlightPlan(flight.flightPlan, 'clearance', this.state.elapsed, detail);
@@ -963,6 +993,7 @@ export class AirportSimulation {
     this.state.closedRunway = null;
     this.state.scenario = 'normal';
     this.state.station = 'supervisor';
+    this.state.stationAutomation = createStationAutomation();
     this.runwayConfigurationOverrideId = null;
     this.state.runwayConfigurationMode = 'automatic';
     this.state.runwayConfigurationTransition = null;
@@ -987,6 +1018,7 @@ export class AirportSimulation {
     this.updateSurfaceDisruptions(delta);
     this.taxiOutReleaseIn = Math.max(0, this.taxiOutReleaseIn - delta);
     this.updateTrafficFlow();
+    this.coordinateControllerStations();
     this.metrics.maxConcurrent = Math.max(this.metrics.maxConcurrent, this.state.flights.length);
     this.updateDeicingOperations(delta);
     this.coordinateAutomaticRunwayCrossings();
@@ -1667,7 +1699,7 @@ export class AirportSimulation {
       return null;
     }
     const departureRunway = [...departureRunways].sort((first, second) => this.headwindComponent(second.id) - this.headwindComponent(first.id))[(id - 1) % departureRunways.length].id;
-    const automatic = this.isAutomaticMode();
+    const automatic = this.stationRunsAutomatically('tower');
     const airline = airlineProfile(airlineCode);
     const profile = aircraftProfile(aircraft);
     const flightNumber = 100 + ((id * 37 + Math.abs(this.config.seed)) % 890);
@@ -1855,7 +1887,7 @@ export class AirportSimulation {
       flight.progress = 0;
       flight.phaseElapsed = 0;
       flight.duration = this.phaseDuration(flight.aircraft, 'approach', flight.runway);
-      flight.cleared = this.isAutomaticMode();
+      flight.cleared = this.stationRunsAutomatically('tower');
       flight.navigation.approachCleared = flight.cleared;
       flight.clearanceLeft = flight.cleared ? 99 : flight.duration * 0.96;
       syncFlightMotion(this.config, flight);
@@ -1880,7 +1912,7 @@ export class AirportSimulation {
     }
 
     if (flight.phase === 'resting' && !flight.pushbackCleared) {
-      if (!this.isAutomaticMode()) return;
+      if (!this.stationRunsAutomatically('ramp')) return;
       if (serviceVehiclesBlockingPushback(this.state.serviceVehicles, flight.id).length) return;
       if (winterDeicingRequired(this.state.weather) && flight.deicing.status === 'unavailable') return;
       this.grantPushbackClearance(flight, true);
@@ -1945,7 +1977,7 @@ export class AirportSimulation {
         flight.holdNotified = true;
         this.events.push({ type: 'hold-short', flight, runway: flight.runway, taxiway: flight.taxiway });
       }
-      if (this.isAutomaticMode()) {
+      if (this.stationRunsAutomatically('tower')) {
         if (!flight.runwayEntryCleared) {
           flight.runwayEntryCleared = true;
           this.events.push({ type: 'runway-entry', flight, runway: flight.runway, taxiway: flight.taxiway });
@@ -2067,7 +2099,7 @@ export class AirportSimulation {
   }
 
   private coordinateAutomaticRunwayCrossings(): void {
-    if (!this.isAutomaticMode()) return;
+    if (!this.stationRunsAutomatically('ground')) return;
     const candidates = this.state.flights
       .filter((flight) => flight.phase === 'taxi-in' || flight.phase === 'taxi-out')
       .map((flight) => ({ flight, crossing: this.nextUnclearedCrossing(flight) }))
@@ -2076,6 +2108,42 @@ export class AirportSimulation {
       .sort((first, second) => first.crossing.distanceToHold - second.crossing.distanceToHold || first.flight.id - second.flight.id);
     for (const { flight, crossing } of candidates) {
       if (!this.runwayBlocker(crossing.runwayId, flight.id)) this.grantCrossingClearance(flight, crossing);
+    }
+  }
+
+  private coordinateControllerStations(): void {
+    for (const flight of this.state.flights) {
+      const required = requiredControllerStation(flight);
+      if (!this.stationRunsAutomatically(required)) continue;
+      if (flight.navigation.frequencyOwner !== required) {
+        if (controllerStationIsAhead(flight, flight.navigation.frequencyOwner, required)) continue;
+        const previous = flight.navigation.frequencyOwner;
+        flight.navigation.frequencyOwner = required;
+        flight.navigation.handoffStatus = 'accepted';
+        flight.navigation.readbackStatus = 'accepted';
+        this.events.push({
+          type: 'handoff',
+          flight,
+          runway: flight.runway,
+          taxiway: flight.taxiway,
+          detail: `automatic ${previous} → ${required} handoff`,
+        });
+      }
+      if (required === 'approach' && flight.phase === 'approach' && !flight.navigation.approachCleared) {
+        flight.navigation.approachCleared = true;
+        amendFlightPlan(flight.flightPlan, 'clearance', this.state.elapsed, 'automated approach clearance');
+      }
+      if (
+        required === 'tower'
+        && flight.phase === 'approach'
+        && flight.navigation.approachCleared
+        && !flight.cleared
+        && !flight.goAround
+      ) {
+        flight.cleared = true;
+        flight.clearanceLeft = 99;
+        this.events.push({ type: 'auto-clear', flight, runway: flight.runway, detail: 'automated tower landing clearance' });
+      }
     }
   }
 
@@ -2139,7 +2207,7 @@ export class AirportSimulation {
       );
       const conflict = reservations.firstConflictDetail(claims, flight.id);
       const vehicleConflict = typeof conflict?.ownerId === 'string' && conflict.ownerId.startsWith('vehicle:');
-      const shouldHold = vehicleConflict || (this.isAutomaticMode() && Boolean(conflict));
+      const shouldHold = vehicleConflict || (this.stationRunsAutomatically('ground') && Boolean(conflict));
       if (shouldHold && !flight.automaticHold) this.metrics.preventedConflicts += 1;
       flight.automaticHold = shouldHold;
       flight.automaticHoldReason = conflict ? this.surfaceReservationConflictReason(conflict.claim) : undefined;
@@ -2202,7 +2270,7 @@ export class AirportSimulation {
       } else if (flight.phase === 'resting') {
         const remainingTurn = Math.max(0, flight.duration * (1 - flight.progress));
         startSeconds = Math.min(startSeconds, assignment.actualGateInSeconds ?? now);
-        endSeconds = Math.max(endSeconds, now + remainingTurn + (this.isAutomaticMode() ? 24 : 180));
+        endSeconds = Math.max(endSeconds, now + remainingTurn + (this.stationRunsAutomatically('ramp') ? 24 : 180));
       } else if (flight.phase === 'taxi-out') {
         if (!flight.tugAttached && flight.pushbackProgress >= 1) return [];
         startSeconds = now - GATE_TURN_BUFFER_SECONDS;
@@ -2704,11 +2772,11 @@ export class AirportSimulation {
       transitionId: selected.transition.id,
       routeFixIds: [...selected.routeFixIds],
       activeFixIndex: 0,
-      approachCleared: direction === 'arrival' && this.isAutomaticMode(),
+      approachCleared: direction === 'arrival' && this.stationRunsAutomatically('approach'),
       departureHeadingDegrees: selected.procedure.initialHeadingDegrees,
       initialClimbAltitudeFt: selected.procedure.initialClimbAltitudeFt,
       handoffFixId: selected.procedure.handoffFixId,
-      frequencyOwner: direction === 'arrival' ? 'approach' : 'ground',
+      frequencyOwner: direction === 'arrival' ? 'approach' : 'ramp',
       handoffStatus: 'owned',
       readbackStatus: 'not-required',
       missedApproachId: selected.procedure.missedApproachId,
@@ -3191,7 +3259,7 @@ export class AirportSimulation {
       this.rerouteApproachesFromClosedRunway(disruption.runwayId, disruption);
       this.updateActiveRunwayConfiguration();
     }
-    if (this.isAutomaticMode()) this.startDisabledRecovery(disruption, flight, 'automatic airport recovery dispatch');
+    if (this.stationRunsAutomatically('ground')) this.startDisabledRecovery(disruption, flight, 'automatic airport recovery dispatch');
   }
 
   private startDisabledRecovery(disruption: SurfaceDisruptionState, flight: Flight, reason: string): void {
@@ -3232,7 +3300,7 @@ export class AirportSimulation {
           this.state.surfaceDisruptions = this.state.surfaceDisruptions.filter((candidate) => candidate.id !== disruption.id);
           continue;
         }
-        if (disruption.status === 'active' && this.isAutomaticMode()) {
+        if (disruption.status === 'active' && this.stationRunsAutomatically('ground')) {
           this.startDisabledRecovery(disruption, flight, 'automatic airport recovery dispatch');
         }
         if (disruption.status === 'recovering') {
@@ -4194,6 +4262,10 @@ export class AirportSimulation {
     this.decisionReason = reason;
     if (flight) this.events.push({ type: 'reject', flight, runway: flight.runway, taxiway: flight.taxiway, detail: reason });
     return false;
+  }
+
+  private stationRunsAutomatically(station: OperationalControllerStation): boolean {
+    return this.isAutomaticMode() || this.state.stationAutomation[station];
   }
 
   private isAutomaticMode(): boolean {

@@ -18,7 +18,7 @@ Independent tasks may run together. A vehicle-backed task waits until its assign
 
 ## Readiness and control
 
-A turn moves through `planned`, `servicing`, `ready`, and `released` states. Ground pushback is rejected until all required tasks are complete and every truck or cart has cleared the stand-side lane. Rejections distinguish incomplete services from equipment still clearing. Assisted mode does not propose pushback early. Auto and Watch use the same readiness gate.
+A turn moves through `planned`, `servicing`, `ready`, and `released` states. Ramp pushback is rejected until all required tasks are complete and every truck or cart has cleared the stand-side lane. Rejections distinguish incomplete services from equipment still clearing. Assisted mode does not propose pushback early. Auto and Watch use the same readiness gate.
 
 The flight chip shows live task progress. Selecting a flight at a stand opens a compact task panel with required work, waiting/active/complete state, and overall progress. Fuel shown in the chip is driven by the fueling task rather than by an independent animation.
 
