@@ -346,6 +346,11 @@ const launchOptions = new URLSearchParams(window.location.search);
 const telemetryEnabled = launchOptions.get('telemetry') === '1';
 const debugEnabled = launchOptions.get('debug') === '1';
 const soakEnabled = launchOptions.get('soak') === '1';
+const requestedRenderFps = Number(launchOptions.get('renderFps') ?? 0);
+const minimumRenderInterval = Number.isFinite(requestedRenderFps) && requestedRenderFps >= 1 && requestedRenderFps < 60
+  ? 1_000 / requestedRenderFps
+  : 0;
+let lastWorldRender = -Infinity;
 debugPanel.hidden = !debugEnabled;
 updateAirportUi();
 updateNightControl();
@@ -793,7 +798,11 @@ function clearRoute(): void {
 function frame(now: number): void {
   const delta = Math.min(0.1, (now - lastTime) / 1000);
   lastTime = now;
-  renderedFrames += 1;
+  const renderWorld = minimumRenderInterval === 0 || now - lastWorldRender >= minimumRenderInterval;
+  if (renderWorld) {
+    renderedFrames += 1;
+    lastWorldRender = now;
+  }
   if (now - frameWindowStarted >= 1_000) {
     measuredFps = renderedFrames * 1_000 / Math.max(1, now - frameWindowStarted);
     renderedFrames = 0;
@@ -954,7 +963,7 @@ function frame(now: number): void {
     if (event.type === 'recovery-complete') setStatus(`${event.flight.callsign} recovered`, event.detail ?? 'movement area inspected and reopened');
   }
 
-  world.update(replayMode ? displayedState : presentationState(), delta);
+  world.update(replayMode ? displayedState : presentationState(), delta, renderWorld);
   if (radarVisible && now - lastRadarUpdate >= 80) {
     drawRadar(displayedState);
     lastRadarUpdate = now;
