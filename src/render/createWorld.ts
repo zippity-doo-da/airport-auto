@@ -9,6 +9,7 @@ import { createAirportContext, type AirportContextDiagnostics } from './airportC
 import { treePlacement } from './sceneryPlacement';
 import { updateSurfaceDisruptionVisuals } from './surfaceDisruptionVisuals';
 import { createAirspaceOverlay, type AirspaceLayer } from './airspaceOverlay';
+import type { FocusTargetKind, FocusTargetTone } from '../presentation/focusTargets';
 export type { AirspaceLayer } from './airspaceOverlay';
 
 type FlightVisual = {
@@ -109,6 +110,13 @@ export type WorldDiagnostics = {
     panLimitY: number;
     groundFillsViewport: boolean;
     minimumGroundMargin: number;
+    target: {
+      key: string;
+      kind: FocusTargetKind;
+      tracking: boolean;
+      resolvedX: number;
+      resolvedY: number;
+    } | null;
   };
   surfaceLayers: Record<SurfaceLayer, boolean>;
   airspaceLayers: Record<AirspaceLayer, boolean>;
@@ -122,6 +130,17 @@ export type WorldDiagnostics = {
   context: AirportContextDiagnostics | { status: 'procedural' };
 };
 
+export interface WorldFocusTarget {
+  key: string;
+  kind: FocusTargetKind;
+  position: [number, number];
+  radius: number;
+  suggestedZoom: number;
+  flightIds: number[];
+  serviceVehicleId?: string;
+  tone: FocusTargetTone;
+}
+
 export interface AirportWorld {
   update(state: AirportState, delta: number): void;
   snapToAuthoritativeState(): void;
@@ -129,6 +148,7 @@ export interface AirportWorld {
   pickFlight(clientX: number, clientY: number): number | null;
   pickRunway(clientX: number, clientY: number): number | null;
   selectFlight(id: number | null): void;
+  focusTarget(target: WorldFocusTarget | null): void;
   flightScreenPosition(id: number): { x: number; y: number } | null;
   flightAttitude(id: number): { headingDegrees: number; noseUpDegrees: number } | null;
   mapMetrics(): { northDegrees: number; scaleMeters: number; scalePixels: number };
@@ -245,7 +265,8 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   const flightPool = new Map<string, FlightVisual[]>();
   const serviceVehicleVisuals = new Map<string, ServiceVehicleVisual>();
   const serviceVehiclePool = new Map<ServiceVehicleType, ServiceVehicleVisual[]>();
-  let selectedFlightId: number | null = null;
+  const focusedFlightIds = new Set<number>();
+  let worldFocusTarget: WorldFocusTarget | null = null;
   let viewIndex = 0;
   let cameraTime = 0;
   const views = [
@@ -259,6 +280,9 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   let manualZoom = 1;
   let manualOrbitOffset = 0;
   const cameraFocus = new THREE.Vector2();
+  const resolvedFocus = new THREE.Vector2();
+  const focusMarker = createFocusMarker();
+  world.add(focusMarker);
   const groundPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -1.3);
   const zoomRaycaster = new THREE.Raycaster();
   const zoomNdc = new THREE.Vector2();
@@ -271,6 +295,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const attitudeNose = new THREE.Vector3();
   let manualCameraActive = false;
+  let focusZoomGoal: number | null = null;
 
   function updateProjection(): void {
     const aspect = viewportWidth / Math.max(1, viewportHeight);
@@ -403,7 +428,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
         visual.deicingSpray.scale.set(1, sprayPulse, sprayPulse);
         visual.deicingSpray.rotation.x = Math.sin(state.elapsed * 2.4 + flight.id) * 0.08;
       }
-      visual.halo.visible = selectedFlightId === flight.id;
+      visual.halo.visible = focusedFlightIds.has(flight.id);
       visual.halo.scale.setScalar(1 + Math.sin(state.elapsed * 5) * 0.08);
     }
 
@@ -479,11 +504,19 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
       (ripple.material as THREE.MeshBasicMaterial).opacity = (1 - cycle) * 0.16;
     }
 
-    const selected = selectedFlightId === null ? null : flightVisuals.get(selectedFlightId);
-    if (selected && !manualCameraActive) {
+    const focus = resolveFocusTarget();
+    if (focus && !manualCameraActive) {
       const follow = 1 - Math.exp(-delta * 2.8);
-      cameraFocus.lerp(new THREE.Vector2(selected.root.position.x, selected.root.position.y), follow);
+      cameraFocus.lerp(resolvedFocus.set(focus.x, focus.y), follow);
+      if (focusZoomGoal !== null) {
+        const nextZoom = THREE.MathUtils.lerp(manualZoom, focusZoomGoal, 1 - Math.exp(-delta * 3.2));
+        if (Math.abs(nextZoom - manualZoom) > 0.0001) {
+          manualZoom = nextZoom;
+          updateProjection();
+        }
+      }
     }
+    updateFocusMarker(focus, state.elapsed);
     const drift = reducedMotion || manualCameraActive ? 0 : 1;
     applyCameraPose(drift);
     renderer.render(scene, camera);
@@ -585,8 +618,70 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
 
   function beginManualCamera(): void {
     manualCameraActive = true;
-    selectedFlightId = null;
+    worldFocusTarget = null;
+    focusZoomGoal = null;
+    focusedFlightIds.clear();
+    focusMarker.visible = false;
     applyCameraPose(0);
+  }
+
+  function setWorldFocusTarget(target: WorldFocusTarget | null): void {
+    worldFocusTarget = target ? {
+      ...target,
+      position: [...target.position],
+      flightIds: [...target.flightIds],
+    } : null;
+    focusedFlightIds.clear();
+    for (const flightId of target?.flightIds ?? []) focusedFlightIds.add(flightId);
+    focusZoomGoal = target
+      ? THREE.MathUtils.clamp(target.suggestedZoom, config.scope === 'center' ? 0.08 : 0.12, 3)
+      : null;
+    manualCameraActive = false;
+    if (target) resolvedFocus.set(target.position[0], target.position[1]);
+    focusMarker.visible = target !== null && target.kind !== 'flight';
+  }
+
+  function resolveFocusTarget(): { x: number; y: number; radius: number } | null {
+    if (!worldFocusTarget) return null;
+    const points: Array<{ x: number; y: number }> = [];
+    for (const flightId of worldFocusTarget.flightIds) {
+      const visual = flightVisuals.get(flightId);
+      if (visual) points.push({ x: visual.root.position.x, y: visual.root.position.y });
+    }
+    if (worldFocusTarget.serviceVehicleId) {
+      const visual = serviceVehicleVisuals.get(worldFocusTarget.serviceVehicleId);
+      if (visual) points.push({ x: visual.root.position.x, y: visual.root.position.y });
+    }
+    if (!points.length) {
+      return {
+        x: worldFocusTarget.position[0],
+        y: worldFocusTarget.position[1],
+        radius: worldFocusTarget.radius,
+      };
+    }
+    const x = points.reduce((sum, point) => sum + point.x, 0) / points.length;
+    const y = points.reduce((sum, point) => sum + point.y, 0) / points.length;
+    const radius = Math.max(
+      worldFocusTarget.radius,
+      ...points.map((point) => Math.hypot(point.x - x, point.y - y) + 4),
+    );
+    return { x, y, radius };
+  }
+
+  function updateFocusMarker(focus: { x: number; y: number; radius: number } | null, elapsed: number): void {
+    const target = worldFocusTarget;
+    focusMarker.visible = Boolean(focus && target && target.kind !== 'flight');
+    if (!focus || !target || target.kind === 'flight') return;
+    focusMarker.position.set(focus.x, focus.y, 2.25);
+    const pulse = reducedMotion ? 1 : 1 + Math.sin(elapsed * 2.6) * 0.035;
+    focusMarker.scale.setScalar(Math.max(5, focus.radius) * pulse);
+    const color = target.tone === 'rose' ? 0xf0a29b : target.tone === 'amber' ? 0xefc775 : 0x89cee6;
+    for (const child of focusMarker.children) {
+      const material = (child as THREE.Mesh | THREE.LineSegments).material;
+      if (material instanceof THREE.Material && 'color' in material) {
+        (material as THREE.MeshBasicMaterial).color.setHex(color);
+      }
+    }
   }
 
   function panCameraByScreen(horizontal: number, vertical: number): void {
@@ -678,7 +773,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   }
 
   function changeZoom(factor: number): void {
-    manualCameraActive = true;
+    beginManualCamera();
     const minimumZoom = config.scope === 'center' ? 0.08 : 0.12;
     manualZoom = THREE.MathUtils.clamp(manualZoom * factor, minimumZoom, 3);
     updateProjection();
@@ -689,7 +784,10 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     manualZoom = 1;
     manualOrbitOffset = 0;
     cameraFocus.set(0, 0);
-    selectedFlightId = null;
+    worldFocusTarget = null;
+    focusZoomGoal = null;
+    focusedFlightIds.clear();
+    focusMarker.visible = false;
     manualCameraActive = false;
     updateProjection();
   }
@@ -769,9 +867,22 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     pickFlight,
     pickRunway,
     selectFlight(id) {
-      selectedFlightId = id;
-      if (id !== null) manualCameraActive = false;
+      if (id === null) {
+        setWorldFocusTarget(null);
+        return;
+      }
+      const visual = flightVisuals.get(id);
+      setWorldFocusTarget({
+        key: `flight:${id}`,
+        kind: 'flight',
+        position: visual ? [visual.root.position.x, visual.root.position.y] : [0, 0],
+        radius: 8,
+        suggestedZoom: config.scope === 'center' ? 0.18 : 0.34,
+        flightIds: [id],
+        tone: 'blue',
+      });
     },
+    focusTarget: setWorldFocusTarget,
     flightScreenPosition,
     flightAttitude,
     mapMetrics,
@@ -840,6 +951,13 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
           panLimitY: landscape.panY,
           groundFillsViewport: groundCoverage.fillsViewport,
           minimumGroundMargin: groundCoverage.minimumMargin,
+          target: worldFocusTarget ? {
+            key: worldFocusTarget.key,
+            kind: worldFocusTarget.kind,
+            tracking: !manualCameraActive,
+            resolvedX: Number(resolvedFocus.x.toFixed(3)),
+            resolvedY: Number(resolvedFocus.y.toFixed(3)),
+          } : null,
         },
         surfaceLayers: {
           'taxiway-labels': airportBuild.surfaceLayers['taxiway-labels'].visible,
@@ -1367,6 +1485,32 @@ function buildRipples(root: THREE.Group, config: AirportConfig): THREE.Mesh[] {
   void root;
   void config;
   return [];
+}
+
+function createFocusMarker(): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'observer-focus-marker';
+  group.visible = false;
+  const ringMaterial = new THREE.MeshBasicMaterial({
+    color: 0x89cee6,
+    transparent: true,
+    opacity: 0.72,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.92, 1, 64), ringMaterial);
+  group.add(ring);
+  const ticks = new THREE.LineSegments(
+    new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-1.28, 0, 0), new THREE.Vector3(-0.82, 0, 0),
+      new THREE.Vector3(0.82, 0, 0), new THREE.Vector3(1.28, 0, 0),
+      new THREE.Vector3(0, -1.28, 0), new THREE.Vector3(0, -0.82, 0),
+      new THREE.Vector3(0, 0.82, 0), new THREE.Vector3(0, 1.28, 0),
+    ]),
+    new THREE.LineBasicMaterial({ color: 0x89cee6, transparent: true, opacity: 0.88 }),
+  );
+  group.add(ticks);
+  return group;
 }
 
 function planePoolKey(flight: Flight): string {

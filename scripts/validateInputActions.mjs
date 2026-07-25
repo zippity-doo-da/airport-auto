@@ -14,7 +14,7 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-assert(INPUT_ACTIONS.length === 23, 'the canonical action catalog should contain 23 actions');
+assert(INPUT_ACTIONS.length === 24, 'the canonical action catalog should contain 24 actions');
 assert(new Set(INPUT_ACTIONS.map((action) => action.id)).size === INPUT_ACTIONS.length, 'action IDs must be unique');
 assert(INPUT_ACTIONS.filter((action) => action.kind === 'continuous').length === 8, 'all eight camera axes must be continuous actions');
 assert(INPUT_ACTIONS.filter((action) => action.kind === 'continuous').every((action) => (
@@ -28,6 +28,7 @@ for (const [code, id] of keyboardCodes) {
 }
 assert(inputActionForKeyboardCode('F13') === null, 'unknown keyboard codes must remain unbound');
 assert(INPUT_ACTIONS.find((action) => action.id === 'ui.cancel')?.contexts.join(',') === 'gameplay,ui,modal', 'cancel must remain available in every context');
+assert(INPUT_ACTIONS.find((action) => action.id === 'ui.focus')?.keyboardCodes.join(',') === 'KeyF', 'observer focus must remain available from F');
 
 assert(applyInputDeadzone(0.17) === 0, 'values inside the gamepad deadzone must be ignored');
 assert(applyInputDeadzone(Number.NaN) === 0, 'non-finite gamepad values must be ignored');

@@ -375,6 +375,17 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Expose input schema/catalog versions, active context, last device/action/gesture, axes, held actions, device metadata, preferences, and the immutable action catalog through API 2.26 / snapshot schema 28 plus structured gamepad-setting commands.
 - [x] Validate unique bindings, action contexts, deadzones, axes, buttons, quick taps, smooth holds, UI blocking, gamepad polling and persistence, mouse/touch pan, pinch zoom, responsive containment, and desktop/mobile screenshot presentation.
 
+## Airport Auto 2.27 — multi-target observer focus
+
+- [x] Add one typed, serializable catalog for live aircraft, every runway, named taxiway groups, modeled gates/stands, operation queues, and detected conflicts at every airport.
+- [x] Resolve moving queue and conflict targets from authoritative aircraft/service-vehicle identities while framing runway, taxiway, gate, and resource-backed queue locations from the configured surface graph.
+- [x] Follow the renderer's already-interpolated aircraft and vehicle poses instead of calculating a second motion path; multi-aircraft conflicts and blocker queues highlight and track the complete involved group.
+- [x] Add smooth target-aware framing, subtle fixed-target reticles, multi-aircraft halos, current-target renderer diagnostics, and automatic release when a transient subject leaves the board.
+- [x] Add a compact on-demand navigator and following chip with `F`, previous/next, explicit release, two-stage Escape behavior, free-camera takeover, stable DOM updates, compact-overlay exclusivity, and 44px mobile controls.
+- [x] Make every queue row focusable, including system, resource, blocker-group, and service-vehicle waits; preserve `focusFlight` compatibility while adding structured `focusTarget` acceptance and rejection.
+- [x] Expose focus catalog schema 1, current target/reference, follow strategy, related entities, suggested framing, and resolved renderer target through API 2.27 / snapshot schema 29.
+- [x] Validate all 11 airport configurations, 391 static targets, ORD's eight runways/125 named taxiways/40 stands, dynamic queue and conflict resolution, stable conflict identity, keyboard/manual release, responsive containment, and desktop/mobile screenshot presentation.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.

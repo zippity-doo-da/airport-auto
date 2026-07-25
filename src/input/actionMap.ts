@@ -16,6 +16,7 @@ export type InputActionId =
   | "ui.controls"
   | "ui.radar"
   | "ui.queues"
+  | "ui.focus"
   | "selection.previous"
   | "selection.next"
   | "selection.primary"
@@ -192,6 +193,15 @@ export const INPUT_ACTIONS: readonly InputActionDefinition[] = [
     keyboardLabel: "O",
   },
   {
+    id: "ui.focus",
+    label: "Observer focus",
+    description: "Open or close the aircraft and airport focus navigator.",
+    kind: "discrete",
+    contexts: ["gameplay", "ui"],
+    keyboardCodes: ["KeyF"],
+    keyboardLabel: "F",
+  },
+  {
     id: "selection.previous",
     label: "Previous aircraft",
     description: "Focus the previous aircraft in the current station scope.",
@@ -294,8 +304,8 @@ export const INPUT_HELP_ROWS: readonly InputHelpRow[] = [
   },
   {
     label: "Track traffic",
-    keyboard: "[ / ]",
-    pointer: "Select aircraft",
+    keyboard: "F or [ / ]",
+    pointer: "Select target",
     gamepad: "LB / RB",
   },
   {

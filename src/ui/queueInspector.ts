@@ -15,11 +15,11 @@ export interface QueueInspectorElements {
 export function operationQueueRenderKey(
   snapshot: OperationQueueSnapshot,
   filter: OperationQueueFilter,
-  focusedFlightId: number | null,
+  focusedQueueId: string | null,
 ): string {
   return [
     filter,
-    focusedFlightId ?? 'none',
+    focusedQueueId ?? 'none',
     snapshot.total,
     Math.floor(snapshot.longestWaitSeconds),
     ...snapshot.entries.map((entry) => [
@@ -37,7 +37,7 @@ export function renderOperationQueueInspector(
   elements: QueueInspectorElements,
   snapshot: OperationQueueSnapshot,
   filter: OperationQueueFilter,
-  focusedFlightId: number | null,
+  focusedQueueId: string | null,
 ): void {
   const entries = filter === 'all'
     ? snapshot.entries
@@ -58,16 +58,12 @@ export function renderOperationQueueInspector(
   }
 
   const rows = entries.slice(0, 14).map((entry) => {
-    const row = entry.flightId === undefined
-      ? document.createElement('article')
-      : document.createElement('button');
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.dataset.queueFocus = entry.id;
     row.className = `queue-entry queue-entry--${entry.priority}`;
-    if (row instanceof HTMLButtonElement) {
-      row.type = 'button';
-      row.dataset.queueFlight = String(entry.flightId);
-      row.classList.toggle('queue-entry--selected', entry.flightId === focusedFlightId);
-      row.setAttribute('aria-label', `Focus ${entry.label}. ${entry.detail}`);
-    }
+    row.classList.toggle('queue-entry--selected', entry.id === focusedQueueId);
+    row.setAttribute('aria-label', `Focus ${entry.label}. ${entry.detail}`);
 
     const category = document.createElement('span');
     category.className = 'queue-entry__category';

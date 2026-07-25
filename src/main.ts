@@ -17,6 +17,7 @@ import type {
   ControlMode,
   ControllerPerformanceSnapshot,
   ControllerStation,
+  ConflictPrediction,
   EmergencyType,
   Flight,
   FlightInstruction,
@@ -38,6 +39,15 @@ import { isTrainingOperationalAction } from './simulation/trainingProgram';
 import { AmbientAudio, type AudioChannel, type AudioPreset } from './audio/ambientAudio';
 import { createWorld, type AirspaceLayer, type SurfaceLayer } from './render/createWorld';
 import { drawRadarInset } from './render/radarInset';
+import {
+  createFocusTargetRegistry,
+  focusTargetKey,
+  isFocusTargetKind,
+  type FocusTargetCatalog,
+  type FocusTargetDescriptor,
+  type FocusTargetRef,
+} from './presentation/focusTargets';
+import { createFocusNavigator, type FocusNavigator } from './ui/focusNavigator';
 import {
   isOperationQueueFilter,
   operationQueueRenderKey,
@@ -133,6 +143,7 @@ type AirportControlCommand =
       reason?: string;
     }
   | { action: 'focusFlight'; flightId: number | null }
+  | { action: 'focusTarget'; target: FocusTargetRef | null }
   | { action: 'setScenario'; scenario: TrafficScenario }
   | { action: 'setTrafficDensity'; density: TrafficDensity }
   | { action: 'setSeparationRuleset'; ruleset: SeparationRulesetId }
@@ -254,6 +265,12 @@ const audio = new AmbientAudio();
 let config = generateAirportConfig();
 let simulation = new AirportSimulation(config);
 let world = createWorld(canvas, config);
+let focusTargetRegistry = createFocusTargetRegistry(config);
+let focusTargetCatalog = focusTargetRegistry.build(
+  simulation.state,
+  simulation.queueSnapshot(simulation.state),
+  simulation.conflictPredictions(),
+);
 simulation.setPaused(true);
 
 const intro = $<HTMLDivElement>('#intro');
@@ -288,6 +305,21 @@ const queueCount = $<HTMLElement>('#queue-count');
 const queueFilter = $<HTMLSelectElement>('#queue-filter');
 const queueList = $<HTMLElement>('#queue-list');
 const queueLongest = $<HTMLElement>('#queue-longest');
+const focusToggle = $<HTMLButtonElement>('#focus-toggle');
+const focusPanel = $<HTMLElement>('#focus-panel');
+const focusClose = $<HTMLButtonElement>('#focus-close');
+const focusCount = $<HTMLElement>('#focus-count');
+const focusKind = $<HTMLSelectElement>('#focus-kind');
+const focusTargetSelect = $<HTMLSelectElement>('#focus-target');
+const focusDetail = $<HTMLElement>('#focus-detail');
+const focusPrevious = $<HTMLButtonElement>('#focus-previous');
+const focusApply = $<HTMLButtonElement>('#focus-apply');
+const focusNext = $<HTMLButtonElement>('#focus-next');
+const focusRelease = $<HTMLButtonElement>('#focus-release');
+const focusStatus = $<HTMLElement>('#focus-status');
+const focusStatusLabel = $<HTMLElement>('#focus-status-label');
+const focusStatusDetail = $<HTMLElement>('#focus-status-detail');
+const focusStatusRelease = $<HTMLButtonElement>('#focus-status-release');
 const scopeButton = $<HTMLButtonElement>('#scope-toggle');
 const scopeLabel = $<HTMLElement>('#scope-label');
 const brandMark = $<HTMLElement>('#brand-mark');
@@ -556,6 +588,9 @@ let replayIndex = -1;
 let replayMode = false;
 let pausedBeforeReplay = false;
 let focusedFlightId: number | null = null;
+let activeFocusRef: FocusTargetRef | null = null;
+let activeFocusTarget: FocusTargetDescriptor | null = null;
+let focusNavigatorUiKey = '';
 let flightActionsRenderKey = '';
 let groupSelectActive = false;
 let groupActionsRenderKey = '';
@@ -616,6 +651,37 @@ let inputSettingsPanel: InputSettingsPanel | null = null;
 let refreshInputSettings = (): void => {};
 const requestedGamepadEnabled = launchOptions.get('gamepad');
 const requestedGamepadSensitivity = Number(launchOptions.get('gamepadSensitivity'));
+const focusNavigator: FocusNavigator = createFocusNavigator({
+  panel: focusPanel,
+  toggle: focusToggle,
+  close: focusClose,
+  count: focusCount,
+  kind: focusKind,
+  target: focusTargetSelect,
+  detail: focusDetail,
+  previous: focusPrevious,
+  apply: focusApply,
+  next: focusNext,
+  release: focusRelease,
+  status: focusStatus,
+  statusLabel: focusStatusLabel,
+  statusDetail: focusStatusDetail,
+  statusRelease: focusStatusRelease,
+}, {
+  onVisibilityChange: (visible) => {
+    if (!visible) {
+      canvas.focus({ preventScroll: true });
+      return;
+    }
+    if (queueInspectorVisible) setQueuePanelVisible(false);
+    if (compactOverlayMedia.matches && radarVisible) setRadarPanelVisible(false);
+  },
+  onFocus: (target) => {
+    const result = executeAirportRequest({ action: 'focusTarget', target });
+    setStatus(result.accepted ? 'Observer focus engaged' : 'Focus unavailable', result.reason);
+  },
+  onRelease: () => clearFlightFocus('Camera released', 'free map view restored'),
+});
 const inputLayer = createUnifiedInput({
   canvas,
   getContext: inputContext,
@@ -628,7 +694,7 @@ const inputLayer = createUnifiedInput({
   onRouteEnd: finishRoute,
   onRouteCancel: cancelRoute,
   onCameraGestureStart: () => {
-    if (focusedFlightId !== null) clearFlightFocus();
+    if (activeFocusRef !== null) clearFlightFocus();
   },
   onPan: (previous, current) => world.panBetweenScreenPoints(previous, current),
   onPinch: (previous, current) => world.pinchBetweenScreenPoints(previous, current),
@@ -659,8 +725,12 @@ updateAirportUi();
 updateNightControl();
 updateRadarControl();
 updateQueueInspectorControl();
+renderFocusNavigator(true);
 compactOverlayMedia.addEventListener('change', (event) => {
-  if (event.matches && radarVisible && queueInspectorVisible) setRadarPanelVisible(false);
+  if (event.matches && focusNavigator.visible()) {
+    if (radarVisible) setRadarPanelVisible(false);
+    if (queueInspectorVisible) setQueuePanelVisible(false);
+  } else if (event.matches && radarVisible && queueInspectorVisible) setRadarPanelVisible(false);
 });
 renderQueueInspector();
 updateSurfaceDisruptionTargets();
@@ -755,8 +825,14 @@ clearanceAdvisor.addEventListener('click', (event) => {
   if (proposal) applyClearanceProposal(proposal);
 });
 
-zoomInButton.addEventListener('click', () => world.zoomIn());
-zoomOutButton.addEventListener('click', () => world.zoomOut());
+zoomInButton.addEventListener('click', () => {
+  clearFlightFocus();
+  world.zoomIn();
+});
+zoomOutButton.addEventListener('click', () => {
+  clearFlightFocus();
+  world.zoomOut();
+});
 cameraResetButton.addEventListener('click', () => {
   clearFlightFocus();
   world.resetCamera();
@@ -791,12 +867,12 @@ function modalOpen(element: HTMLElement): boolean {
 
 function inputContext(): InputActionContext {
   if (modalOpen(intro) || modalOpen(gameOver) || modalOpen(challengeResults)) return 'modal';
-  if (controlPanel.classList.contains('control-panel--open')) return 'ui';
+  if (controlPanel.classList.contains('control-panel--open') || focusNavigator.visible()) return 'ui';
   return 'gameplay';
 }
 
 function handleInputAxes(axes: InputAxes, deltaSeconds: number): void {
-  if (focusedFlightId !== null) clearFlightFocus();
+  if (activeFocusRef !== null) clearFlightFocus();
   world.applyCameraInput(axes.panX, axes.panY, axes.rotate, axes.zoom, deltaSeconds);
 }
 
@@ -823,6 +899,10 @@ function handleInputAction(action: InputActionId): void {
       canvas.focus({ preventScroll: true });
       return;
     }
+    if (focusNavigator.visible()) {
+      focusNavigator.setVisible(false);
+      return;
+    }
     if (queueInspectorVisible) {
       setQueuePanelVisible(false);
       return;
@@ -835,7 +915,7 @@ function handleInputAction(action: InputActionId): void {
       setGroupSelectActive(false);
       return;
     }
-    if (focusedFlightId !== null) clearFlightFocus('Camera released', 'free map view restored');
+    if (activeFocusRef !== null) clearFlightFocus('Camera released', 'free map view restored');
     return;
   }
   if (action === 'ui.controls') {
@@ -852,6 +932,10 @@ function handleInputAction(action: InputActionId): void {
   }
   if (action === 'ui.queues') {
     setQueuePanelVisible(!queueInspectorVisible);
+    return;
+  }
+  if (action === 'ui.focus') {
+    focusNavigator.setVisible(!focusNavigator.visible());
     return;
   }
   if (action === 'camera.reset') {
@@ -1121,7 +1205,10 @@ pauseButton.addEventListener('click', () => {
   setStatus(paused ? 'Shift paused' : 'Shift resumed', paused ? 'the airspace is holding' : 'traffic is moving again');
 });
 
-viewButton.addEventListener('click', () => world.nextView());
+viewButton.addEventListener('click', () => {
+  clearFlightFocus();
+  world.nextView();
+});
 fieldButton.addEventListener('click', () => {
   if (config.scope === 'center') {
     hubIndex = (hubIndex + 1) % HUB_AIRPORTS.length;
@@ -1176,15 +1263,16 @@ queueFilter.addEventListener('change', () => {
 });
 
 queueList.addEventListener('click', (event) => {
-  const row = (event.target as HTMLElement).closest<HTMLElement>('[data-queue-flight]');
+  const row = (event.target as HTMLElement).closest<HTMLElement>('[data-queue-focus]');
   if (!row) return;
-  const flightId = Number(row.dataset.queueFlight);
-  const result = executeAirportRequest({ action: 'focusFlight', flightId });
+  const queueId = row.dataset.queueFocus;
+  if (!queueId) return;
+  const result = executeAirportRequest({ action: 'focusTarget', target: { kind: 'queue', id: queueId } });
   if (result.accepted) {
     queueInspectorUiKey = '';
     renderQueueInspector();
-    const flight = displayState().flights.find((candidate) => candidate.id === flightId);
-    if (flight) setStatus(`${flight.callsign} selected from queue`, flight.automaticHoldReason ?? flight.safetyHoldReason ?? 'operational dependency highlighted');
+    const target = focusTargetCatalog.targets.find((candidate) => candidate.kind === 'queue' && candidate.id === queueId);
+    if (target) setStatus(`${target.label} selected from queue`, target.detail);
   }
 });
 
@@ -1236,7 +1324,7 @@ function finishRoute(point: ScreenPoint): void {
   routePath.classList.toggle('route--rejected', !accepted);
   if (!accepted && flight) setStatus('Clearance not accepted', `finish on runway ${flight.runway + 1}'s approach lights`);
   activeFlightId = null;
-  world.selectFlight(null);
+  clearFlightFocus();
   window.setTimeout(clearRoute, accepted ? 650 : 420);
 }
 
@@ -1302,7 +1390,7 @@ function frame(now: number): void {
     shiftTime.textContent = formatTime(displayedState.elapsed);
     updateWeatherUi();
     lastHudSecond = hudSecond;
-    const predictions = simulation.conflictPredictions();
+    const predictions = currentDisplayPredictions();
     const predictionKey = predictions.map((prediction) => `${prediction.type}:${prediction.flights.join('-')}`).join('|');
     if (predictions.length && predictionKey !== lastPredictionKey) setStatus('Conflict forecast', predictions[0].detail);
     lastPredictionKey = predictionKey;
@@ -1317,6 +1405,7 @@ function frame(now: number): void {
       if (replayFrames.length > 900) replayFrames.shift();
     }
     updateSafetyUi(predictions);
+    refreshFocusTargets(displayedState, predictions);
     updateReplayUi();
     updateOperationsHealth();
     renderSurfaceDisruptionControls();
@@ -1680,7 +1769,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
 function replayRecording(): ReplayRecording {
   return {
     schemaVersion: 1,
-    simulationVersion: window.airportControl?.version ?? '2.26.0',
+    simulationVersion: window.airportControl?.version ?? '2.27.0',
     recordedAt: new Date().toISOString(),
     seed: config.seed,
     airport: { code: config.code, name: config.name, scope: config.scope },
@@ -1859,7 +1948,7 @@ function openSandbox(backgroundTraffic = false): boolean {
   densitySelect.value = simulation.state.trafficFlow.density;
   introDensitySelect.value = simulation.state.trafficFlow.density;
   stationSelect.value = simulation.state.station;
-  focusedFlightId = null;
+  clearFlightFocus();
   groupSelectActive = false;
   groupedFlightIds.clear();
   groupActionsRenderKey = '';
@@ -2274,8 +2363,7 @@ function setGroupSelectActive(active: boolean, announce = true): void {
   groupedFlightIds.clear();
   groupActionsRenderKey = '';
   if (active) {
-    focusedFlightId = null;
-    world.selectFlight(null);
+    clearFlightFocus();
   }
   updateGroupSelectUi();
   renderFlightStrip();
@@ -2378,11 +2466,83 @@ function renderGroupActions(): void {
   }
 }
 
-function clearFlightFocus(statusText?: string, detail?: string): void {
-  focusedFlightId = null;
-  world.selectFlight(null);
+function currentDisplayPredictions(): ConflictPrediction[] {
+  if (!replayMode) return simulation.conflictPredictions();
+  return replayFrames[replayIndex]?.predictions.map((prediction) => ({
+    ...prediction,
+    flights: [...prediction.flights],
+  })) ?? [];
+}
+
+function refreshFocusTargets(
+  state = displayState(),
+  predictions = currentDisplayPredictions(),
+): void {
+  focusTargetCatalog = focusTargetRegistry.build(
+    state,
+    simulation.queueSnapshot(state),
+    predictions,
+  );
+  if (activeFocusRef) {
+    const activeKey = focusTargetKey(activeFocusRef);
+    const next = focusTargetCatalog.targets.find((target) => target.key === activeKey) ?? null;
+    if (!next) {
+      const previous = activeFocusTarget;
+      activeFocusRef = null;
+      activeFocusTarget = null;
+      focusedFlightId = null;
+      world.focusTarget(null);
+      if (previous) setStatus(`${previous.label} left the board`, 'observer camera returned to free map view');
+    } else {
+      activeFocusTarget = next;
+      focusedFlightId = next.selectableFlightId ?? (next.kind === 'flight' ? Number(next.id) : null);
+      world.focusTarget(next);
+    }
+  }
+  focusNavigatorUiKey = '';
+  renderFocusNavigator();
+}
+
+function renderFocusNavigator(force = false): void {
+  const key = `${focusTargetCatalog.generatedAtSeconds}|${activeFocusTarget?.key ?? 'free'}|${focusTargetCatalog.total}`;
+  if (!force && key === focusNavigatorUiKey) return;
+  focusNavigatorUiKey = key;
+  focusNavigator.render(focusTargetCatalog, activeFocusTarget);
+}
+
+function focusObserverTarget(ref: FocusTargetRef): { accepted: boolean; reason: string } {
+  let target = focusTargetCatalog.targets.find((candidate) => candidate.key === focusTargetKey(ref));
+  if (!target) {
+    focusTargetCatalog = focusTargetRegistry.build(
+      displayState(),
+      simulation.queueSnapshot(displayState()),
+      currentDisplayPredictions(),
+    );
+    target = focusTargetCatalog.targets.find((candidate) => candidate.key === focusTargetKey(ref));
+  }
+  if (!target) return { accepted: false, reason: `${ref.kind} target is not currently available` };
+  activeFocusRef = { kind: target.kind, id: target.id };
+  activeFocusTarget = target;
+  focusedFlightId = target.selectableFlightId ?? (target.kind === 'flight' ? Number(target.id) : null);
+  world.focusTarget(target);
   renderFlightStrip();
   renderFlightActions();
+  queueInspectorUiKey = '';
+  renderQueueInspector();
+  renderFocusNavigator(true);
+  return { accepted: true, reason: `following ${target.label} — ${target.detail}` };
+}
+
+function clearFlightFocus(statusText?: string, detail?: string): void {
+  activeFocusRef = null;
+  activeFocusTarget = null;
+  focusedFlightId = null;
+  world.focusTarget(null);
+  renderFlightStrip();
+  renderFlightActions();
+  queueInspectorUiKey = '';
+  renderQueueInspector();
+  renderFocusNavigator(true);
   if (statusText && detail) setStatus(statusText, detail);
 }
 
@@ -2400,11 +2560,8 @@ function selectFlightFromMap(clientX: number, clientY: number): void {
   }
   const flight = displayState().flights.find((item) => item.id === flightId);
   if (!flight) return;
-  focusedFlightId = flightId;
-  world.selectFlight(flightId);
-  renderFlightStrip();
-  renderFlightActions();
-  setStatus(`${flight.callsign} tracked`, `${flight.aircraft} · ${formatPhase(flight.phase)} · runway ${runwayDesignation(flight.runway)}`);
+  const result = executeAirportRequest({ action: 'focusFlight', flightId });
+  if (result.accepted) setStatus(`${flight.callsign} tracked`, `${flight.aircraft} · ${formatPhase(flight.phase)} · runway ${runwayDesignation(flight.runway)}`);
 }
 
 function setFlightStripCollapsed(collapsed: boolean): void {
@@ -2957,8 +3114,7 @@ function renderClearanceAdvisor(): void {
 }
 
 function applyClearanceProposal(proposal: ClearanceProposal): void {
-  focusedFlightId = proposal.flightId;
-  world.selectFlight(proposal.flightId);
+  focusObserverTarget({ kind: 'flight', id: String(proposal.flightId) });
   let result: AirportControlResult;
   if (proposal.action === 'land') result = executeAirportRequest({ action: 'clearFlight', flightId: proposal.flightId, runway: proposal.runway! });
   else if (proposal.action === 'go-around') result = executeAirportRequest({ action: 'triggerEmergency', flightId: proposal.flightId, type: 'go-around' });
@@ -3201,7 +3357,7 @@ function setStatus(label: string, detail: string): void {
 
 function showGameOver(callsign: string): void {
   clearRoute();
-  world.selectFlight(null);
+  clearFlightFocus();
   $<HTMLElement>('#final-time').textContent = formatTime(simulation.state.elapsed);
   $<HTMLElement>('#final-airport').textContent = config.name;
   $<HTMLElement>('#final-landed').textContent = two(simulation.state.arrivals);
@@ -3283,6 +3439,7 @@ function updateRadarControl(): void {
 
 function setRadarPanelVisible(visible: boolean): void {
   radarVisible = visible;
+  if (visible && focusNavigator.visible()) focusNavigator.setVisible(false);
   if (visible && compactOverlayMedia.matches && queueInspectorVisible) {
     queueInspectorVisible = false;
     updateQueueInspectorControl();
@@ -3302,6 +3459,7 @@ function updateQueueInspectorControl(): void {
 
 function setQueuePanelVisible(visible: boolean): void {
   queueInspectorVisible = visible;
+  if (visible && focusNavigator.visible()) focusNavigator.setVisible(false);
   if (visible && compactOverlayMedia.matches && radarVisible) {
     radarVisible = false;
     updateRadarControl();
@@ -3312,14 +3470,15 @@ function setQueuePanelVisible(visible: boolean): void {
 
 function renderQueueInspector(): void {
   const snapshot = simulation.queueSnapshot(displayState());
-  const key = operationQueueRenderKey(snapshot, queueInspectorFilter, focusedFlightId);
+  const focusedQueueId = activeFocusTarget?.kind === 'queue' ? activeFocusTarget.id : null;
+  const key = operationQueueRenderKey(snapshot, queueInspectorFilter, focusedQueueId);
   if (key === queueInspectorUiKey) return;
   queueInspectorUiKey = key;
   renderOperationQueueInspector(
     { count: queueCount, longest: queueLongest, list: queueList },
     snapshot,
     queueInspectorFilter,
-    focusedFlightId,
+    focusedQueueId,
   );
 }
 
@@ -3333,6 +3492,12 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   config = nextConfig;
   weatherSelection = 'auto';
   simulation = new AirportSimulation(config, density);
+  focusTargetRegistry = createFocusTargetRegistry(config);
+  focusTargetCatalog = focusTargetRegistry.build(
+    simulation.state,
+    simulation.queueSnapshot(simulation.state),
+    simulation.conflictPredictions(),
+  );
   simulation.setSeparationRuleset(ruleset);
   simulation.setMode(mode);
   simulation.setNightMode(nightMode);
@@ -3363,7 +3528,11 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   replayFrames.length = 0;
   commandHistory.length = 0;
   initialReplayState = cloneAirportState(simulation.state);
+  activeFocusRef = null;
+  activeFocusTarget = null;
   focusedFlightId = null;
+  focusNavigatorUiKey = '';
+  focusNavigator.reset();
   groupSelectActive = false;
   groupedFlightIds.clear();
   groupActionsRenderKey = '';
@@ -3381,6 +3550,7 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   updateRadarControl();
   updateQueueInspectorControl();
   renderQueueInspector();
+  renderFocusNavigator(true);
   updateSurfaceDisruptionTargets();
   surfaceDisruptionUiKey = '';
   renderSurfaceDisruptionControls();
@@ -3648,12 +3818,11 @@ function setStation(station: ControllerStation): void {
   updateStationAutomationUi();
   updateWeatherUi();
   const label = controllerStationLabel(station);
-  focusedFlightId = null;
+  clearFlightFocus();
   groupSelectActive = false;
   groupedFlightIds.clear();
   groupActionsRenderKey = '';
   coordinationInboxRenderKey = '';
-  world.selectFlight(null);
   renderFlightStrip();
   surfaceDisruptionUiKey = '';
   renderSurfaceDisruptionControls();
@@ -3798,12 +3967,28 @@ function cloneRunwayConfiguration(configuration: (typeof config.runwayConfigurat
   };
 }
 
+function cloneFocusTargetDescriptor(target: FocusTargetDescriptor): FocusTargetDescriptor {
+  return {
+    ...target,
+    position: [...target.position],
+    flightIds: [...target.flightIds],
+  };
+}
+
+function cloneFocusTargetCatalog(catalog: FocusTargetCatalog): FocusTargetCatalog {
+  return {
+    ...catalog,
+    categories: catalog.categories.map((category) => ({ ...category })),
+    targets: catalog.targets.map(cloneFocusTargetDescriptor),
+  };
+}
+
 function airportSnapshot() {
   const diagnostics = simulation.diagnostics();
   const operations = simulation.operationProfileSnapshot();
   const movingPhases = new Set(['approach', 'landing', 'taxi-in', 'taxi-out', 'takeoff']);
   return {
-    schemaVersion: 28,
+    schemaVersion: 29,
     training: simulation.trainingSnapshot(),
     challenge: simulation.challengeSnapshot(),
     sandbox: simulation.sandboxSnapshot(),
@@ -3909,8 +4094,14 @@ function airportSnapshot() {
     station: simulation.state.station,
     selection: {
       focusedFlightId,
+      focusedTarget: activeFocusRef ? { ...activeFocusRef } : null,
       groupMode: groupSelectActive,
       groupedFlightIds: [...groupedFlightIds],
+    },
+    focus: {
+      schemaVersion: 1,
+      current: activeFocusTarget ? cloneFocusTargetDescriptor(activeFocusTarget) : null,
+      catalog: cloneFocusTargetCatalog(focusTargetCatalog),
     },
     input: inputLayer.snapshot(),
     controllers: {
@@ -4458,12 +4649,30 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
     accepted = simulation.setPaused(false);
     reason = simulation.lastCommandReason();
   }
-  if (command.action === 'nextView') world.nextView();
-  if (command.action === 'zoomIn') world.zoomIn();
-  if (command.action === 'zoomOut') world.zoomOut();
-  if (command.action === 'rotateLeft') world.rotateBy(-1);
-  if (command.action === 'rotateRight') world.rotateBy(1);
-  if (command.action === 'resetCamera') world.resetCamera();
+  if (command.action === 'nextView') {
+    clearFlightFocus();
+    world.nextView();
+  }
+  if (command.action === 'zoomIn') {
+    clearFlightFocus();
+    world.zoomIn();
+  }
+  if (command.action === 'zoomOut') {
+    clearFlightFocus();
+    world.zoomOut();
+  }
+  if (command.action === 'rotateLeft') {
+    clearFlightFocus();
+    world.rotateBy(-1);
+  }
+  if (command.action === 'rotateRight') {
+    clearFlightFocus();
+    world.rotateBy(1);
+  }
+  if (command.action === 'resetCamera') {
+    clearFlightFocus();
+    world.resetCamera();
+  }
   if (command.action === 'setSpeed') {
     accepted = Number.isFinite(command.value);
     if (accepted) setSimulationSpeed(command.value);
@@ -4697,10 +4906,36 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
     accepted = command.flightId === null || simulation.state.flights.some((flight) => flight.id === command.flightId);
     if (!accepted) reason = 'flight is not active';
     if (accepted) {
-      focusedFlightId = command.flightId;
-      world.selectFlight(command.flightId);
-      renderFlightStrip();
-      renderFlightActions();
+      if (command.flightId === null) {
+        clearFlightFocus();
+        reason = 'observer camera released';
+      } else {
+        const result = focusObserverTarget({ kind: 'flight', id: String(command.flightId) });
+        accepted = result.accepted;
+        reason = result.reason;
+      }
+    }
+  }
+  if (command.action === 'focusTarget') {
+    const target = command.target;
+    const valid = target === null || (
+      typeof target === 'object'
+      && target !== null
+      && typeof target.kind === 'string'
+      && isFocusTargetKind(target.kind)
+      && typeof target.id === 'string'
+      && target.id.length > 0
+    );
+    if (!valid) {
+      accepted = false;
+      reason = 'focus target requires { kind, id } using flight, runway, taxiway, gate, queue, or conflict';
+    } else if (target === null) {
+      clearFlightFocus();
+      reason = 'observer camera released';
+    } else {
+      const result = focusObserverTarget(target);
+      accepted = result.accepted;
+      reason = result.reason;
     }
   }
   if (command.action === 'setScenario') {
@@ -4908,7 +5143,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
 }
 
 window.airportControl = {
-  version: '2.26.0',
+  version: '2.27.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },
@@ -4927,6 +5162,8 @@ window.airportControl = {
       nightMode: "airportControl.command({ action: 'setNightMode', enabled: true })",
       radar: "airportControl.command({ action: 'setRadarVisible', enabled: true })",
       queues: "airportControl.request({ action: 'setQueueInspectorVisible', enabled: true })",
+      observerFocus: "airportControl.request({ action: 'focusTarget', target: { kind: 'taxiway', id: 'A' } }) // flight | runway | taxiway | gate | queue | conflict; null releases",
+      focusCatalog: 'airportControl.snapshot().focus.catalog.targets',
       rotate: "airportControl.command({ action: 'rotateLeft' }) // rotateRight reverses",
       mapLayer: "airportControl.command({ action: 'setSurfaceLayerVisible', layer: 'hotspots', enabled: true })",
       airspaceLayer: "airportControl.command({ action: 'setAirspaceLayerVisible', layer: 'procedures', enabled: true })",

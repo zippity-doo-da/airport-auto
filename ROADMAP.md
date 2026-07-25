@@ -1,7 +1,7 @@
 # Airport Auto — Forward Roadmap
 
 Last reconciled: July 25, 2026
-Baseline: Airport Auto 2.26.0
+Baseline: Airport Auto 2.27.0
 
 Airport Auto is an **ASMR-first web airport simulation with an optional serious ATC layer**. The simulation should remain enjoyable as a calm, hands-off miniature world while also supporting increasingly authentic controller work when the player asks for it.
 
@@ -127,8 +127,8 @@ Make each controller position a complete, satisfying job rather than a filtered 
 - [x] Add training lessons, contextual explanations, pause-and-recover tools, and a no-fail learning mode. (2.23: four purpose-built lessons, command-aware contextual coaching, deliberate coach pauses, exact checkpoint retry, penalty-free skip, and the same authority/safety arbiter used by normal play and API clients.)
 - [x] Add challenge shifts, runway-closure/storm/emergency scenarios, objectives, grades, delay, fuel, throughput, and safety summaries. (2.24: four deterministic five-to-seven-minute shifts, deliberate briefing and locked conditions, solo-desk automation, authoritative fuel/delay/safety metrics, weighted live objectives, A+–F debriefs, Retry/Continue flow, responsive UI, typed API, and schema-26 replay state.)
 - [x] Add a true sandbox with traffic injection, weather/configuration controls, and no score pressure. (2.25: clean no-fail board, deterministic one-to-eight-aircraft arrival/departure queue, class/runway choice, grounded stand staging, optional continuous demand, cancel/clear controls, responsive HUD, typed API, shareable URL, and preserved safety/configuration rules.)
-- [x] Add a unified keyboard, mouse, touch, and optional gamepad action layer. (2.26: 23 named context-aware actions, smooth held keys and analog axes, unified pointer/touch gesture ownership, standard-gamepad mapping and persisted sensitivity, compact responsive help, API diagnostics/settings, and deterministic plus desktop/mobile browser coverage.)
-- [ ] Allow focus/follow for aircraft, runway, taxiway, gate, queue, or detected conflict.
+- [x] Add a unified keyboard, mouse, touch, and optional gamepad action layer. (2.26: 23 named context-aware actions, smooth held keys and analog axes, unified pointer/touch gesture ownership, standard-gamepad mapping and persisted sensitivity, compact responsive help, API diagnostics/settings, and deterministic plus desktop/mobile browser coverage; 2.27 adds observer focus as action 24.)
+- [x] Allow focus/follow for aircraft, runway, taxiway, gate, queue, or detected conflict. (2.27: one typed catalog and command, authoritative rendered-pose following, fixed-asset framing, queue/resource/blocker resolution, multi-track conflict framing, compact responsive navigator/status chip, explicit or automatic release, API diagnostics, and deterministic plus desktop/mobile browser coverage.)
 
 ## Milestone 5 — Agents and multi-controller operation
 

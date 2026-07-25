@@ -387,7 +387,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
 
 .camera-tools { position: absolute; right: max(18px, env(safe-area-inset-right)); bottom: max(24px, env(safe-area-inset-bottom)); z-index: 5; display: flex; gap: 5px; }
 .camera-tools button { display: grid; width: 44px; height: 44px; place-items: center; border: 1px solid rgba(244, 232, 206, 0.32); color: var(--ivory); background: rgba(9, 33, 36, 0.72); font: 18px/1 Georgia, serif; cursor: pointer; backdrop-filter: blur(14px); }
-.camera-tools button:hover { color: var(--ink); background: var(--amber); }
+.camera-tools button:hover, .camera-tools button:focus-visible { color: var(--ink); background: var(--amber); outline: none; }
+.camera-tools .camera-tools__focus--active { border-color: rgba(137, 206, 230, 0.82); color: #d9f4f4; background: rgba(78, 142, 158, 0.32); }
 
 .advanced-tools { margin-top: 12px; border-top: 1px solid rgba(244, 232, 206, 0.2); padding-top: 10px; }
 .advanced-tools summary { min-height: 44px; padding: 13px 4px; color: rgba(244, 232, 206, 0.78); font-size: 10px; font-weight: 900; letter-spacing: 0.11em; text-transform: uppercase; cursor: pointer; }
@@ -574,6 +575,34 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
 .wind-overlay b { font: 800 9px/1 "Segoe UI", sans-serif; letter-spacing: 0.12em; }
 .wind-overlay small { color: rgba(244, 232, 206, 0.65); font-size: 8px; font-weight: 800; letter-spacing: 0.08em; }
 
+.focus-panel { position: absolute; top: 130px; right: max(18px, env(safe-area-inset-right)); z-index: 6; display: grid; width: min(340px, calc(100vw - 36px)); gap: 9px; border: 1px solid rgba(137, 206, 230, 0.52); padding: 11px; color: var(--ivory); background: rgba(5, 24, 25, 0.94); box-shadow: 0 22px 54px rgba(2, 13, 14, 0.38); backdrop-filter: blur(14px); clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px); }
+.focus-panel header, .focus-panel footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.focus-panel header div { display: grid; gap: 2px; }
+.focus-panel header b { font: 400 15px/1 Georgia, serif; }
+.focus-panel header span, .focus-panel footer small { color: rgba(188, 232, 216, 0.56); font-size: 8px; font-weight: 850; letter-spacing: 0.08em; text-transform: uppercase; }
+.focus-panel header button { width: 36px; height: 36px; border: 1px solid rgba(188, 232, 216, 0.28); padding: 0 0 2px; color: #d9f4f4; background: rgba(121, 200, 232, 0.08); font: 700 16px/1 sans-serif; cursor: pointer; }
+.focus-panel > label { display: grid; grid-template-columns: 82px minmax(0, 1fr); align-items: center; gap: 9px; }
+.focus-panel > label span { color: rgba(244, 232, 206, 0.52); font-size: 8px; font-weight: 900; letter-spacing: 0.1em; text-transform: uppercase; }
+.focus-panel select { min-width: 0; min-height: 40px; border: 1px solid rgba(137, 206, 230, 0.3); padding: 6px 30px 6px 9px; color: var(--ivory); background: rgba(8, 29, 31, 0.88); font-size: 10px; }
+.focus-panel__detail { min-height: 42px; margin: 0; border-left: 2px solid var(--blue); padding: 7px 9px; color: rgba(244, 232, 206, 0.68); background: rgba(121, 200, 232, 0.055); font-size: 9px; line-height: 1.45; }
+.focus-panel__controls { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; gap: 6px; }
+.focus-panel__controls button, .focus-panel footer button { min-height: 42px; border: 1px solid rgba(137, 206, 230, 0.32); padding: 7px 10px; color: var(--ivory); background: rgba(121, 200, 232, 0.08); font-size: 9px; font-weight: 900; letter-spacing: 0.06em; cursor: pointer; }
+.focus-panel__controls #focus-apply { color: var(--ink); background: var(--blue); }
+.focus-panel button:hover, .focus-panel button:focus-visible, .focus-panel select:focus-visible { border-color: rgba(188, 232, 216, 0.86); outline: none; }
+.focus-panel button:disabled { opacity: 0.42; cursor: not-allowed; }
+
+.focus-status { position: absolute; right: max(18px, env(safe-area-inset-right)); bottom: max(78px, calc(env(safe-area-inset-bottom) + 58px)); z-index: 5; display: grid; max-width: min(360px, calc(100vw - 36px)); grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; border: 1px solid rgba(137, 206, 230, 0.42); padding: 7px 8px 7px 10px; color: #d9f4f4; background: rgba(5, 24, 25, 0.84); box-shadow: 0 12px 30px rgba(2, 13, 14, 0.24); backdrop-filter: blur(12px); }
+.focus-status[data-tone="amber"] { border-color: rgba(239, 199, 117, 0.5); }
+.focus-status[data-tone="rose"] { border-color: rgba(201, 133, 127, 0.66); }
+.focus-status > span { color: var(--blue); font: 20px/1 Georgia, serif; }
+.focus-status[data-tone="amber"] > span { color: var(--amber); }
+.focus-status[data-tone="rose"] > span { color: var(--rose); }
+.focus-status div { display: grid; min-width: 0; gap: 2px; }
+.focus-status b, .focus-status small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.focus-status b { font: 400 11px/1.1 Georgia, serif; }
+.focus-status small { color: rgba(217, 244, 244, 0.54); font-size: 7px; font-weight: 850; letter-spacing: 0.08em; text-transform: uppercase; }
+.focus-status button { min-height: 32px; border: 1px solid rgba(188, 232, 216, 0.24); padding: 5px 8px; color: inherit; background: rgba(121, 200, 232, 0.08); font-size: 8px; font-weight: 900; cursor: pointer; }
+
 .radar-panel { position: absolute; right: max(18px, env(safe-area-inset-right)); bottom: max(145px, calc(env(safe-area-inset-bottom) + 120px)); z-index: 4; width: min(320px, calc(100vw - 36px)); border: 1px solid rgba(121, 200, 232, 0.5); padding: 9px; color: #bce8d8; background: rgba(3, 20, 19, 0.88); box-shadow: 0 22px 54px rgba(2, 13, 14, 0.34); pointer-events: none; backdrop-filter: blur(12px); clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px); }
 .radar-panel header, .radar-panel footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; text-transform: uppercase; }
 .radar-panel header { margin-bottom: 7px; }
@@ -641,6 +670,8 @@ body.watch-mode .brand { opacity: 0.75; }
   .debug-panel { right: 12px; bottom: 126px; }
   .map-orientation { right: 70px; bottom: 80px; }
   .wind-overlay { top: auto; right: 70px; bottom: 80px; }
+  .focus-panel { top: auto; right: 70px; bottom: 80px; width: min(330px, calc(100vw - 88px)); max-height: min(64vh, 470px); overflow-y: auto; }
+  .focus-status { right: 70px; bottom: 80px; max-width: min(300px, calc(100vw - 88px)); }
   body.radar-visible .wind-overlay { bottom: 330px; }
   .radar-panel { right: 70px; bottom: 80px; width: min(270px, calc(100vw - 88px)); }
   .queue-panel { top: auto; right: 70px; bottom: 80px; width: min(320px, calc(100vw - 88px)); max-height: min(54vh, 430px); }
@@ -665,6 +696,11 @@ body.watch-mode .brand { opacity: 0.75; }
   .radar-panel { width: min(190px, calc(100vw - 88px)); }
   body.radar-visible .wind-overlay { bottom: 290px; }
   .queue-panel { width: min(270px, calc(100vw - 88px)); }
+  .focus-panel { width: min(290px, calc(100vw - 88px)); }
+  .focus-panel > label { grid-template-columns: 72px minmax(0, 1fr); }
+  .focus-panel select, .focus-panel__controls button, .focus-panel footer button { min-height: 44px; }
+  .focus-status { max-width: min(250px, calc(100vw - 88px)); }
+  .focus-status small { display: none; }
   body.radar-visible .queue-panel { bottom: 310px; }
 }
 
@@ -739,6 +775,7 @@ body.watch-mode .brand { opacity: 0.75; }
   }
   .radar-panel { right: 20px; bottom: 76px; width: min(270px, calc(100vw - 40px)); }
   .queue-panel { top: 118px; right: 20px; bottom: 68px; max-height: none; }
+  .focus-panel { top: 118px; right: 20px; max-height: calc(100dvh - 186px); overflow-y: auto; }
   body.radar-visible.queue-visible .queue-panel {
     right: min(310px, calc(100vw - 452px));
     bottom: 76px;
@@ -763,7 +800,8 @@ body.watch-mode .brand { opacity: 0.75; }
   .flight-strip { left: 12px; }
   .instruction { display: none; }
   .camera-tools { right: 8px; bottom: 8px; }
-  .radar-panel, .queue-panel { right: 64px; bottom: 64px; max-height: calc(100dvh - 112px); }
+  .radar-panel, .queue-panel, .focus-panel { right: 64px; bottom: 64px; max-height: calc(100dvh - 112px); }
+  .focus-status { right: 64px; bottom: 64px; }
   .training-coach { top: 98px; right: 64px; width: min(340px, calc(100vw - 76px)); max-height: calc(100dvh - 106px); overflow-y: auto; }
 }
 

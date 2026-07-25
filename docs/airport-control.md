@@ -4,7 +4,7 @@ Airport Auto exposes a local, versioned interface for playtests, scripted contro
 
 ## Browser API
 
-The current API version is `2.26.0`; snapshots use schema version `28`.
+The current API version is `2.27.0`; snapshots use schema version `29`.
 
 ```js
 airportControl.version;
@@ -57,6 +57,8 @@ airportControl.request({ action: "zoomOut" });
 airportControl.request({ action: "rotateLeft" });
 airportControl.request({ action: "rotateRight" });
 airportControl.request({ action: "resetCamera" });
+airportControl.request({ action: "focusTarget", target: { kind: "runway", id: "0" } });
+airportControl.request({ action: "focusTarget", target: null });
 airportControl.request({ action: "setNightMode", enabled: true });
 airportControl.request({ action: "setRadarVisible", enabled: true });
 airportControl.request({ action: "setQueueInspectorVisible", enabled: true });
@@ -118,13 +120,13 @@ airportControl.request({ action: "stopSandbox" });
 
 `snapshot().sandbox` reports the no-score/no-fail lifecycle, request state and reasons, totals, released and active injected IDs, active-aircraft count, compatible runway choices, and traffic-class catalog. Arrivals enter at the terminal-scope edge; departures stage on a compatible unoccupied stand and use the complete pushback/taxi/runway lifecycle. Releases still obey traffic caps, stand/runway performance, protected paths, controller authority, separation, and collision prevention. `clearSandboxTraffic` preserves weather and runway configuration. See [sandbox-lab.md](sandbox-lab.md).
 
-Map panning is a direct presentation interaction routed through the 2.26 named-action layer: drag with a mouse or one finger, including when the gesture begins over ordinary traffic, middle-drag from anywhere, hold WASD/arrow keys, or use a standard gamepad's left stick/D-pad. Q/E and right-stick input rotate continuously; `rotateLeft`/`rotateRight` retain their discrete 15-degree API steps. Runway-entry clearance remains on R and in the selected-flight panel. The only reserved left-drag is an uncleared arrival because that gesture draws its approach clearance. Wheel and pinch zoom remain anchored under the pointer; wide zoom smoothly becomes a map-like overhead view so the ground continues beneath the full viewport. Selecting a flight resumes smooth follow; selecting it again, clicking empty ground, or pressing Escape releases follow; `resetCamera` restores the centered default. `snapshot().renderer.camera` exposes presentation state, while `snapshot().input` exposes the input context, last device/action/gesture, axes, held actions, preferences, connected-gamepad metadata, and complete action catalog. See [input-controls.md](input-controls.md).
+Map panning is a direct presentation interaction routed through the 2.27 24-action layer: drag with a mouse or one finger, including when the gesture begins over ordinary traffic, middle-drag from anywhere, hold WASD/arrow keys, or use a standard gamepad's left stick/D-pad. Q/E and right-stick input rotate continuously; `rotateLeft`/`rotateRight` retain their discrete 15-degree API steps. Runway-entry clearance remains on R and in the selected-flight panel. The only reserved left-drag is an uncleared arrival because that gesture draws its approach clearance. Wheel and pinch zoom remain anchored under the pointer; wide zoom smoothly becomes a map-like overhead view so the ground continues beneath the full viewport. Selecting a flight resumes smooth follow; selecting it again, clicking empty ground, or pressing Escape releases follow; `resetCamera` restores the centered default. `F` opens the generic observer navigator for aircraft, runways, taxiways, gates, queues, and conflicts. Any deliberate camera movement releases its active target before applying input. `snapshot().renderer.camera` exposes presentation and resolved target state, while `snapshot().input` exposes the input context, last device/action/gesture, axes, held actions, preferences, connected-gamepad metadata, and complete action catalog. See [input-controls.md](input-controls.md) and [observer-focus.md](observer-focus.md).
 
 `setRadarVisible` opens a small terminal-radar inset rather than painting rings over the full scene. It plots the same authoritative aircraft poses used by collision checks and the 3D renderer. On short laptop screens the radar and queue inspector dock side by side; on compact or heavily zoomed viewports opening one closes the other so neither panel can become unreachable. Compass/scale, wind readout, taxiway labels, service vehicles, and upper-scope contrails remain independent optional layers; hiding a presentation layer never removes its underlying entities or state from the simulation. Contrails are off by default and appear only behind turbofan aircraft in cold, moist, stable upper-scope conditions.
 
 Airspace layers are `airspace-sectors`, `navigation-fixes`, `procedures`, `flight-routes`, and `separation`. They start hidden, including in Watch mode. Procedure and route geometry comes from the same versioned non-navigational program used by flight motion; separation rings convert the active ruleset's nautical-mile minimum into the airport coordinate system. They are presentation aids, never navigation data.
 
-`setQueueInspectorVisible` opens the compact operation-queue inspector. `snapshot().queues` is generated by the same deterministic diagnosis used by that panel and `diagnostics().queues`: each entry includes gate/ramp/taxi/crossing/runway/wake/weather/downstream category, priority, entity, resource, wait time, position and queue length, causal flight IDs, and explanation. Selecting an aircraft row uses the normal `focusFlight` command. The inspector can also start open with `?queues=1`.
+`setQueueInspectorVisible` opens the compact operation-queue inspector. `snapshot().queues` is generated by the same deterministic diagnosis used by that panel and `diagnostics().queues`: each entry includes gate/ramp/taxi/crossing/runway/wake/weather/downstream category, priority, entity, resource, wait time, position and queue length, causal flight IDs, and explanation. Every row uses the normal `focusTarget` command, so aircraft, service vehicle, blocker group, runway, taxiway, gate, and system-resource waits can all be inspected. The inspector can also start open with `?queues=1`.
 
 `snapshot().operations` contains the airport's complete operation profile plus its current compressed local time, named demand period, smoothly blended demand multiplier, arrival/departure share, passenger/cargo/regional/general-aviation mix, airline traffic program, active density assumptions, and flow snapshot. Top-level `trafficManagement` exposes bounded arrival/departure queues, release clocks, history, totals, and back-pressure. Each `flights[].operationPlan` records the stream, direction, period, local schedule minute, and demand level that generated the leg. Each `flights[].flightPlan` adds origin, destination, schematic route, procedure, airline/aircraft, gate and runway intent, release/arrival time, status, revision, and amendments. These are deterministic offline plans, not live traffic data.
 
@@ -132,6 +134,9 @@ Flight commands:
 
 ```js
 airportControl.request({ action: "focusFlight", flightId: 12 });
+airportControl.request({ action: "focusTarget", target: { kind: "flight", id: "12" } });
+airportControl.request({ action: "focusTarget", target: { kind: "taxiway", id: "A" } });
+airportControl.request({ action: "focusTarget", target: null });
 airportControl.request({ action: "clearFlight", flightId: 12, runway: 1 });
 airportControl.request({ action: "clearPushback", flightId: 12 });
 airportControl.request({
@@ -305,9 +310,9 @@ Available IDs are `rush-hour`, `storm-operations`, `runway-closure`, and `emerge
 
 ## Snapshot and events
 
-Snapshot schema 26 adds deterministic challenge definitions, lifecycle, locked conditions, weighted objectives, grade, and complete operational summaries while retaining schema 25 no-fail lesson/coaching state and the lesson catalog. Scorecards, challenge grading, and coaching are read-only feedback; operational instructions still pass through the normal typed command and safety path.
+Snapshot schema 29 adds observer-focus catalog/current/resolved-target state while retaining schema 28 unified-input diagnostics, schema 27 sandbox state, schema 26 deterministic challenge definitions, and earlier controller/training state. Focus, scorecards, challenge grading, and coaching are read-only presentation or feedback; operational instructions still pass through the normal typed command and safety path.
 
-Top-level `selection` reports the focused flight, whether Group select is active, and the selected grouped flight IDs.
+Top-level `selection` reports the selected flight, compact focused-target reference, whether Group select is active, and the selected grouped flight IDs. Top-level `focus` reports catalog schema 1, the current descriptor, and categorized targets for `flight`, `runway`, `taxiway`, `gate`, `queue`, and `conflict`. A descriptor carries stable key/reference, label, explanation, world bounds, suggested zoom, static/flight/group/vehicle follow strategy, related flight IDs, optional vehicle/selected-flight identity, and presentation tone. `renderer.camera.target` reports the currently resolved tracking point; the renderer derives moving points from the same interpolated visuals it already displays and never invents a separate route.
 
 Top-level `controllers.performance` is ordered as Supervisor, Approach, Tower, Ground, and Ramp. Each entry reports its traffic scope, authority summary, responsibilities, success measures, applicable operational workload, current score/status/summary, four objectives, and bounded role-scoped alerts with associated flight IDs. See [controller-roles.md](controller-roles.md) for the role boundaries, target semantics, and deterministic derivation rules.
 

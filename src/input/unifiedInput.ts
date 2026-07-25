@@ -263,6 +263,7 @@ export function createUnifiedInput(options: UnifiedInputOptions): UnifiedInput {
   const handleKeyDown = (event: KeyboardEvent): void => {
     const action = inputActionForKeyboardCode(event.code);
     if (!action) return;
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (action.id !== "ui.cancel" && isEditableTarget(event.target)) return;
     if (!action.contexts.includes(options.getContext())) return;
     event.preventDefault();

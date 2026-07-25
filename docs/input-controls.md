@@ -1,6 +1,6 @@
 # Unified input controls
 
-Airport Auto 2.26 routes keyboard, mouse, touch, and optional standard-mapped gamepads through one named-action layer. Three.js receives camera intents only; aircraft selection and ATC clearances still use the normal command and safety path.
+Airport Auto 2.27 routes keyboard, mouse, touch, and optional standard-mapped gamepads through one 24-action layer. Three.js receives camera intents only; aircraft selection and ATC clearances still use the normal command and safety path.
 
 ## Default controls
 
@@ -15,6 +15,7 @@ Airport Auto 2.26 routes keyboard, mouse, touch, and optional standard-mapped ga
 | Cancel / release follow  | `Escape`         | Select the tracked aircraft again or empty ground | B / Circle                         |
 | Controls / pause         | `C` / `Space`    | On-screen buttons                                 | Back / Start                       |
 | Radar / queues           | `M` / `O`        | On-screen buttons                                 | —                                  |
+| Observer focus           | `F`              | `◎` navigator and following chip                  | —                                  |
 | Land / go around         | `L` / `G`        | Selected-flight actions                           | — / Y / Triangle                   |
 | Hold or resume           | `H`              | Selected-flight action                            | X / Square                         |
 | Line up / take off       | `R` / `T`        | Selected-flight actions                           | —                                  |
@@ -23,7 +24,9 @@ Held camera keys and analog sticks move continuously at display cadence. A quick
 
 ## Context and accessibility
 
-The action router has three contexts: `gameplay`, `ui`, and `modal`. Camera and clearance actions stop beneath drawers and dialogs; Cancel remains available everywhere. Keyboard shortcuts do not fire while typing in or operating form controls. Pointer capture is cleaned up on cancellation, window blur, and page visibility loss.
+The action router has three contexts: `gameplay`, `ui`, and `modal`. Camera and clearance actions stop beneath drawers and dialogs; Cancel remains available everywhere. Keyboard shortcuts do not fire while typing in or operating form controls, and browser modifier shortcuts such as Ctrl/Command+F remain untouched. Pointer capture is cleaned up on cancellation, window blur, and page visibility loss.
+
+`F` opens the observer navigator for aircraft, runways, named taxiways, gates, queues, and conflicts. Escape first closes that navigator while retaining its target, then releases follow from gameplay. Any deliberate pan, rotate, zoom, view change, or reset also releases follow before applying the camera input. See [observer-focus.md](observer-focus.md).
 
 The compact binding guide lives under **Controls → Replay & agent tools → Unified input**. Gamepad polling is optional and can be disabled. Preferences persist in local storage; keyboard, mouse, and touch remain available when no gamepad is connected or the browser does not expose the Gamepad API.
 
