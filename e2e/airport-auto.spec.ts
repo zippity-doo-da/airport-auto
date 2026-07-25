@@ -10,11 +10,11 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await page.goto('/?airport=ORD&mode=assisted&station=supervisor&autostart=1&detail=low&renderFps=0.25');
   await expect(page.locator('#airport-name')).toContainText('O’Hare');
   await expect(page.locator('#flight-strip-count')).toContainText('aircraft');
-  await page.waitForFunction(() => window.airportControl?.version === '2.17.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.18.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
-  expect(initial.schemaVersion).toBe(19);
+  expect(initial.schemaVersion).toBe(20);
   expect(initial.mode).toBe('assisted');
   expect(initial.airport.code).toBe('ORD');
   expect(initial.controllers.automation).toEqual({ approach: false, tower: false, ground: false, ramp: false });
@@ -496,17 +496,30 @@ test('Manual ORD supports live procedure control, ownership handoffs, and physic
   test.skip(testInfo.project.name !== 'desktop-chromium', 'The live ATC protocol is covered once in desktop Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=manual&station=approach&autostart=1&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.17.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.18.0');
   const arrival = await page.evaluate(() => window.airportControl.snapshot().flights.find((flight) => flight.phase === 'approach'));
   expect(arrival).toBeTruthy();
   await page.evaluate((flightId) => window.airportControl.request({ action: 'focusFlight', flightId }), arrival!.id);
-  await expect(page.getByRole('button', { name: 'Amend route' })).toBeVisible();
+  const previewButton = page.getByRole('button', { name: 'Preview route' });
+  await expect(previewButton).toBeVisible();
   await expect(page.getByRole('button', { name: `Divert ${arrival!.origin}` })).toBeVisible();
-  const amendment = await page.evaluate(({ flightId, fixIds }) => window.airportControl.request({ action: 'amendRoute', flightId, fixIds }), {
-    flightId: arrival!.id,
-    fixIds: arrival!.navigation.routeFixIds,
-  });
-  expect(amendment).toMatchObject({ accepted: true, reason: expect.stringContaining('route amendment') });
+  const routeEditor = page.locator('.route-editor');
+  await expect(routeEditor).toBeVisible();
+  await routeEditor.locator('summary').click();
+  expect(await routeEditor.locator('.route-editor__options button').count()).toBeGreaterThan(1);
+  await routeEditor.locator('.route-editor__options button').first().click();
+  await page.waitForFunction((flightId) => window.airportControl.snapshot().flights.find((flight) => flight.id === flightId)?.navigation.routeClearance?.status === 'preview', arrival!.id);
+  const previewState = await page.evaluate((flightId) => window.airportControl.snapshot().flights.find((flight) => flight.id === flightId)?.navigation.routeClearance, arrival!.id);
+  expect(previewState).toMatchObject({ status: 'preview', safeToIssue: true });
+  await expect(page.locator('.route-clearance[data-status="preview"]')).toContainText(/Route preview|SAFE/);
+  await expect(page.getByRole('button', { name: 'Issue route' })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('route-preview.png') });
+  const issuedRoute = await page.evaluate((flightId) => window.airportControl.request({ action: 'issueRouteAmendment', flightId }), arrival!.id);
+  expect(issuedRoute).toMatchObject({ accepted: true, reason: expect.stringContaining('readback pending') });
+  expect(issuedRoute.resultingState.flights.find((flight) => flight.id === arrival!.id)?.navigation).toMatchObject({ readbackStatus: 'pending', routeClearance: { status: 'pending-readback' } });
+  const acceptedRoute = await page.evaluate((flightId) => window.airportControl.request({ action: 'acceptRouteReadback', flightId }), arrival!.id);
+  expect(acceptedRoute).toMatchObject({ accepted: true, reason: expect.stringContaining('route amendment accepted') });
+  expect(acceptedRoute.resultingState.flights.find((flight) => flight.id === arrival!.id)?.navigation).toMatchObject({ readbackStatus: 'accepted', routeClearance: { status: 'accepted' } });
   const headingCommand = await page.evaluate((flightId) => {
     const liveFlight = window.airportControl.snapshot().flights.find((flight) => flight.id === flightId);
     if (!liveFlight) throw new Error(`Flight ${flightId} disappeared before the heading command.`);
@@ -560,7 +573,7 @@ test('ORD snow exposes the deicing route and holdover model in the normal UI', a
   test.skip(testInfo.project.name !== 'desktop-chromium', 'Winter operations are viewport-independent and covered once in Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=auto&autostart=1&detail=low&weather=snow&windDir=270&wind=12&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.17.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.18.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
   await page.locator('#menu-toggle').click();
@@ -612,7 +625,7 @@ test('Go-around climbs from the live pose and flies a visible missed-approach pa
   test.skip(testInfo.project.name !== 'desktop-chromium', 'The authoritative go-around is viewport-independent and covered once in Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ATL&mode=auto&autostart=1&detail=low&speed=3&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.17.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.18.0');
   await page.waitForFunction(() => {
     const flight = window.airportControl.snapshot().flights.find((candidate) => candidate.phase === 'approach');
     return Boolean(flight && flight.progress > 0.18);
@@ -646,7 +659,7 @@ test('Mobile Watch mode keeps non-ORD and procedural maps navigable in low detai
   test.skip(testInfo.project.name !== 'mobile-chromium', 'This test is the dedicated responsive/mobile browser gate.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ATL&mode=watch&autostart=1&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.17.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.18.0');
   await expect(page.locator('body')).toHaveClass(/watch-mode/);
   await expect(page.locator('#menu-toggle')).toBeVisible();
   await expect(page.locator('#zoom-in')).toBeVisible();
@@ -709,7 +722,7 @@ test('Laptop viewports keep the complete controls menu reachable', async ({ page
   test.setTimeout(180_000);
   await page.setViewportSize({ width: 1024, height: 600 });
   await page.goto('/?airport=ORD&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.17.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.18.0');
   const introPanel = page.locator('#intro .intro__panel');
   const introBounds = await introPanel.evaluate((element) => {
     const rect = element.getBoundingClientRect();
@@ -723,7 +736,7 @@ test('Laptop viewports keep the complete controls menu reachable', async ({ page
   await expect(page.locator('#enter')).toBeVisible();
 
   await page.goto('/?airport=ORD&mode=auto&autostart=1&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.17.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.18.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.drawCalls > 100);
   const renderBudget = await page.evaluate(() => window.airportControl.snapshot().renderer);
   expect(renderBudget.detail).toBe('low');
@@ -734,6 +747,9 @@ test('Laptop viewports keep the complete controls menu reachable', async ({ page
     { width: 1366, height: 768 },
     { width: 1280, height: 720 },
     { width: 1024, height: 600 },
+    { width: 912, height: 512 },
+    { width: 800, height: 500 },
+    { width: 700, height: 500 },
   ]) {
     await page.setViewportSize(viewport);
     const menu = page.locator('#menu-toggle');
@@ -754,11 +770,22 @@ test('Laptop viewports keep the complete controls menu reachable', async ({ page
         scrollHeight: element.scrollHeight,
       };
     });
-    expect(bounds.top).toBeGreaterThanOrEqual(0);
+    expect(bounds.top).toBeGreaterThanOrEqual(90);
     expect(bounds.left).toBeGreaterThanOrEqual(0);
     expect(bounds.right).toBeLessThanOrEqual(viewport.width);
     expect(bounds.bottom).toBeLessThanOrEqual(viewport.height);
     expect(bounds.clientHeight).toBeGreaterThan(300);
+
+    if (viewport.width >= 640) {
+      const controlsBounds = await page.locator('#control-panel > .controls').evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right };
+      });
+      expect(controlsBounds.top).toBeGreaterThanOrEqual(bounds.top);
+      expect(controlsBounds.bottom).toBeLessThanOrEqual(bounds.bottom);
+      expect(controlsBounds.left).toBeGreaterThanOrEqual(bounds.left);
+      expect(controlsBounds.right).toBeLessThanOrEqual(bounds.right);
+    }
 
     await panel.evaluate((element) => { element.scrollTop = element.scrollHeight; });
     const advancedBounds = await page.locator('.advanced-tools summary').evaluate((element) => {
@@ -767,9 +794,41 @@ test('Laptop viewports keep the complete controls menu reachable', async ({ page
     });
     expect(advancedBounds.top).toBeGreaterThanOrEqual(bounds.top);
     expect(advancedBounds.bottom).toBeLessThanOrEqual(bounds.bottom + 4);
+    if (viewport.width === 700) {
+      await panel.evaluate((element) => { element.scrollTop = 0; });
+      await page.waitForTimeout(100);
+      await page.screenshot({ path: testInfo.outputPath('laptop-zoomed-700x500.png') });
+    }
     await menu.click();
     await expect(panel).not.toHaveClass(/control-panel--open/);
   }
+
+  await page.setViewportSize({ width: 700, height: 500 });
+  await page.evaluate(() => window.airportControl.request({ action: 'setRadarVisible', enabled: true }));
+  await expect(page.locator('#radar-panel')).toBeVisible();
+  await page.evaluate(() => window.airportControl.request({ action: 'setQueueInspectorVisible', enabled: true }));
+  await expect(page.locator('#queue-panel')).toBeVisible();
+  await expect(page.locator('#radar-panel')).toBeHidden();
+  await page.evaluate(() => window.airportControl.request({ action: 'setQueueInspectorVisible', enabled: false }));
+
+  await page.setViewportSize({ width: 1024, height: 600 });
+  await page.evaluate(() => window.airportControl.request({ action: 'setRadarVisible', enabled: true }));
+  await page.evaluate(() => window.airportControl.request({ action: 'setQueueInspectorVisible', enabled: true }));
+  const compactOverlayBounds = await page.locator('#radar-panel, #queue-panel').evaluateAll((elements) => elements.map((element) => {
+    const rect = element.getBoundingClientRect();
+    return { top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left };
+  }));
+  expect(compactOverlayBounds).toHaveLength(2);
+  const [radarBounds, queueBounds] = compactOverlayBounds;
+  const overlaysIntersect = radarBounds.left < queueBounds.right
+    && radarBounds.right > queueBounds.left
+    && radarBounds.top < queueBounds.bottom
+    && radarBounds.bottom > queueBounds.top;
+  expect(overlaysIntersect).toBe(false);
+  await page.evaluate(() => {
+    window.airportControl.request({ action: 'setRadarVisible', enabled: false });
+    window.airportControl.request({ action: 'setQueueInspectorVisible', enabled: false });
+  });
 
   await page.locator('#menu-toggle').click();
   await expect(page.locator('#control-panel')).toHaveClass(/control-panel--open/);

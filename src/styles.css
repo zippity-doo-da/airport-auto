@@ -15,6 +15,9 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body, #app { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+@supports (height: 100dvh) {
+  html, body, #app { height: 100dvh; }
+}
 body { -webkit-font-smoothing: antialiased; }
 button { font: inherit; }
 
@@ -106,7 +109,10 @@ body.center-scope .brand__mark { font-size: 11px; letter-spacing: -0.04em; }
 .menu-toggle--open .menu-toggle__icon i:nth-child(2) { opacity: 0; }
 .menu-toggle--open .menu-toggle__icon i:last-child { transform: translateY(-4px) rotate(-45deg); }
 
-.control-panel { top: 145px; left: clamp(22px, 4vw, 54px); z-index: 9; width: min(370px, calc(100vw - 44px)); max-height: calc(100vh - 178px); overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 16px; border: 1px solid rgba(244, 232, 206, 0.32); background: rgba(10, 34, 37, 0.9); box-shadow: 0 24px 70px rgba(5, 22, 23, 0.32); opacity: 0; pointer-events: none; transform: translateY(-8px) scale(0.985); transform-origin: top left; backdrop-filter: blur(22px); clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); transition: opacity 180ms ease, transform 180ms ease; }
+.control-panel { top: 145px; left: clamp(22px, 4vw, 54px); z-index: 9; width: min(370px, calc(100vw - 44px)); max-height: calc(100vh - 178px); overflow: auto; overscroll-behavior: contain; scrollbar-color: rgba(239, 199, 117, 0.72) rgba(244, 232, 206, 0.08); scrollbar-gutter: stable; scrollbar-width: auto; padding: 16px; border: 1px solid rgba(244, 232, 206, 0.32); background: rgba(10, 34, 37, 0.9); box-shadow: 0 24px 70px rgba(5, 22, 23, 0.32); opacity: 0; pointer-events: none; transform: translateY(-8px) scale(0.985); transform-origin: top left; backdrop-filter: blur(22px); clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); transition: opacity 180ms ease, transform 180ms ease; }
+.control-panel::-webkit-scrollbar { width: 10px; }
+.control-panel::-webkit-scrollbar-track { background: rgba(244, 232, 206, 0.06); }
+.control-panel::-webkit-scrollbar-thumb { border: 2px solid rgba(10, 34, 37, 0.9); background: rgba(239, 199, 117, 0.68); }
 .control-panel--open { opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); }
 .quick-setup { display: grid; grid-template-columns: 1.35fr 1fr; gap: 10px 8px; }
 .quick-setup label, .intro-setup label { display: grid; gap: 5px; }
@@ -277,6 +283,20 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
 .runway-exit-panel__heading span, .navigation-panel__heading span { color: var(--amber); font-size: 8px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; }
 .runway-exit-panel p, .navigation-panel p { margin: 0; color: rgba(244, 232, 206, 0.72); font-size: 8px; font-weight: 800; letter-spacing: 0.06em; }
 .runway-exit-panel small, .navigation-panel small { overflow: hidden; color: rgba(244, 232, 206, 0.5); font-size: 8px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.route-clearance { display: grid; gap: 4px; margin-top: 3px; border-top: 1px solid rgba(244, 232, 206, 0.13); padding-top: 7px; }
+.route-clearance__heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.route-clearance__heading b { color: var(--ivory); font: 400 11px/1.2 Georgia, serif; }
+.route-clearance__heading span { color: #9bc8a0; font-size: 8px; font-weight: 900; letter-spacing: 0.08em; }
+.route-clearance[data-status="pending-readback"] .route-clearance__heading span,
+.route-clearance[data-status="preview"] .route-clearance__heading span { color: var(--amber); }
+.route-clearance[data-status="rejected"] .route-clearance__heading span,
+.route-clearance[data-status="cancelled"] .route-clearance__heading span { color: #ef937f; }
+.route-clearance .route-clearance__detail { overflow: visible; color: rgba(244, 232, 206, 0.7); font-size: 9px; line-height: 1.4; text-overflow: clip; white-space: normal; }
+.route-editor { margin-top: 3px; border-top: 1px solid rgba(244, 232, 206, 0.13); padding-top: 6px; }
+.route-editor summary { color: var(--amber); font-size: 9px; font-weight: 900; letter-spacing: 0.06em; cursor: pointer; }
+.route-editor > small { display: block; margin: 5px 0; overflow: visible; white-space: normal; }
+.route-editor__options { display: grid; grid-template-columns: 1fr; gap: 4px; }
+.route-editor__options button { width: 100%; padding: 6px 7px; text-align: left; }
 .surface-reroute-panel { border-color: rgba(239, 147, 127, 0.32); background: linear-gradient(105deg, rgba(239, 147, 127, 0.09), rgba(239, 199, 117, 0.035)); }
 .surface-reroute-panel .runway-exit-panel__heading span { color: #ef937f; }
 .turnaround-panel { display: grid; gap: 7px; margin: 0 0 9px; border: 1px solid rgba(244, 232, 206, 0.14); padding: 8px; background: rgba(121, 200, 232, 0.055); }
@@ -518,4 +538,95 @@ body.watch-mode .brand { opacity: 0.75; }
   body.radar-visible .wind-overlay { bottom: 290px; }
   .queue-panel { width: min(270px, calc(100vw - 88px)); }
   body.radar-visible .queue-panel { bottom: 310px; }
+}
+
+/* Short laptop displays use the drawer as a compact control console rather than
+   a tall phone-style list. Primary controls remain visible without scrolling. */
+@media (min-width: 640px) and (max-height: 820px) {
+  .control-panel {
+    display: grid;
+    width: min(740px, calc(100vw - 40px));
+    grid-template-columns: minmax(0, 1.65fr) minmax(225px, 0.95fr);
+    grid-template-rows: auto 1fr;
+    align-content: start;
+    align-items: start;
+    column-gap: 14px;
+  }
+  .control-panel > .quick-setup {
+    grid-row: 1 / span 2;
+    grid-column: 1;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-content: start;
+    gap: 7px 8px;
+  }
+  .quick-setup label { gap: 3px; }
+  .quick-setup select { height: 36px; min-height: 36px; padding-left: 8px; font-size: 10px; }
+  .station-automation, .station-workloads, .weather-readout, .audio-preset { grid-column: 1 / -1; }
+  .station-automation { gap: 4px 7px; padding: 6px 8px; }
+  .station-automation small { display: none; }
+  .station-workloads { gap: 4px; }
+  .station-workloads button { min-height: 38px; padding: 5px; }
+  .speed-control { grid-column: 1 / -1; }
+  .speed-control input { height: 28px; min-height: 28px; }
+  .weather-readout { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px 8px; margin-top: 0; padding-top: 7px; }
+  .weather-readout b { justify-self: end; text-align: right; }
+  .weather-readout small { grid-column: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .weather-readout__switches, .runway-configuration-control { grid-column: 1 / -1; }
+  .weather-readout__switches button, .weather-readout__switches select,
+  .runway-configuration-control select { min-height: 32px; }
+  .control-panel > .controls {
+    grid-row: 1;
+    grid-column: 2;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+    margin: 0;
+    border-top: 0;
+    border-bottom: 1px solid rgba(244, 232, 206, 0.2);
+    padding: 0 0 10px;
+  }
+  .control-panel > .controls .control {
+    grid-template-columns: auto minmax(0, 1fr);
+    height: 44px;
+    min-height: 44px;
+    place-items: center start;
+    align-content: center;
+    gap: 7px;
+    padding: 0 8px;
+    text-align: left;
+  }
+  .control-panel > .controls .control > span { font-size: 14px; }
+  .control-panel > .controls .control small { overflow: hidden; font-size: 8px; letter-spacing: 0.08em; text-overflow: ellipsis; white-space: nowrap; }
+  .control-panel > .advanced-tools { grid-row: 2; grid-column: 2; align-self: start; margin-top: 0; }
+  .radar-panel { right: 20px; bottom: 76px; width: min(270px, calc(100vw - 40px)); }
+  .queue-panel { top: 118px; right: 20px; bottom: 68px; max-height: none; }
+  body.radar-visible.queue-visible .queue-panel {
+    right: min(310px, calc(100vw - 452px));
+    bottom: 76px;
+    max-height: calc(100dvh - 194px);
+  }
+}
+
+/* A zoomed laptop can cross the phone width breakpoint while remaining a very
+   short landscape viewport. Keep the header to two rows and reclaim the field. */
+@media (max-width: 760px) and (max-height: 640px) {
+  .brand { top: 10px; left: 12px; }
+  .brand__mark { width: 30px; height: 30px; }
+  .brand div > span { display: none; }
+  .scoreboard { top: 10px; right: 10px; }
+  .scoreboard strong { font-size: 12px; }
+  .scoreboard span { font-size: 6px; }
+  .status { top: 52px; right: 10px; left: 148px; min-height: 38px; padding: 6px 9px; }
+  .status small { display: none; }
+  .menu-toggle { top: 52px; left: 12px; height: 38px; }
+  .control-panel, .flight-strip { top: 98px; bottom: 8px; }
+  .control-panel { right: 12px; left: 12px; width: auto; padding: 12px; }
+  .flight-strip { left: 12px; }
+  .instruction { display: none; }
+  .camera-tools { right: 8px; bottom: 8px; }
+  .radar-panel, .queue-panel { right: 64px; bottom: 64px; max-height: calc(100dvh - 112px); }
+}
+
+@media (max-width: 520px) and (max-height: 640px) {
+  .brand p { display: none; }
+  .status { left: 140px; }
 }

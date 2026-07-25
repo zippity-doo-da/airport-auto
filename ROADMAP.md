@@ -1,7 +1,7 @@
 # Airport Auto — Forward Roadmap
 
-Last reconciled: July 24, 2026
-Baseline: Airport Auto 2.17.0
+Last reconciled: July 25, 2026
+Baseline: Airport Auto 2.18.0
 
 Airport Auto is an **ASMR-first web airport simulation with an optional serious ATC layer**. The simulation should remain enjoyable as a calm, hands-off miniature world while also supporting increasingly authentic controller work when the player asks for it.
 
@@ -119,7 +119,7 @@ Move from plausible continuous traffic to an explainable hub operation.
 Make each controller position a complete, satisfying job rather than a filtered view of the same loop.
 
 - [x] Expand the typed command vocabulary with heading, altitude, speed, direct-to, clear approach, route amendment, pushback, taxi route, hold position, divert, and contact/handoff commands. (2.17: every command uses station ownership and the shared safety boundary; route/taxi amendments remain continuous and diversion flies to the scope edge.)
-- [ ] Add safe route editing with previews, conflict warnings, and explicit readback/acceptance state.
+- [x] Add safe route editing with previews, conflict warnings, and explicit readback/acceptance state. (2.18: normal-UI route choice, non-mutating map previews, physical look-ahead warnings, staged issue/readback/revalidation, supersession cancellation, and the same arbiter for legacy/API commands.)
 - [ ] Add multi-select and grouped commands only where aircraft share a safe, compatible instruction.
 - [ ] Add controller handoffs, frequency ownership, strip bays, coordination requests, and late/missed-handoff consequences.
 - [ ] Give Approach, Tower, Ground, Ramp, and Supervisor distinct traffic, authority, alerts, workload, and success measures.

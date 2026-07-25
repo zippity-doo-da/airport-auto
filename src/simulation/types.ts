@@ -393,6 +393,45 @@ export interface FlightHoldingClearance {
   start: Pick<FlightMotionState, 'x' | 'y' | 'z' | 'heading' | 'pitch' | 'bank' | 'onGround' | 'groundBlend' | 'protectedRunway'>;
 }
 
+export type FlightRouteClearanceStatus = 'preview' | 'pending-readback' | 'accepted' | 'rejected' | 'cancelled';
+export type FlightRouteWarningSeverity = 'advisory' | 'warning' | 'blocking';
+
+export interface FlightRouteConflictWarning {
+  code: 'excessive-initial-turn' | 'predicted-loss-of-separation';
+  severity: FlightRouteWarningSeverity;
+  detail: string;
+  conflictingFlightId?: number;
+  conflictingCallsign?: string;
+  estimatedSeconds?: number;
+  horizontalNm?: number;
+  verticalFt?: number;
+}
+
+/**
+ * A non-authoritative route proposal until its simulated pilot readback is
+ * accepted. The currently flown route remains unchanged during preview and
+ * pending-readback states.
+ */
+export interface FlightRouteClearanceState {
+  schemaVersion: 1;
+  revision: number;
+  status: FlightRouteClearanceStatus;
+  routeFixIds: string[];
+  routeFixNames: string[];
+  previousRouteFixIds: string[];
+  previewedAtSeconds: number;
+  issuedAtSeconds?: number;
+  readbackDueSeconds?: number;
+  respondedAtSeconds?: number;
+  issuedBy: ControllerStation;
+  distanceNm: number;
+  estimatedSeconds: number;
+  initialTurnDegrees: number;
+  safeToIssue: boolean;
+  warnings: FlightRouteConflictWarning[];
+  reason?: string;
+}
+
 export interface FlightNavigationState {
   schemaVersion: 1;
   procedureDataVersion: string;
@@ -409,7 +448,8 @@ export interface FlightNavigationState {
   handoffFixId?: string;
   frequencyOwner: ControllerStation;
   handoffStatus: 'owned' | 'offered' | 'accepted';
-  readbackStatus: 'not-required' | 'pending' | 'accepted';
+  readbackStatus: 'not-required' | 'pending' | 'accepted' | 'rejected';
+  routeClearance?: FlightRouteClearanceState;
   vector?: FlightVectorClearance;
   hold?: FlightHoldingClearance;
   missedApproachId?: string;
@@ -599,7 +639,7 @@ export interface ReplayFrame {
 }
 
 export interface AirportEvent {
-  type: 'spawn' | 'gate-assignment' | 'gate-reassignment' | 'gate-release' | 'runway-exit-plan' | 'surface-reroute' | 'taxi-route-clearance' | 'hold-position' | 'taxi-resume' | 'recovery-start' | 'recovery-complete' | 'turnaround-start' | 'service-start' | 'service-complete' | 'turnaround-ready' | 'service-vehicle-dispatch' | 'service-vehicle-arrive' | 'service-vehicle-hold' | 'service-vehicle-release' | 'service-vehicle-return' | 'service-vehicle-clear' | 'deicing-planned' | 'deicing-queue' | 'deicing-pad-entry' | 'deicing-start' | 'deicing-complete' | 'deicing-expired' | 'deicing-return' | 'land' | 'chime' | 'depart' | 'diversion' | 'divert' | 'clear' | 'auto-clear' | 'pushback-clearance' | 'pushback-start' | 'engine-start' | 'tug-release' | 'reject' | 'conflict' | 'safety-hold' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'takeoff-clearance' | 'vector' | 'route-amendment' | 'airborne-hold' | 'hold-release' | 'approach-clearance' | 'handoff' | 'contact' | 'go-around' | 'emergency';
+  type: 'spawn' | 'gate-assignment' | 'gate-reassignment' | 'gate-release' | 'runway-exit-plan' | 'surface-reroute' | 'taxi-route-clearance' | 'hold-position' | 'taxi-resume' | 'recovery-start' | 'recovery-complete' | 'turnaround-start' | 'service-start' | 'service-complete' | 'turnaround-ready' | 'service-vehicle-dispatch' | 'service-vehicle-arrive' | 'service-vehicle-hold' | 'service-vehicle-release' | 'service-vehicle-return' | 'service-vehicle-clear' | 'deicing-planned' | 'deicing-queue' | 'deicing-pad-entry' | 'deicing-start' | 'deicing-complete' | 'deicing-expired' | 'deicing-return' | 'land' | 'chime' | 'depart' | 'diversion' | 'divert' | 'clear' | 'auto-clear' | 'pushback-clearance' | 'pushback-start' | 'engine-start' | 'tug-release' | 'reject' | 'conflict' | 'safety-hold' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'takeoff-clearance' | 'vector' | 'route-preview' | 'route-clearance-issued' | 'route-readback-accepted' | 'route-readback-rejected' | 'route-clearance-cancelled' | 'route-amendment' | 'airborne-hold' | 'hold-release' | 'approach-clearance' | 'handoff' | 'contact' | 'go-around' | 'emergency';
   flight: Flight;
   runway?: number;
   taxiway?: string;

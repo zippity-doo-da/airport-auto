@@ -57,6 +57,10 @@ type AirportControlCommand =
   | { action: 'assignAirspeed'; flightId: number; speedKts: number }
   | { action: 'directTo'; flightId: number; fixId: string }
   | { action: 'amendRoute'; flightId: number; fixIds: string[] }
+  | { action: 'previewRoute'; flightId: number; fixIds: string[] }
+  | { action: 'issueRouteAmendment'; flightId: number; fixIds?: string[] }
+  | { action: 'acceptRouteReadback'; flightId: number }
+  | { action: 'cancelRouteAmendment'; flightId: number }
   | { action: 'clearApproach'; flightId: number }
   | { action: 'holdFlight'; flightId: number; patternId?: string; efcMinutes?: number }
   | { action: 'releaseHold'; flightId: number }
@@ -303,6 +307,7 @@ let routePoints: Array<{ x: number; y: number }> = [];
 let simulationSpeed = 1;
 let radarVisible = false;
 let queueInspectorVisible = false;
+const compactOverlayMedia = window.matchMedia('(max-width: 760px), (max-height: 520px)');
 let queueInspectorFilter: OperationQueueFilter = 'all';
 let queueInspectorUiKey = '';
 let windOverlayVisible = false;
@@ -363,6 +368,9 @@ updateAirportUi();
 updateNightControl();
 updateRadarControl();
 updateQueueInspectorControl();
+compactOverlayMedia.addEventListener('change', (event) => {
+  if (event.matches && radarVisible && queueInspectorVisible) setRadarPanelVisible(false);
+});
 renderQueueInspector();
 updateSurfaceDisruptionTargets();
 renderSurfaceDisruptionControls();
@@ -403,7 +411,7 @@ flightChips.addEventListener('click', (event) => {
 flightActions.addEventListener('click', (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-flight-action]');
   if (!button || focusedFlightId === null) return;
-  handleFlightAction(focusedFlightId, button.dataset.flightAction ?? '', button.dataset.runway);
+  handleFlightAction(focusedFlightId, button.dataset.flightAction ?? '', button.dataset.runway, button.dataset.routeFixes);
 });
 clearanceAdvisor.addEventListener('click', (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-proposal-id]');
@@ -674,27 +682,22 @@ nightButton.addEventListener('click', () => {
   setStatus(simulation.state.nightMode ? 'Night lighting active' : 'Day lighting active', simulation.state.nightMode ? 'runway and aircraft lights are illuminated' : 'full daylight visibility restored');
 });
 radarButton.addEventListener('click', () => {
-  radarVisible = !radarVisible;
-  updateRadarControl();
+  setRadarPanelVisible(!radarVisible);
   setStatus(radarVisible ? 'Terminal radar open' : 'Terminal radar closed', radarVisible ? 'live aircraft and runway plot enabled' : 'unobstructed map view restored');
 });
 
 radarClose.addEventListener('click', () => {
-  radarVisible = false;
-  updateRadarControl();
+  setRadarPanelVisible(false);
   setStatus('Terminal radar closed', 'unobstructed map view restored');
 });
 
 queueButton.addEventListener('click', () => {
-  queueInspectorVisible = !queueInspectorVisible;
-  updateQueueInspectorControl();
-  renderQueueInspector();
+  setQueuePanelVisible(!queueInspectorVisible);
   setStatus(queueInspectorVisible ? 'Operation queues open' : 'Operation queues closed', queueInspectorVisible ? 'live blockers and downstream dependencies explained' : 'unobstructed map view restored');
 });
 
 queueClose.addEventListener('click', () => {
-  queueInspectorVisible = false;
-  updateQueueInspectorControl();
+  setQueuePanelVisible(false);
   setStatus('Operation queues closed', 'unobstructed map view restored');
 });
 
@@ -878,9 +881,21 @@ function frame(now: number): void {
     const deicingEvent = event.type.startsWith('deicing-');
     const runwayExitEvent = event.type === 'runway-exit-plan';
     const surfaceEvent = event.type === 'surface-reroute' || event.type === 'taxi-route-clearance' || event.type === 'recovery-start' || event.type === 'recovery-complete';
+    const routeClearanceEvent = event.type === 'route-preview'
+      || event.type === 'route-clearance-issued'
+      || event.type === 'route-readback-accepted'
+      || event.type === 'route-readback-rejected'
+      || event.type === 'route-clearance-cancelled'
+      || event.type === 'route-amendment';
     recordTelemetry(event.type, event.flight, event.runway, event.taxiway, {
       detail: event.detail ?? (event.type === 'safety-hold' ? event.flight.safetyHoldReason : undefined),
-      payload: surfaceEvent ? {
+      payload: routeClearanceEvent && event.flight.navigation.routeClearance ? {
+        ...event.flight.navigation.routeClearance,
+        routeFixIds: [...event.flight.navigation.routeClearance.routeFixIds],
+        routeFixNames: [...event.flight.navigation.routeClearance.routeFixNames],
+        previousRouteFixIds: [...event.flight.navigation.routeClearance.previousRouteFixIds],
+        warnings: event.flight.navigation.routeClearance.warnings.map((warning) => ({ ...warning })),
+      } : surfaceEvent ? {
         reroute: event.flight.surfaceReroute ? {
           ...event.flight.surfaceReroute,
           disruptionIds: [...event.flight.surfaceReroute.disruptionIds],
@@ -966,6 +981,11 @@ function frame(now: number): void {
     if (event.type === 'conflict') showGameOver(event.flight.callsign);
     if (event.type === 'emergency') setStatus(`${event.flight.callsign} emergency`, `${event.flight.emergency} · priority handling active`);
     if (event.type === 'go-around') setStatus(`${event.flight.callsign} going around`, `${event.detail ?? 'spacing reset'} · re-entering the arrival sequence`);
+    if (event.type === 'route-preview') setStatus(`${event.flight.callsign} route preview`, event.detail ?? 'candidate route checked');
+    if (event.type === 'route-clearance-issued') setStatus(`${event.flight.callsign} route issued`, event.detail ?? 'readback pending');
+    if (event.type === 'route-readback-accepted') setStatus(`${event.flight.callsign} readback correct`, event.detail ?? 'route accepted');
+    if (event.type === 'route-readback-rejected') setStatus(`${event.flight.callsign} route withheld`, event.detail ?? 'conflict changed before readback');
+    if (event.type === 'route-clearance-cancelled') setStatus(`${event.flight.callsign} route cancelled`, event.detail ?? 'original route retained');
     if (event.type === 'route-amendment') setStatus(`${event.flight.callsign} route amended`, event.detail ?? 'new terminal fixes accepted');
     if (event.type === 'taxi-route-clearance') setStatus(`${event.flight.callsign} taxi route assigned`, event.detail ?? 'continuous pavement route accepted');
     if (event.type === 'hold-position') setStatus(`${event.flight.callsign} hold position`, event.detail ?? 'decelerating normally');
@@ -1136,6 +1156,13 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
       navigation: {
         ...flight.navigation,
         routeFixIds: [...flight.navigation.routeFixIds],
+        routeClearance: flight.navigation.routeClearance ? {
+          ...flight.navigation.routeClearance,
+          routeFixIds: [...flight.navigation.routeClearance.routeFixIds],
+          routeFixNames: [...flight.navigation.routeClearance.routeFixNames],
+          previousRouteFixIds: [...flight.navigation.routeClearance.previousRouteFixIds],
+          warnings: flight.navigation.routeClearance.warnings.map((warning) => ({ ...warning })),
+        } : undefined,
         vector: flight.navigation.vector ? { ...flight.navigation.vector, start: { ...flight.navigation.vector.start } } : undefined,
         hold: flight.navigation.hold ? { ...flight.navigation.hold, start: { ...flight.navigation.hold.start } } : undefined,
       },
@@ -1158,7 +1185,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
 function replayRecording(): ReplayRecording {
   return {
     schemaVersion: 1,
-    simulationVersion: window.airportControl?.version ?? '2.17.0',
+    simulationVersion: window.airportControl?.version ?? '2.18.0',
     recordedAt: new Date().toISOString(),
     seed: config.seed,
     airport: { code: config.code, name: config.name, scope: config.scope },
@@ -1537,6 +1564,10 @@ function renderFlightActions(): void {
         flight.navigation.assignedSpeedKts ?? 'no-speed',
         flight.navigation.hold?.cycle ?? 'no-hold',
         flight.navigation.frequencyOwner,
+        flight.navigation.readbackStatus,
+        flight.navigation.routeClearance?.revision ?? 'no-route-clearance',
+        flight.navigation.routeClearance?.status ?? 'no-route-status',
+        flight.navigation.routeClearance?.warnings.map((warning) => `${warning.severity}:${warning.code}`).join(',') ?? 'no-route-warnings',
         displayState().surfaceDisruptions.find((disruption) => disruption.flightId === flight.id)?.status ?? 'no-recovery',
         Math.floor((displayState().surfaceDisruptions.find((disruption) => disruption.flightId === flight.id)?.recoveryProgress ?? 0) * 20),
         simulation.state.station,
@@ -1588,6 +1619,16 @@ function renderFlightActions(): void {
     if (flight.phase === 'approach' && !flight.navigation.approachCleared && !flight.navigation.hold && !flight.goAround) add('approach-clear', 'Clear approach', !simulation.canIssue('approach') || !ownsFlight);
     if (flight.navigation.hold) add('air-hold-release', 'Release hold', !simulation.canIssue('approach') || !ownsFlight);
     else if (flight.phase === 'approach' && !flight.goAround && flight.progress < 0.68) add('air-hold', 'Enter hold', !simulation.canIssue('approach') || !ownsFlight);
+    const routeClearance = flight.navigation.routeClearance;
+    const routeWorkflowActive = flight.phase === 'approach'
+      && flight.progress < 0.62
+      && (routeClearance?.status === 'preview' || routeClearance?.status === 'pending-readback');
+    if (routeWorkflowActive && routeClearance?.status === 'preview') {
+      add('route-issue', routeClearance.safeToIssue ? 'Issue route' : 'Route blocked', !routeClearance.safeToIssue || !simulation.canIssue('approach') || !ownsFlight);
+      add('route-cancel', 'Cancel preview', !simulation.canIssue('approach') || !ownsFlight);
+    } else if (routeWorkflowActive && routeClearance?.status === 'pending-readback') {
+      add('route-cancel', 'Cancel route', !simulation.canIssue('approach') || !ownsFlight);
+    }
     if (!flight.navigation.hold && !flight.goAround) {
       add('heading-left', 'HDG −15°', !simulation.canIssue('approach') || !ownsFlight);
       add('heading-right', 'HDG +15°', !simulation.canIssue('approach') || !ownsFlight);
@@ -1597,7 +1638,9 @@ function renderFlightActions(): void {
       add('altitude-up', 'ALT +500', !simulation.canIssue('approach') || !ownsFlight);
       const nextFix = flight.navigation.routeFixIds[Math.min(flight.navigation.activeFixIndex + 1, flight.navigation.routeFixIds.length - 1)];
       if (nextFix && flight.phase === 'approach' && flight.progress < 0.72) add('direct-next', `Direct ${nextFix.split('-').slice(-2).join(' ')}`, !simulation.canIssue('approach') || !ownsFlight);
-      if (flight.phase === 'approach' && flight.progress < 0.62 && suggestedRouteAmendment(flight)) add('route-amend', 'Amend route', !simulation.canIssue('approach') || !ownsFlight);
+      if (flight.phase === 'approach' && flight.progress < 0.62 && !routeWorkflowActive && suggestedRouteAmendment(flight)) {
+        add('route-preview', 'Preview route', !simulation.canIssue('approach') || !ownsFlight);
+      }
     }
     if (flight.phase === 'approach') add('divert', `Divert ${flight.origin}`, !simulation.canIssue('approach') || !ownsFlight);
   }
@@ -1670,7 +1713,73 @@ function createNavigationPanel(flight: Flight): HTMLElement {
   const detail = document.createElement('small');
   detail.textContent = nextFix ? `Next ${nextFix.name} · ${nextFix.altitudeFt.toLocaleString()} ft · non-navigational schematic` : 'Procedure complete · non-navigational schematic';
   panel.append(heading, metrics, detail);
+  const clearance = flight.navigation.routeClearance;
+  if (clearance) {
+    const route = document.createElement('div');
+    route.className = 'route-clearance';
+    route.dataset.status = clearance.status;
+    const routeHeading = document.createElement('div');
+    routeHeading.className = 'route-clearance__heading';
+    const routeTitle = document.createElement('b');
+    routeTitle.textContent = clearance.status === 'preview'
+      ? 'Route preview'
+      : clearance.status === 'pending-readback'
+        ? 'Issued route'
+        : 'Route clearance';
+    const routeStatus = document.createElement('span');
+    const blocking = clearance.warnings.filter((warning) => warning.severity === 'blocking').length;
+    routeStatus.textContent = clearance.status === 'preview'
+      ? blocking ? 'BLOCKED' : clearance.warnings.length ? 'CAUTION' : 'SAFE'
+      : clearance.status.replace('-', ' ').toUpperCase();
+    routeHeading.append(routeTitle, routeStatus);
+    const routeMetrics = document.createElement('p');
+    routeMetrics.textContent = `${clearance.distanceNm.toFixed(1)} NM · ${Math.max(1, Math.ceil(clearance.estimatedSeconds / 60))} MIN · TURN ${Math.round(clearance.initialTurnDegrees)}°`;
+    const routeFixes = document.createElement('small');
+    routeFixes.textContent = clearance.routeFixNames.join(' › ');
+    const routeDetail = document.createElement('small');
+    routeDetail.className = 'route-clearance__detail';
+    routeDetail.textContent = clearance.warnings[0]?.detail
+      ?? clearance.reason
+      ?? (clearance.status === 'pending-readback' ? 'Pilot readback pending; the original route remains authoritative.' : 'No forecast conflict inside the terminal look-ahead.');
+    route.append(routeHeading, routeMetrics, routeFixes, routeDetail);
+    panel.append(route);
+  }
+  if (
+    flight.phase === 'approach'
+    && flight.progress < 0.62
+    && !flight.navigation.hold
+    && !flight.goAround
+    && !flight.diversion
+    && clearance?.status !== 'preview'
+    && clearance?.status !== 'pending-readback'
+  ) {
+    panel.append(createRouteEditor(flight));
+  }
   return panel;
+}
+
+function createRouteEditor(flight: Flight): HTMLElement {
+  const editor = document.createElement('details');
+  editor.className = 'route-editor';
+  const summary = document.createElement('summary');
+  summary.textContent = 'Choose route preview';
+  const guidance = document.createElement('small');
+  guidance.textContent = 'Candidate fixes remain non-authoritative until issue and correct readback.';
+  const options = document.createElement('div');
+  options.className = 'route-editor__options';
+  const ownsFlight = simulation.state.station === 'supervisor' || flight.navigation.frequencyOwner === simulation.state.station;
+  for (const option of routeAmendmentOptions(flight).slice(0, 6)) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.flightAction = 'route-preview-selection';
+    button.dataset.routeFixes = option.fixIds.join('>');
+    button.textContent = option.label;
+    button.title = `${option.fixIds.join(' › ')} · initial turn ${Math.round(option.turn * 180 / Math.PI)}°`;
+    button.disabled = replayMode || !simulation.canIssue('approach') || !ownsFlight;
+    options.append(button);
+  }
+  editor.append(summary, guidance, options);
+  return editor;
 }
 
 function createRunwayExitPanel(flight: Flight): HTMLElement {
@@ -1852,15 +1961,38 @@ function suggestedHandoffStation(flight: Flight): ControllerStation | null {
 }
 
 function suggestedRouteAmendment(flight: Flight): string[] | null {
-  const procedure = config.airspaceProgram.procedures.find((candidate) => candidate.id === flight.navigation.procedureId);
-  if (!procedure || procedure.kind !== 'STAR' || procedure.transitions.length < 2) return null;
-  const transition = procedure.transitions.find((candidate) => !candidate.fixIds.every((fixId, index) => flight.navigation.routeFixIds[index] === fixId))
-    ?? procedure.transitions[0];
-  const route = [...transition.fixIds, ...procedure.commonFixIds];
-  return route.join('>') === flight.navigation.routeFixIds.join('>') ? null : route;
+  return routeAmendmentOptions(flight)[0]?.fixIds ?? null;
 }
 
-function handleFlightAction(flightId: number, action: string, runwayValue?: string): void {
+function routeAmendmentOptions(flight: Flight): Array<{ fixIds: string[]; label: string; turn: number }> {
+  const procedure = config.airspaceProgram.procedures.find((candidate) => candidate.id === flight.navigation.procedureId);
+  if (!procedure || procedure.kind !== 'STAR') return [];
+  const options = [
+    ...procedure.transitions.map((transition) => [...transition.fixIds, ...procedure.commonFixIds]),
+    ...procedure.commonFixIds.map((_, index) => procedure.commonFixIds.slice(index)).filter((route) => route.length >= 3),
+  ];
+  const current = flight.navigation.routeFixIds.join('>');
+  const unique = [...new Map(options.map((route) => [route.join('>'), route])).values()]
+    .filter((route) => route.join('>') !== current);
+  const turn = (route: string[]): number => {
+    const fix = config.airspaceProgram.fixes.find((candidate) => candidate.id === route[0]);
+    if (!fix) return Infinity;
+    const heading = Math.atan2(fix.position[1] - flight.motion.y, fix.position[0] - flight.motion.x);
+    return Math.abs(Math.atan2(Math.sin(heading - flight.motion.heading), Math.cos(heading - flight.motion.heading)));
+  };
+  return unique
+    .map((fixIds) => {
+      const first = config.airspaceProgram.fixes.find((fix) => fix.id === fixIds[0]);
+      return {
+        fixIds,
+        label: `${first?.name ?? fixIds[0]} · ${fixIds.length} fixes`,
+        turn: turn(fixIds),
+      };
+    })
+    .sort((first, second) => first.turn - second.turn || first.fixIds.length - second.fixIds.length || first.label.localeCompare(second.label));
+}
+
+function handleFlightAction(flightId: number, action: string, runwayValue?: string, routeFixValue?: string): void {
   if (replayMode) {
     setStatus('Replay is read-only', 'return to Live before issuing a clearance');
     return;
@@ -1895,10 +2027,15 @@ function handleFlightAction(flightId: number, action: string, runwayValue?: stri
     const fixId = flight.navigation.routeFixIds[Math.min(flight.navigation.activeFixIndex + 1, flight.navigation.routeFixIds.length - 1)];
     if (fixId) executeAirportRequest({ action: 'directTo', flightId, fixId });
   }
-  if (action === 'route-amend') {
+  if (action === 'route-preview') {
     const fixIds = suggestedRouteAmendment(flight);
-    if (fixIds) executeAirportRequest({ action: 'amendRoute', flightId, fixIds });
+    if (fixIds) executeAirportRequest({ action: 'previewRoute', flightId, fixIds });
   }
+  if (action === 'route-preview-selection' && routeFixValue) {
+    executeAirportRequest({ action: 'previewRoute', flightId, fixIds: routeFixValue.split('>').filter(Boolean) });
+  }
+  if (action === 'route-issue') executeAirportRequest({ action: 'issueRouteAmendment', flightId });
+  if (action === 'route-cancel') executeAirportRequest({ action: 'cancelRouteAmendment', flightId });
   if (action === 'divert') executeAirportRequest({ action: 'divertFlight', flightId, airportCode: flight.origin, reason: 'controller-selected alternate' });
   if (action === 'handoff') {
     const station = suggestedHandoffStation(flight);
@@ -2093,12 +2230,14 @@ function updateModeControl(): void {
 }
 
 function setControlPanelOpen(open: boolean): void {
+  const wasOpen = controlPanel.classList.contains('control-panel--open');
   menuButton.classList.toggle('menu-toggle--open', open);
   menuButton.setAttribute('aria-expanded', String(open));
   menuButton.setAttribute('aria-label', open ? 'Close controls' : 'Open controls');
   controlPanel.classList.toggle('control-panel--open', open);
   controlPanel.setAttribute('aria-hidden', String(!open));
   controlPanel.toggleAttribute('inert', !open);
+  if (open && !wasOpen) controlPanel.scrollTop = 0;
 }
 
 function updateNightControl(): void {
@@ -2122,6 +2261,15 @@ function updateRadarControl(): void {
   lastRadarUpdate = -Infinity;
 }
 
+function setRadarPanelVisible(visible: boolean): void {
+  radarVisible = visible;
+  if (visible && compactOverlayMedia.matches && queueInspectorVisible) {
+    queueInspectorVisible = false;
+    updateQueueInspectorControl();
+  }
+  updateRadarControl();
+}
+
 function updateQueueInspectorControl(): void {
   queueButton.setAttribute('aria-pressed', String(queueInspectorVisible));
   queueButton.setAttribute('aria-label', queueInspectorVisible ? 'Hide operation queue inspector' : 'Show operation queue inspector');
@@ -2130,6 +2278,16 @@ function updateQueueInspectorControl(): void {
   document.body.classList.toggle('queue-visible', queueInspectorVisible);
   queuePanel.hidden = !queueInspectorVisible;
   queueInspectorUiKey = '';
+}
+
+function setQueuePanelVisible(visible: boolean): void {
+  queueInspectorVisible = visible;
+  if (visible && compactOverlayMedia.matches && radarVisible) {
+    radarVisible = false;
+    updateRadarControl();
+  }
+  updateQueueInspectorControl();
+  renderQueueInspector();
 }
 
 function renderQueueInspector(): void {
@@ -2548,7 +2706,7 @@ function airportSnapshot() {
   const operations = simulation.operationProfileSnapshot();
   const movingPhases = new Set(['approach', 'landing', 'taxi-in', 'taxi-out', 'takeoff']);
   return {
-    schemaVersion: 19,
+    schemaVersion: 20,
     airport: {
       code: config.code,
       name: config.name,
@@ -2897,6 +3055,13 @@ function airportSnapshot() {
       navigation: {
         ...flight.navigation,
         routeFixIds: [...flight.navigation.routeFixIds],
+        routeClearance: flight.navigation.routeClearance ? {
+          ...flight.navigation.routeClearance,
+          routeFixIds: [...flight.navigation.routeClearance.routeFixIds],
+          routeFixNames: [...flight.navigation.routeClearance.routeFixNames],
+          previousRouteFixIds: [...flight.navigation.routeClearance.previousRouteFixIds],
+          warnings: flight.navigation.routeClearance.warnings.map((warning) => ({ ...warning })),
+        } : null,
         vector: flight.navigation.vector ? { ...flight.navigation.vector, start: { ...flight.navigation.vector.start } } : null,
         hold: flight.navigation.hold ? { ...flight.navigation.hold, start: { ...flight.navigation.hold.start } } : null,
       },
@@ -3181,13 +3346,10 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
     updateNightControl();
   }
   if (command.action === 'setRadarVisible') {
-    radarVisible = command.enabled;
-    updateRadarControl();
+    setRadarPanelVisible(command.enabled);
   }
   if (command.action === 'setQueueInspectorVisible') {
-    queueInspectorVisible = command.enabled;
-    updateQueueInspectorControl();
-    renderQueueInspector();
+    setQueuePanelVisible(command.enabled);
   }
   if (command.action === 'setRunwayLabelsVisible') setRunwayLabelsVisible(command.enabled);
   if (command.action === 'setSurfaceLayerVisible') {
@@ -3259,6 +3421,25 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
     reason = Array.isArray(command.fixIds) && command.fixIds.every((fixId) => typeof fixId === 'string')
       ? simulation.lastCommandReason()
       : 'route amendment requires an array of fix IDs';
+  }
+  if (command.action === 'previewRoute') {
+    const valid = Array.isArray(command.fixIds) && command.fixIds.every((fixId) => typeof fixId === 'string');
+    accepted = valid && simulation.previewFlightRoute(command.flightId, command.fixIds);
+    reason = valid ? simulation.lastCommandReason() : 'route preview requires an array of fix IDs';
+  }
+  if (command.action === 'issueRouteAmendment') {
+    const valid = command.fixIds === undefined
+      || (Array.isArray(command.fixIds) && command.fixIds.every((fixId) => typeof fixId === 'string'));
+    accepted = valid && simulation.issueFlightRoute(command.flightId, command.fixIds);
+    reason = valid ? simulation.lastCommandReason() : 'route issue requires an optional array of fix IDs';
+  }
+  if (command.action === 'acceptRouteReadback') {
+    accepted = simulation.acceptRouteReadback(command.flightId);
+    reason = simulation.lastCommandReason();
+  }
+  if (command.action === 'cancelRouteAmendment') {
+    accepted = simulation.cancelFlightRouteClearance(command.flightId);
+    reason = simulation.lastCommandReason();
   }
   if (command.action === 'clearApproach') {
     accepted = simulation.clearApproach(command.flightId);
@@ -3404,7 +3585,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
 }
 
 window.airportControl = {
-  version: '2.17.0',
+  version: '2.18.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },
@@ -3441,6 +3622,10 @@ window.airportControl = {
       airspeed: "airportControl.request({ action: 'assignAirspeed', flightId: 1, speedKts: 170 })",
       directTo: "airportControl.request({ action: 'directTo', flightId: 1, fixId: 'ORD-W-ENTRY' })",
       routeAmendment: "airportControl.request({ action: 'amendRoute', flightId: 1, fixIds: ['ORD-R0-A-GW1', 'ORD-R0-A-DW', 'ORD-R0-A-BASE', 'ORD-R0-A-INT', 'ORD-R0-A-FAF'] }) // inspect snapshot().airport.airspaceProgram.fixes",
+      routePreview: "airportControl.request({ action: 'previewRoute', flightId: 1, fixIds: ['ORD-R0-A-GW1', 'ORD-R0-A-DW', 'ORD-R0-A-BASE', 'ORD-R0-A-INT', 'ORD-R0-A-FAF'] })",
+      routeIssue: "airportControl.request({ action: 'issueRouteAmendment', flightId: 1 }) // staged pilot readback",
+      routeReadback: "airportControl.request({ action: 'acceptRouteReadback', flightId: 1 }) // optional; otherwise deterministic automatic readback",
+      routeCancel: "airportControl.request({ action: 'cancelRouteAmendment', flightId: 1 })",
       approach: "airportControl.request({ action: 'clearApproach', flightId: 1 })",
       airborneHold: "airportControl.request({ action: 'holdFlight', flightId: 1, efcMinutes: 4 })",
       releaseHold: "airportControl.request({ action: 'releaseHold', flightId: 1 })",

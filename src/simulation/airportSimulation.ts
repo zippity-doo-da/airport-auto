@@ -1,5 +1,5 @@
 import type { AirportConfig, AirportRunwayConfiguration, RunwayOperationalRole } from './airportConfig';
-import type { AirportEvent, AirportState, ClearanceProposal, ConflictPrediction, ControlMode, ControllerStation, ControllerWorkloadSnapshot, EmergencyType, Flight, FlightInstruction, FlightNavigationState, FlightOperationPlan, FlightPhase, FlightRunwayExitState, OperationalControllerStation, ServiceVehicleState, ShiftMetrics, SurfaceDisruptionKind, SurfaceDisruptionSource, SurfaceDisruptionState, TrafficScenario, WeatherCondition } from './types';
+import type { AirportEvent, AirportState, ClearanceProposal, ConflictPrediction, ControlMode, ControllerStation, ControllerWorkloadSnapshot, EmergencyType, Flight, FlightInstruction, FlightNavigationState, FlightOperationPlan, FlightPhase, FlightRouteClearanceState, FlightRunwayExitState, OperationalControllerStation, ServiceVehicleState, ShiftMetrics, SurfaceDisruptionKind, SurfaceDisruptionSource, SurfaceDisruptionState, TrafficScenario, WeatherCondition } from './types';
 import { aircraftProfile, type AircraftModel } from './aircraftProfiles';
 import { airlineProfile, type AirlineCode } from './airlineProfiles';
 import { aircraftCollisionEnvelope, detectCommittedRunwaySweepConflict, detectFlightConflict, findFlightConflicts, findObstacleConflicts, findProposedConflict } from './collisionDetection';
@@ -24,7 +24,8 @@ import { trafficDensityProfile, type TrafficDensity } from './trafficDensity';
 import { createTrafficFlowState, enqueueArrivalDemand, expireTrafficFlow, markArrivalHolding, refreshTrafficFlow, registerDepartureDemand, releaseArrivalDemand, releaseDepartureDemand, removeDepartureDemand, scheduleNextArrivalDemand, setTrafficFlowDensity, trafficFlowSnapshot, type TrafficFlowSnapshot } from './trafficFlowManagement';
 import { amendFlightPlan, cloneFlightPlan, createFlightPlan, setFlightPlanStatus } from './flightPlanning';
 import { selectTerminalProcedure, type SelectedTerminalProcedure, type TerminalProcedureKind } from './airspaceProcedures';
-import { buildSurfaceRouteViaNodes, selectDiversionExitFix, validateTerminalRouteAmendment } from './atcRouteCommands';
+import { buildSurfaceRouteViaNodes, selectDiversionExitFix } from './atcRouteCommands';
+import { buildTerminalRouteClearancePreview, type TerminalRouteClearanceCandidate } from './terminalRouteClearance';
 import {
   controllerStationIsAhead,
   controllerWorkloadSnapshots,
@@ -774,6 +775,7 @@ export class AirportSimulation {
     const remaining = plannedIndex >= 0
       ? flight.navigation.routeFixIds.slice(plannedIndex)
       : [fixId, ...flight.navigation.routeFixIds.slice(Math.max(0, flight.navigation.activeFixIndex + 1))];
+    this.supersedeActiveRouteClearance(flight, `superseded by direct ${fix.name}`);
     flight.navigation.routeFixIds = [...new Set(remaining)];
     flight.navigation.activeFixIndex = 0;
     flight.navigation.vector = {
@@ -796,39 +798,245 @@ export class AirportSimulation {
   }
 
   amendFlightRoute(id: number, fixIds: readonly string[]): boolean {
+    const flight = this.routeAmendmentFlight(id);
+    if (!flight) return false;
+    const candidate = this.routeClearanceCandidate(flight, fixIds);
+    if (!candidate) return false;
+    if (!candidate.clearance.safeToIssue) {
+      const reason = candidate.clearance.warnings.find((warning) => warning.severity === 'blocking')?.detail
+        ?? 'route preview contains a blocking conflict';
+      flight.navigation.routeClearance = {
+        ...candidate.clearance,
+        status: 'rejected',
+        respondedAtSeconds: this.state.elapsed,
+        reason,
+      };
+      flight.navigation.readbackStatus = 'rejected';
+      return this.rejectDecision(reason, flight);
+    }
+    const clearance: FlightRouteClearanceState = {
+      ...candidate.clearance,
+      status: 'accepted',
+      issuedAtSeconds: this.state.elapsed,
+      respondedAtSeconds: this.state.elapsed,
+      reason: 'atomic compatibility command accepted through the route safety preview',
+    };
+    return this.applyTerminalRouteAmendment(flight, candidate, clearance, true);
+  }
+
+  previewFlightRoute(id: number, fixIds: readonly string[]): boolean {
+    const flight = this.routeAmendmentFlight(id);
+    if (!flight) return false;
+    const candidate = this.routeClearanceCandidate(flight, fixIds);
+    if (!candidate) return false;
+    flight.navigation.routeClearance = candidate.clearance;
+    flight.navigation.readbackStatus = 'not-required';
+    const blocking = candidate.clearance.warnings.filter((warning) => warning.severity === 'blocking').length;
+    const cautions = candidate.clearance.warnings.length - blocking;
+    this.decisionReason = `${flight.callsign} route preview ready · ${blocking ? `${blocking} blocking` : 'safe to issue'}${cautions ? ` · ${cautions} caution${cautions === 1 ? '' : 's'}` : ''}`;
+    this.events.push({ type: 'route-preview', flight, detail: this.decisionReason });
+    return true;
+  }
+
+  issueFlightRoute(id: number, fixIds?: readonly string[]): boolean {
+    const flight = this.routeAmendmentFlight(id);
+    if (!flight) return false;
+    const existing = flight.navigation.routeClearance;
+    const requestedFixIds = fixIds ?? (existing?.status === 'preview' ? existing.routeFixIds : undefined);
+    if (!requestedFixIds) return this.rejectDecision('preview a route before issuing the amendment', flight);
+    const reusesPreview = existing?.status === 'preview'
+      && existing.routeFixIds.join('>') === requestedFixIds.join('>');
+    const candidate = this.routeClearanceCandidate(flight, requestedFixIds, reusesPreview ? existing.revision : undefined);
+    if (!candidate) return false;
+    const blocking = candidate.clearance.warnings.find((warning) => warning.severity === 'blocking');
+    if (blocking) {
+      flight.navigation.routeClearance = {
+        ...candidate.clearance,
+        status: 'rejected',
+        respondedAtSeconds: this.state.elapsed,
+        reason: blocking.detail,
+      };
+      flight.navigation.readbackStatus = 'rejected';
+      this.decisionReason = `${flight.callsign} route not issued · ${blocking.detail}`;
+      this.events.push({ type: 'route-readback-rejected', flight, detail: this.decisionReason });
+      return false;
+    }
+    const readbackDelay = 0.9 + flight.id % 5 * 0.18;
+    flight.navigation.routeClearance = {
+      ...candidate.clearance,
+      status: 'pending-readback',
+      issuedAtSeconds: this.state.elapsed,
+      readbackDueSeconds: this.state.elapsed + readbackDelay,
+      issuedBy: this.state.station,
+      reason: 'awaiting pilot readback',
+    };
+    flight.navigation.readbackStatus = 'pending';
+    this.metrics.manualCommands += 1;
+    this.decisionReason = `${flight.callsign} route issued · readback pending`;
+    this.events.push({ type: 'route-clearance-issued', flight, detail: this.decisionReason });
+    return true;
+  }
+
+  acceptRouteReadback(id: number): boolean {
+    if (!this.canIssue('approach')) return this.rejectDecision(`${this.state.station} station has no route-readback authority`);
+    const flight = this.state.flights.find((item) => item.id === id);
+    if (!flight) return this.rejectDecision('flight is not active');
+    if (!this.ownsFlight(flight)) return this.rejectDecision(`${this.state.station} does not own ${flight.callsign}; handoff required`, flight);
+    if (flight.navigation.routeClearance?.status !== 'pending-readback') {
+      return this.rejectDecision(`${flight.callsign} has no pending route readback`, flight);
+    }
+    return this.resolveRouteReadback(flight);
+  }
+
+  cancelFlightRouteClearance(id: number): boolean {
     if (!this.canIssue('approach')) return this.rejectDecision(`${this.state.station} station has no route-amendment authority`);
+    const flight = this.state.flights.find((item) => item.id === id);
+    if (!flight) return this.rejectDecision('flight is not active');
+    if (!this.ownsFlight(flight)) return this.rejectDecision(`${this.state.station} does not own ${flight.callsign}; handoff required`, flight);
+    const clearance = flight.navigation.routeClearance;
+    if (!clearance || (clearance.status !== 'preview' && clearance.status !== 'pending-readback')) {
+      return this.rejectDecision(`${flight.callsign} has no active route preview or readback`, flight);
+    }
+    this.supersedeActiveRouteClearance(flight, 'controller cancelled the proposed route');
+    this.decisionReason = `${flight.callsign} route proposal cancelled`;
+    return true;
+  }
+
+  private supersedeActiveRouteClearance(flight: Flight, reason: string): boolean {
+    const clearance = flight.navigation.routeClearance;
+    if (!clearance || (clearance.status !== 'preview' && clearance.status !== 'pending-readback')) return false;
+    flight.navigation.routeClearance = {
+      ...clearance,
+      status: 'cancelled',
+      respondedAtSeconds: this.state.elapsed,
+      reason,
+    };
+    flight.navigation.readbackStatus = 'not-required';
+    this.events.push({
+      type: 'route-clearance-cancelled',
+      flight,
+      detail: `${flight.callsign} route proposal cancelled · ${reason}`,
+    });
+    return true;
+  }
+
+  private routeAmendmentFlight(id: number): Flight | null {
+    if (!this.canIssue('approach')) {
+      this.rejectDecision(`${this.state.station} station has no route-amendment authority`);
+      return null;
+    }
     const flight = this.state.flights.find((item) => (
       item.id === id
       && !item.diversion
+      && !item.goAround
       && (item.phase === 'approach' || (item.phase === 'takeoff' && !item.motion.onGround))
     ));
-    if (!flight) return this.rejectDecision('flight is not airborne and available for a route amendment');
-    if (!this.ownsFlight(flight)) return this.rejectDecision(`${this.state.station} does not own ${flight.callsign}; handoff required`, flight);
-    if (flight.navigation.hold) return this.rejectDecision('release the aircraft from its hold before amending the route', flight);
-    if (flight.phase === 'approach' && flight.progress >= 0.7) return this.rejectDecision('aircraft is established too close to final for a route amendment', flight);
+    if (!flight) {
+      this.rejectDecision('flight is not airborne and available for a route amendment');
+      return null;
+    }
+    if (!this.ownsFlight(flight)) {
+      this.rejectDecision(`${this.state.station} does not own ${flight.callsign}; handoff required`, flight);
+      return null;
+    }
+    if (flight.navigation.hold) {
+      this.rejectDecision('release the aircraft from its hold before amending the route', flight);
+      return null;
+    }
+    if (flight.navigation.routeClearance?.status === 'pending-readback') {
+      this.rejectDecision('cancel or complete the pending route readback before issuing another amendment', flight);
+      return null;
+    }
+    if (flight.phase === 'approach' && flight.progress >= 0.7) {
+      this.rejectDecision('aircraft is established too close to final for a route amendment', flight);
+      return null;
+    }
+    return flight;
+  }
 
-    const direction = flight.phase === 'approach' ? 'arrival' : 'departure';
-    const procedure = this.config.airspaceProgram.procedures.find((candidate) => candidate.id === flight.navigation.procedureId);
-    if (!procedure) return this.rejectDecision(`assigned procedure ${flight.navigation.procedureId} is unavailable`, flight);
-    const permittedFixIds = new Set([
-      ...this.config.airspaceProgram.fixes.filter((fix) => fix.kind === 'entry').map((fix) => fix.id),
-      ...procedure.commonFixIds,
-      ...procedure.transitions.flatMap((transition) => transition.fixIds),
-    ]);
-    const requiredFinalFixId = direction === 'arrival'
-      ? [...procedure.commonFixIds].reverse().find((fixId) => this.config.airspaceProgram.fixes.find((fix) => fix.id === fixId)?.kind === 'final')
-      : undefined;
-    const validation = validateTerminalRouteAmendment(
-      this.config.airspaceProgram,
-      direction,
+  private routeClearanceCandidate(
+    flight: Flight,
+    fixIds: readonly string[],
+    revision = (flight.navigation.routeClearance?.revision ?? 0) + 1,
+  ): TerminalRouteClearanceCandidate | null {
+    const result = buildTerminalRouteClearancePreview(
+      this.config,
+      flight,
+      this.state.flights,
       fixIds,
-      permittedFixIds,
-      requiredFinalFixId,
+      separationRuleset(this.state.separationRuleset),
+      this.state.weather,
+      this.state.elapsed,
+      revision,
+      this.state.station,
     );
-    if (!validation.accepted) return this.rejectDecision(validation.reason, flight);
+    if (result.accepted) return result.value;
+    this.rejectDecision(result.reason, flight);
+    return null;
+  }
 
-    const routeFixIds = validation.value.map((fix) => fix.id);
-    const firstFix = validation.value[0];
+  private resolveRouteReadback(flight: Flight): boolean {
+    const pending = flight.navigation.routeClearance;
+    if (!pending || pending.status !== 'pending-readback') return false;
+    const result = buildTerminalRouteClearancePreview(
+      this.config,
+      flight,
+      this.state.flights,
+      pending.routeFixIds,
+      separationRuleset(this.state.separationRuleset),
+      this.state.weather,
+      this.state.elapsed,
+      pending.revision,
+      pending.issuedBy,
+    );
+    if (!result.accepted) return this.rejectRouteReadback(flight, pending, result.reason);
+    const blocking = result.value.clearance.warnings.find((warning) => warning.severity === 'blocking');
+    if (blocking) return this.rejectRouteReadback(flight, pending, `readback withheld: ${blocking.detail}`);
+    const clearance: FlightRouteClearanceState = {
+      ...result.value.clearance,
+      status: 'accepted',
+      previousRouteFixIds: [...pending.previousRouteFixIds],
+      previewedAtSeconds: pending.previewedAtSeconds,
+      issuedAtSeconds: pending.issuedAtSeconds,
+      readbackDueSeconds: pending.readbackDueSeconds,
+      respondedAtSeconds: this.state.elapsed,
+      issuedBy: pending.issuedBy,
+      reason: 'pilot readback accepted; amended route is authoritative',
+    };
+    flight.navigation.routeClearance = clearance;
+    flight.navigation.readbackStatus = 'accepted';
+    this.decisionReason = `${flight.callsign} readback correct`;
+    this.events.push({ type: 'route-readback-accepted', flight, detail: this.decisionReason });
+    return this.applyTerminalRouteAmendment(flight, result.value, clearance, false);
+  }
+
+  private rejectRouteReadback(
+    flight: Flight,
+    pending: FlightRouteClearanceState,
+    reason: string,
+  ): false {
+    flight.navigation.routeClearance = {
+      ...pending,
+      status: 'rejected',
+      respondedAtSeconds: this.state.elapsed,
+      safeToIssue: false,
+      reason,
+    };
+    flight.navigation.readbackStatus = 'rejected';
+    this.decisionReason = `${flight.callsign} route readback rejected · ${reason}`;
+    this.events.push({ type: 'route-readback-rejected', flight, detail: this.decisionReason });
+    return false;
+  }
+
+  private applyTerminalRouteAmendment(
+    flight: Flight,
+    candidate: TerminalRouteClearanceCandidate,
+    clearance: FlightRouteClearanceState,
+    countManualCommand: boolean,
+  ): true {
+    const direction = flight.phase === 'approach' ? 'arrival' : 'departure';
+    const routeFixIds = candidate.fixes.map((fix) => fix.id);
+    const firstFix = candidate.fixes[0];
     const heading = this.mathAngleToAviationDegrees(Math.atan2(firstFix.position[1] - flight.motion.y, firstFix.position[0] - flight.motion.x));
     flight.navigation.routeFixIds = routeFixIds;
     flight.navigation.activeFixIndex = 0;
@@ -848,12 +1056,13 @@ export class AirportSimulation {
     } else {
       flight.navigation.departureHeadingDegrees = heading;
     }
+    flight.navigation.routeClearance = clearance;
     flight.navigation.readbackStatus = 'accepted';
-    amendFlightPlan(flight.flightPlan, 'route-change', this.state.elapsed, `route amended via ${validation.value.map((fix) => fix.name).join(', ')}`, {
+    amendFlightPlan(flight.flightPlan, 'route-change', this.state.elapsed, `route amended via ${candidate.fixes.map((fix) => fix.name).join(', ')}`, {
       route: [flight.flightPlan.origin, ...routeFixIds, flight.flightPlan.destination],
     });
     this.state.trafficFlow.totals.routeAmendments += 1;
-    this.metrics.manualCommands += 1;
+    if (countManualCommand) this.metrics.manualCommands += 1;
     this.decisionReason = `${flight.callsign} route amendment accepted · ${routeFixIds.length} fixes`;
     this.events.push({ type: 'route-amendment', flight, detail: this.decisionReason });
     return true;
@@ -990,6 +1199,7 @@ export class AirportSimulation {
     );
     if (!exit.accepted) return this.rejectDecision(exit.reason, flight);
     const detail = reason.trim() || 'controller diversion';
+    this.supersedeActiveRouteClearance(flight, `superseded by diversion to ${alternate}`);
     flight.diversion = {
       airportCode: alternate,
       exitFixId: exit.value.id,
@@ -1051,6 +1261,7 @@ export class AirportSimulation {
     if (!pattern) return this.rejectDecision('no terminal holding pattern is available', flight);
     const efc = Math.max(1, Math.min(30, efcMinutes ?? pattern.defaultEfcMinutes));
     const altitude = Math.max(pattern.minimumAltitudeFt, Math.min(pattern.maximumAltitudeFt, flight.navigation.assignedAltitudeFt ?? Math.round(flight.kinematics.altitudeFt / 500) * 500));
+    this.supersedeActiveRouteClearance(flight, `superseded by hold ${pattern.name}`);
     flight.navigation.hold = {
       patternId: pattern.id,
       fixId: pattern.fixId,
@@ -1155,6 +1366,7 @@ export class AirportSimulation {
 
   private goAround(flight: Flight, detail: string): void {
     if (flight.goAround || flight.diversion) return;
+    this.supersedeActiveRouteClearance(flight, 'superseded by go-around clearance');
     const start = flight.motion;
     flight.goAround = {
       startedAt: this.state.elapsed,
@@ -1253,6 +1465,18 @@ export class AirportSimulation {
     this.seedInitialTraffic();
   }
 
+  private updateRouteReadbacks(): void {
+    for (const flight of this.state.flights) {
+      const clearance = flight.navigation.routeClearance;
+      if (
+        clearance?.status === 'pending-readback'
+        && this.state.elapsed + 1e-6 >= (clearance.readbackDueSeconds ?? Infinity)
+      ) {
+        this.resolveRouteReadback(flight);
+      }
+    }
+  }
+
   update(realDelta: number): void {
     if (this.state.gameOver || this.state.paused) return;
     const realStep = Math.min(realDelta, 0.1);
@@ -1265,6 +1489,7 @@ export class AirportSimulation {
     this.taxiOutReleaseIn = Math.max(0, this.taxiOutReleaseIn - delta);
     this.updateTrafficFlow();
     this.coordinateControllerStations();
+    this.updateRouteReadbacks();
     this.metrics.maxConcurrent = Math.max(this.metrics.maxConcurrent, this.state.flights.length);
     this.updateDeicingOperations(delta);
     this.coordinateAutomaticRunwayCrossings();

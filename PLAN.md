@@ -283,6 +283,16 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Apply airborne heading changes to departure climb geometry through a continuous vector bridge instead of changing telemetry alone.
 - [x] Expose command outcomes and new route, taxi, contact, hold, and diversion events through API 2.17 / snapshot schema 19; add a deterministic command-vocabulary gate covering acceptance, rejection, continuity, braking, ownership, and scope exit.
 
+## Airport Auto 2.18 — safe routes and responsive control surfaces
+
+- [x] Add a normal-UI route chooser with a quick safe suggestion plus alternative compatible transition/common-fix routes.
+- [x] Preview route geometry without mutating authoritative navigation, showing fix names, distance, estimated time, initial turn, and warning state both on the map and selected-flight panel.
+- [x] Forecast candidate routes against live airborne traffic on a shared 180-second physical time axis; block near-term separation losses and turns over 120 degrees while exposing later conflicts as cautions.
+- [x] Stage route issue, pending readback, deterministic pilot response, live-traffic revalidation, acceptance, rejection, cancellation, and supersession by direct-to, hold, go-around, or diversion.
+- [x] Keep the legacy atomic route command behind the same validation/safety arbiter; expose route state, warnings, provenance, commands, and typed events through API 2.18 / snapshot schema 20.
+- [x] Turn short-screen and browser-zoom laptop Controls into a two-column console with session settings and all primary controls above the fold, visible scrolling, predictable reopen-at-top behavior, and compact radar/queue docking.
+- [x] Cover 1366×768, 1280×720, 1024×600, 912×512, 800×500, and zoomed 700×500 layouts; keep the true narrow-phone layout independently usable.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.

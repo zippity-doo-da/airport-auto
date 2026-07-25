@@ -33,16 +33,29 @@ export function createAirspaceOverlay(config: AirportConfig): AirspaceOverlayRun
   buildFixLayer(config, layers['navigation-fixes']);
   buildProcedureLayer(config, layers.procedures);
 
+  const routePreviewLayer = new THREE.Group();
+  routePreviewLayer.name = 'airspace-route-previews';
+  root.add(routePreviewLayer);
   const routeVisuals = new Map<number, THREE.Line>();
+  const routePreviewVisuals = new Map<number, THREE.Line>();
   const separationVisuals = new Map<number, THREE.Line>();
   let updateIn = 0;
   let lastRouteKey = '';
+  let lastPreviewKey = '';
 
   const update = (state: AirportState, delta: number): void => {
-    if (!layers['flight-routes'].visible && !layers.separation.visible) return;
+    const previewFlights = state.flights.filter(hasRoutePreview);
+    if (!layers['flight-routes'].visible && !layers.separation.visible && !previewFlights.length && !routePreviewVisuals.size) return;
     updateIn -= delta;
     if (updateIn > 0) return;
     updateIn = 0.2;
+    const previewKey = previewFlights
+      .map((flight) => `${flight.id}:${flight.navigation.routeClearance?.revision}:${flight.navigation.routeClearance?.status}:${flight.navigation.routeClearance?.safeToIssue}:${flight.motion.x.toFixed(1)}:${flight.motion.y.toFixed(1)}`)
+      .join('|');
+    if (previewKey !== lastPreviewKey || (!previewFlights.length && routePreviewVisuals.size)) {
+      updateRoutePreviews(config, previewFlights, routePreviewLayer, routePreviewVisuals);
+      lastPreviewKey = previewKey;
+    }
     if (layers['flight-routes'].visible) {
       const key = state.flights
         .filter(isAirborne)
@@ -68,6 +81,7 @@ export function createAirspaceOverlay(config: AirportConfig): AirspaceOverlayRun
     dispose() {
       disposeObject(root);
       routeVisuals.clear();
+      routePreviewVisuals.clear();
       separationVisuals.clear();
     },
   };
@@ -149,6 +163,53 @@ function updateFlightRoutes(
     } else {
       visual.geometry.dispose();
       visual.geometry = new THREE.BufferGeometry().setFromPoints(points);
+      visual.computeLineDistances();
+    }
+  }
+  for (const [id, visual] of visuals) {
+    if (active.has(id)) continue;
+    group.remove(visual);
+    disposeObject(visual);
+    visuals.delete(id);
+  }
+}
+
+function updateRoutePreviews(
+  config: AirportConfig,
+  flights: Flight[],
+  group: THREE.Group,
+  visuals: Map<number, THREE.Line>,
+): void {
+  const active = new Set<number>();
+  for (const flight of flights) {
+    const clearance = flight.navigation.routeClearance!;
+    const fixes = clearance.routeFixIds
+      .map((id) => procedureFix(config.airspaceProgram, id))
+      .filter((fix): fix is NonNullable<typeof fix> => Boolean(fix));
+    if (!fixes.length) continue;
+    active.add(flight.id);
+    const points = [
+      new THREE.Vector3(flight.motion.x, flight.motion.y, 0.96),
+      ...fixes.map((fix) => new THREE.Vector3(fix.position[0], fix.position[1], 0.96)),
+    ];
+    const blocking = clearance.warnings.some((warning) => warning.severity === 'blocking');
+    const style = blocking ? 'blocking' : clearance.status === 'pending-readback' ? 'pending' : clearance.warnings.length ? 'warning' : 'safe';
+    const color = style === 'blocking' ? 0xef765f : style === 'safe' ? 0x8ed1dc : 0xefc775;
+    let visual = visuals.get(flight.id);
+    if (!visual || visual.userData.style !== style) {
+      if (visual) {
+        group.remove(visual);
+        disposeObject(visual);
+      }
+      visual = line(points, color, 0.92, true);
+      visual.name = `route-preview-${flight.id}`;
+      visual.userData.style = style;
+      visuals.set(flight.id, visual);
+      group.add(visual);
+    } else {
+      visual.geometry.dispose();
+      visual.geometry = new THREE.BufferGeometry().setFromPoints(points);
+      visual.computeLineDistances();
     }
   }
   for (const [id, visual] of visuals) {
@@ -233,6 +294,11 @@ function polygonCenter(points: Array<[number, number]>): [number, number] {
 
 function isAirborne(flight: Flight): boolean {
   return flight.phase === 'approach' || flight.phase === 'landing' || (flight.phase === 'takeoff' && !flight.motion.onGround);
+}
+
+function hasRoutePreview(flight: Flight): boolean {
+  const status = flight.navigation.routeClearance?.status;
+  return isAirborne(flight) && (status === 'preview' || status === 'pending-readback');
 }
 
 function disposeObject(object: THREE.Object3D): void {
