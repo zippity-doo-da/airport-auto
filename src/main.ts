@@ -347,7 +347,7 @@ const telemetryEnabled = launchOptions.get('telemetry') === '1';
 const debugEnabled = launchOptions.get('debug') === '1';
 const soakEnabled = launchOptions.get('soak') === '1';
 const requestedRenderFps = Number(launchOptions.get('renderFps') ?? 0);
-const minimumRenderInterval = Number.isFinite(requestedRenderFps) && requestedRenderFps >= 1 && requestedRenderFps < 60
+const minimumRenderInterval = Number.isFinite(requestedRenderFps) && requestedRenderFps >= 0.1 && requestedRenderFps < 60
   ? 1_000 / requestedRenderFps
   : 0;
 let lastWorldRender = -Infinity;

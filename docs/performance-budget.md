@@ -9,7 +9,7 @@ Airport Auto remains a TypeScript, Vite, and Three.js application. Profiling on 
 - ORD low detail must stay below 320 WebGL draw calls and 280 resident geometries in the browser regression gate.
 - Low detail uses a 1.0 device-pixel ratio cap, disables shadows, reduces decorative geometry, and is selected automatically for center-scale airports, viewports below 900 px wide or 760 px tall, and devices reporting 4 GB or less.
 - High detail caps device-pixel ratio at 1.5. A URL override (`detail=high` or `detail=low`) remains available for diagnostics.
-- Browser release tests use the explicit `renderFps=6` diagnostic cap so software WebGL cannot starve the unchanged 20 Hz authority clock; normal play remains display-rate uncapped.
+- Browser release tests use the explicit `renderFps=0.25` diagnostic cap so software WebGL cannot starve the unchanged 20 Hz authority clock; normal play remains display-rate uncapped.
 - The reproducible Extreme ORD 3× fixed-step profile should keep p95 simulation-tick time below 10 ms on the project development machine. Run `npm run profile:runtime`; this is a diagnostic rather than a hardware-independent CI assertion.
 - Common laptop viewports—1366×768, 1280×720, and 1024×600—must keep the Controls button and the entire scrollable controls surface inside the viewport. The browser suite verifies access to the final Advanced section at every size.
 

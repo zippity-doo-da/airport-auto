@@ -7,7 +7,7 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   // Chromium is much faster. Keep waits individually bounded while allowing
   // the complete release sequence to finish on the CI software renderer.
   test.setTimeout(600_000);
-  await page.goto('/?airport=ORD&mode=assisted&station=supervisor&autostart=1&detail=low&renderFps=6');
+  await page.goto('/?airport=ORD&mode=assisted&station=supervisor&autostart=1&detail=low&renderFps=0.25');
   await expect(page.locator('#airport-name')).toContainText('O’Hare');
   await expect(page.locator('#flight-strip-count')).toContainText('aircraft');
   await page.waitForFunction(() => window.airportControl?.version === '2.16.0');
@@ -495,7 +495,7 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
 test('Manual ORD supports live procedure control, ownership handoffs, and physical separation options', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chromium', 'The live ATC protocol is covered once in desktop Chromium.');
   test.setTimeout(120_000);
-  await page.goto('/?airport=ORD&mode=manual&station=approach&autostart=1&detail=low&renderFps=6');
+  await page.goto('/?airport=ORD&mode=manual&station=approach&autostart=1&detail=low&renderFps=0.25');
   await page.waitForFunction(() => window.airportControl?.version === '2.16.0');
   const arrival = await page.evaluate(() => window.airportControl.snapshot().flights.find((flight) => flight.phase === 'approach'));
   expect(arrival).toBeTruthy();
@@ -545,7 +545,7 @@ test('Manual ORD supports live procedure control, ownership handoffs, and physic
 test('ORD snow exposes the deicing route and holdover model in the normal UI', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chromium', 'Winter operations are viewport-independent and covered once in Chromium.');
   test.setTimeout(120_000);
-  await page.goto('/?airport=ORD&mode=auto&autostart=1&detail=low&weather=snow&windDir=270&wind=12&renderFps=6');
+  await page.goto('/?airport=ORD&mode=auto&autostart=1&detail=low&weather=snow&windDir=270&wind=12&renderFps=0.25');
   await page.waitForFunction(() => window.airportControl?.version === '2.16.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
@@ -597,7 +597,7 @@ test('ORD snow exposes the deicing route and holdover model in the normal UI', a
 test('Go-around climbs from the live pose and flies a visible missed-approach path', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chromium', 'The authoritative go-around is viewport-independent and covered once in Chromium.');
   test.setTimeout(120_000);
-  await page.goto('/?airport=ATL&mode=auto&autostart=1&detail=low&speed=3&renderFps=6');
+  await page.goto('/?airport=ATL&mode=auto&autostart=1&detail=low&speed=3&renderFps=0.25');
   await page.waitForFunction(() => window.airportControl?.version === '2.16.0');
   await page.waitForFunction(() => {
     const flight = window.airportControl.snapshot().flights.find((candidate) => candidate.phase === 'approach');
@@ -631,7 +631,7 @@ test('Go-around climbs from the live pose and flies a visible missed-approach pa
 test('Mobile Watch mode keeps non-ORD and procedural maps navigable in low detail', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'mobile-chromium', 'This test is the dedicated responsive/mobile browser gate.');
   test.setTimeout(120_000);
-  await page.goto('/?airport=ATL&mode=watch&autostart=1&detail=low&renderFps=6');
+  await page.goto('/?airport=ATL&mode=watch&autostart=1&detail=low&renderFps=0.25');
   await page.waitForFunction(() => window.airportControl?.version === '2.16.0');
   await expect(page.locator('body')).toHaveClass(/watch-mode/);
   await expect(page.locator('#menu-toggle')).toBeVisible();
@@ -694,7 +694,7 @@ test('Laptop viewports keep the complete controls menu reachable', async ({ page
   test.skip(testInfo.project.name !== 'desktop-chromium', 'Laptop viewport coverage runs once in desktop Chromium.');
   test.setTimeout(180_000);
   await page.setViewportSize({ width: 1024, height: 600 });
-  await page.goto('/?airport=ORD&detail=low&renderFps=6');
+  await page.goto('/?airport=ORD&detail=low&renderFps=0.25');
   await page.waitForFunction(() => window.airportControl?.version === '2.16.0');
   const introPanel = page.locator('#intro .intro__panel');
   const introBounds = await introPanel.evaluate((element) => {
@@ -708,7 +708,7 @@ test('Laptop viewports keep the complete controls menu reachable', async ({ page
   await introPanel.evaluate((element) => { element.scrollTop = element.scrollHeight; });
   await expect(page.locator('#enter')).toBeVisible();
 
-  await page.goto('/?airport=ORD&mode=auto&autostart=1&detail=low&renderFps=6');
+  await page.goto('/?airport=ORD&mode=auto&autostart=1&detail=low&renderFps=0.25');
   await page.waitForFunction(() => window.airportControl?.version === '2.16.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.drawCalls > 100);
   const renderBudget = await page.evaluate(() => window.airportControl.snapshot().renderer);
