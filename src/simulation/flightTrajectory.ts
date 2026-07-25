@@ -2,11 +2,17 @@ import type { AirportConfig, RunwayConfig } from './airportConfig';
 import { aircraftProfile, type AircraftModel } from './aircraftProfiles';
 import { WORLD_METERS_PER_UNIT } from './runwayPerformance';
 import type { Flight, FlightGoAroundState, FlightPhase, FlightRunwayExitState } from './types';
+import { procedureFix } from './airspaceProcedures';
 
 export type FlightTrajectoryStage =
   | 'edge-entry'
   | 'arrival-turn'
   | 'final'
+  | 'vector'
+  | 'hold-entry'
+  | 'hold-outbound'
+  | 'hold-turn'
+  | 'hold-inbound'
   | 'go-around-climb'
   | 'go-around-turn'
   | 'go-around-reentry'
@@ -72,6 +78,8 @@ const MAXIMUM_CLIMB_PITCH = 13.5 * DEGREES_TO_RADIANS;
 const ROTATION_LIFTOFF_HEIGHT = 0.12;
 const APPROACH_PATH_CACHE = new WeakMap<AirportConfig, Map<string, PreparedSmoothPath>>();
 const GO_AROUND_PATH_CACHE = new WeakMap<FlightGoAroundState, PreparedSmoothPath>();
+const VECTOR_PATH_CACHE = new WeakMap<NonNullable<Flight['navigation']['vector']>, PreparedSmoothPath>();
+const HOLD_PATH_CACHE = new WeakMap<NonNullable<Flight['navigation']['hold']>, PreparedSmoothPath>();
 
 export function phaseUsesFlightTrajectory(phase: FlightPhase): phase is 'approach' | 'landing' | 'takeoff' {
   return phase === 'approach' || phase === 'landing' || phase === 'takeoff';
@@ -83,6 +91,7 @@ export function sampleFlightTrajectory(
   progress = flight.progress,
 ): FlightTrajectorySample | null {
   const amount = clamp(progress, 0, 1);
+  if (flight.phase === 'approach' && flight.navigation?.hold) return sampleHoldingPattern(config, flight, amount);
   if (flight.phase === 'approach' && flight.goAround) return sampleGoAround(config, flight, amount);
   if (flight.phase === 'approach') return sampleApproach(config, flight, amount);
   if (flight.phase === 'landing') return sampleLanding(config, flight, amount);
@@ -154,7 +163,8 @@ export function departureTrajectoryTiming(
 }
 
 function sampleApproach(config: AirportConfig, flight: Flight, progress: number): FlightTrajectorySample {
-  const base = sampleApproachPath(config, flight, progress);
+  const planned = sampleApproachPath(config, flight, progress);
+  const base = sampleVector(config, flight, progress, planned);
   const patterned = applyControlPattern(config, flight, progress, base);
   const heading = Math.atan2(patterned.tangent.y, patterned.tangent.x);
   const before = sampleApproachPath(config, flight, clamp(progress - 0.006, 0, 1));
@@ -164,11 +174,17 @@ function sampleApproach(config: AirportConfig, flight: Flight, progress: number)
     Math.atan2(after.tangent.y, after.tangent.x),
   );
   const flare = smoothRange(progress, 0.82, 1);
-  const stage = progress < 0.3 ? 'edge-entry' : progress < 0.68 ? 'arrival-turn' : 'final';
+  const vector = flight.navigation?.vector;
+  const vectorActive = Boolean(vector
+    && progress >= vector.startProgress
+    && progress < vector.endProgress);
+  const stage = vectorActive ? 'vector' : progress < 0.3 ? 'edge-entry' : progress < 0.68 ? 'arrival-turn' : 'final';
   const stageProgress = stage === 'edge-entry'
     ? progress / 0.3
     : stage === 'arrival-turn'
       ? (progress - 0.3) / 0.38
+      : stage === 'vector'
+        ? (progress - vector!.startProgress) / Math.max(0.001, vector!.endProgress - vector!.startProgress)
       : (progress - 0.68) / 0.32;
   return {
     x: patterned.point.x,
@@ -199,26 +215,125 @@ function sampleApproachPath(config: AirportConfig, flight: Flight, progress: num
     airportPaths = new Map();
     APPROACH_PATH_CACHE.set(config, airportPaths);
   }
-  const cacheKey = `${runway.id}:${landingSign}:${lateralSign}:${altitudeLane}`;
+  const navigation = flight.navigation;
+  const cacheKey = `${navigation?.procedureId ?? 'legacy'}:${navigation?.transitionId ?? 'direct'}:${runway.id}:${landingSign}:${lateralSign}:${altitudeLane}`;
   let path = airportPaths.get(cacheKey);
   if (!path) {
     const startDistance = config.scope === 'center' ? 265 : 175;
     const lateral = config.scope === 'center' ? 12 : 38;
     const threshold = runwayEnd(runway, landingSign, 0, THRESHOLD_CROSSING_ALTITUDE);
-    path = prepareSmoothPath([
-      offset(runwayEnd(runway, landingSign, startDistance, approachAltitude(startDistance, altitudeLane * 4)), side, lateralSign * lateral),
-      offset(runwayEnd(runway, landingSign, startDistance * 0.82, approachAltitude(startDistance * 0.82, altitudeLane * 4)), side, lateralSign * lateral * 0.94),
-      offset(runwayEnd(runway, landingSign, startDistance * 0.62, approachAltitude(startDistance * 0.62, altitudeLane * 3.2)), side, lateralSign * lateral * 0.68),
-      offset(runwayEnd(runway, landingSign, startDistance * 0.43, approachAltitude(startDistance * 0.43, altitudeLane * 1.4)), side, lateralSign * lateral * 0.34),
-      offset(runwayEnd(runway, landingSign, startDistance * 0.31, approachAltitude(startDistance * 0.31, altitudeLane * 0.25)), side, lateralSign * lateral * 0.06),
-      runwayEnd(runway, landingSign, 44, approachAltitude(44)),
-      runwayEnd(runway, landingSign, 21, approachAltitude(21)),
-      runwayEnd(runway, landingSign, 8, approachAltitude(8)),
-      threshold,
-    ]);
+    const procedurePoints = (navigation?.routeFixIds ?? [])
+      .map((fixId) => procedureFix(config.airspaceProgram, fixId))
+      .filter((fix): fix is NonNullable<typeof fix> => Boolean(fix))
+      .map((fix) => ({
+        x: fix.position[0],
+        y: fix.position[1],
+        // Procedure constraints remain in physical feet for the ATC model.
+        // The miniature scene uses a deliberately compressed vertical scale,
+        // so follow the continuous visual glide envelope here instead of
+        // creating a steep last-second drop from a 500-foot constraint.
+        z: approachAltitude(Math.hypot(fix.position[0] - threshold.x, fix.position[1] - threshold.y)),
+      }));
+    path = prepareSmoothPath(procedurePoints.length >= 3
+      ? [...procedurePoints, runwayEnd(runway, landingSign, 21, approachAltitude(21)), runwayEnd(runway, landingSign, 8, approachAltitude(8)), threshold]
+      : [
+          offset(runwayEnd(runway, landingSign, startDistance, approachAltitude(startDistance, altitudeLane * 4)), side, lateralSign * lateral),
+          offset(runwayEnd(runway, landingSign, startDistance * 0.82, approachAltitude(startDistance * 0.82, altitudeLane * 4)), side, lateralSign * lateral * 0.94),
+          offset(runwayEnd(runway, landingSign, startDistance * 0.62, approachAltitude(startDistance * 0.62, altitudeLane * 3.2)), side, lateralSign * lateral * 0.68),
+          offset(runwayEnd(runway, landingSign, startDistance * 0.43, approachAltitude(startDistance * 0.43, altitudeLane * 1.4)), side, lateralSign * lateral * 0.34),
+          offset(runwayEnd(runway, landingSign, startDistance * 0.31, approachAltitude(startDistance * 0.31, altitudeLane * 0.25)), side, lateralSign * lateral * 0.06),
+          runwayEnd(runway, landingSign, 44, approachAltitude(44)),
+          runwayEnd(runway, landingSign, 21, approachAltitude(21)),
+          runwayEnd(runway, landingSign, 8, approachAltitude(8)),
+          threshold,
+        ]);
     airportPaths.set(cacheKey, path);
   }
   return samplePreparedSmoothPath(path, progress);
+}
+
+function sampleVector(config: AirportConfig, flight: Flight, progress: number, planned: PathSample): PathSample {
+  const vector = flight.navigation?.vector;
+  if (!vector || progress < vector.startProgress || progress >= vector.endProgress) return planned;
+  let path = VECTOR_PATH_CACHE.get(vector);
+  if (!path) {
+    const rejoin = sampleApproachPath(config, { ...flight, navigation: { ...flight.navigation, vector: undefined } }, vector.endProgress);
+    const beforeRejoin = sampleApproachPath(config, { ...flight, navigation: { ...flight.navigation, vector: undefined } }, Math.max(vector.startProgress, vector.endProgress - 0.045));
+    const heading = aviationDegreesToMathAngle(vector.headingDegrees);
+    const length = config.scope === 'center' ? 58 : 36;
+    const assignedAltitude = flight.navigation?.assignedAltitudeFt === undefined
+      ? vector.start.z
+      : altitudePresentation(flight.navigation.assignedAltitudeFt);
+    path = prepareSmoothPath([
+      { x: vector.start.x, y: vector.start.y, z: vector.start.z },
+      { x: vector.start.x + Math.cos(heading) * length * 0.42, y: vector.start.y + Math.sin(heading) * length * 0.42, z: lerp(vector.start.z, assignedAltitude, 0.7) },
+      { x: vector.start.x + Math.cos(heading) * length, y: vector.start.y + Math.sin(heading) * length, z: assignedAltitude },
+      beforeRejoin.point,
+      rejoin.point,
+    ]);
+    VECTOR_PATH_CACHE.set(vector, path);
+  }
+  const amount = clamp((progress - vector.startProgress) / Math.max(0.001, vector.endProgress - vector.startProgress), 0, 1);
+  const sampled = samplePreparedSmoothPath(path, amount);
+  const startDistance = sampleApproachPath(config, { ...flight, navigation: { ...flight.navigation, vector: undefined } }, vector.startProgress).distanceAlong;
+  const endDistance = sampleApproachPath(config, { ...flight, navigation: { ...flight.navigation, vector: undefined } }, vector.endProgress).distanceAlong;
+  return {
+    ...sampled,
+    distanceAlong: lerp(startDistance, endDistance, amount),
+    totalDistance: planned.totalDistance,
+  };
+}
+
+function sampleHoldingPattern(config: AirportConfig, flight: Flight, progress: number): FlightTrajectorySample {
+  const hold = flight.navigation.hold!;
+  let path = HOLD_PATH_CACHE.get(hold);
+  if (!path) {
+    const inbound = aviationDegreesToMathAngle(hold.inboundCourseDegrees);
+    const direction = { x: Math.cos(inbound), y: Math.sin(inbound) };
+    const sideSign = hold.turns === 'right' ? -1 : 1;
+    const side = { x: -direction.y * sideSign, y: direction.x * sideSign };
+    const legDistance = Math.max(config.scope === 'center' ? 34 : 24, aircraftProfile(flight.aircraft).approachKts * KNOT_TO_MPS * hold.legSeconds / WORLD_METERS_PER_UNIT);
+    const width = config.scope === 'center' ? 18 : 13;
+    const altitude = altitudePresentation(hold.altitudeFt);
+    const start = { x: hold.start.x, y: hold.start.y, z: hold.start.z };
+    path = prepareSmoothPath([
+      start,
+      { x: start.x + direction.x * legDistance * 0.45, y: start.y + direction.y * legDistance * 0.45, z: altitude },
+      { x: start.x + direction.x * legDistance, y: start.y + direction.y * legDistance, z: altitude },
+      { x: start.x + direction.x * legDistance + side.x * width, y: start.y + direction.y * legDistance + side.y * width, z: altitude },
+      { x: start.x + side.x * width, y: start.y + side.y * width, z: altitude },
+      start,
+    ]);
+    HOLD_PATH_CACHE.set(hold, path);
+  }
+  const sampled = samplePreparedSmoothPath(path, progress);
+  const before = samplePreparedSmoothPath(path, clamp(progress - 0.004, 0, 1));
+  const after = samplePreparedSmoothPath(path, clamp(progress + 0.004, 0, 1));
+  const turn = shortestAngle(Math.atan2(before.tangent.y, before.tangent.x), Math.atan2(after.tangent.y, after.tangent.x));
+  const stage: FlightTrajectoryStage = progress < 0.15
+    ? 'hold-entry'
+    : progress < 0.45
+      ? 'hold-outbound'
+      : progress < 0.72
+        ? 'hold-turn'
+        : 'hold-inbound';
+  const stageStart = stage === 'hold-entry' ? 0 : stage === 'hold-outbound' ? 0.15 : stage === 'hold-turn' ? 0.45 : 0.72;
+  const stageEnd = stage === 'hold-entry' ? 0.15 : stage === 'hold-outbound' ? 0.45 : stage === 'hold-turn' ? 0.72 : 1;
+  return {
+    x: sampled.point.x,
+    y: sampled.point.y,
+    z: sampled.point.z,
+    heading: Math.atan2(sampled.tangent.y, sampled.tangent.x),
+    pitch: 0,
+    bank: clamp(turn * 2.5, -0.2, 0.2),
+    onGround: false,
+    groundBlend: 0,
+    protectedRunway: false,
+    stage,
+    stageProgress: clamp((progress - stageStart) / (stageEnd - stageStart), 0, 1),
+    distanceAlong: sampled.distanceAlong,
+    totalDistance: sampled.totalDistance,
+  };
 }
 
 function applyControlPattern(
@@ -404,6 +519,18 @@ function sampleGoAround(config: AirportConfig, flight: Flight, progress: number)
       y: threshold.y + travel.y * (runway.length + (config.scope === 'center' ? 76 : 52)),
       z: climbHeight,
     };
+    const missedApproach = config.airspaceProgram.missedApproaches.find((candidate) => candidate.id === flight.navigation?.missedApproachId);
+    const missedRoute = (missedApproach?.fixIds ?? [])
+      .map((fixId) => procedureFix(config.airspaceProgram, fixId))
+      .filter((fix): fix is NonNullable<typeof fix> => Boolean(fix))
+      .map((fix) => {
+        const distanceFromThreshold = Math.hypot(fix.position[0] - threshold.x, fix.position[1] - threshold.y);
+        return {
+          x: fix.position[0],
+          y: fix.position[1],
+          z: Math.max(climbHeight, approachAltitude(distanceFromThreshold) + 6),
+        };
+      });
     const downwind = {
       x: threshold.x - travel.x * startDistance * 0.34 + side.x * circuitSide * circuitWidth,
       y: threshold.y - travel.y * startDistance * 0.34 + side.y * circuitSide * circuitWidth,
@@ -421,12 +548,16 @@ function sampleGoAround(config: AirportConfig, flight: Flight, progress: number)
         y: start.y + initialHeading.y * (config.scope === 'center' ? 48 : 34),
         z: Math.max(start.z + 8, 12),
       },
-      farEnd,
-      {
-        x: farEnd.x + travel.x * 34 + side.x * circuitSide * circuitWidth,
-        y: farEnd.y + travel.y * 34 + side.y * circuitSide * circuitWidth,
-        z: climbHeight + 5,
-      },
+      ...(missedRoute.length >= 2
+        ? missedRoute
+        : [
+            farEnd,
+            {
+              x: farEnd.x + travel.x * 34 + side.x * circuitSide * circuitWidth,
+              y: farEnd.y + travel.y * 34 + side.y * circuitSide * circuitWidth,
+              z: climbHeight + 5,
+            },
+          ]),
       downwind,
       beforeEntry,
       entry.point,
@@ -550,7 +681,29 @@ function sampleDeparture(config: AirportConfig, flight: Flight, progress: number
     stage = 'climbout';
   }
 
-  if (stage !== 'lineup') {
+  if (stage === 'climbout' && flight.navigation?.departureHeadingDegrees !== undefined) {
+    const start = {
+      x: threshold.x + travel.x * liftoffDistance,
+      y: threshold.y + travel.y * liftoffDistance,
+      z: RUNWAY_TRACK_ALTITUDE + ROTATION_LIFTOFF_HEIGHT,
+    };
+    const targetHeading = aviationDegreesToMathAngle(flight.navigation.departureHeadingDegrees);
+    const target = {
+      x: start.x + Math.cos(targetHeading) * (endDistance - liftoffDistance),
+      y: start.y + Math.sin(targetHeading) * (endDistance - liftoffDistance),
+      z,
+    };
+    const control = {
+      x: start.x + travel.x * (endDistance - liftoffDistance) * 0.52,
+      y: start.y + travel.y * (endDistance - liftoffDistance) * 0.52,
+      z: lerp(start.z, z, 0.52),
+    };
+    const point = quadraticPoint(start, control, target, stageProgress);
+    const tangent = quadraticTangent(start, control, target, stageProgress);
+    x = point.x;
+    y = point.y;
+    heading = Math.atan2(tangent.y, tangent.x);
+  } else if (stage !== 'lineup') {
     x = threshold.x + travel.x * distanceAlong;
     y = threshold.y + travel.y * distanceAlong;
     heading = Math.atan2(travel.y, travel.x);
@@ -636,37 +789,103 @@ function samplePreparedSmoothPath(path: PreparedSmoothPath, progress: number): P
 }
 
 function smoothPathPoint(points: Point3[], segment: number, amount: number): Point3 {
-  const p0 = points[Math.max(0, segment - 1)];
+  const p0 = segment > 0 ? points[segment - 1] : extrapolate(points[0], points[1]);
   const p1 = points[segment];
   const p2 = points[segment + 1];
-  const p3 = points[Math.min(points.length - 1, segment + 2)];
-  return catmullRom(p0, p1, p2, p3, amount);
+  const p3 = segment + 2 < points.length
+    ? points[segment + 2]
+    : extrapolate(points[points.length - 1], points[points.length - 2]);
+  return centripetalCatmullRom(p0, p1, p2, p3, amount);
 }
 
 function smoothPathTangent(points: Point3[], segment: number, amount: number): Point3 {
-  const p0 = points[Math.max(0, segment - 1)];
+  const p0 = segment > 0 ? points[segment - 1] : extrapolate(points[0], points[1]);
   const p1 = points[segment];
   const p2 = points[segment + 1];
-  const p3 = points[Math.min(points.length - 1, segment + 2)];
-  return catmullRomTangent(p0, p1, p2, p3, amount);
+  const p3 = segment + 2 < points.length
+    ? points[segment + 2]
+    : extrapolate(points[points.length - 1], points[points.length - 2]);
+  return centripetalCatmullRomTangent(p0, p1, p2, p3, amount);
 }
 
-function catmullRom(p0: Point3, p1: Point3, p2: Point3, p3: Point3, amount: number): Point3 {
-  const amount2 = amount * amount;
-  const amount3 = amount2 * amount;
+function extrapolate(point: Point3, neighbor: Point3): Point3 {
   return {
-    x: 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * amount + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * amount2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * amount3),
-    y: 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * amount + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * amount2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * amount3),
-    z: 0.5 * ((2 * p1.z) + (-p0.z + p2.z) * amount + (2 * p0.z - 5 * p1.z + 4 * p2.z - p3.z) * amount2 + (-p0.z + 3 * p1.z - 3 * p2.z + p3.z) * amount3),
+    x: point.x * 2 - neighbor.x,
+    y: point.y * 2 - neighbor.y,
+    z: point.z * 2 - neighbor.z,
   };
 }
 
-function catmullRomTangent(p0: Point3, p1: Point3, p2: Point3, p3: Point3, amount: number): Point3 {
-  const amount2 = amount * amount;
+function centripetalCatmullRom(p0: Point3, p1: Point3, p2: Point3, p3: Point3, amount: number): Point3 {
+  const u = clamp(amount, 0, 1);
+  const u2 = u * u;
+  const u3 = u2 * u;
+  const { first, second } = centripetalTangents(p0, p1, p2, p3);
+  return combineHermite(
+    p1,
+    first,
+    p2,
+    second,
+    2 * u3 - 3 * u2 + 1,
+    u3 - 2 * u2 + u,
+    -2 * u3 + 3 * u2,
+    u3 - u2,
+  );
+}
+
+function centripetalKnotDistance(first: Point3, second: Point3): number {
+  return Math.max(0.0001, Math.sqrt(distance(first, second)));
+}
+
+function centripetalCatmullRomTangent(p0: Point3, p1: Point3, p2: Point3, p3: Point3, amount: number): Point3 {
+  const u = clamp(amount, 0, 1);
+  const u2 = u * u;
+  const { first, second } = centripetalTangents(p0, p1, p2, p3);
+  return combineHermite(
+    p1,
+    first,
+    p2,
+    second,
+    6 * u2 - 6 * u,
+    3 * u2 - 4 * u + 1,
+    -6 * u2 + 6 * u,
+    3 * u2 - 2 * u,
+  );
+}
+
+function centripetalTangents(p0: Point3, p1: Point3, p2: Point3, p3: Point3): { first: Point3; second: Point3 } {
+  const dt10 = centripetalKnotDistance(p0, p1);
+  const dt21 = centripetalKnotDistance(p1, p2);
+  const dt32 = centripetalKnotDistance(p2, p3);
+  const dt20 = dt10 + dt21;
+  const dt31 = dt21 + dt32;
+  const component = (a0: number, a1: number, a2: number, a3: number): [number, number] => [
+    dt21 * ((a1 - a0) / dt10 - (a2 - a0) / dt20 + (a2 - a1) / dt21),
+    dt21 * ((a2 - a1) / dt21 - (a3 - a1) / dt31 + (a3 - a2) / dt32),
+  ];
+  const [firstX, secondX] = component(p0.x, p1.x, p2.x, p3.x);
+  const [firstY, secondY] = component(p0.y, p1.y, p2.y, p3.y);
+  const [firstZ, secondZ] = component(p0.z, p1.z, p2.z, p3.z);
   return {
-    x: 0.5 * ((-p0.x + p2.x) + 2 * (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * amount + 3 * (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * amount2),
-    y: 0.5 * ((-p0.y + p2.y) + 2 * (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * amount + 3 * (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * amount2),
-    z: 0.5 * ((-p0.z + p2.z) + 2 * (2 * p0.z - 5 * p1.z + 4 * p2.z - p3.z) * amount + 3 * (-p0.z + 3 * p1.z - 3 * p2.z + p3.z) * amount2),
+    first: { x: firstX, y: firstY, z: firstZ },
+    second: { x: secondX, y: secondY, z: secondZ },
+  };
+}
+
+function combineHermite(
+  p1: Point3,
+  m1: Point3,
+  p2: Point3,
+  m2: Point3,
+  p1Weight: number,
+  m1Weight: number,
+  p2Weight: number,
+  m2Weight: number,
+): Point3 {
+  return {
+    x: p1.x * p1Weight + m1.x * m1Weight + p2.x * p2Weight + m2.x * m2Weight,
+    y: p1.y * p1Weight + m1.y * m1Weight + p2.y * p2Weight + m2.y * m2Weight,
+    z: p1.z * p1Weight + m1.z * m1Weight + p2.z * p2Weight + m2.z * m2Weight,
   };
 }
 
@@ -690,6 +909,14 @@ function runwayEnd(runway: RunwayConfig, sign: number, beyond: number, z: number
 
 function approachAltitude(distanceFromThreshold: number, laneOffset = 0): number {
   return THRESHOLD_CROSSING_ALTITUDE + Math.max(0, distanceFromThreshold) * FINAL_GLIDE_SLOPE + laneOffset;
+}
+
+function altitudePresentation(altitudeFt: number): number {
+  return 4.2 + Math.max(0, altitudeFt - 50) / 100;
+}
+
+function aviationDegreesToMathAngle(degrees: number): number {
+  return (90 - degrees) * DEGREES_TO_RADIANS;
 }
 
 function runwaySurfacePoint(

@@ -241,6 +241,23 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Expose density in the normal Controls and intro setup, `?density=`, `setTrafficDensity`, snapshot schema 16, API 2.14, flight strips, and the compressed-bank/flow readout.
 - [x] Bound flow history and per-aircraft plan history; validate five densities, 11 airport programs, 1,760 deterministic airline/fleet selections, complete plans, all flow transitions, a 12-hour compressed ORD session, new flight creation beyond the startup bank, physical stand exclusivity, and zero collisions/incursions.
 
+## Airport Auto 2.15 — terminal procedures and physical separation
+
+- [x] Give every hub and generated local field a versioned, explicitly non-navigational terminal program containing entry and transition fixes, airways, sectors, SIDs, STARs, crossing constraints, holds, missed approaches, and source/disclaimer metadata.
+- [x] Select procedures deterministically by runway, operating end, runway configuration, weather, and flight identity; store the complete selection in flight-plan schema 2 and navigation state for replay/API fidelity.
+- [x] Make the selected STAR geometry authoritative from the edge of the map through downwind, base, intercept, and final; use runway-specific gateway lanes and a centripetal path so no route splices into another runway or introduces a hairpin turn.
+- [x] Add live heading, altitude, speed, direct-to, approach, hold/EFC, hold-release/rejoin, and handoff commands with continuous motion, plan amendments, structured results, and one shared safety/authority path for UI and API clients.
+- [x] Fly selected missed-approach fixes during a go-around and selected SID headings after liftoff, preserving the full runway roll, nose-up rotation, climb restriction, and departure handoff point.
+- [x] Make Approach, Tower, and Ground authority distinct for the new command loop; enforce per-flight frequency ownership, require explicit handoffs, retain Supervisor override, and expose ownership/readback state in the normal selected-flight panel.
+- [x] Add optional terminal-sector, navigation-fix, SID/STAR, active-route, and separation-ring layers. They default hidden—including Watch mode—and use the same authoritative procedure and aircraft state as telemetry.
+- [x] Add Forgiving and FAA-inspired terminal separation rulesets in physical nautical miles, feet, and seconds; explicitly label the Light/Medium/Heavy wake grouping as simplified rather than CWT/RECAT.
+- [x] Model same, opposite-direction, intersecting, converging, close-parallel, and independent-parallel runway relationships, time-based arrival/departure/wake release, and weather/configuration capacity effects.
+- [x] Add modeled cloud ceiling alongside visibility, wind, gusts, surface condition, and temperature; use ceiling/visibility for degraded radar minima and instrument-parallel eligibility and show the active values in the normal HUD/API.
+- [x] Record runway departure occupancy only when takeoff is cleared/committed, preventing a lined-up aircraft from blocking its own clearance while retaining a bounded causal operation history.
+- [x] Process winter holdover expiry before wake/configuration/runway-release gating so an expired aircraft immediately receives a graph-routed second treatment cycle instead of remaining stranded at hold short.
+- [x] API 2.15 / snapshot schema 17 exposes the full airspace program, per-flight navigation state, active separation ruleset, physical coordinate basis, runway-operation history, and violation diagnostics.
+- [x] Validate 74 airports, 3,562 fixes, 660 procedures, 1,571 configuration/weather selections, 296 holds, 330 missed approaches, live ATC authority/continuity, physical separation rules, 57,644 fixed-step ticks, 919,530 trajectory samples, 225,000 collision ticks, the second deicing cycle, selected missed-approach fixes, deterministic twin runs, and applicable desktop/mobile Chromium UI/API flows with fresh screenshot review.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.

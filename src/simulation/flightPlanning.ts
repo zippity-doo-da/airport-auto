@@ -2,6 +2,7 @@ import type { AircraftModel } from './aircraftProfiles';
 import type { AirlineCode } from './airlineProfiles';
 import type { OperationTrafficClass } from './airportOperationProfiles';
 import type { FlightGateAssignment, FlightPlan, FlightPlanAmendmentKind } from './types';
+import type { SelectedTerminalProcedure } from './airspaceProcedures';
 
 export interface FlightPlanInput {
   flightId: number;
@@ -9,7 +10,8 @@ export interface FlightPlanInput {
   direction: FlightPlan['direction'];
   origin: string;
   destination: string;
-  procedure: string;
+  procedureSelection: SelectedTerminalProcedure;
+  procedureDataVersion: string;
   airline: AirlineCode;
   aircraft: AircraftModel;
   trafficClass: OperationTrafficClass;
@@ -24,17 +26,29 @@ export interface FlightPlanInput {
 }
 
 export function createFlightPlan(input: FlightPlanInput): FlightPlan {
+  const selected = input.procedureSelection;
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: `FP-${input.flightId}-${input.legNumber}`,
     revision: 1,
     status: input.scheduledReleaseSeconds > input.createdAtSeconds ? 'scheduled' : 'active',
     direction: input.direction,
     origin: input.origin,
     destination: input.destination,
-    route: schematicRoute(input.origin, input.destination, input.flightId + input.legNumber, input.airportSeed),
-    routeKind: 'schematic-direct',
-    procedure: input.procedure,
+    route: [input.origin, ...selected.routeFixIds, input.destination],
+    routeKind: 'schematic-procedure',
+    procedure: selected.procedure.name,
+    procedureProfile: {
+      dataVersion: input.procedureDataVersion,
+      id: selected.procedure.id,
+      kind: selected.procedure.kind,
+      revision: selected.procedure.revision,
+      transitionId: selected.transition.id,
+      transitionName: selected.transition.name,
+      routeFixIds: [...selected.routeFixIds],
+      constraints: selected.procedure.constraints.map((constraint) => ({ ...constraint })),
+      nonNavigational: true,
+    },
     airline: input.airline,
     aircraft: input.aircraft,
     trafficClass: input.trafficClass,
@@ -59,6 +73,8 @@ export function amendFlightPlan(
   changes: Partial<Pick<FlightPlan, 'origin' | 'destination' | 'route' | 'procedure' | 'scheduledReleaseSeconds' | 'estimatedArrivalSeconds'>> & {
     gateAssignment?: FlightGateAssignment;
     runwayIntent?: FlightPlan['runwayIntent'];
+    procedureSelection?: SelectedTerminalProcedure;
+    procedureDataVersion?: string;
   } = {},
 ): void {
   plan.revision += 1;
@@ -66,6 +82,22 @@ export function amendFlightPlan(
   if (changes.destination !== undefined) plan.destination = changes.destination;
   if (changes.route !== undefined) plan.route = [...changes.route];
   if (changes.procedure !== undefined) plan.procedure = changes.procedure;
+  if (changes.procedureSelection) {
+    const selected = changes.procedureSelection;
+    plan.procedure = selected.procedure.name;
+    plan.procedureProfile = {
+      dataVersion: changes.procedureDataVersion ?? plan.procedureProfile.dataVersion,
+      id: selected.procedure.id,
+      kind: selected.procedure.kind,
+      revision: selected.procedure.revision,
+      transitionId: selected.transition.id,
+      transitionName: selected.transition.name,
+      routeFixIds: [...selected.routeFixIds],
+      constraints: selected.procedure.constraints.map((constraint) => ({ ...constraint })),
+      nonNavigational: true,
+    };
+    plan.route = [plan.origin, ...selected.routeFixIds, plan.destination];
+  }
   if (changes.scheduledReleaseSeconds !== undefined) plan.scheduledReleaseSeconds = changes.scheduledReleaseSeconds;
   if (changes.estimatedArrivalSeconds !== undefined) plan.estimatedArrivalSeconds = changes.estimatedArrivalSeconds;
   if (changes.gateAssignment) plan.gateIntent = gateIntent(changes.gateAssignment);
@@ -89,6 +121,11 @@ export function cloneFlightPlan(plan: FlightPlan): FlightPlan {
   return {
     ...plan,
     route: [...plan.route],
+    procedureProfile: {
+      ...plan.procedureProfile,
+      routeFixIds: [...plan.procedureProfile.routeFixIds],
+      constraints: plan.procedureProfile.constraints.map((constraint) => ({ ...constraint })),
+    },
     gateIntent: { ...plan.gateIntent },
     runwayIntent: { ...plan.runwayIntent },
     amendments: plan.amendments.map((amendment) => ({ ...amendment })),
@@ -102,18 +139,4 @@ function gateIntent(assignment: FlightGateAssignment): FlightPlan['gateIntent'] 
     terminalId: assignment.terminalId,
     concourse: assignment.concourse,
   };
-}
-
-function schematicRoute(origin: string, destination: string, id: number, seed: number): string[] {
-  const corridors = ['NORTH', 'NORTHEAST', 'EAST', 'SOUTHEAST', 'SOUTH', 'SOUTHWEST', 'WEST', 'NORTHWEST', 'OCEANIC'];
-  const value = deterministicUnit(id, seed);
-  const corridor = corridors[Math.floor(value * corridors.length) % corridors.length];
-  return [origin, `${corridor}-CORRIDOR`, destination];
-}
-
-function deterministicUnit(id: number, seed: number): number {
-  let value = (Math.imul(id, 0x9e3779b1) ^ seed ^ 0x6d2b79f5) >>> 0;
-  value = Math.imul(value ^ (value >>> 15), value | 1) >>> 0;
-  value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
-  return ((value ^ (value >>> 14)) >>> 0) / 0x1_0000_0000;
 }

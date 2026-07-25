@@ -1,7 +1,7 @@
 # Airport Auto — Forward Roadmap
 
 Last reconciled: July 24, 2026
-Baseline: Airport Auto 2.14.0
+Baseline: Airport Auto 2.15.0
 
 Airport Auto is an **ASMR-first web airport simulation with an optional serious ATC layer**. The simulation should remain enjoyable as a calm, hands-off miniature world while also supporting increasingly authentic controller work when the player asks for it.
 
@@ -95,20 +95,24 @@ Move from plausible continuous traffic to an explainable hub operation.
 
 ### Airspace and procedures
 
-- [ ] Add versioned, non-navigational fixes, airways, terminal sectors, and altitude/speed constraints.
-- [ ] Add airport-specific SID and STAR procedure profiles with transitions, runway compatibility, and weather/configuration selection.
-- [ ] Add vectors, extended downwinds, base turns, intercept geometry, speed control, altitude assignments, and approach clearances.
-- [ ] Add published-style holding patterns, expect-further-clearance timing, missed-approach paths, and safe re-entry into the arrival sequence.
-- [ ] Add departure headings, initial climbs, handoff points, and climb restrictions instead of a single generic climb-out.
-- [ ] Add optional airspace, fix, procedure, route, and separation overlays that stay hidden in Watch mode by default.
+**Status: complete in 2.15.** Every airport now receives a versioned, explicitly non-navigational terminal program; authoritative trajectories, the normal UI, recordings, and API consume the same selected procedure and controller amendments.
+
+- [x] Add versioned, non-navigational fixes, airways, terminal sectors, and altitude/speed constraints.
+- [x] Add airport-specific SID and STAR procedure profiles with transitions, runway compatibility, and weather/configuration selection.
+- [x] Add vectors, extended downwinds, base turns, intercept geometry, speed control, altitude assignments, and approach clearances.
+- [x] Add published-style holding patterns, expect-further-clearance timing, missed-approach paths, and safe re-entry into the arrival sequence.
+- [x] Add departure headings, initial climbs, handoff points, and climb restrictions instead of a single generic climb-out.
+- [x] Add optional airspace, fix, procedure, route, and separation overlays that stay hidden in Watch mode by default.
 
 ### Physical separation model
 
-- [ ] Replace compressed game-scale airborne buffers with configurable physical distance/time rules.
-- [ ] Adopt documented aircraft wake categories—such as current CWT/RECAT-style groups—or clearly label a simplified ruleset.
-- [ ] Model arrival, departure, opposite-direction, intersection-departure, converging-runway, and closely-spaced-parallel constraints.
-- [ ] Tie visibility, ceiling, wind, runway condition, aircraft category, and airport configuration to applicable separation and capacity.
-- [ ] Keep a forgiving game ruleset available, but display which ruleset is active and never mix its units with realistic telemetry.
+**Status: complete in 2.15.** Physical NM/ft/time rules now sit above the renderer-independent collision envelope, with an explicit forgiving default and an opt-in FAA-inspired terminal ruleset. The wake model remains deliberately simplified and is labeled as such throughout the UI/API.
+
+- [x] Replace compressed game-scale airborne buffers with configurable physical distance/time rules.
+- [x] Adopt documented aircraft wake categories—such as current CWT/RECAT-style groups—or clearly label a simplified ruleset.
+- [x] Model arrival, departure, opposite-direction, intersection-departure, converging-runway, and closely-spaced-parallel constraints.
+- [x] Tie visibility, ceiling, wind, runway condition, aircraft category, and airport configuration to applicable separation and capacity.
+- [x] Keep a forgiving game ruleset available, but display which ruleset is active and never mix its units with realistic telemetry.
 
 ## Milestone 4 — Serious ATC game loop
 
@@ -209,7 +213,7 @@ These tasks travel with the milestones above rather than waiting for a final cle
 ## Decisions still needed
 
 - [x] Choose the first import sources and fidelity boundary for ORD Surface Graph v1.
-- [ ] Choose whether “realistic separation” is the default ATC ruleset or an opt-in difficulty level.
+- [x] Keep Forgiving ATC as the default ASMR/game ruleset and offer FAA-inspired terminal separation as an explicit opt-in.
 - [ ] Decide whether ATC voice should remain captions, use licensed recordings, use generated speech, or offer several options.
 - [ ] Choose the hosting and identity model for authenticated remote/multi-controller sessions.
 - [ ] Decide which telemetry may appear in shared replays and which must remain local.

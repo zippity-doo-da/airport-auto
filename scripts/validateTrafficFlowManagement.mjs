@@ -1,7 +1,7 @@
 import { build } from 'esbuild';
 
 const validationSource = `
-import { HUB_AIRPORTS } from './src/simulation/airportConfig.ts';
+import { generateHubConfig, HUB_AIRPORTS } from './src/simulation/airportConfig.ts';
 import { AIRCRAFT_PROFILES } from './src/simulation/aircraftProfiles.ts';
 import { airportTrafficProgram, selectTrafficProgram } from './src/simulation/airportTrafficPrograms.ts';
 import { buildAirportOperationProfile } from './src/simulation/airportOperationProfiles.ts';
@@ -17,6 +17,7 @@ import {
 } from './src/simulation/trafficFlowManagement.ts';
 import { amendFlightPlan, createFlightPlan } from './src/simulation/flightPlanning.ts';
 import { createHubSimulationHarness } from './src/simulation/fixedStepHarness.ts';
+import { selectTerminalProcedure } from './src/simulation/airspaceProcedures.ts';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -85,13 +86,25 @@ const gateAssignment = {
   assignedAtSeconds: 0, scheduledGateInSeconds: 20, scheduledDepartureSeconds: 80, nextDestination: 'ORD', departureRunway: 1,
   airlineFit: 'preferred', serviceFit: 'preferred', arrivalRouteDistance: 1, departureRouteDistance: 1, score: 1, rationale: ['test'], revision: 0,
 };
-const plan = createFlightPlan({
-  flightId: 7, legNumber: 1, direction: 'arrival', origin: 'DFW', destination: 'ORD', procedure: 'ORD schematic arrival',
-  airline: 'AA', aircraft: 'B738', trafficClass: 'passenger', gateAssignment, runwayId: 1, operatingEnd: -1,
-  runwayDesignation: '09C', createdAtSeconds: 0, scheduledReleaseSeconds: 0, estimatedArrivalSeconds: 60, airportSeed: 10004,
+const ordConfig = generateHubConfig(HUB_AIRPORTS.findIndex((airport) => airport.code === 'ORD'));
+const planRunway = ordConfig.runways[0];
+const planProcedure = selectTerminalProcedure(ordConfig.airspaceProgram, {
+  kind: 'STAR',
+  runwayId: planRunway.id,
+  operatingEnd: planRunway.landingEnd,
+  configurationId: ordConfig.defaultRunwayConfigurationId,
+  condition: 'clear',
+  flightId: 7,
 });
-assert(plan.route.length === 3 && plan.origin === 'DFW' && plan.destination === 'ORD', 'complete flight plan lost its route or endpoints');
-assert(plan.gateIntent.standId === 'TEST-STAND' && plan.runwayIntent.designation === '09C', 'complete flight plan lost gate/runway intent');
+const plan = createFlightPlan({
+  flightId: 7, legNumber: 1, direction: 'arrival', origin: 'DFW', destination: 'ORD',
+  procedureSelection: planProcedure, procedureDataVersion: ordConfig.airspaceProgram.dataVersion,
+  airline: 'AA', aircraft: 'B738', trafficClass: 'passenger', gateAssignment, runwayId: planRunway.id, operatingEnd: planRunway.landingEnd,
+  runwayDesignation: planProcedure.procedure.runwayDesignation, createdAtSeconds: 0, scheduledReleaseSeconds: 0, estimatedArrivalSeconds: 60, airportSeed: 10004,
+});
+assert(plan.schemaVersion === 2 && plan.routeKind === 'schematic-procedure' && plan.route.length >= 6 && plan.origin === 'DFW' && plan.destination === 'ORD', 'complete flight plan lost its procedure route or endpoints');
+assert(plan.procedureProfile.dataVersion === ordConfig.airspaceProgram.dataVersion && plan.procedureProfile.nonNavigational && plan.procedureProfile.constraints.length >= 4, 'complete flight plan lost its versioned procedure profile');
+assert(plan.gateIntent.standId === 'TEST-STAND' && plan.runwayIntent.designation === planProcedure.procedure.runwayDesignation, 'complete flight plan lost gate/runway intent');
 amendFlightPlan(plan, 'runway-change', 12, 'configuration change', { runwayIntent: { runwayId: 2, operatingEnd: 1, designation: '27R' } });
 assert(plan.revision === 2 && plan.amendments.at(-1)?.kind === 'runway-change' && plan.runwayIntent.designation === '27R', 'flight-plan amendment was not recorded');
 totals.completePlans += 1;

@@ -11,6 +11,7 @@ import {
 import { runwaySupportsAircraft } from './src/simulation/runwayPerformance.ts';
 import { surfaceRouteForFlight } from './src/simulation/surfaceGraph.ts';
 import { FixedStepSimulationHarness } from './src/simulation/fixedStepHarness.ts';
+import { selectTerminalProcedure } from './src/simulation/airspaceProcedures.ts';
 import { applyAircraftOrientation } from './src/render/aircraftOrientation.ts';
 import * as THREE from 'three';
 
@@ -32,6 +33,14 @@ function angleDifference(first, second) {
 
 function makeFlight(config, runway, aircraft, phase, id) {
   const profile = aircraftProfile(aircraft);
+  const procedure = selectTerminalProcedure(config.airspaceProgram, {
+    kind: phase === 'takeoff' ? 'SID' : 'STAR',
+    runwayId: runway.id,
+    operatingEnd: runway.landingEnd,
+    configurationId: config.defaultRunwayConfigurationId,
+    condition: 'clear',
+    flightId: id,
+  });
   return {
     id,
     runway: runway.id,
@@ -45,6 +54,22 @@ function makeFlight(config, runway, aircraft, phase, id) {
     aircraft,
     controlPattern: undefined,
     controlPatternStart: undefined,
+    navigation: {
+      schemaVersion: 1,
+      procedureDataVersion: config.airspaceProgram.dataVersion,
+      procedureId: procedure.procedure.id,
+      transitionId: procedure.transition.id,
+      routeFixIds: [...procedure.routeFixIds],
+      activeFixIndex: 0,
+      approachCleared: true,
+      departureHeadingDegrees: procedure.procedure.initialHeadingDegrees,
+      initialClimbAltitudeFt: procedure.procedure.initialClimbAltitudeFt,
+      handoffFixId: procedure.procedure.handoffFixId,
+      frequencyOwner: phase === 'takeoff' ? 'tower' : 'approach',
+      handoffStatus: 'owned',
+      readbackStatus: 'not-required',
+      missedApproachId: procedure.procedure.missedApproachId,
+    },
     kinematics: {
       airspeedKts: profile.approachKts,
       groundSpeedKts: profile.approachKts,
@@ -203,10 +228,10 @@ for (const config of configs) {
         if (sample.stage === 'climbout') sawClimb = true;
         if (!sample.onGround && liftoffIndex < 0) liftoffIndex = index;
         if (index > 0) assert(horizontalDistance(departureSamples[index - 1], sample) > 1e-7, config.code + ' runway ' + runway.id + ': departure paused at sample ' + index);
-        if (sample.stage !== 'lineup') {
+        if (sample.stage === 'takeoff-roll' || sample.stage === 'rotation') {
           const direction = { x: Math.cos(runway.heading), y: Math.sin(runway.heading) };
           const lateral = Math.abs((sample.x - runway.center[0]) * -direction.y + (sample.y - runway.center[1]) * direction.x);
-          assert(lateral < 1e-6, config.code + ' runway ' + runway.id + ': departure left the runway centerline after lineup');
+          assert(lateral < 1e-6, config.code + ' runway ' + runway.id + ': departure left the runway centerline before liftoff');
         }
         if (index > 0 && !sample.onGround && (sample.stage === 'rotation' || sample.stage === 'climbout')) {
           const previous = departureSamples[index - 1];
@@ -267,10 +292,17 @@ assert(new Set(goAroundSamples.map((sample) => sample.stage)).has('go-around-tur
 assert(new Set(goAroundSamples.map((sample) => sample.stage)).has('go-around-reentry'), 'ORD go-around omitted arrival re-entry');
 assert(Math.max(...goAroundSamples.map((sample) => sample.z)) >= goAroundStart.z + 12, 'ORD go-around did not climb');
 assert(Math.max(...goAroundSamples.map((sample) => sample.pitch)) >= THREE.MathUtils.degToRad(10), 'ORD go-around never established a nose-up climb attitude');
+const missedApproach = ordConfig.airspaceProgram.missedApproaches.find((candidate) => candidate.id === goAroundFlight.navigation.missedApproachId);
+assert(missedApproach, 'ORD go-around has no selected missed-approach profile');
+for (const fixId of missedApproach.fixIds) {
+  const fix = ordConfig.airspaceProgram.fixes.find((candidate) => candidate.id === fixId);
+  assert(fix && Math.min(...goAroundSamples.map((sample) => Math.hypot(sample.x - fix.position[0], sample.y - fix.position[1]))) < 3, 'ORD go-around did not fly its selected missed-approach fix ' + fixId);
+  totals.goAroundChecks += 1;
+}
 delete goAroundFlight.goAround;
 const normalReentry = sampleFlightTrajectory(ordConfig, goAroundFlight, 0);
 assert(normalReentry && distance(normalReentry, goAroundSamples.at(-1)) < 1e-8, 'ORD go-around did not rejoin the normal approach continuously');
-totals.goAroundChecks += 7;
+totals.goAroundChecks += 8;
 const liveHarness = new FixedStepSimulationHarness(ordConfig, { stepSeconds: 0.05, pace: 3, scenario: 'rush', density: 'rush' });
 const previousMotion = new Map();
 const seenStages = new Set();

@@ -9,13 +9,25 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await page.goto('/?airport=ORD&mode=assisted&station=supervisor&autostart=1&detail=low');
   await expect(page.locator('#airport-name')).toContainText('O’Hare');
   await expect(page.locator('#flight-strip-count')).toContainText('aircraft');
-  await page.waitForFunction(() => window.airportControl?.version === '2.14.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.15.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
-  expect(initial.schemaVersion).toBe(16);
+  expect(initial.schemaVersion).toBe(17);
   expect(initial.mode).toBe('assisted');
   expect(initial.airport.code).toBe('ORD');
+  expect(initial.airport.airspaceProgram).toMatchObject({
+    schemaVersion: 1,
+    dataVersion: 'airport-auto-schematic-ord-2026.07',
+    nonNavigational: true,
+    counts: { procedures: 32, holds: 4, missedApproaches: 16, sectors: 4 },
+  });
+  expect(initial.airport.airspaceProgram.disclaimer).toContain('never for navigation');
+  expect(initial.airport.airspaceProgram.sources.every((source) => source.url.startsWith('https://www.faa.gov/'))).toBeTruthy();
+  expect(initial.separationRuleset).toMatchObject({
+    ruleset: { id: 'forgiving', physicalUnits: true },
+    coordinateBasis: expect.stringContaining('metres'),
+  });
   expect(initial.operations.profile).toMatchObject({ airportCode: 'ORD', archetype: 'hub-banked', schemaVersion: 1 });
   expect(initial.operations.current).toMatchObject({ periodId: 'morning-departure' });
   expect(initial.operations.current.localTime).toMatch(/^05:[3-5]\d$/);
@@ -28,7 +40,13 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   expect(initial.flights.some((flight) => flight.operationPlan.direction === 'departure')).toBeTruthy();
   await expect(page.locator('#operation-bank')).toContainText('Morning departure bank · Realistic 1.08× bank');
   expect(initial.flights.every((flight) => (
-    flight.flightPlan.origin.length > 0
+    flight.flightPlan.schemaVersion === 2
+    && flight.flightPlan.routeKind === 'schematic-procedure'
+    && flight.flightPlan.procedureProfile.nonNavigational === true
+    && flight.flightPlan.procedureProfile.dataVersion === initial.airport.airspaceProgram.dataVersion
+    && flight.navigation.procedureDataVersion === initial.airport.airspaceProgram.dataVersion
+    && flight.navigation.routeFixIds.length >= 3
+    && flight.flightPlan.origin.length > 0
     && flight.flightPlan.destination.length > 0
     && flight.flightPlan.route.length >= 3
     && flight.flightPlan.procedure.length > 0
@@ -121,6 +139,13 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
     expect(presentation?.departureMarkerVisible).toBe(runway.role === 'departure' || runway.role === 'mixed');
   }
   expect(initial.renderer.surfaceLayers).toEqual({ 'taxiway-labels': false, 'operational-zones': false, hotspots: false, 'airport-boundary': false });
+  expect(initial.renderer.airspaceLayers).toEqual({
+    'airspace-sectors': false,
+    'navigation-fixes': false,
+    procedures: false,
+    'flight-routes': false,
+    separation: false,
+  });
   expect(initial.renderer.context).toMatchObject({ status: 'loaded', roads: 6_016, rails: 1_127, boundaryRings: 1 });
   expect(initial.renderer.context.drawGroups).toBeLessThanOrEqual(20);
   expect(initial.renderer.drawCalls).toBeLessThan(800);
@@ -406,6 +431,19 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await expect(boundaryLayer).not.toBeChecked();
   await boundaryLayer.check();
   expect((await page.evaluate(() => window.airportControl.snapshot())).renderer.surfaceLayers['airport-boundary']).toBeTruthy();
+  for (const layer of ['navigation-fixes', 'procedures', 'flight-routes', 'separation']) {
+    const control = page.locator(`input[data-airspace-layer="${layer}"]`);
+    await expect(control).not.toBeChecked();
+    await control.check();
+  }
+  const airspaceSnapshot = await page.evaluate(() => window.airportControl.snapshot());
+  expect(airspaceSnapshot.renderer.airspaceLayers).toMatchObject({
+    'navigation-fixes': true,
+    procedures: true,
+    'flight-routes': true,
+    separation: true,
+  });
+  await page.screenshot({ path: testInfo.outputPath('airspace-overlays.png') });
   await page.locator('#map-orientation-toggle').check();
   await expect(page.locator('#map-orientation')).toBeVisible();
   await expect(page.locator('.map-orientation__compass')).toContainText('N');
@@ -433,11 +471,61 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await page.screenshot({ path: testInfo.outputPath('assisted-ord.png') });
 });
 
+test('Manual ORD supports live procedure control, ownership handoffs, and physical separation options', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chromium', 'The live ATC protocol is covered once in desktop Chromium.');
+  test.setTimeout(120_000);
+  await page.goto('/?airport=ORD&mode=manual&station=approach&autostart=1&detail=low');
+  await page.waitForFunction(() => window.airportControl?.version === '2.15.0');
+  const arrival = await page.evaluate(() => window.airportControl.snapshot().flights.find((flight) => flight.phase === 'approach'));
+  expect(arrival).toBeTruthy();
+  const headingDegrees = ((90 - arrival!.motion.heading * 180 / Math.PI) % 360 + 360) % 360;
+  const heading = await page.evaluate(({ flightId, value }) => window.airportControl.request({ action: 'assignHeading', flightId, headingDegrees: value }), {
+    flightId: arrival!.id,
+    value: headingDegrees + 15,
+  });
+  expect(heading).toMatchObject({ accepted: true, reason: expect.stringContaining('heading'), eventId: expect.any(Number) });
+  expect(heading.resultingState.flights.find((flight) => flight.id === arrival!.id)?.navigation.vector).toBeTruthy();
+  const altitude = await page.evaluate((flightId) => window.airportControl.request({ action: 'assignAltitude', flightId, altitudeFt: 3_000 }), arrival!.id);
+  expect(altitude.accepted).toBeTruthy();
+  const speed = Math.ceil((arrival!.aircraft.approachKts + 5) / 5) * 5;
+  expect((await page.evaluate(({ flightId, speedKts }) => window.airportControl.request({ action: 'assignAirspeed', flightId, speedKts }), { flightId: arrival!.id, speedKts: speed })).accepted).toBeTruthy();
+  const directFix = arrival!.navigation.routeFixIds[1];
+  expect((await page.evaluate(({ flightId, fixId }) => window.airportControl.request({ action: 'directTo', flightId, fixId }), { flightId: arrival!.id, fixId: directFix })).accepted).toBeTruthy();
+  expect((await page.evaluate((flightId) => window.airportControl.request({ action: 'holdFlight', flightId, efcMinutes: 2 }), arrival!.id)).accepted).toBeTruthy();
+  const held = await page.evaluate((flightId) => window.airportControl.snapshot().flights.find((flight) => flight.id === flightId), arrival!.id);
+  expect(held?.navigation.hold).toMatchObject({ expectFurtherClearanceAtSeconds: expect.any(Number), cycle: 1 });
+  expect(held?.trajectory?.stage).toBe('hold-entry');
+  expect((await page.evaluate((flightId) => window.airportControl.request({ action: 'releaseHold', flightId }), arrival!.id)).accepted).toBeTruthy();
+  expect((await page.evaluate((flightId) => window.airportControl.request({ action: 'clearApproach', flightId }), arrival!.id)).accepted).toBeTruthy();
+  expect((await page.evaluate((flightId) => window.airportControl.request({ action: 'handoffFlight', flightId, station: 'tower' }), arrival!.id)).accepted).toBeTruthy();
+  const wrongOwner = await page.evaluate(({ flightId, headingDegrees }) => window.airportControl.request({ action: 'assignHeading', flightId, headingDegrees }), {
+    flightId: arrival!.id,
+    headingDegrees,
+  });
+  expect(wrongOwner).toMatchObject({ accepted: false, reason: expect.stringMatching(/does not own|handoff required/) });
+  expect((await page.evaluate(() => window.airportControl.request({ action: 'setStation', station: 'tower' }))).accepted).toBeTruthy();
+  expect((await page.evaluate(({ flightId, runway }) => window.airportControl.request({ action: 'clearFlight', flightId, runway }), { flightId: arrival!.id, runway: arrival!.runway })).accepted).toBeTruthy();
+  expect((await page.evaluate(() => window.airportControl.request({ action: 'setSeparationRuleset', ruleset: 'realistic' }))).accepted).toBeTruthy();
+  for (const layer of ['procedures', 'flight-routes', 'separation'] as const) {
+    expect((await page.evaluate((name) => window.airportControl.request({ action: 'setAirspaceLayerVisible', layer: name, enabled: true }), layer)).accepted).toBeTruthy();
+  }
+  await page.evaluate((flightId) => window.airportControl.request({ action: 'focusFlight', flightId }), arrival!.id);
+  const controlled = await page.evaluate(() => window.airportControl.snapshot());
+  expect(controlled.separationRuleset).toMatchObject({ ruleset: { id: 'realistic', radarHorizontalNm: 3, verticalFt: 1_000 } });
+  expect(controlled.flights.find((flight) => flight.id === arrival!.id)?.navigation).toMatchObject({
+    frequencyOwner: 'tower',
+    approachCleared: true,
+    assignedSpeedKts: speed,
+  });
+  expect(controlled.flights.find((flight) => flight.id === arrival!.id)?.flightPlan.amendments.some((amendment) => amendment.detail.includes('3,000 ft'))).toBeTruthy();
+  await page.screenshot({ path: testInfo.outputPath('manual-live-atc.png') });
+});
+
 test('ORD snow exposes the deicing route and holdover model in the normal UI', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chromium', 'Winter operations are viewport-independent and covered once in Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=auto&autostart=1&detail=low&weather=snow&windDir=270&wind=12');
-  await page.waitForFunction(() => window.airportControl?.version === '2.14.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.15.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
   await page.locator('#menu-toggle').click();
@@ -458,6 +546,7 @@ test('ORD snow exposes the deicing route and holdover model in the normal UI', a
     surfaceCondition: 'contaminated',
   });
   expect(initial.weather.windEnabled).toBeFalsy();
+  expect(initial.weather.ceilingFt).toBe(1_000);
   expect(initial.weather.temperatureC).toBeLessThan(0);
   expect(initial.surfaceGraph.deicingFacilities).toHaveLength(1);
   const planned = initial.flights.find((flight) => flight.phase === 'resting' && flight.deicing.status === 'planned');
@@ -488,7 +577,7 @@ test('Go-around climbs from the live pose and flies a visible missed-approach pa
   test.skip(testInfo.project.name !== 'desktop-chromium', 'The authoritative go-around is viewport-independent and covered once in Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ATL&mode=auto&autostart=1&detail=low&speed=3');
-  await page.waitForFunction(() => window.airportControl?.version === '2.14.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.15.0');
   await page.waitForFunction(() => {
     const flight = window.airportControl.snapshot().flights.find((candidate) => candidate.phase === 'approach');
     return Boolean(flight && flight.progress > 0.18);
@@ -522,7 +611,7 @@ test('Mobile Watch mode keeps non-ORD and procedural maps navigable in low detai
   test.skip(testInfo.project.name !== 'mobile-chromium', 'This test is the dedicated responsive/mobile browser gate.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ATL&mode=watch&autostart=1&detail=low');
-  await page.waitForFunction(() => window.airportControl?.version === '2.14.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.15.0');
   await expect(page.locator('body')).toHaveClass(/watch-mode/);
   await expect(page.locator('#menu-toggle')).toBeVisible();
   await expect(page.locator('#zoom-in')).toBeVisible();

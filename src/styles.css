@@ -257,12 +257,12 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
 .flight-actions button:hover { border-color: var(--amber); background: rgba(239, 199, 117, 0.17); }
 .flight-actions button:disabled { opacity: 0.38; cursor: not-allowed; }
 .flight-actions p { margin: 4px 0 0; color: rgba(244, 232, 206, 0.58); font-size: 10px; }
-.runway-exit-panel { display: grid; gap: 5px; margin: 0 0 9px; border: 1px solid rgba(239, 199, 117, 0.24); padding: 8px; background: linear-gradient(105deg, rgba(239, 199, 117, 0.08), rgba(121, 200, 232, 0.04)); }
-.runway-exit-panel__heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.runway-exit-panel__heading b { color: var(--ivory); font: 400 11px/1.2 Georgia, serif; }
-.runway-exit-panel__heading span { color: var(--amber); font-size: 8px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; }
-.runway-exit-panel p { margin: 0; color: rgba(244, 232, 206, 0.72); font-size: 8px; font-weight: 800; letter-spacing: 0.06em; }
-.runway-exit-panel small { overflow: hidden; color: rgba(244, 232, 206, 0.5); font-size: 8px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.runway-exit-panel, .navigation-panel { display: grid; gap: 5px; margin: 0 0 9px; border: 1px solid rgba(239, 199, 117, 0.24); padding: 8px; background: linear-gradient(105deg, rgba(239, 199, 117, 0.08), rgba(121, 200, 232, 0.04)); }
+.runway-exit-panel__heading, .navigation-panel__heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.runway-exit-panel__heading b, .navigation-panel__heading b { color: var(--ivory); font: 400 11px/1.2 Georgia, serif; }
+.runway-exit-panel__heading span, .navigation-panel__heading span { color: var(--amber); font-size: 8px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; }
+.runway-exit-panel p, .navigation-panel p { margin: 0; color: rgba(244, 232, 206, 0.72); font-size: 8px; font-weight: 800; letter-spacing: 0.06em; }
+.runway-exit-panel small, .navigation-panel small { overflow: hidden; color: rgba(244, 232, 206, 0.5); font-size: 8px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .surface-reroute-panel { border-color: rgba(239, 147, 127, 0.32); background: linear-gradient(105deg, rgba(239, 147, 127, 0.09), rgba(239, 199, 117, 0.035)); }
 .surface-reroute-panel .runway-exit-panel__heading span { color: #ef937f; }
 .turnaround-panel { display: grid; gap: 7px; margin: 0 0 9px; border: 1px solid rgba(244, 232, 206, 0.14); padding: 8px; background: rgba(121, 200, 232, 0.055); }

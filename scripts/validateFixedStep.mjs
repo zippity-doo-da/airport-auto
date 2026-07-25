@@ -288,7 +288,7 @@ assert(
     + ' windows=' + JSON.stringify(manualCrossingWindows),
 );
 assert(manual.runUntil(() => manual.simulation.state.flights.some((flight) => flight.id === manualFlight.id && flight.phase === 'takeoff'), 500), 'ORD manual: cleared aircraft never lined up');
-assert(manual.simulation.clearTakeoff(manualFlight.id), 'ORD manual: takeoff clearance was rejected');
+assert(manual.simulation.clearTakeoff(manualFlight.id), 'ORD manual: takeoff clearance was rejected: ' + manual.simulation.lastCommandReason());
 assert(manual.runUntil(() => manual.simulation.state.departures > 0, 300), 'ORD manual: cleared aircraft never departed');
 totals.manualDepartureCleared = true;
 

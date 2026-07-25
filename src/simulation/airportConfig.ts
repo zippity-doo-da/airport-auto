@@ -5,6 +5,7 @@ import { airportSurfaceDataManifest, importedAirportSurfaceGraph, type AirportSu
 import { airportContextDataManifest, type AirportContextDataManifest } from './airportContextData';
 import { buildAirportOperationProfile, type AirportOperationProfile } from './airportOperationProfiles';
 import { airportTrafficProgram, type AirportTrafficProgram } from './airportTrafficPrograms';
+import { buildAirportAirspaceProgram, type AirportAirspaceProgram } from './airspaceProcedures';
 
 export type FlightColor = 'rose' | 'mist' | 'sage';
 export type TerrainTheme = 'coast' | 'highland' | 'woodland';
@@ -67,6 +68,7 @@ export interface AirportConfig {
   annualOperations: number | null;
   operationProfile: AirportOperationProfile;
   trafficProgram: AirportTrafficProgram;
+  airspaceProgram: AirportAirspaceProgram;
   trafficInterval: number;
   trafficCap: number;
   vectorData?: AirportVectorManifest;
@@ -78,7 +80,7 @@ export interface AirportConfig {
   surfaceGraph: AirportSurfaceGraph;
 }
 
-type AirportConfigSource = Omit<AirportConfig, 'obstacles' | 'surfaceGraph' | 'runwayConfigurations' | 'defaultRunwayConfigurationId' | 'operationProfile' | 'trafficProgram'>;
+type AirportConfigSource = Omit<AirportConfig, 'obstacles' | 'surfaceGraph' | 'runwayConfigurations' | 'defaultRunwayConfigurationId' | 'operationProfile' | 'trafficProgram' | 'airspaceProgram'>;
 
 type HubProfile = {
   code: string;
@@ -281,6 +283,14 @@ function withSurfaceGraph(config: AirportConfigSource): AirportConfig {
     defaultRunwayConfigurationId: runwayConfigurations[0].id,
     operationProfile: buildAirportOperationProfile(config.code, config.annualOperations),
     trafficProgram: airportTrafficProgram(config.code),
+    airspaceProgram: buildAirportAirspaceProgram({
+      code: config.code,
+      name: config.name,
+      seed: config.seed,
+      scope: config.scope,
+      runways: config.runways,
+      runwayConfigurations,
+    }),
     obstacles: buildAirportObstacleEnvelopes(geometry),
     surfaceGraph: importedSurfaceGraph ?? buildAirportSurfaceGraph(geometry),
   };

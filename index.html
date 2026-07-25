@@ -58,6 +58,10 @@
           <option value="rush">Rush</option>
           <option value="extreme">Extreme</option>
         </select></label>
+        <label><span>Separation</span><select id="separation-rules-select" aria-label="Separation ruleset">
+          <option value="forgiving" selected>Forgiving ATC</option>
+          <option value="realistic">FAA-inspired terminal</option>
+        </select></label>
         <label><span>Station</span><select id="station-select">
           <option value="supervisor">Supervisor</option>
           <option value="approach">Approach</option>
@@ -107,6 +111,11 @@
             <label><input data-surface-layer="operational-zones" type="checkbox" />Operational areas</label>
             <label><input data-surface-layer="hotspots" type="checkbox" />FAA hot spots</label>
             <label><input data-surface-layer="airport-boundary" type="checkbox" />Airport boundary</label>
+            <label><input data-airspace-layer="airspace-sectors" type="checkbox" />Terminal sectors</label>
+            <label><input data-airspace-layer="navigation-fixes" type="checkbox" />Navigation fixes</label>
+            <label><input data-airspace-layer="procedures" type="checkbox" />SID / STAR procedures</label>
+            <label><input data-airspace-layer="flight-routes" type="checkbox" />Active flight routes</label>
+            <label><input data-airspace-layer="separation" type="checkbox" />Separation rings</label>
             <label><input id="map-orientation-toggle" type="checkbox" />Compass &amp; scale</label>
             <label><input id="wind-overlay-toggle" type="checkbox" />Wind on map</label>
             <label><input id="service-vehicles-toggle" type="checkbox" checked />Service vehicles</label>
@@ -234,6 +243,10 @@
               <option value="busy">Busy</option>
               <option value="rush">Rush</option>
               <option value="extreme">Extreme</option>
+            </select></label>
+            <label><span>Rules</span><select id="intro-separation-rules-select" aria-label="Starting separation ruleset">
+              <option value="forgiving" selected>Forgiving ATC</option>
+              <option value="realistic">FAA-inspired terminal</option>
             </select></label>
           </div>
           <div class="runway-key"><span><i class="key key--rose"></i>Landing threshold</span><span><i class="key key--blue"></i>Departure chevrons</span></div>

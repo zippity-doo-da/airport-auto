@@ -7,6 +7,8 @@ import { applyAircraftOrientation } from './aircraftOrientation';
 import { createAirportContext, type AirportContextDiagnostics } from './airportContext';
 import { treePlacement } from './sceneryPlacement';
 import { updateSurfaceDisruptionVisuals } from './surfaceDisruptionVisuals';
+import { createAirspaceOverlay, type AirspaceLayer } from './airspaceOverlay';
+export type { AirspaceLayer } from './airspaceOverlay';
 
 type FlightVisual = {
   poolKey: string;
@@ -106,6 +108,7 @@ export type WorldDiagnostics = {
     minimumGroundMargin: number;
   };
   surfaceLayers: Record<SurfaceLayer, boolean>;
+  airspaceLayers: Record<AirspaceLayer, boolean>;
   runways: Array<{
     id: number;
     activeEnd: -1 | 1;
@@ -133,6 +136,7 @@ export interface AirportWorld {
   setRunwayLabelsVisible(visible: boolean): void;
   setServiceVehiclesVisible(visible: boolean): void;
   setSurfaceLayerVisible(layer: SurfaceLayer, visible: boolean): void;
+  setAirspaceLayerVisible(layer: AirspaceLayer, visible: boolean): void;
   diagnostics(): WorldDiagnostics;
   resize(): void;
   dispose(): void;
@@ -208,6 +212,8 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     ? createAirportContext(world, config.contextData, config.vectorData?.runtimeReference.worldMetersPerUnit ?? 38)
     : null;
   const airportBuild = buildAirport(world, config);
+  const airspaceOverlay = createAirspaceOverlay(config);
+  world.add(airspaceOverlay.root);
   if (contextRuntime) {
     world.remove(airportBuild.surfaceLayers['airport-boundary']);
     airportBuild.surfaceLayers['airport-boundary'] = contextRuntime.boundaryLayer;
@@ -322,6 +328,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
       visuals: disruptionVisuals,
       dispose: disposeObject,
     });
+    airspaceOverlay.update(state, delta);
     updateRain(rain, state, delta);
     for (const visual of flightVisuals.values()) visual.active = false;
 
@@ -795,6 +802,9 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     setSurfaceLayerVisible(layer, visible) {
       airportBuild.surfaceLayers[layer].visible = visible;
     },
+    setAirspaceLayerVisible(layer, visible) {
+      airspaceOverlay.setVisible(layer, visible);
+    },
     diagnostics() {
       const groundCoverage = viewportGroundCoverage();
       return {
@@ -838,6 +848,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
           hotspots: airportBuild.surfaceLayers.hotspots.visible,
           'airport-boundary': airportBuild.surfaceLayers['airport-boundary'].visible,
         },
+        airspaceLayers: airspaceOverlay.visibility(),
         runways: airportBuild.runwayVisuals.map((visual, id) => ({
           id,
           activeEnd: visual.marker.scale.x < 0 ? -1 : 1,
@@ -859,6 +870,8 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
       canvas.removeEventListener('webglcontextlost', onContextLost);
       canvas.removeEventListener('webglcontextrestored', onContextRestored);
       contextRuntime?.dispose();
+      world.remove(airspaceOverlay.root);
+      airspaceOverlay.dispose();
       for (const pool of flightPool.values()) for (const visual of pool) disposeObject(visual.root);
       flightPool.clear();
       for (const pool of serviceVehiclePool.values()) for (const visual of pool) disposeObject(visual.root);

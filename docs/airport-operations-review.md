@@ -24,6 +24,8 @@ The terminal apron is geometrically separated from perimeter taxi routes and run
 Useful real-world references for future fidelity work:
 
 - FAA digital terminal procedures and current airport diagrams: https://www.faa.gov/air_traffic/flight_info/aeronav/digital_products/dtpp/
+- FAA arrival and approach procedures: https://www.faa.gov/air_traffic/publications/atpubs/aim_html/chap5_section_4.html
+- FAA radar separation: https://www.faa.gov/air_traffic/publications/atpubs/atc_html/chap5_section_5.html
 - FAA airport traffic control, taxi and ground movement: https://www.faa.gov/air_traffic/publications/atpubs/atc_html/chap3_section_7.html
 - FAA landing procedures: https://www.faa.gov/air_traffic/publications/atpubs/atc_html/chap3_section_10.html
 - FAA AC 150/5300-13B airport and taxiway design: https://www.faa.gov/airports/resources/advisory_circulars/index.cfm/go/document.current/documentNumber/150_5300-13B
@@ -46,12 +48,14 @@ Useful real-world references for future fidelity work:
 - Each aircraft type has separate straight-taxi speed, turn-speed, ground acceleration, braking, design turn radius, and wingspan. The simulation replaces eligible graph corners with tangent circular arcs, brakes before them, and rejects routes below the modeled wingtip margin.
 - Ground aircraft remain on modeled runway, taxiway, apron, or stand pavement.
 - Active-runway plans follow eligible wind/weather/procedure conditions when automatic selection is enabled, but never change underneath protected traffic.
+- Every generated airport has a versioned, explicitly non-navigational terminal program. Arrivals select a runway-compatible STAR transition from a map-edge gateway and fly its fixes, constraints, downwind/base/intercept geometry, approach, and missed-approach route; departures retain the complete runway roll before joining their selected SID heading and climb/handoff fixes.
+- Heading, altitude, speed, direct-to, hold/EFC, approach, landing, taxi, and departure instructions pass through one command arbiter. Approach, Tower, and Ground own distinct phases and must explicitly hand aircraft off; Supervisor can cover every position.
 - Runway, taxiway, construction, and disabled-aircraft restrictions block explicit graph edges. Affected traffic keeps its occupied edge, reroutes only its remaining path without jumping, or brakes into an explainable hold until compatible pavement reopens.
 - A disabled surface aircraft protects its occupied resource until Ground/automatic recovery completes a modeled tow and inspection; closing the last usable arrival or departure runway is rejected.
 - Runway entry, crossing, and takeoff are distinct clearances.
 - Runway reservations protect intersecting and occupied runways while still permitting independent parallel operations.
 - The queue inspector reports the active gate, ramp, taxi, crossing, runway, wake, weather, and downstream dependency from authoritative state, including causal traffic and shared-resource position; it never invents a separate movement decision.
-- Physical envelopes and broader airborne/surface separation envelopes are checked before movement is committed.
+- A renderer-independent collision envelope remains the final safety net. Above it, the selected Forgiving or FAA-inspired terminal ruleset checks horizontal distance in nautical miles, vertical distance in feet, runway-operation time, runway relationships, simplified wake group, visibility, ceiling, surface condition, wind, and active configuration before movement or a clearance is committed.
 - Gate slots cannot be reused while physically occupied; future non-overlapping assignment windows may reuse a stand, while surface traffic reserves upcoming nodes and edges, exclusive stand paths, directional alleys, and ramp-zone capacity.
 - Vehicle-backed tasks cannot start before their equipment reaches the stand; pushback cannot start until that equipment clears the stand lane.
 - Snow requires a routable treatment-pad plan before pushback. Lane occupancy is exclusive, treatment occurs at zero ground speed, and runway entry requires active holdover protection.
@@ -63,9 +67,9 @@ Useful real-world references for future fidelity work:
 - Layouts preserve the operational impression of each hub rather than survey-grade geometry.
 - Time-of-day bands and traffic mixes are deterministic schematic schedules, not live or historical flight timetables. ORD's broad shape is informed by FAA quarter-hour simulation data; airline-specific banks and schedule-derived fleets remain future work.
 - Taxiway naming is partial and schematic; ramp-control jurisdictions derive from sourced apron polygons rather than current airline or controller agreements.
-- Approach and departure procedure names are descriptive placeholders, not published SID/STAR data.
+- Approach and departure procedure names, fixes, sectors, and constraints are deterministic schematic content inspired by published procedure concepts, not current published SID/STAR data and never suitable for navigation.
 - Wake class affects spacing, but the game does not reproduce every FAA separation category or local waiver. The E175 and Q400 use the medium game category, not the former misleading light label.
-- A `wake` queue entry currently explains the compressed game-scale arrival-release meter. It is not a statement of physical miles or FAA wake minima.
+- A `wake` queue entry explains the ruleset's simplified time-based arrival or departure release meter. The separate airborne separation diagnostic reports physical nautical-mile and vertical-foot minima, but neither model claims complete FAA CWT/RECAT coverage or local-facility procedure fidelity.
 - Gate assignment uses 40 sampled playable stands rather than all 199 real passenger gates; airline affinities are schematic, scheduled windows are simulation time rather than a live airline feed, and actual leases/irregular operations are not reproduced.
 - Pushback uses a compact procedural tug and graph-derived ramp release. Turnaround equipment uses stylized procedural vehicle families rather than airline-specific models; individually routed deicing rigs, detailed fluid/inspection rules, emergency-response staging, tow-route choreography, NOTAM ingestion, and live METAR/traffic feeds are not yet modeled.
 - Manufacturer airport-planning manuals and FAA taxiway-design guidance bound the ground model, but its speeds, radii, and imported edge-clearance corridors remain entertainment-scale parameters—not dispatch or airport-engineering data.

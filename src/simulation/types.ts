@@ -5,6 +5,8 @@ import type { AircraftModel } from './aircraftProfiles';
 import type { AirlineCode } from './airlineProfiles';
 import type { OperationTrafficClass } from './airportOperationProfiles';
 import type { TrafficDensity } from './trafficDensity';
+import type { ProcedureConstraint, TerminalProcedureKind } from './airspaceProcedures';
+import type { SeparationRulesetId } from './separationRules';
 
 export type ControlMode = 'auto' | 'assisted' | 'manual' | 'watch';
 export type WeatherCondition = 'clear' | 'rain' | 'fog' | 'snow';
@@ -237,6 +239,8 @@ export interface WeatherState {
   windSpeed: number;
   gustSpeed: number;
   visibility: number;
+  /** Modeled cloud ceiling above ground level, in feet. */
+  ceilingFt: number;
   temperatureC: number;
   surfaceCondition: 'dry' | 'wet' | 'contaminated';
 }
@@ -299,7 +303,7 @@ export interface FlightOperationPlan {
 }
 
 export type FlightPlanStatus = 'scheduled' | 'active' | 'completed' | 'diverted' | 'cancelled';
-export type FlightPlanAmendmentKind = 'gate-swap' | 'runway-change' | 'route-change' | 'slot-change' | 'diversion' | 'cancellation';
+export type FlightPlanAmendmentKind = 'gate-swap' | 'runway-change' | 'route-change' | 'slot-change' | 'clearance' | 'diversion' | 'cancellation';
 
 export interface FlightPlanAmendment {
   revision: number;
@@ -314,7 +318,7 @@ export interface FlightPlanAmendment {
  * intent needed by traffic management is nevertheless present and replayable.
  */
 export interface FlightPlan {
-  schemaVersion: 1;
+  schemaVersion: 2;
   id: string;
   revision: number;
   status: FlightPlanStatus;
@@ -322,8 +326,19 @@ export interface FlightPlan {
   origin: string;
   destination: string;
   route: string[];
-  routeKind: 'schematic-direct';
+  routeKind: 'schematic-procedure';
   procedure: string;
+  procedureProfile: {
+    dataVersion: string;
+    id: string;
+    kind: TerminalProcedureKind;
+    revision: number;
+    transitionId: string;
+    transitionName: string;
+    routeFixIds: string[];
+    constraints: ProcedureConstraint[];
+    nonNavigational: true;
+  };
   airline: AirlineCode;
   aircraft: AircraftModel;
   trafficClass: OperationTrafficClass;
@@ -342,6 +357,51 @@ export interface FlightPlan {
   scheduledReleaseSeconds: number;
   estimatedArrivalSeconds: number;
   amendments: FlightPlanAmendment[];
+}
+
+export interface FlightVectorClearance {
+  issuedAtSeconds: number;
+  startProgress: number;
+  endProgress: number;
+  headingDegrees: number;
+  rejoinFixId?: string;
+  start: Pick<FlightMotionState, 'x' | 'y' | 'z' | 'heading' | 'pitch' | 'bank' | 'onGround' | 'groundBlend' | 'protectedRunway'>;
+}
+
+export interface FlightHoldingClearance {
+  patternId: string;
+  fixId: string;
+  issuedAtSeconds: number;
+  enteredAtSeconds: number;
+  expectFurtherClearanceAtSeconds: number;
+  cycle: number;
+  inboundCourseDegrees: number;
+  turns: 'left' | 'right';
+  legSeconds: number;
+  altitudeFt: number;
+  start: Pick<FlightMotionState, 'x' | 'y' | 'z' | 'heading' | 'pitch' | 'bank' | 'onGround' | 'groundBlend' | 'protectedRunway'>;
+}
+
+export interface FlightNavigationState {
+  schemaVersion: 1;
+  procedureDataVersion: string;
+  procedureId: string;
+  transitionId: string;
+  routeFixIds: string[];
+  activeFixIndex: number;
+  approachCleared: boolean;
+  assignedHeadingDegrees?: number;
+  assignedAltitudeFt?: number;
+  assignedSpeedKts?: number;
+  departureHeadingDegrees?: number;
+  initialClimbAltitudeFt?: number;
+  handoffFixId?: string;
+  frequencyOwner: ControllerStation;
+  handoffStatus: 'owned' | 'offered' | 'accepted';
+  readbackStatus: 'not-required' | 'pending' | 'accepted';
+  vector?: FlightVectorClearance;
+  hold?: FlightHoldingClearance;
+  missedApproachId?: string;
 }
 
 export type TrafficFlowStatus = 'scheduled' | 'metered' | 'holding' | 'released' | 'diverted' | 'cancelled';
@@ -461,6 +521,7 @@ export interface Flight {
   operationPlan: FlightOperationPlan;
   flightPlan: FlightPlan;
   flightPlanHistory: FlightPlan[];
+  navigation: FlightNavigationState;
   turnaround: FlightTurnaroundState;
   deicing: FlightDeicingState;
   category: AircraftCategory;
@@ -514,7 +575,7 @@ export interface ReplayFrame {
 }
 
 export interface AirportEvent {
-  type: 'spawn' | 'gate-assignment' | 'gate-reassignment' | 'gate-release' | 'runway-exit-plan' | 'surface-reroute' | 'recovery-start' | 'recovery-complete' | 'turnaround-start' | 'service-start' | 'service-complete' | 'turnaround-ready' | 'service-vehicle-dispatch' | 'service-vehicle-arrive' | 'service-vehicle-hold' | 'service-vehicle-release' | 'service-vehicle-return' | 'service-vehicle-clear' | 'deicing-planned' | 'deicing-queue' | 'deicing-pad-entry' | 'deicing-start' | 'deicing-complete' | 'deicing-expired' | 'deicing-return' | 'land' | 'chime' | 'depart' | 'clear' | 'auto-clear' | 'pushback-clearance' | 'pushback-start' | 'engine-start' | 'tug-release' | 'reject' | 'conflict' | 'safety-hold' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'takeoff-clearance' | 'go-around' | 'emergency';
+  type: 'spawn' | 'gate-assignment' | 'gate-reassignment' | 'gate-release' | 'runway-exit-plan' | 'surface-reroute' | 'recovery-start' | 'recovery-complete' | 'turnaround-start' | 'service-start' | 'service-complete' | 'turnaround-ready' | 'service-vehicle-dispatch' | 'service-vehicle-arrive' | 'service-vehicle-hold' | 'service-vehicle-release' | 'service-vehicle-return' | 'service-vehicle-clear' | 'deicing-planned' | 'deicing-queue' | 'deicing-pad-entry' | 'deicing-start' | 'deicing-complete' | 'deicing-expired' | 'deicing-return' | 'land' | 'chime' | 'depart' | 'clear' | 'auto-clear' | 'pushback-clearance' | 'pushback-start' | 'engine-start' | 'tug-release' | 'reject' | 'conflict' | 'safety-hold' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'takeoff-clearance' | 'vector' | 'airborne-hold' | 'hold-release' | 'approach-clearance' | 'handoff' | 'go-around' | 'emergency';
   flight: Flight;
   runway?: number;
   taxiway?: string;
@@ -549,6 +610,7 @@ export interface AirportState {
   weather: WeatherState;
   scenario: TrafficScenario;
   trafficFlow: TrafficFlowState;
+  separationRuleset: SeparationRulesetId;
   runwayConfigurationId: string;
   runwayConfigurationMode: 'automatic' | 'manual';
   runwayConfigurationTransition: RunwayConfigurationTransition | null;

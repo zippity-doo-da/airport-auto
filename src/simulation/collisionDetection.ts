@@ -6,11 +6,15 @@ import { distanceToObstacleBoundary, type AirportObstacleEnvelope } from './airp
 import { sampleFlightTrajectory } from './flightTrajectory';
 import { runwaysConflict } from './runwayConflict';
 import { sampleFlightMotion } from './flightMotion';
+import { WORLD_METERS_PER_UNIT } from './runwayPerformance';
 
 /**
  * Safety samples the same renderer-independent trajectory used by the view.
  * The envelope remains deliberately conservative and never depends on a
- * Three.js object. Distances are airport-world units, not nautical miles.
+ * Three.js object. This module is the final physical-overlap/protected-zone
+ * safety net; regulatory-style NM/ft separation is evaluated independently
+ * by separationRules.ts. Internal coordinates convert through
+ * WORLD_METERS_PER_UNIT whenever they are presented to a controller.
  */
 export interface AircraftCollisionEnvelope {
   kind: 'aircraft';
@@ -237,7 +241,7 @@ export function detectFlightConflict(
         horizontalDistance,
         verticalDistance,
         requiredHorizontal,
-        detail: `airborne separation compressed below ${requiredHorizontal} world units`,
+        detail: `collision-avoidance envelope compressed below ${Math.round(requiredHorizontal * WORLD_METERS_PER_UNIT)} m`,
       };
     }
     return null;

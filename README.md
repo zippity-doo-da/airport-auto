@@ -19,11 +19,14 @@ The airport layouts are readable operational schematics inspired by real runway 
 - Snow activates contaminated-surface performance and a complete ORD winter departure loop: graph-routed deicing-pad assignment, four treatment lanes, an ordered queue, stopped treatment, visible holdover time, protected runway entry, and return-to-pad routing after expiry.
 - Auto, Assisted, Manual, and Watch modes; four controller stations; six scenarios; independent Quiet/Realistic/Busy/Rush/Extreme traffic density; weather and wind controls; a five-channel sound mixer; replay; four camera views; drag/touch/WASD panning; Q/E rotation; and cursor-centered wheel or pinch zoom.
 - Airline-specific schematic hub banks, fleet and gate preferences, complete per-leg flight plans, bounded arrival metering, hold-short departure slots, explainable back-pressure, and deterministic diversion/cancellation recovery.
+- Versioned, explicitly non-navigational SID/STAR programs for every airport, with edge-entry transitions, fixes, sectors, altitude/speed constraints, smooth downwind/base/final geometry, selected missed approaches, departure headings, and optional route/fix/separation overlays.
+- Live Approach commands for heading, altitude, speed, direct-to, approach clearance, holds/EFCs, and re-entry; explicit Approach → Tower → Ground frequency ownership and handoffs; and Tower landing/line-up/takeoff authority through the same UI/API safety arbiter.
+- Forgiving and opt-in FAA-inspired terminal separation rulesets in nautical miles, feet, and seconds, with modeled visibility, ceiling, wind, surface condition, runway relationship/configuration, and clearly labeled simplified wake groups.
 - Six sourced O’Hare runway plans with dynamic arrival/departure roles, visual and instrument restrictions, strong-southerly contingency operations, and safe drain-then-switch transitions.
 - An eight-model procedural aircraft fleet, now including a single-engine Pilatus PC-12 utility turboprop, with model-specific size, runway performance, straight/turn taxi speeds, ground acceleration, stopping distance, turn radius, wingtip margin, approach speed, wake class, airline, callsign, registration, and fuel telemetry.
 - A local, versioned browser API and `BroadcastChannel` bridge for playtests and controller agents.
 - A fully offline ORD data foundation: FAA runway/apron/building/hot-spot geometry, a normalized OpenStreetMap surface graph with 40 compatible stands, 219 sourced gates, 364 parking positions, 35 operational zones and 248 control points, plus Chicago Department of Aviation terminal/concourse inventory and coherent east/west runway flows.
-- Optional muted taxiway-label, operational-area, hot-spot, runway-label, compass/scale, wind, service-vehicle, and compact terminal-radar layers preserve a clean ASMR view while exposing controller detail on demand.
+- Optional muted taxiway-label, operational-area, hot-spot, runway-label, airspace-sector, navigation-fix, SID/STAR, active-route, separation-ring, compass/scale, wind, service-vehicle, and compact terminal-radar layers preserve a clean ASMR view while exposing controller detail on demand.
 
 ## Run locally
 
@@ -56,7 +59,7 @@ npm run preview
 - `V`: cycle cameras; `+`/`-`: zoom; `0`: reset the camera and map position.
 - `Space`: pause; `Escape`: deselect or close the controls.
 
-The selected-flight panel exposes the same commands with contextual buttons, including individual runway-crossing clearances and speed instructions.
+The selected-flight panel exposes the same commands with contextual buttons, including vectors, altitude and airspeed, direct-to, approach/hold/EFC, explicit handoff, individual runway-crossing, line-up, and takeoff instructions. Commands are enabled only for the station currently owning that flight; Supervisor can work all positions.
 
 ## Launch parameters
 
@@ -66,7 +69,7 @@ This URL starts a busy O'Hare session with local telemetry visible:
 http://127.0.0.1:5173/?airport=ORD&mode=auto&scenario=rush&speed=3&autostart=1&telemetry=1
 ```
 
-Useful parameters include `airport`, `mode`, `scenario`, `density`, `station`, `speed`, `weather`, `wind`, `windDir`, `runwayConfig`, `night=1`, `radar=1`, `queues=1`, `telemetry=1`, `debug=1`, `detail=low`, `soak=1`, and `autostart=1`. Modes are `auto`, `assisted`, `manual`, and `watch`; density values are `quiet`, `realistic`, `busy`, `rush`, and `extreme`; weather values are `clear`, `rain`, `fog`, and `snow`.
+Useful parameters include `airport`, `mode`, `scenario`, `density`, `rules`, `station`, `speed`, `weather`, `wind`, `windDir`, `runwayConfig`, `night=1`, `radar=1`, `queues=1`, `telemetry=1`, `debug=1`, `detail=low`, `soak=1`, and `autostart=1`. Modes are `auto`, `assisted`, `manual`, and `watch`; density values are `quiet`, `realistic`, `busy`, `rush`, and `extreme`; separation values are `forgiving` and `realistic`; weather values are `clear`, `rain`, `fog`, and `snow`.
 
 See [docs/airport-control.md](docs/airport-control.md) for the live-control interface, [docs/traffic-profiles.md](docs/traffic-profiles.md) for the compressed local day and traffic streams, [docs/queue-inspector.md](docs/queue-inspector.md) for structured blockers, [docs/airport-operations-review.md](docs/airport-operations-review.md) for modeled rules and deliberate simplifications, [docs/surface-disruption-operations.md](docs/surface-disruption-operations.md) for closures, construction, rerouting, and recovery, [docs/runway-exit-operations.md](docs/runway-exit-operations.md) for arrival-exit planning, [docs/gate-operations.md](docs/gate-operations.md) for scheduled stand planning, [docs/turnaround-operations.md](docs/turnaround-operations.md) for servicing and departure readiness, [docs/service-vehicle-operations.md](docs/service-vehicle-operations.md) for ramp-equipment routing and protection, [docs/deicing-operations.md](docs/deicing-operations.md) for the winter departure lifecycle, and [docs/airport-data-sources.md](docs/airport-data-sources.md) for airport-map provenance and import policy. Completed releases are recorded in [PLAN.md](PLAN.md); unfinished work is tracked in [ROADMAP.md](ROADMAP.md).
 

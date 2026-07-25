@@ -172,6 +172,7 @@ export interface FixedStepSimulationSnapshot {
       windSpeed: number;
       gustSpeed: number;
       visibility: number;
+      ceilingFt: number;
       temperatureC: number;
       surfaceCondition: 'dry' | 'wet' | 'contaminated';
     };
@@ -360,6 +361,7 @@ export class FixedStepSimulationHarness {
           windSpeed: round(this.simulation.state.weather.windSpeed),
           gustSpeed: round(this.simulation.state.weather.gustSpeed),
           visibility: round(this.simulation.state.weather.visibility),
+          ceilingFt: round(this.simulation.state.weather.ceilingFt),
           temperatureC: round(this.simulation.state.weather.temperatureC),
           surfaceCondition: this.simulation.state.weather.surfaceCondition,
         },
