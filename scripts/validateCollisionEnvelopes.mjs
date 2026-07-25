@@ -9,6 +9,7 @@ import {
 } from './src/simulation/collisionDetection.ts';
 import { validateAirportObstacleEnvelopes } from './src/simulation/airportObstacles.ts';
 import { FixedStepSimulationHarness } from './src/simulation/fixedStepHarness.ts';
+import { standReservationsConflict } from './src/simulation/gateAssignment.ts';
 import { runwaySupportsAircraft } from './src/simulation/runwayPerformance.ts';
 import { sceneryClearanceEnvelopes } from './src/render/sceneryPlacement.ts';
 
@@ -20,11 +21,14 @@ const configs = [
   ...Array.from({ length: 64 }, (_, index) => generateAirportConfig(90_000 + index * 131)),
   ...HUB_AIRPORTS.map((_, index) => generateHubConfig(index)),
 ];
-const maximumVisualBodyRadius = (scope) => Math.max(...AIRCRAFT_ROSTER.map((model) => {
+const visualBodyRadius = (scope, model) => {
   const visual = aircraftProfile(model).visual;
   const scale = scope === 'center' ? 0.17 : 0.92;
   return Math.max(visual.bodyRadius * scale, (visual.bodyLength + visual.bodyRadius * 2) / 2 * scale, visual.wingSpan / 2 * scale);
-}));
+};
+const largestVisualAircraft = (scope) => AIRCRAFT_ROSTER.reduce((largest, model) => (
+  visualBodyRadius(scope, model) > visualBodyRadius(scope, largest) ? model : largest
+));
 
 function pointToSegmentDistance(point, start, end) {
   const deltaX = end[0] - start[0];
@@ -42,6 +46,7 @@ const totals = {
   pavementSamples: 0,
   sceneryEnvelopeChecks: 0,
   standPairs: 0,
+  mutuallyExclusiveStandPairs: 0,
   trafficRuns: 0,
   ticks: 0,
   aircraftEnvelopeTicks: 0,
@@ -52,7 +57,8 @@ const totals = {
 };
 
 for (const config of configs) {
-  const maximumBodyRadius = maximumVisualBodyRadius(config.scope);
+  const largestAircraft = largestVisualAircraft(config.scope);
+  const maximumBodyRadius = visualBodyRadius(config.scope, largestAircraft);
   const validation = validateAirportObstacleEnvelopes(config);
   assert(validation.valid, config.code + ' seed ' + config.seed + ': ' + validation.errors.join('; '));
   assert(validation.counts.terminals === 1, config.code + ': expected one terminal envelope');
@@ -115,7 +121,13 @@ for (const config of configs) {
       const firstStand = config.surfaceGraph.stands[first];
       const secondStand = config.surfaceGraph.stands[second];
       const separation = Math.hypot(firstStand.position[0] - secondStand.position[0], firstStand.position[1] - secondStand.position[1]);
-      assert(separation >= maximumBodyRadius * 2 + 0.35, config.code + ': stands ' + firstStand.id + ' and ' + secondStand.id + ' overlap for the largest aircraft');
+      if (separation < maximumBodyRadius * 2 + 0.35) {
+        assert(
+          standReservationsConflict(config, firstStand.id, largestAircraft, secondStand.id, largestAircraft),
+          config.code + ': close stands ' + firstStand.id + ' and ' + secondStand.id + ' lack a mutual-exclusion reservation rule',
+        );
+        totals.mutuallyExclusiveStandPairs += 1;
+      }
       totals.standPairs += 1;
     }
   }

@@ -10,11 +10,11 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await page.goto('/?airport=ORD&mode=assisted&station=supervisor&autostart=1&detail=low&renderFps=0.25');
   await expect(page.locator('#airport-name')).toContainText('O’Hare');
   await expect(page.locator('#flight-strip-count')).toContainText('aircraft');
-  await page.waitForFunction(() => window.airportControl?.version === '2.20.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.21.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
-  expect(initial.schemaVersion).toBe(22);
+  expect(initial.schemaVersion).toBe(23);
   expect(initial.mode).toBe('assisted');
   expect(initial.airport.code).toBe('ORD');
   expect(initial.controllers.automation).toEqual({ approach: false, tower: false, ground: false, ramp: false });
@@ -36,7 +36,7 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   expect(initial.operations.current).toMatchObject({ periodId: 'morning-departure' });
   expect(initial.operations.current.localTime).toMatch(/^05:[3-5]\d$/);
   expect(initial.operations.current.mix.departureShare).toBeGreaterThan(initial.operations.current.mix.arrivalShare);
-  expect(initial.operations.trafficProgram).toMatchObject({ airportCode: 'ORD', fidelity: 'sourced-airlines-schematic-weights' });
+  expect(initial.operations.trafficProgram).toMatchObject({ schemaVersion: 2, airportCode: 'ORD', fidelity: 'sourced-airlines-schematic-weights' });
   expect(initial.operations.density).toMatchObject({ id: 'realistic', holdingCapacity: 4 });
   expect(initial.trafficManagement).toMatchObject({ schemaVersion: 1, density: { id: 'realistic' } });
   expect(initial.flights.every((flight) => flight.operationPlan.periodId === initial.operations.current.periodId)).toBeTruthy();
@@ -84,6 +84,8 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   expect(initial.surfaceGraph.passengerFacilities.filter((facility) => facility.kind === 'terminal').map((facility) => facility.terminalId).sort()).toEqual(['T1', 'T2', 'T3', 'T5']);
   expect(initial.renderer.passengerFacilities).toBe(13);
   expect(initial.renderer.serviceVehiclesVisible).toBeTruthy();
+  expect(initial.contrailsVisible).toBeFalsy();
+  expect(initial.renderer).toMatchObject({ contrailsVisible: false, activeContrails: 0 });
   expect(initial.renderer.surfaceDisruptions).toEqual({ total: 0, pending: 0, active: 0, recovering: 0 });
   expect(initial.surfaceDisruptions).toHaveLength(0);
   for (const concourse of ['B', 'C', 'E', 'F', 'G', 'H', 'K', 'L', 'M']) {
@@ -169,6 +171,16 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
     flight.turnaround.tasks.length === 7
     && flight.turnaround.plannedDurationSeconds > 0
     && flight.turnaround.targetFuelPercent >= flight.turnaround.initialFuelPercent
+    && flight.fuelPlan.schemaVersion === 1
+    && flight.fuelPlan.usableFuelKg === flight.aircraft.usableFuelKg
+    && Math.max(flight.turnaround.initialFuelPercent, flight.fuelPlan.departure.dispatchFuelPercent) === flight.turnaround.targetFuelPercent
+    && flight.fuelPlan.departure.estimatedDistanceNm > 0
+    && flight.kinematics.headingDegrees >= 1
+    && flight.kinematics.headingDegrees <= 360
+    && flight.kinematics.cardinalDirection.length > 0
+  ))).toBeTruthy();
+  expect(initial.flights.filter((flight) => flight.phase === 'approach').every((flight) => (
+    flight.kinematics.fuelPercent >= 7 && flight.kinematics.fuelPercent <= 32
   ))).toBeTruthy();
   expect(initial.flights.filter((flight) => flight.phase === 'approach').every((flight) => flight.turnaround.status === 'planned')).toBeTruthy();
   expect(initial.flights.filter((flight) => flight.phase === 'approach').every((flight) => (
@@ -189,6 +201,8 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
     && flight.gate.assignment.zoneName.includes('Cargo')
   ))).toBeTruthy();
   await expect(page.locator('.flight-chip__detail').filter({ hasText: 'planned' }).first()).toBeVisible();
+  await expect(page.locator('.flight-chip').first().locator('.flight-chip__metric')).toHaveCount(4);
+  await expect(page.locator('.flight-chip').first().locator('.flight-chip__metric').nth(3)).toContainText(/Heading\d{3}° [NSEW]/i);
   const taxiingFlight = initial.flights.find((flight) => flight.phase === 'taxi-in' || flight.phase === 'taxi-out');
   expect(taxiingFlight?.aircraft).toMatchObject({
     taxiAccelerationMps2: expect.any(Number),
@@ -479,6 +493,12 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   expect((await page.evaluate(() => window.airportControl.snapshot())).renderer.serviceVehiclesVisible).toBeFalsy();
   await page.locator('#service-vehicles-toggle').check();
   expect((await page.evaluate(() => window.airportControl.snapshot())).renderer.serviceVehiclesVisible).toBeTruthy();
+  await expect(page.locator('#contrails-toggle')).not.toBeChecked();
+  await page.locator('#contrails-toggle').check();
+  expect((await page.evaluate(() => window.airportControl.snapshot())).renderer.contrailsVisible).toBeTruthy();
+  const contrailResult = await page.evaluate(() => window.airportControl.request({ action: 'setContrailsVisible', enabled: false }));
+  expect(contrailResult.accepted).toBeTruthy();
+  await expect(page.locator('#contrails-toggle')).not.toBeChecked();
   await page.locator('#menu-toggle').click();
   await page.screenshot({ path: testInfo.outputPath('map-overlays.png') });
   await page.locator('#menu-toggle').click();
@@ -496,7 +516,7 @@ test('Manual ORD supports live procedure control, ownership handoffs, and physic
   test.skip(testInfo.project.name !== 'desktop-chromium', 'The live ATC protocol is covered once in desktop Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=manual&station=approach&density=quiet&autostart=1&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.20.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.21.0');
   const pauseResult = await page.evaluate(() => window.airportControl.request({ action: 'pause' }));
   expect(pauseResult.accepted).toBe(true);
   const arrival = await page.evaluate(() => window.airportControl.snapshot().flights.find((flight) => flight.phase === 'approach'));
@@ -606,7 +626,7 @@ test('Group select exposes and applies only shared atomic commands', async ({ pa
   test.skip(testInfo.project.name !== 'desktop-chromium', 'Grouped ATC commands are covered once in desktop Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=manual&station=supervisor&density=rush&autostart=1&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.20.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.21.0');
   await page.evaluate(() => window.airportControl.request({ action: 'pause' }));
   const arrivals = await page.evaluate(() => window.airportControl.snapshot().flights
     .filter((flight) => flight.phase === 'approach'
@@ -673,7 +693,7 @@ test('ORD snow exposes the deicing route and holdover model in the normal UI', a
   test.skip(testInfo.project.name !== 'desktop-chromium', 'Winter operations are viewport-independent and covered once in Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=auto&autostart=1&detail=low&weather=snow&windDir=270&wind=12&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.20.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.21.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
   await page.locator('#menu-toggle').click();
@@ -725,7 +745,7 @@ test('Go-around climbs from the live pose and flies a visible missed-approach pa
   test.skip(testInfo.project.name !== 'desktop-chromium', 'The authoritative go-around is viewport-independent and covered once in Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ATL&mode=auto&autostart=1&detail=low&speed=3&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.20.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.21.0');
   await page.waitForFunction(() => {
     const flight = window.airportControl.snapshot().flights.find((candidate) => candidate.phase === 'approach');
     return Boolean(flight && flight.progress > 0.18);
@@ -759,7 +779,7 @@ test('Mobile Watch mode keeps non-ORD and procedural maps navigable in low detai
   test.skip(testInfo.project.name !== 'mobile-chromium', 'This test is the dedicated responsive/mobile browser gate.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ATL&mode=watch&autostart=1&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.20.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.21.0');
   await expect(page.locator('body')).toHaveClass(/watch-mode/);
   await expect(page.locator('#menu-toggle')).toBeVisible();
   await expect(page.locator('#zoom-in')).toBeVisible();
@@ -822,7 +842,7 @@ test('Laptop viewports keep the complete controls menu reachable', async ({ page
   test.setTimeout(180_000);
   await page.setViewportSize({ width: 1024, height: 600 });
   await page.goto('/?airport=ORD&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.20.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.21.0');
   const introPanel = page.locator('#intro .intro__panel');
   const introBounds = await introPanel.evaluate((element) => {
     const rect = element.getBoundingClientRect();
@@ -836,7 +856,7 @@ test('Laptop viewports keep the complete controls menu reachable', async ({ page
   await expect(page.locator('#enter')).toBeVisible();
 
   await page.goto('/?airport=ORD&mode=auto&autostart=1&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.20.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.21.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.drawCalls > 100);
   const renderBudget = await page.evaluate(() => window.airportControl.snapshot().renderer);
   expect(renderBudget.detail).toBe('low');

@@ -11,7 +11,7 @@ import { sampleAircraftSurfaceMotion } from './surfaceMotion';
 import { progressAfterDistance, syncFlightMotion } from './flightMotion';
 import { intersectingRunways, runwaysConflict } from './runwayConflict';
 import { SurfaceReservationLedger, surfaceCongestionPlanning, surfaceRouteOperationalState, surfaceRouteReservationClaims, type SurfaceReservationClaim, type SurfaceTrafficMovement } from './surfaceOperations';
-import { GATE_TURN_BUFFER_SECONDS, gateReservationsOverlap, planGateAssignment, type GateReservation } from './gateAssignment';
+import { GATE_TURN_BUFFER_SECONDS, gateReservationsOverlap, planGateAssignment, standReservationsConflict, type GateReservation } from './gateAssignment';
 import { advanceTurnaround, completeTurnaround, createTurnaroundPlan, releaseTurnaround, scheduleTurnaround, startTurnaround, turnaroundBlockingServices, turnaroundFuelPercent, type TurnaroundTransition } from './turnaroundOperations';
 import { advanceServiceVehicleMotion, availableVehicleServices, createServiceVehiclePlans, findServiceVehicleConflicts, serviceVehicleOwnerId, serviceVehicleReservationClaims, serviceVehicleRouteViolations, serviceVehiclesBlockingPushback, setServiceVehicleStatus, syncServiceVehiclePose } from './serviceVehicleOperations';
 import { applyDeicingRoutePlan, createDeicingState, deicingFacilities, deicingMovementLimit, deicingReleaseValid, markDeicingNotRequired, markStartupPretreated, planDeicingTaxiRoute, winterDeicingRequired } from './deicingOperations';
@@ -27,6 +27,7 @@ import { selectTerminalProcedure, type SelectedTerminalProcedure, type TerminalP
 import { buildSurfaceRouteViaNodes, selectDiversionExitFix } from './atcRouteCommands';
 import { buildTerminalRouteClearancePreview, type TerminalRouteClearanceCandidate } from './terminalRouteClearance';
 import { buildGroupInstructionPreview } from './groupedFlightInstructions';
+import { createFlightFuelPlan, fuelBurnPercentPerSecond, replaceDepartureFuelPlan } from './flightFuelPlanning';
 import {
   controllerStationIsAhead,
   controllerWorkloadSnapshots,
@@ -2114,6 +2115,32 @@ export class AirportSimulation {
     const procedure = selectedProcedure.procedure.name;
     const origin = this.config.code === 'LOCAL' ? 'LOCAL' : this.config.code;
     const destination = assignment.nextDestination || selection.market;
+    if (
+      flight.fuelPlan.departure.origin !== origin
+      || flight.fuelPlan.departure.destination !== destination
+    ) {
+      flight.fuelPlan = replaceDepartureFuelPlan(flight.fuelPlan, {
+        origin,
+        destination,
+        trafficClass: flight.operationPlan.trafficClass,
+        flightId: flight.id + flight.flightPlanHistory.length * 10_000,
+        airportSeed: this.config.seed,
+      });
+      if (flight.turnaround.status === 'planned') {
+        const scheduledGateInSeconds = flight.turnaround.scheduledStartSeconds;
+        flight.turnaround = createTurnaroundPlan({
+          flightId: flight.id,
+          airportSeed: this.config.seed,
+          aircraft: flight.aircraft,
+          service: flight.service,
+          fuelPercent: flight.turnaround.initialFuelPercent,
+          targetFuelPercent: flight.fuelPlan.departure.dispatchFuelPercent,
+          scope: this.config.scope,
+          scheduledGateInSeconds,
+        });
+        scheduleTurnaround(flight.turnaround, scheduledGateInSeconds);
+      }
+    }
     const release = Math.max(notBeforeSeconds, assignment.scheduledDepartureSeconds);
     flight.flightPlan = createFlightPlan({
       flightId: flight.id,
@@ -2392,7 +2419,6 @@ export class AirportSimulation {
     const flightNumber = 100 + ((id * 37 + Math.abs(this.config.seed)) % 890);
     const registration = this.registrationFor(airlineCode, id);
     const service = airline.cargo || profile.category === 'cargo' ? 'cargo' : 'passenger';
-    const initialFuelPercent = 38 + ((id * 17 + Math.abs(this.config.seed)) % 34);
     const approachDuration = this.phaseDuration(aircraft, 'approach', runway);
     const operatingEnd = this.preferredOperatingEnd(runway);
     const departureSelection = selectTrafficProgram(this.config.trafficProgram, {
@@ -2403,13 +2429,25 @@ export class AirportSimulation {
       airportSeed: this.config.seed,
       supportsAircraft: (model) => this.hasUsableRunwayPair(model),
     });
+    const origin = trafficSelection.market;
     const nextDestination = departureSelection.market;
+    const fuelPlan = createFlightFuelPlan({
+      aircraft,
+      arrivalOrigin: origin,
+      airportCode: this.config.code === 'LOCAL' ? 'LOCAL' : this.config.code,
+      departureDestination: nextDestination,
+      trafficClass,
+      flightId: id,
+      airportSeed: this.config.seed,
+    });
+    const initialFuelPercent = fuelPlan.modeledArrivalFuelPercent;
     const turnaround = createTurnaroundPlan({
       flightId: id,
       airportSeed: this.config.seed,
       aircraft,
       service,
       fuelPercent: initialFuelPercent,
+      targetFuelPercent: fuelPlan.departure.dispatchFuelPercent,
       scope: this.config.scope,
       scheduledGateInSeconds: 0,
     });
@@ -2441,7 +2479,6 @@ export class AirportSimulation {
     const operationPlan = this.createOperationPlan('arrival', trafficClass, operationState);
     const selectedProcedure = this.terminalProcedure('STAR', runway, id);
     const procedure = selectedProcedure.procedure.name;
-    const origin = trafficSelection.market;
     const flightPlan = createFlightPlan({
       flightId: id,
       legNumber: 1,
@@ -2492,6 +2529,7 @@ export class AirportSimulation {
       flightPlan,
       flightPlanHistory: [],
       navigation: this.navigationFor(selectedProcedure, 'arrival'),
+      fuelPlan,
       turnaround,
       deicing: createDeicingState(),
       category: profile.category,
@@ -3006,6 +3044,7 @@ export class AirportSimulation {
       return [{
         flightId: flight.id,
         standId: assignment.standId,
+        aircraft: flight.aircraft,
         terminalId: assignment.terminalId,
         startSeconds,
         endSeconds,
@@ -3018,7 +3057,14 @@ export class AirportSimulation {
     const blocker = assignment
       ? this.state.flights.find((other) => (
           other.id !== flight.id
-          && other.standId === assignment.standId
+          && other.gateAssignment
+          && standReservationsConflict(
+            this.config,
+            assignment.standId,
+            flight.aircraft,
+            other.gateAssignment.standId,
+            other.aircraft,
+          )
           && (
             other.phase === 'taxi-in'
             || other.phase === 'resting'
@@ -3571,8 +3617,10 @@ export class AirportSimulation {
     telemetry.verticalSpeedFpm = (currentAltitude - previousAltitude) / delta * 60;
 
     if (flight.phase !== 'resting') {
-      const burnPerMinute = flight.phase === 'takeoff' ? 2.4 : flight.phase === 'approach' ? 0.72 : flight.phase === 'landing' ? 0.55 : 0.2;
-      telemetry.fuelPercent = Math.max(0, telemetry.fuelPercent - burnPerMinute / 60 * delta);
+      telemetry.fuelPercent = Math.max(
+        0,
+        telemetry.fuelPercent - fuelBurnPercentPerSecond(flight.aircraft, flight.phase, moving) * delta,
+      );
     }
     void measuredSpeed;
     void previousProgress;

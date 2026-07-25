@@ -313,6 +313,17 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Expose versioned handoff records, structured commands, typed events, deep-cloned replay/snapshot state, and compatibility `handoffFlight` offer behavior through API 2.20 / snapshot schema 22.
 - [x] Add deterministic manual, automated, rejection, overdue, recovery, wrong-station, event, metric, and surface-boundary validation plus a browser coordination-inbox workflow and screenshot gate.
 
+## Airport Auto 2.21 — aircraft identity and route-aware operations
+
+- [x] Expand the procedural roster from eight to 13 aircraft with business, long-haul, four-engine, and additional narrowbody/widebody families; give every profile usable fuel, representative cruise flow, and maximum range alongside its existing dimensions and operating behavior.
+- [x] Upgrade traffic programs to schema 2 with carrier-specific markets, distance provenance, route-range filtering, and a representative ORD international roster including Austrian, Lufthansa, Japan Airlines, ANA, British Airways, Turkish, Emirates, KLM, Air France, Qatar, Air Canada, Aer Lingus, Iberia, LOT, Korean Air, and Swiss; omit EL AL while it is absent from the current published CDA directory.
+- [x] Replace generic fuel percentages with deterministic inbound reserve and onward dispatch plans containing taxi, trip, contingency, alternate, final-reserve, landing, and block fuel; burn fuel by aircraft profile and operation phase and replan the gate uplift target for the next leg.
+- [x] Show plausible fuel, real IAS or ground speed, altitude, and three-digit heading/cardinal direction on normal flight strips; expose the complete fuel plan, aircraft capacity/range, and course through API 2.21 / snapshot schema 23.
+- [x] Add optional upper-scope contrails, disabled by default, with turbofan, engine-count, phase, altitude, and weather eligibility; keep the effect renderer-only so it cannot alter authoritative motion, collision, replay, or fuel state.
+- [x] Add a 747 upper-deck/four-engine silhouette and rear-mounted Citation engines while retaining the original procedural visual language; defer distinct optimized aircraft-family assets and full animation/light states to the roadmap.
+- [x] Treat physically overlapping adjacent stand reservations as aircraft-specific mutual exclusions, including delayed-arrival gate rechecks, while preserving later safe reuse and simultaneous smaller-aircraft occupancy where envelopes clear.
+- [x] Validate 13 profiles, 23 ORD carrier programs, 2,000 route/range selections, deterministic short/long-haul fuel plans, authoritative-state-neutral effects, three mutually exclusive stand pairs, 74 airports, 225,000 collision ticks, 571,529 aircraft-envelope ticks, 3,000 ORD 777F runway-assignment ticks, and 18.75 simulated traffic hours without a collision or obstacle breach.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.

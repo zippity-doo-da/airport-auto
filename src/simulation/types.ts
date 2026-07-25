@@ -7,6 +7,7 @@ import type { OperationTrafficClass } from './airportOperationProfiles';
 import type { TrafficDensity } from './trafficDensity';
 import type { ProcedureConstraint, TerminalProcedureKind } from './airspaceProcedures';
 import type { SeparationRulesetId } from './separationRules';
+import type { RouteDistanceSource } from './routeDistances';
 
 export type ControlMode = 'auto' | 'assisted' | 'manual' | 'watch';
 export type WeatherCondition = 'clear' | 'rain' | 'fog' | 'snow';
@@ -273,6 +274,40 @@ export interface FlightKinematics {
   verticalSpeedFpm: number;
   accelerationMps2: number;
   fuelPercent: number;
+}
+
+export interface FlightFuelLegPlan {
+  origin: string;
+  destination: string;
+  estimatedDistanceNm: number;
+  distanceSource: RouteDistanceSource;
+  estimatedBlockHours: number;
+  tripFuelKg: number;
+  taxiFuelKg: number;
+  contingencyFuelKg: number;
+  alternateFuelKg: number;
+  finalReserveFuelKg: number;
+  dispatchFuelKg: number;
+  dispatchFuelPercent: number;
+  plannedLandingFuelKg: number;
+  plannedLandingFuelPercent: number;
+  capacityLimited: boolean;
+}
+
+/**
+ * Deterministic planning approximation for believable game telemetry. It is
+ * explicitly not an operational dispatch release or aircraft loading record.
+ */
+export interface FlightFuelPlan {
+  schemaVersion: 1;
+  aircraft: AircraftModel;
+  usableFuelKg: number;
+  nominalCruiseFuelBurnKgPerHour: number;
+  arrival: FlightFuelLegPlan;
+  departure: FlightFuelLegPlan;
+  modeledArrivalFuelKg: number;
+  modeledArrivalFuelPercent: number;
+  assumptions: string[];
 }
 
 /**
@@ -626,6 +661,7 @@ export interface Flight {
   flightPlan: FlightPlan;
   flightPlanHistory: FlightPlan[];
   navigation: FlightNavigationState;
+  fuelPlan: FlightFuelPlan;
   turnaround: FlightTurnaroundState;
   deicing: FlightDeicingState;
   category: AircraftCategory;

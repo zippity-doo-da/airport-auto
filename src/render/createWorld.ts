@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import type { AirportConfig, FlightColor, RunwayConfig, RunwayOperationalRole } from '../simulation/airportConfig';
 import { aircraftProfile } from '../simulation/aircraftProfiles';
 import { airlineProfile } from '../simulation/airlineProfiles';
-import type { AirportState, Flight, FlightMotionState, ServiceVehicleType } from '../simulation/types';
+import type { AirportState, Flight, FlightMotionState, ServiceVehicleType, WeatherState } from '../simulation/types';
 import { applyAircraftOrientation } from './aircraftOrientation';
+import { contrailPresentation } from './aircraftEffects';
 import { createAirportContext, type AirportContextDiagnostics } from './airportContext';
 import { treePlacement } from './sceneryPlacement';
 import { updateSurfaceDisruptionVisuals } from './surfaceDisruptionVisuals';
@@ -24,7 +25,7 @@ type FlightVisual = {
   landingLamp: THREE.Mesh;
   landingLight: THREE.PointLight;
   shadowCasters: THREE.Mesh[];
-  contrail: THREE.Line;
+  contrail: THREE.LineSegments;
   deicingSpray: THREE.Group;
   beacon: THREE.PointLight;
   halo: THREE.Mesh;
@@ -83,6 +84,8 @@ export type WorldDiagnostics = {
   heldServiceVehicles: number;
   pooledServiceVehicles: number;
   serviceVehiclesVisible: boolean;
+  contrailsVisible: boolean;
+  activeContrails: number;
   attachedTugs: number;
   startingEngines: number;
   passengerFacilities: number;
@@ -135,6 +138,7 @@ export interface AirportWorld {
   resetCamera(): void;
   setRunwayLabelsVisible(visible: boolean): void;
   setServiceVehiclesVisible(visible: boolean): void;
+  setContrailsVisible(visible: boolean): void;
   setSurfaceLayerVisible(layer: SurfaceLayer, visible: boolean): void;
   setAirspaceLayerVisible(layer: AirspaceLayer, visible: boolean): void;
   diagnostics(): WorldDiagnostics;
@@ -255,6 +259,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   let currentState: AirportState | null = null;
   let runwayLabelsVisible = false;
   let serviceVehiclesVisible = true;
+  let contrailsVisible = false;
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const touchPoints = new Map<number, { x: number; y: number }>();
   const attitudeNose = new THREE.Vector3();
@@ -389,7 +394,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
       visual.beacon.intensity = flight.engineState === 'off'
         ? 0
         : (strobe ? 3.4 : flight.engineState === 'starting' ? 0.55 + enginePulse * 0.85 : 0.12) * THREE.MathUtils.lerp(0.45, 1.35, nightMix);
-      updateContrail(visual, flight, state.elapsed);
+      updateContrail(visual, flight, state.weather, state.elapsed, contrailsVisible);
       visual.deicingSpray.visible = flight.deicing.status === 'treating';
       if (visual.deicingSpray.visible) {
         const sprayPulse = 0.86 + Math.sin(state.elapsed * 7.2 + flight.id) * 0.14;
@@ -799,6 +804,10 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
       serviceVehiclesVisible = visible;
       for (const visual of serviceVehicleVisuals.values()) visual.root.visible = visible;
     },
+    setContrailsVisible(visible) {
+      contrailsVisible = visible;
+      if (!visible) for (const visual of flightVisuals.values()) visual.contrail.visible = false;
+    },
     setSurfaceLayerVisible(layer, visible) {
       airportBuild.surfaceLayers[layer].visible = visible;
     },
@@ -818,6 +827,8 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
         heldServiceVehicles: [...serviceVehicleVisuals.values()].filter((visual) => Boolean(visual.root.userData.held)).length,
         pooledServiceVehicles: [...serviceVehiclePool.values()].reduce((sum, pool) => sum + pool.length, 0),
         serviceVehiclesVisible,
+        contrailsVisible,
+        activeContrails: [...flightVisuals.values()].filter((visual) => visual.contrail.visible).length,
         attachedTugs: [...flightVisuals.values()].filter((visual) => visual.tug.visible).length,
         startingEngines: [...flightVisuals.values()].filter((visual) => visual.root.userData.engineState === 'starting').length,
         passengerFacilities: config.surfaceGraph.passengerFacilities.length,
@@ -1406,6 +1417,17 @@ function createPlane(flight: Flight): FlightVisual {
   tailCap.position.x = -visual.bodyLength / 2 - visual.bodyRadius * 0.2;
   body.add(tailCap);
 
+  if (flight.aircraft === 'B748') {
+    const upperDeck = new THREE.Mesh(
+      new THREE.SphereGeometry(visual.bodyRadius * 0.92, 14, 8),
+      paint,
+    );
+    upperDeck.scale.set(2.45, 0.9, 0.58);
+    upperDeck.position.set(visual.bodyLength * 0.2, 0, visual.bodyRadius * 0.74);
+    upperDeck.castShadow = true;
+    body.add(upperDeck);
+  }
+
   const wingShape = new THREE.Shape();
   const wingRoot = visual.bodyLength * 0.08;
   const wingTip = wingRoot - visual.wingSweep;
@@ -1489,8 +1511,13 @@ function createPlane(flight: Flight): FlightVisual {
     ? [-visual.engineOffset, -visual.engineOffset * 0.5, visual.engineOffset * 0.5, visual.engineOffset]
     : [-visual.engineOffset, visual.engineOffset];
   const noseEngine = visual.engineMount === 'nose';
-  const engineX = noseEngine ? visual.bodyLength * 0.49 : visual.bodyLength * 0.04;
-  const engineZ = noseEngine ? 0 : -visual.bodyRadius * 0.85;
+  const rearEngine = visual.engineMount === 'rear';
+  const engineX = noseEngine
+    ? visual.bodyLength * 0.49
+    : rearEngine
+      ? -visual.bodyLength * 0.28
+      : visual.bodyLength * 0.04;
+  const engineZ = noseEngine ? 0 : rearEngine ? visual.bodyRadius * 0.26 : -visual.bodyRadius * 0.85;
   const propellers: THREE.Object3D[] = [];
   const engineIndicators: THREE.Mesh[] = [];
   for (const offset of engineOffsets) {
@@ -1510,7 +1537,7 @@ function createPlane(flight: Flight): FlightVisual {
     engineIndicators.push(engineIndicator);
     if (!noseEngine) {
       const pylon = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.18, 0.42), strutMaterial);
-      pylon.position.set(engineX, offset, -visual.bodyRadius * 0.48);
+      pylon.position.set(engineX, offset, rearEngine ? visual.bodyRadius * 0.12 : -visual.bodyRadius * 0.48);
       body.add(pylon);
     }
     if (visual.propeller) {
@@ -1596,12 +1623,12 @@ function createPlane(flight: Flight): FlightVisual {
   halo.position.z = -0.7;
   root.add(halo);
   const contrailGeometry = new THREE.BufferGeometry();
-  contrailGeometry.setAttribute('position', new THREE.Float32BufferAttribute([
-    -visual.bodyLength * 0.48, 0, visual.bodyRadius * 0.42,
-    -visual.bodyLength * 0.48 - 3.2, 0, visual.bodyRadius * 0.42,
-    -visual.bodyLength * 0.48 - 6.4, 0, visual.bodyRadius * 0.42,
-  ], 3));
-  const contrail = new THREE.Line(contrailGeometry, new THREE.LineBasicMaterial({ color: 0xeaf2ef, transparent: true, opacity: 0.16, depthWrite: false }));
+  const contrailPositions = engineOffsets.flatMap((offset) => [
+    -visual.bodyLength * 0.44, offset, -visual.bodyRadius * 0.15,
+    -visual.bodyLength * 0.44 - Math.max(7.5, visual.bodyLength * 1.05), offset, -visual.bodyRadius * 0.15,
+  ]);
+  contrailGeometry.setAttribute('position', new THREE.Float32BufferAttribute(contrailPositions, 3));
+  const contrail = new THREE.LineSegments(contrailGeometry, new THREE.LineBasicMaterial({ color: 0xeaf2ef, transparent: true, opacity: 0.12, depthWrite: false }));
   contrail.visible = false;
   root.add(contrail);
   const deicingSpray = new THREE.Group();
@@ -1883,15 +1910,19 @@ function mainGearContactLift(flight: Flight, pitch: number, modelScale: number):
   return Math.max(0, (-pitchedWheelBottom - levelContactDepth) * modelScale);
 }
 
-function updateContrail(visual: FlightVisual, flight: Flight, elapsed: number): void {
-  const airborne = !flight.motion.onGround;
-  visual.contrail.visible = airborne && (
-    flight.phase === 'approach'
-    || (flight.phase === 'takeoff' && flight.motion.stage === 'climbout' && flight.motion.stageProgress > 0.62)
-  );
-  if (!visual.contrail.visible) return;
+function updateContrail(
+  visual: FlightVisual,
+  flight: Flight,
+  weather: WeatherState,
+  elapsed: number,
+  enabled: boolean,
+): void {
+  const presentation = contrailPresentation(flight, weather, enabled);
+  visual.contrail.visible = presentation.visible;
+  if (!presentation.visible) return;
   const material = visual.contrail.material as THREE.LineBasicMaterial;
-  material.opacity = 0.08 + Math.sin(elapsed * 0.8 + flight.id) * 0.025;
+  material.opacity = presentation.opacity * (0.97 + Math.sin(elapsed * 0.45 + flight.id) * 0.03);
+  visual.contrail.scale.set(presentation.lengthScale, 1, 1);
 }
 
 function addHoldShortMarkings(root: THREE.Group, config: AirportConfig, unitBox: THREE.BoxGeometry): void {

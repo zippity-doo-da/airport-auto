@@ -104,7 +104,7 @@ body.night-mode #app::after {
 .flight-chip__identity { display: flex; min-width: 0; align-items: baseline; justify-content: space-between; gap: 8px; }
 .flight-chip__identity strong { min-width: 0; overflow: hidden; font-family: Georgia, serif; font-size: 12px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
 .flight-chip__identity span { flex: none; color: var(--flight-accent); font-size: 6px; font-weight: 900; letter-spacing: 0.12em; text-transform: uppercase; }
-.flight-chip__metrics { display: grid; grid-template-columns: 0.78fr 1fr 1.12fr; gap: 6px; }
+.flight-chip__metrics { display: grid; grid-template-columns: 0.72fr 0.82fr 1.08fr 0.94fr; gap: 6px; }
 .flight-chip__metric { display: grid; gap: 1px; min-width: 0; }
 .flight-chip__metric small { color: rgba(244, 232, 206, 0.44); font-size: 5px; font-weight: 900; letter-spacing: 0.14em; text-transform: uppercase; }
 .flight-chip__metric b { overflow: hidden; font: 600 11px/1.15 "Avenir Next Condensed", "Segoe UI", sans-serif; letter-spacing: 0.02em; text-overflow: ellipsis; white-space: nowrap; }

@@ -88,7 +88,7 @@ export function buildAirportObstacleEnvelopes(config: ObstacleConfig): AirportOb
   }
   const centroid = runwayCentroid(config.runways);
   const outward = normalize(subtract(config.terminal, centroid), [1, 0]);
-  const towerDistance = config.scope === 'center' ? 58 : 45;
+  const towerDistance = config.scope === 'center' ? 58 : 52;
   const towerCenter = add(config.terminal, scale(outward, towerDistance));
   return [
     {

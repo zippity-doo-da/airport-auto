@@ -54,7 +54,7 @@ const trafficClasses = ['passenger', 'regional', 'cargo', 'general-aviation'];
 for (const [airportIndex, airportCode] of airportCodes.entries()) {
   const program = airportTrafficProgram(airportCode);
   const operation = buildAirportOperationProfile(airportCode, HUB_AIRPORTS.find((airport) => airport.code === airportCode)?.operations ?? null);
-  assert(program.schemaVersion === 1 && program.airportCode === airportCode, airportCode + ': invalid traffic-program identity');
+  assert(program.schemaVersion === 2 && program.airportCode === airportCode, airportCode + ': invalid traffic-program identity');
   assert(program.airlines.length >= 2 && program.sources.length >= 1, airportCode + ': incomplete traffic program');
   if (airportCode !== 'LOCAL') assert(program.sources.some((source) => source.url), airportCode + ': hub traffic program has no source URL');
   assert(program.recoveryPeriodIds.every((id) => operation.periods.some((period) => period.id === id && period.kind === 'recovery')) || airportCode === 'LOCAL', airportCode + ': recovery lulls do not match the operation profile');
@@ -73,6 +73,8 @@ for (const [airportIndex, airportCode] of airportCodes.entries()) {
       const second = selectTrafficProgram(program, input);
       assert(JSON.stringify(first) === JSON.stringify(second), airportCode + ': traffic selection is not deterministic');
       assert(first.market.length > 0 && AIRCRAFT_PROFILES[first.aircraft], airportCode + ': traffic selection is incomplete');
+      assert(first.estimatedDistanceNm > 0 && first.distanceSource.length > 0, airportCode + ': traffic selection has no route-distance context');
+      assert(AIRCRAFT_PROFILES[first.aircraft].maximumRangeNm + 1e-6 >= first.estimatedDistanceNm * 1.08 + 180 || input.trafficClass === 'regional' || input.trafficClass === 'general-aviation', airportCode + ': selected aircraft cannot cover its market ' + JSON.stringify(first));
       assert(program.airlines.some((airline) => airline.airline === first.airline), airportCode + ': selected airline is outside the program');
       totals.deterministicSelections += 1;
     }

@@ -11,6 +11,7 @@ import {
   type SurfaceStand,
 } from './surfaceGraph';
 import { WORLD_METERS_PER_UNIT } from './runwayPerformance';
+import { parkedAircraftBodyRadius, PHYSICAL_GAP } from './collisionDetection';
 import type { FlightGateAssignment, FlightService, GateServiceArea } from './types';
 
 const KNOT_TO_MPS = 0.514444;
@@ -20,6 +21,7 @@ export const GATE_TURN_BUFFER_SECONDS = 18;
 export interface GateReservation {
   flightId: number;
   standId: string;
+  aircraft?: AircraftModel;
   terminalId?: string;
   startSeconds: number;
   endSeconds: number;
@@ -111,6 +113,23 @@ export function gateReservationsOverlap(
     && first.endSeconds + bufferSeconds > second.startSeconds;
 }
 
+export function standReservationsConflict(
+  config: AirportConfig,
+  firstStandId: string,
+  firstAircraft: AircraftModel,
+  secondStandId: string,
+  secondAircraft: AircraftModel,
+): boolean {
+  if (firstStandId === secondStandId) return true;
+  const first = config.surfaceGraph.stands.find((stand) => stand.id === firstStandId);
+  const second = config.surfaceGraph.stands.find((stand) => stand.id === secondStandId);
+  if (!first || !second) return false;
+  const distance = Math.hypot(first.position[0] - second.position[0], first.position[1] - second.position[1]);
+  return distance + 1e-6 < parkedAircraftBodyRadius(config.scope, firstAircraft)
+    + parkedAircraftBodyRadius(config.scope, secondAircraft)
+    + PHYSICAL_GAP;
+}
+
 export function standServiceArea(
   stand: SurfaceStand,
   zone: SurfaceOperationalZone | undefined,
@@ -164,8 +183,18 @@ function evaluateCandidates(
       startSeconds: scheduledGateInSeconds,
       endSeconds: scheduledDepartureSeconds,
     };
+    const overlappingReservations = request.reservations.filter((reservation) => gateReservationsOverlap(proposedWindow, reservation));
+    if (overlappingReservations.some((reservation) => (
+      reservation.standId === candidate.stand.id
+      || (reservation.aircraft !== undefined && standReservationsConflict(
+        request.config,
+        candidate.stand.id,
+        request.aircraft,
+        reservation.standId,
+        reservation.aircraft,
+      ))
+    ))) continue;
     const standReservations = request.reservations.filter((reservation) => reservation.standId === candidate.stand.id);
-    if (standReservations.some((reservation) => gateReservationsOverlap(proposedWindow, reservation))) continue;
 
     const routePenalty = arrivalRoute.distance * 0.16 + departureRoute.distance * 0.24;
     const windowPenalty = standWindowPenalty(proposedWindow, standReservations);

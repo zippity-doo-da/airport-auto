@@ -61,6 +61,7 @@ export interface FixedStepFlightSnapshot {
   operationPlan: Flight['operationPlan'];
   flightPlan: Flight['flightPlan'];
   flightPlanHistory: Flight['flightPlanHistory'];
+  fuelPlan: Flight['fuelPlan'];
   gateAssignment?: {
     standId: string;
     gateRef?: string;
@@ -482,6 +483,12 @@ function snapshotFlight(config: AirportConfig, flight: Flight): FixedStepFlightS
     operationPlan: { ...flight.operationPlan },
     flightPlan: cloneFlightPlan(flight.flightPlan),
     flightPlanHistory: flight.flightPlanHistory.map(cloneFlightPlan),
+    fuelPlan: {
+      ...flight.fuelPlan,
+      arrival: { ...flight.fuelPlan.arrival },
+      departure: { ...flight.fuelPlan.departure },
+      assumptions: [...flight.fuelPlan.assumptions],
+    },
     gateAssignment: flight.gateAssignment ? {
       standId: flight.gateAssignment.standId,
       gateRef: flight.gateAssignment.gateRef,

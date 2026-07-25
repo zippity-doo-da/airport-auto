@@ -8,6 +8,7 @@ import {
   GATE_TURN_BUFFER_SECONDS,
   gateReservationsOverlap,
   planGateAssignment,
+  standReservationsConflict,
 } from './src/simulation/gateAssignment.ts';
 import { surfaceStandSupportsAircraft } from './src/simulation/surfaceGraph.ts';
 
@@ -69,6 +70,7 @@ assert(zoneById.get(fedex.zoneId)?.name === 'Southwest Cargo Ramp', 'FedEx did n
 const reservedWindow = {
   flightId: 201,
   standId: ua.standId,
+  aircraft: 'A320',
   terminalId: ua.terminalId,
   startSeconds: ua.scheduledGateInSeconds,
   endSeconds: ua.scheduledDepartureSeconds,
@@ -98,6 +100,37 @@ assert(!gateReservationsOverlap(reservedWindow, {
   startSeconds: later.scheduledGateInSeconds,
   endSeconds: later.scheduledDepartureSeconds,
 }), 'future stand reuse retained an overlapping window');
+
+const jumboStand = ord.surfaceGraph.stands.find((stand) => stand.id === 'ORD-04');
+const adjacentJumboStand = ord.surfaceGraph.stands.find((stand) => stand.id === 'ORD-06');
+assert(jumboStand && adjacentJumboStand, 'ORD adjacent-widebody test stands are missing');
+assert(standReservationsConflict(ord, jumboStand.id, 'B748', adjacentJumboStand.id, 'B748'), 'adjacent jumbo stands were not recognized as mutually exclusive');
+const onlyJumboStand = new Set(ord.surfaceGraph.stands.filter((stand) => stand.id !== jumboStand.id).map((stand) => stand.id));
+const jumboBaseline = assignmentFor({
+  flightId: 220,
+  airline: 'UA',
+  aircraft: 'B748',
+  service: 'passenger',
+  readyForTaxiAtSeconds: 800,
+  excludedStandIds: onlyJumboStand,
+});
+assert(jumboBaseline?.standId === jumboStand.id, 'widebody baseline could not use its compatible ORD stand');
+const adjacentBlocked = assignmentFor({
+  flightId: 221,
+  airline: 'UA',
+  aircraft: 'B748',
+  service: 'passenger',
+  readyForTaxiAtSeconds: 800,
+  reservations: [{
+    flightId: 219,
+    standId: adjacentJumboStand.id,
+    aircraft: 'B748',
+    startSeconds: jumboBaseline.scheduledGateInSeconds,
+    endSeconds: jumboBaseline.scheduledDepartureSeconds,
+  }],
+  excludedStandIds: onlyJumboStand,
+});
+assert(adjacentBlocked === null, 'gate planner scheduled simultaneous jumbo aircraft at mutually exclusive adjacent stands');
 
 const forcedStandIds = new Set(ord.surfaceGraph.stands.filter((stand) => stand.id !== ua.standId).map((stand) => stand.id));
 const routeScores = departureRunways.map((runway, index) => assignmentFor({
@@ -168,6 +201,7 @@ console.log(JSON.stringify({
   homeConcourses: { UA: ua.concourse, AA: aa.concourse, DL: dl.concourse },
   cargoRamps: { UPS: zoneById.get(ups.zoneId)?.name, FedEx: zoneById.get(fedex.zoneId)?.name },
   safeStandReuse: later.standId,
+  adjacentStandExclusion: true,
   departureRouteScores: routeScores.length,
   maximumPhysicalOccupancy,
   preferredAssignmentSamples: preferredAssignments,

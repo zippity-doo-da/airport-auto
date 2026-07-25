@@ -47,6 +47,7 @@ type AirportControlCommand =
   | { action: 'setMapOrientationVisible'; enabled: boolean }
   | { action: 'setWindOverlayVisible'; enabled: boolean }
   | { action: 'setServiceVehiclesVisible'; enabled: boolean }
+  | { action: 'setContrailsVisible'; enabled: boolean }
   | { action: 'selectAirport'; code: string }
   | { action: 'clearFlight'; flightId: number; runway: number }
   | { action: 'clearPushback'; flightId: number }
@@ -283,6 +284,7 @@ const windOverlayArrow = $<HTMLElement>('#wind-overlay-arrow');
 const windOverlayHeading = $<HTMLElement>('#wind-overlay-heading');
 const windOverlaySpeed = $<HTMLElement>('#wind-overlay-speed');
 const serviceVehiclesToggle = $<HTMLInputElement>('#service-vehicles-toggle');
+const contrailsToggle = $<HTMLInputElement>('#contrails-toggle');
 const surfaceDisruptionKind = $<HTMLSelectElement>('#surface-disruption-kind');
 const surfaceDisruptionTarget = $<HTMLSelectElement>('#surface-disruption-target');
 const surfaceDisruptionDuration = $<HTMLSelectElement>('#surface-disruption-duration');
@@ -325,6 +327,7 @@ let queueInspectorFilter: OperationQueueFilter = 'all';
 let queueInspectorUiKey = '';
 let windOverlayVisible = false;
 let serviceVehiclesVisible = true;
+let contrailsVisible = false;
 let telemetrySequence = 0;
 let lastWeatherCondition: WeatherCondition | null = null;
 let weatherSelection: 'auto' | WeatherCondition = 'auto';
@@ -500,6 +503,7 @@ for (const control of airspaceLayerControls) {
 mapOrientationToggle.addEventListener('change', () => setMapOrientationVisible(mapOrientationToggle.checked));
 windOverlayToggle.addEventListener('change', () => setWindOverlayVisible(windOverlayToggle.checked));
 serviceVehiclesToggle.addEventListener('change', () => setServiceVehiclesVisible(serviceVehiclesToggle.checked));
+contrailsToggle.addEventListener('change', () => setContrailsVisible(contrailsToggle.checked));
 menuButton.addEventListener('click', (event) => {
   event.stopPropagation();
   setControlPanelOpen(!controlPanel.classList.contains('control-panel--open'));
@@ -1237,6 +1241,12 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
         vector: flight.navigation.vector ? { ...flight.navigation.vector, start: { ...flight.navigation.vector.start } } : undefined,
         hold: flight.navigation.hold ? { ...flight.navigation.hold, start: { ...flight.navigation.hold.start } } : undefined,
       },
+      fuelPlan: {
+        ...flight.fuelPlan,
+        arrival: { ...flight.fuelPlan.arrival },
+        departure: { ...flight.fuelPlan.departure },
+        assumptions: [...flight.fuelPlan.assumptions],
+      },
       turnaround: {
         ...flight.turnaround,
         tasks: flight.turnaround.tasks.map((task) => ({ ...task, dependencies: [...task.dependencies] })),
@@ -1256,7 +1266,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
 function replayRecording(): ReplayRecording {
   return {
     schemaVersion: 1,
-    simulationVersion: window.airportControl?.version ?? '2.20.0',
+    simulationVersion: window.airportControl?.version ?? '2.21.0',
     recordedAt: new Date().toISOString(),
     seed: config.seed,
     airport: { code: config.code, name: config.name, scope: config.scope },
@@ -1305,7 +1315,7 @@ function renderFlightStrip(): void {
       item = document.createElement('div');
       item.dataset.flightItem = String(flight.id);
       item.setAttribute('role', 'listitem');
-      item.innerHTML = '<button class="flight-chip" type="button"><span class="flight-chip__identity"><strong></strong><span></span></span><span class="flight-chip__metrics"><span class="flight-chip__metric"><small>Fuel</small><b></b></span><span class="flight-chip__metric"><small></small><b></b></span><span class="flight-chip__metric"><small>Altitude</small><b></b></span></span><span class="flight-chip__detail"><span></span><span class="flight-chip__trend"></span></span><span class="flight-chip__fuel" aria-hidden="true"><i></i></span></button>';
+      item.innerHTML = '<button class="flight-chip" type="button"><span class="flight-chip__identity"><strong></strong><span></span></span><span class="flight-chip__metrics"><span class="flight-chip__metric"><small>Fuel</small><b></b></span><span class="flight-chip__metric"><small></small><b></b></span><span class="flight-chip__metric"><small>Altitude</small><b></b></span><span class="flight-chip__metric"><small>Heading</small><b></b></span></span><span class="flight-chip__detail"><span></span><span class="flight-chip__trend"></span></span><span class="flight-chip__fuel" aria-hidden="true"><i></i></span></button>';
     }
     updateFlightChip(item, flight);
     flightChips.append(item);
@@ -1353,6 +1363,9 @@ function updateFlightChip(item: HTMLElement, flight: Flight): void {
   const acceleration = kinematics.accelerationMps2;
   const motionText = acceleration > 0.06 ? `ACC +${acceleration.toFixed(1)} M/S²` : acceleration < -0.06 ? `BRAKE ${acceleration.toFixed(1)} M/S²` : 'SPEED STABLE';
   const fuel = Math.max(0, Math.min(100, kinematics.fuelPercent));
+  const heading = Math.round(mathAngleToAviationDegrees(flight.motion.heading)) % 360;
+  const headingDisplay = heading === 0 ? 360 : heading;
+  const headingCardinal = cardinalDirection(heading);
   const operation = flightOperationLabel(flight);
   const routeDisplay = `${flight.flightPlan.origin}→${flight.flightPlan.destination}`;
   const phase = held ? 'Hold' : operation;
@@ -1392,17 +1405,21 @@ function updateFlightChip(item: HTMLElement, flight: Flight): void {
   const trafficClass = flight.operationPlan.trafficClass === 'general-aviation'
     ? 'GA'
     : flight.operationPlan.trafficClass.charAt(0).toUpperCase() + flight.operationPlan.trafficClass.slice(1);
-  button.setAttribute('aria-label', `${flight.callsign}, ${flight.aircraft}, ${trafficClass} traffic, ${phase}${holdDetail ? `, ${holdDetail}` : ''}${gateDisplay ? `, ${gateDisplay}` : ''}${gateTime ? `, ${gateTime}` : ''}, fuel ${fuel.toFixed(0)} percent, ${speedLabel} ${speed.toFixed(0)} knots, altitude ${altitude} feet`);
+  button.setAttribute('aria-label', `${flight.callsign}, ${flight.aircraft}, ${trafficClass} traffic, ${phase}${holdDetail ? `, ${holdDetail}` : ''}${gateDisplay ? `, ${gateDisplay}` : ''}${gateTime ? `, ${gateTime}` : ''}, fuel ${fuel.toFixed(1)} percent, ${speedLabel} ${speed.toFixed(0)} knots, altitude ${altitude} feet, heading ${String(headingDisplay).padStart(3, '0')} degrees ${headingCardinal}`);
   button.setAttribute('aria-pressed', String(grouped || focusedFlightId === flight.id));
-  button.title = [`${routeDisplay} · ${flight.flightPlan.route.join(' · ')} · ${flight.flightPlan.procedure}`, assignment?.rationale.join(' · '), flight.phase === 'resting' ? turnaroundLongSummary(flight) : ''].filter(Boolean).join(' · ');
+  const fuelPlan = flight.phase === 'approach' || flight.phase === 'landing' || flight.phase === 'taxi-in'
+    ? `modeled arrival reserve ${flight.fuelPlan.modeledArrivalFuelPercent.toFixed(1)}% · ${flight.fuelPlan.arrival.estimatedDistanceNm.toLocaleString()} NM inbound`
+    : `dispatch plan ${flight.fuelPlan.departure.dispatchFuelPercent.toFixed(1)}% · ${flight.fuelPlan.departure.estimatedDistanceNm.toLocaleString()} NM outbound`;
+  button.title = [`${routeDisplay} · ${flight.flightPlan.route.join(' · ')} · ${flight.flightPlan.procedure}`, fuelPlan, assignment?.rationale.join(' · '), flight.phase === 'resting' ? turnaroundLongSummary(flight) : ''].filter(Boolean).join(' · ');
   const identity = button.querySelector('.flight-chip__identity')!;
   identity.querySelector('strong')!.textContent = flight.callsign;
   identity.querySelector('span')!.textContent = phase;
   const metrics = button.querySelectorAll<HTMLElement>('.flight-chip__metric');
-  metrics[0].querySelector('b')!.innerHTML = `${fuel.toFixed(0)}<em>%</em>`;
+  metrics[0].querySelector('b')!.innerHTML = `${fuel.toFixed(fuel < 20 ? 1 : 0)}<em>%</em>`;
   metrics[1].querySelector('small')!.textContent = speedLabel;
   metrics[1].querySelector('b')!.innerHTML = `${Math.round(speed)}<em>KT</em>`;
   metrics[2].querySelector('b')!.innerHTML = `${altitude.toLocaleString()}<em>FT</em>`;
+  metrics[3].querySelector('b')!.innerHTML = `${String(headingDisplay).padStart(3, '0')}<em>° ${headingCardinal}</em>`;
   const detail = button.querySelector('.flight-chip__detail')!;
   detail.children[0].textContent = `${routeDisplay} · ${flight.aircraft} · ${trafficClass} · ${operation} · ${runwayExitDisplay ?? gateDisplay ?? `RWY ${runwayDesignation(flight.runway)}`}${runwayExitDisplay && gateDisplay ? ` · ${gateDisplay}` : ''}${gateTime ? ` · ${gateTime}` : ''}`;
   detail.children[1].textContent = held && holdDetail
@@ -1693,6 +1710,12 @@ function setServiceVehiclesVisible(visible: boolean): void {
   serviceVehiclesVisible = visible;
   serviceVehiclesToggle.checked = visible;
   world.setServiceVehiclesVisible(visible);
+}
+
+function setContrailsVisible(visible: boolean): void {
+  contrailsVisible = visible;
+  contrailsToggle.checked = visible;
+  world.setContrailsVisible(visible);
 }
 
 function updateSurfaceDisruptionTargets(): void {
@@ -2574,6 +2597,7 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   world = createWorld(canvas, config);
   world.setRunwayLabelsVisible(runwayLabelsVisible);
   world.setServiceVehiclesVisible(serviceVehiclesVisible);
+  world.setContrailsVisible(contrailsVisible);
   for (const [layer, visible] of Object.entries(surfaceLayerVisibility) as Array<[SurfaceLayer, boolean]>) {
     world.setSurfaceLayerVisible(layer, visible);
   }
@@ -2692,6 +2716,8 @@ function updateAirportUi(): void {
   windOverlay.hidden = !windOverlayVisible;
   serviceVehiclesToggle.checked = serviceVehiclesVisible;
   world.setServiceVehiclesVisible(serviceVehiclesVisible);
+  contrailsToggle.checked = contrailsVisible;
+  world.setContrailsVisible(contrailsVisible);
   radarAirport.textContent = config.code;
   runwayConfigurationOptionsKey = '';
   updateRunwayConfigurationOptions();
@@ -2965,7 +2991,7 @@ function airportSnapshot() {
   const operations = simulation.operationProfileSnapshot();
   const movingPhases = new Set(['approach', 'landing', 'taxi-in', 'taxi-out', 'takeoff']);
   return {
-    schemaVersion: 22,
+    schemaVersion: 23,
     airport: {
       code: config.code,
       name: config.name,
@@ -3064,6 +3090,7 @@ function airportSnapshot() {
     queueInspectorVisible,
     windOverlayVisible,
     serviceVehiclesVisible,
+    contrailsVisible,
     station: simulation.state.station,
     selection: {
       focusedFlightId,
@@ -3345,6 +3372,9 @@ function airportSnapshot() {
         lengthM: aircraftProfile(flight.aircraft).lengthM,
         wingspanM: aircraftProfile(flight.aircraft).wingspanM,
         maxTakeoffWeightT: aircraftProfile(flight.aircraft).maxTakeoffWeightT,
+        usableFuelKg: aircraftProfile(flight.aircraft).usableFuelKg,
+        nominalCruiseFuelBurnKgPerHour: aircraftProfile(flight.aircraft).nominalCruiseFuelBurnKgPerHour,
+        maximumRangeNm: aircraftProfile(flight.aircraft).maximumRangeNm,
         cruiseKts: aircraftProfile(flight.aircraft).cruiseKts,
         approachKts: aircraftProfile(flight.aircraft).approachKts,
         taxiKts: aircraftProfile(flight.aircraft).taxiKts,
@@ -3409,6 +3439,12 @@ function airportSnapshot() {
       operatingEnd: flight.operatingEnd,
       activeRunwayEnd: config.runways[flight.runway]?.designation?.[flight.operatingEnd === 1 ? 1 : 0],
       progress: Number(flight.progress.toFixed(3)),
+      fuelPlan: {
+        ...flight.fuelPlan,
+        arrival: { ...flight.fuelPlan.arrival },
+        departure: { ...flight.fuelPlan.departure },
+        assumptions: [...flight.fuelPlan.assumptions],
+      },
       kinematics: {
         airspeedKts: Number(flight.kinematics.airspeedKts.toFixed(1)),
         groundSpeedKts: Number(flight.kinematics.groundSpeedKts.toFixed(1)),
@@ -3416,6 +3452,8 @@ function airportSnapshot() {
         verticalSpeedFpm: Math.round(flight.kinematics.verticalSpeedFpm),
         accelerationMps2: Number(flight.kinematics.accelerationMps2.toFixed(2)),
         fuelPercent: Number(flight.kinematics.fuelPercent.toFixed(2)),
+        headingDegrees: Math.round(mathAngleToAviationDegrees(flight.motion.heading)) % 360 || 360,
+        cardinalDirection: cardinalDirection(mathAngleToAviationDegrees(flight.motion.heading)),
       },
       turnaround: {
         status: flight.turnaround.status,
@@ -3637,6 +3675,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
   if (command.action === 'setMapOrientationVisible') setMapOrientationVisible(command.enabled);
   if (command.action === 'setWindOverlayVisible') setWindOverlayVisible(command.enabled);
   if (command.action === 'setServiceVehiclesVisible') setServiceVehiclesVisible(command.enabled);
+  if (command.action === 'setContrailsVisible') setContrailsVisible(command.enabled);
   if (command.action === 'selectAirport') {
     const code = command.code.toUpperCase();
     accepted = code === 'LOCAL' || HUB_AIRPORTS.some((airport) => airport.code === code);
@@ -3904,7 +3943,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
 }
 
 window.airportControl = {
-  version: '2.20.0',
+  version: '2.21.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },
@@ -3929,6 +3968,7 @@ window.airportControl = {
       mapOrientation: "airportControl.command({ action: 'setMapOrientationVisible', enabled: true })",
       windOverlay: "airportControl.command({ action: 'setWindOverlayVisible', enabled: true })",
       serviceVehicles: "airportControl.command({ action: 'setServiceVehiclesVisible', enabled: false })",
+      contrails: "airportControl.command({ action: 'setContrailsVisible', enabled: true })",
       clearance: "airportControl.command({ action: 'clearFlight', flightId: 1, runway: 0 })",
       pushback: "airportControl.request({ action: 'clearPushback', flightId: 1 }) // Ramp or Supervisor",
       runwayEntry: "airportControl.command({ action: 'clearRunwayEntry', flightId: 1 })",
@@ -4024,6 +4064,11 @@ function mathAngleToAviationDegrees(angle: number): number {
   return (90 - angle * 180 / Math.PI + 360) % 360;
 }
 
+function cardinalDirection(headingDegrees: number): string {
+  const points = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  return points[Math.round((((headingDegrees % 360) + 360) % 360) / 45) % points.length];
+}
+
 if (telemetryEnabled) telemetryPanel.hidden = false;
 const launchAirport = launchOptions.get('airport') ?? (soakEnabled ? 'ORD' : null);
 if (launchAirport) selectAirport(launchAirport.toUpperCase(), true);
@@ -4046,6 +4091,7 @@ if (launchOptions.get('queues') === '1') {
   updateQueueInspectorControl();
   renderQueueInspector();
 }
+if (launchOptions.get('contrails') === '1') setContrailsVisible(true);
 const launchScenario = (launchOptions.get('scenario') ?? (soakEnabled ? 'rush' : null)) as TrafficScenario | null;
 if (launchScenario && ['normal', 'rush', 'storm', 'closure', 'training', 'emergency'].includes(launchScenario)) setScenario(launchScenario);
 const launchDensity = launchOptions.get('density');

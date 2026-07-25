@@ -32,20 +32,20 @@ New arrivals first enter a bounded off-map meter. When approach, runway, entity,
 
 ## Airline programs
 
-Each hub has deterministic representative operator weights, time-of-day bank multipliers, traffic-class fleet mixes, route markets, and terminal/gate preferences. O'Hare uses the sourced CDA concourse and cargo-zone relationships already present in its surface graph. Other hubs use sourced airline/terminal relationships where available and normalized stand sectors on their schematic layouts. All weights, destinations, and timings are purpose-built—not live schedules.
+Each hub has deterministic representative operator weights, time-of-day bank multipliers, traffic-class fleet mixes, route markets, and terminal/gate preferences. Traffic-program schema 2 may attach market pools to an individual carrier, estimates each selected route, and rejects aircraft without enough modeled range or compatible runway performance. O'Hare uses the sourced CDA concourse and cargo-zone relationships already present in its surface graph. Other hubs use sourced airline/terminal relationships where available and normalized stand sectors on their schematic layouts. All weights, destinations, and timings are purpose-built—not live schedules.
 
 ## Fleet mapping
 
 Traffic classes select a compatible fleet before runway and stand planning:
 
-- passenger: A320, 737-800, A350-900, or 787-9;
+- passenger: A320, 737-800, A321neo, A330-300, A350-900, 787-9, 777-300ER, or 747-8;
 - regional: E175 or Q400;
 - cargo: 777 freighter or cargo-service 737-800;
-- general aviation: Pilatus PC-12 NGX.
+- general aviation: Pilatus PC-12 NGX or Citation Longitude.
 
 The PC-12 adds a true single-engine, light-wake utility turboprop rather than relabeling a regional airliner. Its 14.40 m length, 16.28 m span, 4.74 t maximum takeoff weight, 290 KTAS cruise, 758 m takeoff distance over a 50 ft obstacle, 661 m landing distance over a 50 ft obstacle, and 1,920 ft/min climb reference come from the [Pilatus PC-12 NGX factsheet](https://oldwww.pilatus-aircraft.com/data/document/Pilatus-Aircraft-Ltd-PC-12NGX-Factsheet.pdf). Game-scale approach, taxi, acceleration, and turning values remain explicit simulation parameters.
 
-General-aviation PC-12 traffic prefers a compatible GA zone, then a remote ramp, before falling back to terminal or other parking. It uses the same graph routing, stand occupancy, surface reservations, runway-performance checks, and collision protection as every airliner.
+General-aviation PC-12 and Citation traffic prefers a compatible GA zone, then a remote ramp, before falling back to terminal or other parking. It uses the same graph routing, stand occupancy, surface reservations, runway-performance checks, and collision protection as every airliner. See [aircraft-operations.md](aircraft-operations.md) for the complete thirteen-model roster and route-aware fuel assumptions.
 
 ## Sources and fidelity
 
@@ -57,4 +57,4 @@ The bands, compression, mixes, airline weights, fleet probabilities, route marke
 
 `npm run test:traffic-profiles` verifies all 11 airport choices, 99 contiguous periods, normalized traffic shares, smooth period boundaries, deterministic class selection, the compressed-clock wrap, initial mixed arrival/departure traffic, fixed-step period advancement, PC-12 reference values, and zero collision/obstacle conflicts in the integration run.
 
-`npm run test:traffic-flow` verifies all five density profiles, 11 airline programs, 1,760 deterministic airline/fleet selections, complete plans and amendments, metering/release/diversion/cancellation transitions, bounded history, physical stand exclusivity, seven concurrent taxi movers, new entities beyond the startup bank, and zero collisions or incursions across a 12-hour compressed Extreme ORD session.
+`npm run test:traffic-flow` verifies all five density profiles, 11 airline programs, 1,760 deterministic airline/fleet selections, complete plans and amendments, range-compatible carrier markets, metering/release/diversion/cancellation transitions, bounded history, physical stand exclusivity, seven concurrent taxi movers, new entities beyond the startup bank, and zero collisions or incursions across a 12-hour compressed Extreme ORD session. `npm run test:fuel-planning` adds 2,000 carrier/route/fleet selections plus deterministic route, reserve, dispatch, and integrated burn checks.

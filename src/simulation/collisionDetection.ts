@@ -1,5 +1,5 @@
 import type { AirportConfig } from './airportConfig';
-import { aircraftProfile } from './aircraftProfiles';
+import { aircraftProfile, type AircraftModel } from './aircraftProfiles';
 import type { Flight, FlightPhase, WakeClass } from './types';
 import { sampleSurfaceRouteWithEdges } from './surfaceGraph';
 import { distanceToObstacleBoundary, type AirportObstacleEnvelope } from './airportObstacles';
@@ -71,7 +71,7 @@ const AIRBORNE_VERTICAL = 4.5;
 const AIR_SURFACE_HORIZONTAL = 10;
 const AIR_SURFACE_ALTITUDE = 8;
 const SURFACE_GAP = 1.4;
-const PHYSICAL_GAP = 0.35;
+export const PHYSICAL_GAP = 0.35;
 const COMMITTED_SWEEP_SEGMENTS = 96;
 
 interface CommittedSweepCache {
@@ -80,6 +80,16 @@ interface CommittedSweepCache {
 }
 
 const committedSweepCaches = new WeakMap<Flight, CommittedSweepCache>();
+
+export function parkedAircraftBodyRadius(scope: AirportConfig['scope'], model: AircraftModel): number {
+  const visual = aircraftProfile(model).visual;
+  const scale = scope === 'center' ? 0.17 : 0.92;
+  return Math.max(
+    visual.bodyRadius * scale,
+    (visual.bodyLength + visual.bodyRadius * 2) / 2 * scale,
+    visual.wingSpan / 2 * scale,
+  );
+}
 
 export function aircraftCollisionEnvelope(config: AirportConfig, flight: Flight, progress = flight.progress): AircraftCollisionEnvelope {
   const runway = config.runways[flight.runway] ?? config.runways[0];

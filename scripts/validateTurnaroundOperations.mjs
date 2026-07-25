@@ -21,6 +21,7 @@ const passengerPlans = Array.from({ length: 24 }, (_, index) => createTurnaround
   aircraft: index % 2 ? 'A320' : 'B789',
   service: 'passenger',
   fuelPercent: 42,
+  targetFuelPercent: 58,
   scope: 'center',
   scheduledGateInSeconds: 100,
 }));
@@ -59,6 +60,7 @@ const cargo = createTurnaroundPlan({
   aircraft: 'B77F',
   service: 'cargo',
   fuelPercent: 48,
+  targetFuelPercent: 66,
   scope: 'center',
   scheduledGateInSeconds: 300,
 });
@@ -72,13 +74,14 @@ const maintenancePlans = Array.from({ length: 30 }, (_, index) => createTurnarou
   aircraft: 'B738',
   service: 'passenger',
   fuelPercent: 55,
+  targetFuelPercent: 62,
   scope: 'center',
   scheduledGateInSeconds: 0,
 }));
 const maintenanceCount = maintenancePlans.filter((plan) => plan.tasks.find((task) => task.type === 'maintenance')?.required).length;
 assert(maintenanceCount > 0 && maintenanceCount < maintenancePlans.length, 'maintenance is not an optional deterministic service');
 
-const direct = createTurnaroundPlan({ flightId: 77, airportSeed: 912, aircraft: 'A359', service: 'passenger', fuelPercent: 45, scope: 'center', scheduledGateInSeconds: 0 });
+const direct = createTurnaroundPlan({ flightId: 77, airportSeed: 912, aircraft: 'A359', service: 'passenger', fuelPercent: 45, targetFuelPercent: 61, scope: 'center', scheduledGateInSeconds: 0 });
 const stepped = structuredClone(direct);
 startTurnaround(direct, 500, 43);
 startTurnaround(stepped, 500, 43);

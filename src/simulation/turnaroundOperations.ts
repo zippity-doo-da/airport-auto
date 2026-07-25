@@ -12,6 +12,7 @@ export interface TurnaroundPlanRequest {
   aircraft: AircraftModel;
   service: FlightService;
   fuelPercent: number;
+  targetFuelPercent: number;
   scope: 'airfield' | 'center';
   scheduledGateInSeconds: number;
 }
@@ -52,7 +53,7 @@ export function createTurnaroundPlan(request: TurnaroundPlanRequest): FlightTurn
         ? 1.48
         : 1.35;
   const variant = positiveModulo(request.airportSeed * 31 + request.flightId * 17 + request.aircraft.length * 13, 97);
-  const targetFuelPercent = Math.max(request.fuelPercent, 76 + variant % 15);
+  const targetFuelPercent = Math.min(96, Math.max(request.fuelPercent, request.targetFuelPercent));
   const fuelingRequired = targetFuelPercent - request.fuelPercent >= 2;
   const passenger = request.service === 'passenger';
   const cateringRequired = passenger && (profile.category !== 'regional' || variant % 3 === 0);

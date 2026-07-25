@@ -19,12 +19,12 @@ The result stores its score and plain-language rationale. Congestion can later a
 ## Reservation lifecycle
 
 1. An arrival reserves a future interval from predicted gate-in through planned pushback.
-2. Another active arrival may hold the same future stand only when the two intervals, including turn buffers, do not overlap.
+2. Another active arrival may hold the same future stand only when the two intervals, including turn buffers, do not overlap. Physically close adjacent stands are also mutually exclusive when the two planned aircraft envelopes would overlap; smaller compatible aircraft may still use the pair together when their envelopes clear.
 3. Taxi-in rechecks actual occupancy. If a delayed aircraft still owns the stand, the arrival receives a new compatible plan before leaving the runway environment.
 4. Actual gate-in replaces the estimate and extends the departure window from the real arrival time. Any later conflicting approach is reassigned.
 5. A pushback aircraft continues to own its lead-out until the tug release point; only then is `gate-release` emitted.
 
-The collision system remains the final authority. A schedule never permits two aircraft to physically occupy the same stand or lead path.
+The collision system remains the final authority. A schedule never permits two aircraft to physically occupy the same stand, an unsafe adjacent stand pair, or the same lead path.
 
 ## O'Hare policy and limits
 

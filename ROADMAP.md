@@ -1,7 +1,7 @@
 # Airport Auto — Forward Roadmap
 
 Last reconciled: July 25, 2026
-Baseline: Airport Auto 2.20.0
+Baseline: Airport Auto 2.21.0
 
 Airport Auto is an **ASMR-first web airport simulation with an optional serious ATC layer**. The simulation should remain enjoyable as a calm, hands-off miniature world while also supporting increasingly authentic controller work when the player asks for it.
 
@@ -150,6 +150,8 @@ Use the 2.3 local control API as the safety boundary for live human and agent co
 
 Make Watch mode satisfying for a long session without repetitive alarms or synthetic fatigue.
 
+**Timing: deferred.** Sound work comes after the current aircraft, traffic, motion, and information-display improvements; no runtime voice generation or new audio integration is required in that earlier work.
+
 - [ ] Acquire or create license-cleared engine, APU, ramp, cabin-area, runway, rain, wind, terminal, and tower-room recordings.
 - [ ] Give aircraft persistent spatial sound with model/engine variation, distance attenuation, Doppler restraint, occlusion, and smooth crossfades.
 - [ ] Add taxi whine, power changes, reverse thrust, runway rumble, touchdown, flap/gear, pushback, tug, and service-vehicle layers.
@@ -168,6 +170,8 @@ Make Watch mode satisfying for a long session without repetitive alarms or synth
 ## Milestone 7 — Aircraft identity and airport life
 
 Make model differences visible on the field rather than only in flight strips.
+
+**2.21 foundation:** The roster now contains 13 regional, utility, business, narrowbody, widebody, and cargo models; traffic-program schema 2 adds representative ORD carriers and route-aware fleet selection; flights use model-specific route fuel plans; the normal strip exposes fuel, IAS/ground speed, altitude, and heading; and optional contrails follow engine count and atmospheric conditions. Adjacent stands whose largest compatible aircraft envelopes overlap are mutually exclusive. The broader model-data audit, distinct aircraft assets, animation/light suite, maintenance depth, and formal asset budgets below remain open.
 
 - [ ] Expand and audit the regional, narrowbody, widebody, cargo, business, and general-aviation roster.
 - [ ] Store validated dimensions, weights, engine type, approach/rotation/taxi speeds, climb/descent profiles, turn radius, braking, wake group, runway requirement, and service time.
