@@ -1,7 +1,7 @@
 # Airport Auto — Forward Roadmap
 
 Last reconciled: July 25, 2026
-Baseline: Airport Auto 2.21.0
+Baseline: Airport Auto 2.22.0
 
 Airport Auto is an **ASMR-first web airport simulation with an optional serious ATC layer**. The simulation should remain enjoyable as a calm, hands-off miniature world while also supporting increasingly authentic controller work when the player asks for it.
 
@@ -122,7 +122,7 @@ Make each controller position a complete, satisfying job rather than a filtered 
 - [x] Add safe route editing with previews, conflict warnings, and explicit readback/acceptance state. (2.18: normal-UI route choice, non-mutating map previews, physical look-ahead warnings, staged issue/readback/revalidation, supersession cancellation, and the same arbiter for legacy/API commands.)
 - [x] Add multi-select and grouped commands only where aircraft share a safe, compatible instruction. (2.19: 2–8-aircraft strip/map selection, non-mutating compatibility previews, shared domain/authority/ownership checks, atomic issue, and explicit exclusion of runway clearances, vectors, route changes, expedite, and zigzag.)
 - [x] Add controller handoffs, frequency ownership, strip bays, coordination requests, and late/missed-handoff consequences. (2.20: staged offer/accept-or-reject/contact ownership, per-station coordination bay, deterministic unstaffed-position responses, overdue metrics, and protected Ramp/Ground boundary holds.)
-- [ ] Give Approach, Tower, Ground, Ramp, and Supervisor distinct traffic, authority, alerts, workload, and success measures.
+- [x] Give Approach, Tower, Ground, Ramp, and Supervisor distinct traffic, authority, alerts, workload, and success measures. (2.22: complete role definitions, scoped deterministic scorecards and alerts, compact stable-DOM briefings in Assisted/Manual, and schema-24 telemetry for all modes and airports.)
 - [x] Add configurable automation for unstaffed positions so one player can work a single station while the airport continues safely. (2.16: Supervisor can automate each desk; selecting Approach, Tower, Ground, or Ramp staffs the other positions.)
 - [ ] Add training lessons, contextual explanations, pause-and-recover tools, and a no-fail learning mode.
 - [ ] Add challenge shifts, runway-closure/storm/emergency scenarios, objectives, grades, delay, fuel, throughput, and safety summaries.
@@ -150,7 +150,7 @@ Use the 2.3 local control API as the safety boundary for live human and agent co
 
 Make Watch mode satisfying for a long session without repetitive alarms or synthetic fatigue.
 
-**Timing: deferred.** Sound work comes after the current aircraft, traffic, motion, and information-display improvements; no runtime voice generation or new audio integration is required in that earlier work.
+**Timing: deferred.** All new sound work—including reusable, pre-rendered airport chatter—comes after the current aircraft, traffic, motion, and information-display improvements; no runtime voice generation or new audio integration is required in that earlier work.
 
 - [ ] Acquire or create license-cleared engine, APU, ramp, cabin-area, runway, rain, wind, terminal, and tower-room recordings.
 - [ ] Give aircraft persistent spatial sound with model/engine variation, distance attenuation, Doppler restraint, occlusion, and smooth crossfades.

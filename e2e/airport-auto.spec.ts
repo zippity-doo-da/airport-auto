@@ -10,16 +10,36 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await page.goto('/?airport=ORD&mode=assisted&station=supervisor&autostart=1&detail=low&renderFps=0.25');
   await expect(page.locator('#airport-name')).toContainText('O’Hare');
   await expect(page.locator('#flight-strip-count')).toContainText('aircraft');
-  await page.waitForFunction(() => window.airportControl?.version === '2.21.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.22.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
-  expect(initial.schemaVersion).toBe(23);
+  expect(initial.schemaVersion).toBe(24);
   expect(initial.mode).toBe('assisted');
   expect(initial.airport.code).toBe('ORD');
   expect(initial.controllers.automation).toEqual({ approach: false, tower: false, ground: false, ramp: false });
   expect(initial.controllers.workloads.map((workload) => workload.station)).toEqual(['approach', 'tower', 'ground', 'ramp']);
   expect(initial.controllers.workloads.every((workload) => workload.responsibilities.length >= 4)).toBeTruthy();
+  expect(initial.controllers.performance.map((performance) => performance.station)).toEqual(['supervisor', 'approach', 'tower', 'ground', 'ramp']);
+  expect(initial.controllers.performance.every((performance) => (
+    performance.objectives.length === 4
+    && performance.successMeasures.length === 4
+    && performance.trafficScope.length > 20
+    && performance.authoritySummary.length > 20
+  ))).toBeTruthy();
+  expect(new Set(initial.controllers.performance.map((performance) => performance.trafficScope)).size).toBe(5);
+  await expect(page.locator('#station-briefing')).toBeVisible();
+  await expect(page.locator('#station-briefing')).toContainText('Supervisor objectives');
+  await expect(page.locator('.station-briefing__objectives > span')).toHaveCount(4);
+  const roleDisclosure = page.locator('.station-briefing__role');
+  const roleSummary = roleDisclosure.locator('summary');
+  await roleSummary.click();
+  await expect(page.locator('.station-briefing__role')).toContainText('Every active aircraft');
+  await page.waitForTimeout(1_200);
+  await expect(roleDisclosure).toHaveAttribute('open', '');
+  await expect(roleSummary).toBeFocused();
+  await page.screenshot({ path: testInfo.outputPath('controller-supervisor-briefing.png') });
+  await roleSummary.click();
   expect(initial.airport.airspaceProgram).toMatchObject({
     schemaVersion: 1,
     dataVersion: 'airport-auto-schematic-ord-2026.07',
@@ -325,6 +345,8 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   const rampStation = await page.evaluate(() => window.airportControl.request({ action: 'setStation', station: 'ramp' }));
   expect(rampStation.accepted).toBeTruthy();
   expect(rampStation.resultingState.controllers.automation).toEqual({ approach: true, tower: true, ground: true, ramp: false });
+  await expect(page.locator('#station-briefing')).toContainText('Ramp objectives');
+  await expect(page.locator('#station-briefing')).toContainText('Push ready');
   await page.evaluate((flightId) => window.airportControl.request({ action: 'focusFlight', flightId }), pushReady!.id);
   await expect(page.locator('.turnaround-panel')).toBeVisible();
   await expect(page.locator('.turnaround-panel__summary')).toContainText('Turnaround 100%');
@@ -509,6 +531,8 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await page.waitForTimeout(250);
   await page.locator('#station-select').selectOption('ground');
   await expect(page.locator('#flight-strip-count')).toContainText('tracks');
+  await expect(page.locator('#station-briefing')).toContainText('Ground objectives');
+  await expect(page.locator('#station-briefing')).toContainText('Crossing wait');
   await page.screenshot({ path: testInfo.outputPath('assisted-ord.png') });
 });
 
@@ -516,9 +540,11 @@ test('Manual ORD supports live procedure control, ownership handoffs, and physic
   test.skip(testInfo.project.name !== 'desktop-chromium', 'The live ATC protocol is covered once in desktop Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=manual&station=approach&density=quiet&autostart=1&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.21.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.22.0');
   const pauseResult = await page.evaluate(() => window.airportControl.request({ action: 'pause' }));
   expect(pauseResult.accepted).toBe(true);
+  await expect(page.locator('#station-briefing')).toContainText('Approach objectives');
+  await expect(page.locator('#station-briefing')).toContainText('Low reserve');
   const arrival = await page.evaluate(() => window.airportControl.snapshot().flights.find((flight) => flight.phase === 'approach'));
   expect(arrival).toBeTruthy();
   await page.evaluate((flightId) => window.airportControl.request({ action: 'focusFlight', flightId }), arrival!.id);
@@ -590,6 +616,8 @@ test('Manual ORD supports live procedure control, ownership handoffs, and physic
   });
   expect((await page.evaluate(() => window.airportControl.request({ action: 'setStation', station: 'tower' }))).accepted).toBeTruthy();
   await expect(page.locator('#coordination-inbox')).toBeVisible();
+  await expect(page.locator('#station-briefing')).toContainText('Tower objectives');
+  await expect(page.locator('#station-briefing')).toContainText('Runway alerts');
   await expect(page.locator('#coordination-inbox')).toContainText(arrival!.callsign);
   await page.locator('#coordination-inbox button[data-coordination-action="accept"]').click();
   await page.waitForFunction((flightId) => window.airportControl.snapshot().flights.find((flight) => flight.id === flightId)?.navigation.handoff?.status === 'accepted', arrival!.id);
@@ -626,7 +654,7 @@ test('Group select exposes and applies only shared atomic commands', async ({ pa
   test.skip(testInfo.project.name !== 'desktop-chromium', 'Grouped ATC commands are covered once in desktop Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=manual&station=supervisor&density=rush&autostart=1&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.21.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.22.0');
   await page.evaluate(() => window.airportControl.request({ action: 'pause' }));
   const arrivals = await page.evaluate(() => window.airportControl.snapshot().flights
     .filter((flight) => flight.phase === 'approach'
@@ -693,7 +721,7 @@ test('ORD snow exposes the deicing route and holdover model in the normal UI', a
   test.skip(testInfo.project.name !== 'desktop-chromium', 'Winter operations are viewport-independent and covered once in Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=auto&autostart=1&detail=low&weather=snow&windDir=270&wind=12&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.21.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.22.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
   await page.locator('#menu-toggle').click();
@@ -745,7 +773,7 @@ test('Go-around climbs from the live pose and flies a visible missed-approach pa
   test.skip(testInfo.project.name !== 'desktop-chromium', 'The authoritative go-around is viewport-independent and covered once in Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ATL&mode=auto&autostart=1&detail=low&speed=3&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.21.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.22.0');
   await page.waitForFunction(() => {
     const flight = window.airportControl.snapshot().flights.find((candidate) => candidate.phase === 'approach');
     return Boolean(flight && flight.progress > 0.18);
@@ -779,7 +807,7 @@ test('Mobile Watch mode keeps non-ORD and procedural maps navigable in low detai
   test.skip(testInfo.project.name !== 'mobile-chromium', 'This test is the dedicated responsive/mobile browser gate.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ATL&mode=watch&autostart=1&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.21.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.22.0');
   await expect(page.locator('body')).toHaveClass(/watch-mode/);
   await expect(page.locator('#menu-toggle')).toBeVisible();
   await expect(page.locator('#zoom-in')).toBeVisible();
@@ -835,6 +863,19 @@ test('Mobile Watch mode keeps non-ORD and procedural maps navigable in low detai
     groundFillsViewport: true,
   });
   await page.screenshot({ path: testInfo.outputPath('procedural-local.png') });
+  expect((await page.evaluate(() => window.airportControl.request({ action: 'setMode', value: 'manual' }))).accepted).toBeTruthy();
+  expect((await page.evaluate(() => window.airportControl.request({ action: 'setStation', station: 'approach' }))).accepted).toBeTruthy();
+  await expect(page.locator('#station-briefing')).toContainText('Approach objectives');
+  const mobileBriefing = await page.locator('#station-briefing').evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return { top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left, viewportWidth: innerWidth, viewportHeight: innerHeight };
+  });
+  expect(mobileBriefing.top).toBeGreaterThanOrEqual(0);
+  expect(mobileBriefing.left).toBeGreaterThanOrEqual(0);
+  expect(mobileBriefing.right).toBeLessThanOrEqual(mobileBriefing.viewportWidth);
+  expect(mobileBriefing.bottom).toBeLessThanOrEqual(mobileBriefing.viewportHeight);
+  expect(await page.locator('.station-briefing__role summary').evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+  await page.screenshot({ path: testInfo.outputPath('mobile-controller-briefing.png') });
 });
 
 test('Laptop viewports keep the complete controls menu reachable', async ({ page }, testInfo) => {
@@ -842,7 +883,7 @@ test('Laptop viewports keep the complete controls menu reachable', async ({ page
   test.setTimeout(180_000);
   await page.setViewportSize({ width: 1024, height: 600 });
   await page.goto('/?airport=ORD&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.21.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.22.0');
   const introPanel = page.locator('#intro .intro__panel');
   const introBounds = await introPanel.evaluate((element) => {
     const rect = element.getBoundingClientRect();
@@ -856,7 +897,7 @@ test('Laptop viewports keep the complete controls menu reachable', async ({ page
   await expect(page.locator('#enter')).toBeVisible();
 
   await page.goto('/?airport=ORD&mode=auto&autostart=1&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.21.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.22.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.drawCalls > 100);
   const renderBudget = await page.evaluate(() => window.airportControl.snapshot().renderer);
   expect(renderBudget.detail).toBe('low');
@@ -955,4 +996,21 @@ test('Laptop viewports keep the complete controls menu reachable', async ({ page
   await page.locator('#control-panel').evaluate((element) => { element.scrollTop = 0; });
   await page.waitForTimeout(200);
   await page.screenshot({ path: testInfo.outputPath('laptop-controls-1024x600.png') });
+  await page.locator('#menu-toggle').click();
+  expect((await page.evaluate(() => window.airportControl.request({ action: 'setMode', value: 'manual' }))).accepted).toBeTruthy();
+  expect((await page.evaluate(() => window.airportControl.request({ action: 'setStation', station: 'ground' }))).accepted).toBeTruthy();
+  await expect(page.locator('#station-briefing')).toContainText('Ground objectives');
+  for (const viewport of [{ width: 1024, height: 600 }, { width: 700, height: 500 }]) {
+    await page.setViewportSize(viewport);
+    const briefingBounds = await page.locator('#station-briefing').evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left };
+    });
+    expect(briefingBounds.top).toBeGreaterThanOrEqual(0);
+    expect(briefingBounds.left).toBeGreaterThanOrEqual(0);
+    expect(briefingBounds.right).toBeLessThanOrEqual(viewport.width);
+    expect(briefingBounds.bottom).toBeLessThanOrEqual(viewport.height);
+  }
+  await page.waitForTimeout(4_100);
+  await page.screenshot({ path: testInfo.outputPath('laptop-ground-briefing-700x500.png') });
 });

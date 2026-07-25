@@ -543,6 +543,43 @@ export interface ControllerWorkloadSnapshot {
   responsibilities: string[];
 }
 
+export type ControllerPerformanceStatus = 'nominal' | 'attention' | 'critical';
+export type ControllerObjectiveStatus = 'met' | 'attention' | 'critical' | 'informational';
+
+export interface ControllerObjectiveSnapshot {
+  id: string;
+  label: string;
+  value: number;
+  displayValue: string;
+  target: string;
+  status: ControllerObjectiveStatus;
+  detail: string;
+}
+
+export interface ControllerAlertSnapshot {
+  id: string;
+  station: ControllerStation;
+  severity: 'attention' | 'urgent';
+  label: string;
+  detail: string;
+  flightIds: number[];
+}
+
+export interface ControllerPerformanceSnapshot {
+  station: ControllerStation;
+  label: string;
+  trafficScope: string;
+  authoritySummary: string;
+  responsibilities: string[];
+  successMeasures: string[];
+  workload: ControllerWorkloadSnapshot | null;
+  score: number;
+  status: ControllerPerformanceStatus;
+  summary: string;
+  objectives: ControllerObjectiveSnapshot[];
+  alerts: ControllerAlertSnapshot[];
+}
+
 export type TrafficFlowStatus = 'scheduled' | 'metered' | 'holding' | 'released' | 'diverted' | 'cancelled';
 
 export interface TrafficFlowEntry {

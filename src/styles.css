@@ -72,6 +72,37 @@ body.night-mode #app::after {
 .flight-strip__tools button { min-height: 34px; border: 1px solid rgba(121, 200, 232, 0.36); padding: 6px 9px; color: var(--ivory); background: rgba(121, 200, 232, 0.08); font-size: 9px; font-weight: 900; letter-spacing: 0.06em; cursor: pointer; }
 .flight-strip__tools button:hover, .flight-strip__tools button[aria-pressed="true"] { border-color: var(--amber); color: var(--ink); background: var(--amber); }
 .flight-strip__tools span { color: rgba(244, 232, 206, 0.55); font-size: 9px; font-weight: 800; letter-spacing: 0.06em; text-align: right; }
+.station-briefing { display: grid; gap: 7px; margin-top: 5px; border: 1px solid rgba(121, 200, 232, 0.32); padding: 9px; background: rgba(8, 29, 31, 0.86); backdrop-filter: blur(16px); }
+.station-briefing[hidden] { display: none; }
+.station-briefing[data-status="attention"] { border-color: rgba(239, 199, 117, 0.55); }
+.station-briefing[data-status="critical"] { border-color: rgba(239, 147, 127, 0.72); }
+.station-briefing header { display: flex; align-items: start; justify-content: space-between; gap: 10px; }
+.station-briefing header div { min-width: 0; }
+.station-briefing header b, .station-briefing header small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.station-briefing header b { font: 400 12px/1.15 Georgia, serif; }
+.station-briefing header div small { margin-top: 2px; color: #9bc8a0; font-size: 8px; font-weight: 900; letter-spacing: 0.1em; text-transform: uppercase; }
+.station-briefing[data-status="attention"] header div small { color: var(--amber); }
+.station-briefing[data-status="critical"] header div small { color: var(--rose); }
+.station-briefing header > strong { display: flex; align-items: baseline; color: var(--ivory); font-size: 18px; line-height: 1; }
+.station-briefing header > strong small { margin-left: 2px; color: rgba(244, 232, 206, 0.45); font-size: 8px; }
+.station-briefing__scope { overflow: hidden; margin: 0; color: rgba(244, 232, 206, 0.62); font-size: 9px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.station-briefing__role { color: rgba(244, 232, 206, 0.58); font-size: 8px; line-height: 1.35; }
+.station-briefing__role summary { display: flex; min-height: 28px; align-items: center; color: var(--blue); font-size: 8px; font-weight: 900; letter-spacing: 0.06em; cursor: pointer; text-transform: uppercase; }
+.station-briefing__role p { margin: 5px 0 0; }
+.station-briefing__objectives { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+.station-briefing__objectives > span { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 2px 5px; border-left: 2px solid rgba(155, 200, 160, 0.72); padding: 5px 6px; background: rgba(244, 232, 206, 0.035); }
+.station-briefing__objectives > span[data-status="attention"] { border-left-color: var(--amber); }
+.station-briefing__objectives > span[data-status="critical"] { border-left-color: var(--rose); }
+.station-briefing__objectives > span[data-status="informational"] { border-left-color: var(--blue); }
+.station-briefing__objectives small, .station-briefing__objectives i { overflow: hidden; color: rgba(244, 232, 206, 0.52); font-size: 8px; font-style: normal; letter-spacing: 0.04em; text-overflow: ellipsis; white-space: nowrap; }
+.station-briefing__objectives b { color: var(--ivory); font-size: 12px; }
+.station-briefing__objectives i { grid-column: 1 / -1; }
+.station-briefing__alerts { display: grid; gap: 3px; }
+.station-briefing__alerts > small { color: #9bc8a0; font-size: 8px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; }
+.station-briefing__alerts p { display: grid; min-width: 0; grid-template-columns: auto minmax(0, 1fr); gap: 6px; margin: 0; border-left: 2px solid var(--amber); padding-left: 6px; color: rgba(244, 232, 206, 0.62); font-size: 8px; }
+.station-briefing__alerts p[data-severity="urgent"] { border-left-color: var(--rose); }
+.station-briefing__alerts b, .station-briefing__alerts span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.station-briefing__alerts b { color: var(--ivory); font-size: 8px; }
 .coordination-inbox { display: grid; gap: 6px; margin-top: 5px; border: 1px solid rgba(239, 199, 117, 0.35); padding: 8px; background: rgba(8, 29, 31, 0.88); backdrop-filter: blur(18px); }
 .coordination-inbox > header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .coordination-inbox > header b { font: 400 12px/1.2 Georgia, serif; }
@@ -154,6 +185,8 @@ body.center-scope .brand__mark { font-size: 11px; letter-spacing: -0.04em; }
 .station-workloads button { display: grid; min-width: 0; gap: 2px; border: 1px solid rgba(244, 232, 206, 0.17); padding: 7px 6px; color: rgba(244, 232, 206, 0.7); background: rgba(16, 46, 48, 0.46); text-align: left; cursor: pointer; }
 .station-workloads button:hover, .station-workloads button:focus-visible, .station-workloads button.station-workloads__selected { border-color: rgba(239, 199, 117, 0.62); color: var(--ivory); outline: none; }
 .station-workloads button[data-pressure="heavy"], .station-workloads button[data-pressure="overload"] { border-color: rgba(232, 151, 100, 0.7); }
+.station-workloads button[data-performance="attention"] { box-shadow: inset 0 -2px rgba(239, 199, 117, 0.58); }
+.station-workloads button[data-performance="critical"] { border-color: rgba(239, 147, 127, 0.82); box-shadow: inset 0 -2px rgba(239, 147, 127, 0.72); }
 .station-workloads b { overflow: hidden; font-size: 7px; letter-spacing: 0.08em; text-overflow: ellipsis; text-transform: uppercase; }
 .station-workloads span, .station-workloads i { overflow: hidden; color: rgba(244, 232, 206, 0.46); font-size: 6px; font-style: normal; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
 .station-workloads i { color: var(--amber); text-transform: uppercase; }
@@ -552,6 +585,7 @@ body.watch-mode .flight-strip:not(:focus-within) { opacity: 0.72; }
 body.watch-mode .brand { opacity: 0.75; }
 
 @media (max-width: 760px) {
+  .station-briefing__role summary { min-height: 44px; }
   .clearance-advisor header { grid-template-columns: 1fr; }
   .clearance-advisor button { width: 100%; }
   .operations-health > div { grid-template-columns: repeat(3, minmax(0, 1fr)); }

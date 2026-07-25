@@ -1,5 +1,5 @@
 import type { AirportConfig, AirportRunwayConfiguration, RunwayOperationalRole } from './airportConfig';
-import type { AirportEvent, AirportState, ClearanceProposal, ConflictPrediction, ControlMode, ControllerStation, ControllerWorkloadSnapshot, EmergencyType, Flight, FlightHandoffState, FlightInstruction, FlightNavigationState, FlightOperationPlan, FlightPhase, FlightRouteClearanceState, FlightRunwayExitState, GroupInstructionIssueResult, GroupInstructionPreview, OperationalControllerStation, ServiceVehicleState, ShiftMetrics, SurfaceDisruptionKind, SurfaceDisruptionSource, SurfaceDisruptionState, TrafficScenario, WeatherCondition } from './types';
+import type { AirportEvent, AirportState, ClearanceProposal, ConflictPrediction, ControlMode, ControllerPerformanceSnapshot, ControllerStation, ControllerWorkloadSnapshot, EmergencyType, Flight, FlightHandoffState, FlightInstruction, FlightNavigationState, FlightOperationPlan, FlightPhase, FlightRouteClearanceState, FlightRunwayExitState, GroupInstructionIssueResult, GroupInstructionPreview, OperationalControllerStation, ServiceVehicleState, ShiftMetrics, SurfaceDisruptionKind, SurfaceDisruptionSource, SurfaceDisruptionState, TrafficScenario, WeatherCondition } from './types';
 import { aircraftProfile, type AircraftModel } from './aircraftProfiles';
 import { airlineProfile, type AirlineCode } from './airlineProfiles';
 import { aircraftCollisionEnvelope, detectCommittedRunwaySweepConflict, detectFlightConflict, findFlightConflicts, findObstacleConflicts, findProposedConflict } from './collisionDetection';
@@ -39,6 +39,7 @@ import {
   stationCanIssue,
   suggestedHandoffStation,
 } from './controllerOperations';
+import { controllerPerformanceSnapshots } from './controllerPerformance';
 import {
   assessAirborneSeparation,
   requiredRadarSeparationNm,
@@ -289,6 +290,17 @@ export class AirportSimulation {
       this.state.flights,
       this.isAutomaticMode() ? createStationAutomation(true) : this.state.stationAutomation,
     );
+  }
+
+  controllerPerformance(): ControllerPerformanceSnapshot[] {
+    const workloads = this.controllerWorkloads();
+    return controllerPerformanceSnapshots({
+      state: this.state,
+      metrics: this.shiftMetrics(),
+      workloads,
+      queues: this.queueSnapshot(),
+      predictions: this.conflictPredictions(),
+    });
   }
 
   lastCommandReason(): string {

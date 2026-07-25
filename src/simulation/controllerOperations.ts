@@ -9,25 +9,49 @@ import type {
 export const OPERATIONAL_CONTROLLER_STATIONS: OperationalControllerStation[] = ['approach', 'tower', 'ground', 'ramp'];
 export const CONTROLLER_STATIONS: ControllerStation[] = ['supervisor', ...OPERATIONAL_CONTROLLER_STATIONS];
 
-export const CONTROLLER_STATION_DEFINITIONS: Record<OperationalControllerStation, {
+export interface ControllerStationDefinition {
   label: string;
+  trafficScope: string;
+  authoritySummary: string;
   responsibilities: string[];
-}> = {
+  successMeasures: string[];
+}
+
+export const CONTROLLER_STATION_DEFINITIONS: Record<ControllerStation, ControllerStationDefinition> = {
+  supervisor: {
+    label: 'Supervisor',
+    trafficScope: 'Every active aircraft, desk, runway plan, disruption, queue, and safety invariant.',
+    authoritySummary: 'Airport-wide override, runway configuration, surface availability, recovery, and automation.',
+    responsibilities: ['airport-wide safety picture', 'runway configuration', 'surface availability and recovery', 'desk staffing and automation', 'cross-position coordination'],
+    successMeasures: ['safety integrity', 'airport throughput', 'delay per completed operation', 'desk pressure'],
+  },
   approach: {
     label: 'Approach',
+    trafficScope: 'Arrivals from the terminal boundary through final, plus airborne departures after Tower handoff.',
+    authoritySummary: 'Vectors, altitude, speed, terminal routes, holds, approach clearance, diversion, and airborne handoff.',
     responsibilities: ['terminal arrivals', 'vectors and sequencing', 'altitude and speed', 'approach clearance', 'departures after handoff'],
+    successMeasures: ['airborne separation', 'arrival fuel reserve', 'on-time handoffs', 'arrival queue delay'],
   },
   tower: {
     label: 'Tower',
+    trafficScope: 'Final approaches, occupied runways, runway-entry queues, landing rollout, and initial departure roll.',
+    authoritySummary: 'Landing, go-around, line-up, runway entry, takeoff, and protected-runway occupancy.',
     responsibilities: ['landing clearance', 'runway occupancy', 'line up and wait', 'takeoff clearance', 'go-around authority'],
+    successMeasures: ['runway conflict prevention', 'zero incursions', 'runway queue delay', 'completed runway movements'],
   },
   ground: {
     label: 'Ground',
+    trafficScope: 'Aircraft on movement-area taxiways between runway boundaries and ramp-control boundaries.',
+    authoritySummary: 'Taxi routes, hold/resume, runway crossings, movement-area reroutes, and disabled-aircraft recovery.',
     responsibilities: ['movement-area taxi', 'hold position', 'runway crossings', 'surface reroutes', 'disabled-aircraft recovery'],
+    successMeasures: ['surface flow', 'crossing delay', 'zero incursions', 'moving taxi traffic'],
   },
   ramp: {
     label: 'Ramp',
+    trafficScope: 'Stands, pushback, service activity, apron lanes, ramp alleys, and movement-area handoff points.',
+    authoritySummary: 'Stand flow, pushback direction, turnaround release, ramp alleys, and Ramp/Ground coordination.',
     responsibilities: ['gate and stand flow', 'turnaround readiness', 'pushback clearance', 'ramp alleys', 'handoff at the movement-area boundary'],
+    successMeasures: ['push-ready flow', 'service blockers', 'turnaround variance', 'active gate turns'],
   },
 };
 

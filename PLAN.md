@@ -324,6 +324,15 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Treat physically overlapping adjacent stand reservations as aircraft-specific mutual exclusions, including delayed-arrival gate rechecks, while preserving later safe reuse and simultaneous smaller-aircraft occupancy where envelopes clear.
 - [x] Validate 13 profiles, 23 ORD carrier programs, 2,000 route/range selections, deterministic short/long-haul fuel plans, authoritative-state-neutral effects, three mutually exclusive stand pairs, 74 airports, 225,000 collision ticks, 571,529 aircraft-envelope ticks, 3,000 ORD 777F runway-assignment ticks, and 18.75 simulated traffic hours without a collision or obstacle breach.
 
+## Airport Auto 2.22 — distinct controller workstations
+
+- [x] Define separate Supervisor, Approach, Tower, Ground, and Ramp traffic scopes, command authority, responsibilities, and success measures without changing the existing station-ownership or safety boundary.
+- [x] Derive four explainable objectives, scoped alerts, a bounded 0–100 game score, and nominal/attention/critical status for every desk from authoritative conflicts, queues, fuel, handoffs, turnarounds, workload, and shift metrics.
+- [x] Add a compact Assisted/Manual station briefing with touch-accessible collapsed role detail, four live objective cells, and at most two priority alerts; preserve the low-chrome Auto/Watch presentation.
+- [x] Keep the briefing DOM stable while values change so keyboard focus and the open role disclosure survive refreshes; retain readable desktop, short-laptop, and mobile layouts.
+- [x] Expose all five immutable scorecards through API 2.22 / snapshot schema 24 for human dashboards, scripted controllers, and future agents; scorecards remain read-only and cannot issue commands or alter aircraft motion.
+- [x] Validate five roles, twenty distinct objectives, role-scoped stress alerts, deterministic output, input immutability, every normal-UI desk, disclosure focus stability, and responsive ORD/local-airport presentation.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.

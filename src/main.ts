@@ -17,7 +17,7 @@ import {
   requiredControllerStation,
   suggestedHandoffStation,
 } from './simulation/controllerOperations';
-import type { ClearanceProposal, ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, GroupFlightInstruction, GroupInstructionIssueResult, GroupInstructionPreview, OperationalControllerStation, ReplayFrame, SurfaceDisruptionKind, TrafficScenario, TurnaroundServiceType, WeatherCondition } from './simulation/types';
+import type { ClearanceProposal, ControlMode, ControllerPerformanceSnapshot, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, GroupFlightInstruction, GroupInstructionIssueResult, GroupInstructionPreview, OperationalControllerStation, ReplayFrame, SurfaceDisruptionKind, TrafficScenario, TurnaroundServiceType, WeatherCondition } from './simulation/types';
 import { AmbientAudio, type AudioChannel, type AudioPreset } from './audio/ambientAudio';
 import { createWorld, type AirspaceLayer, type SurfaceLayer } from './render/createWorld';
 import { drawRadarInset } from './render/radarInset';
@@ -251,6 +251,7 @@ const flightStrip = $<HTMLElement>('#flight-strip');
 const flightStripToggle = $<HTMLButtonElement>('#flight-strip-toggle');
 const flightStripTitle = $<HTMLElement>('#flight-strip-title');
 const flightStripCount = $<HTMLElement>('#flight-strip-count');
+const stationBriefing = $<HTMLElement>('#station-briefing');
 const flightChips = $<HTMLElement>('#flight-chips');
 const groupSelectToggle = $<HTMLButtonElement>('#group-select-toggle');
 const groupSelectCount = $<HTMLElement>('#group-select-count');
@@ -342,6 +343,20 @@ let flightActionsRenderKey = '';
 let groupSelectActive = false;
 let groupActionsRenderKey = '';
 let coordinationInboxRenderKey = '';
+let stationBriefingRenderKey = '';
+let controllerPerformanceCacheKey = '';
+let controllerPerformanceCache: ControllerPerformanceSnapshot[] = [];
+let lastControllerAlertKey = '';
+let stationBriefingNodes: {
+  station: ControllerStation;
+  status: HTMLElement;
+  score: HTMLElement;
+  scope: HTMLElement;
+  trafficScope: HTMLElement;
+  authority: HTMLElement;
+  objectives: Map<string, { item: HTMLElement; label: HTMLElement; value: HTMLElement; target: HTMLElement }>;
+  alerts: HTMLElement;
+} | null = null;
 const groupedFlightIds = new Set<number>();
 let runwayLabelsVisible = false;
 const surfaceLayerVisibility: Record<SurfaceLayer, boolean> = {
@@ -1266,7 +1281,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
 function replayRecording(): ReplayRecording {
   return {
     schemaVersion: 1,
-    simulationVersion: window.airportControl?.version ?? '2.21.0',
+    simulationVersion: window.airportControl?.version ?? '2.22.0',
     recordedAt: new Date().toISOString(),
     seed: config.seed,
     airport: { code: config.code, name: config.name, scope: config.scope },
@@ -1281,6 +1296,7 @@ function replayRecording(): ReplayRecording {
 function renderFlightStrip(): void {
   const phaseOrder: Record<FlightPhase, number> = { landing: 0, approach: 1, takeoff: 2, 'taxi-in': 3, 'taxi-out': 4, resting: 5 };
   const allFlights = displayState().flights;
+  renderStationBriefing();
   renderControllerCoordination(allFlights);
   const flights = visibleFlightsForStation(allFlights).sort((first, second) => phaseOrder[first.phase] - phaseOrder[second.phase] || first.id - second.id);
   const selectedWorkload = simulation.state.station === 'supervisor'
@@ -1323,6 +1339,129 @@ function renderFlightStrip(): void {
   renderGroupActions();
   renderFlightActions();
   renderClearanceAdvisor();
+}
+
+function currentControllerPerformance(): ControllerPerformanceSnapshot[] {
+  const state = simulation.state;
+  const key = `${config.seed}|${Math.floor(state.elapsed)}|${telemetrySequence}|${state.mode}|${state.station}|${state.arrivals}|${state.departures}|${state.flights.length}`;
+  if (key !== controllerPerformanceCacheKey) {
+    controllerPerformanceCacheKey = key;
+    controllerPerformanceCache = simulation.controllerPerformance();
+  }
+  return controllerPerformanceCache;
+}
+
+function renderStationBriefing(): void {
+  const state = displayState();
+  const enabled = !replayMode && (state.mode === 'manual' || state.mode === 'assisted');
+  stationBriefing.hidden = !enabled;
+  if (!enabled) {
+    stationBriefingRenderKey = '';
+    lastControllerAlertKey = '';
+    return;
+  }
+  const performance = currentControllerPerformance().find((snapshot) => snapshot.station === state.station);
+  if (!performance) return;
+  const visibleAlerts = performance.alerts.slice(0, 2);
+  const key = JSON.stringify([
+    performance.station,
+    performance.score,
+    performance.status,
+    performance.summary,
+    performance.objectives.map((objective) => [objective.id, objective.displayValue, objective.target, objective.status, objective.detail]),
+    visibleAlerts.map((item) => [item.id, item.severity, item.label, item.detail]),
+  ]);
+  if (key === stationBriefingRenderKey) return;
+  stationBriefingRenderKey = key;
+  const expectedObjectives = performance.objectives.map((objective) => objective.id).join('|');
+  const renderedObjectives = stationBriefingNodes ? [...stationBriefingNodes.objectives.keys()].join('|') : '';
+  if (!stationBriefingNodes || stationBriefingNodes.station !== performance.station || renderedObjectives !== expectedObjectives) {
+    stationBriefingNodes = createStationBriefingNodes(performance);
+  }
+  const nodes = stationBriefingNodes;
+  stationBriefing.dataset.status = performance.status;
+  stationBriefing.setAttribute('aria-label', `${performance.label} role briefing. ${performance.trafficScope} ${performance.authoritySummary}`);
+  nodes.status.textContent = performance.status;
+  nodes.score.textContent = String(performance.score).padStart(3, '0');
+  nodes.scope.textContent = performance.summary;
+  nodes.trafficScope.textContent = performance.trafficScope;
+  nodes.authority.textContent = `Authority: ${performance.authoritySummary}`;
+  for (const objective of performance.objectives) {
+    const objectiveNodes = nodes.objectives.get(objective.id);
+    if (!objectiveNodes) continue;
+    objectiveNodes.item.dataset.status = objective.status;
+    objectiveNodes.item.title = `${objective.detail} Target: ${objective.target}.`;
+    objectiveNodes.label.textContent = objective.label;
+    objectiveNodes.value.textContent = objective.displayValue;
+    objectiveNodes.target.textContent = objective.target;
+  }
+
+  if (!visibleAlerts.length) {
+    const nominal = document.createElement('small');
+    nominal.textContent = 'All desk targets nominal';
+    nodes.alerts.replaceChildren(nominal);
+  } else {
+    nodes.alerts.replaceChildren(...visibleAlerts.map((controllerAlert) => {
+      const item = document.createElement('p');
+      item.dataset.severity = controllerAlert.severity;
+      item.title = controllerAlert.detail;
+      const label = document.createElement('b');
+      label.textContent = controllerAlert.label;
+      const detail = document.createElement('span');
+      detail.textContent = controllerAlert.detail;
+      item.append(label, detail);
+      return item;
+    }));
+  }
+
+  const urgent = performance.alerts.find((item) => item.severity === 'urgent');
+  const alertKey = urgent?.id ?? '';
+  if (urgent && alertKey !== lastControllerAlertKey) setStatus(`${performance.label} alert`, urgent.detail);
+  lastControllerAlertKey = alertKey;
+}
+
+function createStationBriefingNodes(performance: ControllerPerformanceSnapshot) {
+  const header = document.createElement('header');
+  const identity = document.createElement('div');
+  const title = document.createElement('b');
+  title.textContent = `${performance.label} objectives`;
+  const status = document.createElement('small');
+  identity.append(title, status);
+  const score = document.createElement('strong');
+  const scoreValue = document.createElement('span');
+  const scoreUnit = document.createElement('small');
+  scoreUnit.textContent = '/100';
+  score.append(scoreValue, scoreUnit);
+  header.append(identity, score);
+
+  const scope = document.createElement('p');
+  scope.className = 'station-briefing__scope';
+
+  const role = document.createElement('details');
+  role.className = 'station-briefing__role';
+  const roleSummary = document.createElement('summary');
+  roleSummary.textContent = 'Scope & authority';
+  const trafficScope = document.createElement('p');
+  const authority = document.createElement('p');
+  role.append(roleSummary, trafficScope, authority);
+
+  const objectives = document.createElement('div');
+  objectives.className = 'station-briefing__objectives';
+  const objectiveNodes = new Map<string, { item: HTMLElement; label: HTMLElement; value: HTMLElement; target: HTMLElement }>();
+  for (const objective of performance.objectives) {
+    const item = document.createElement('span');
+    const label = document.createElement('small');
+    const value = document.createElement('b');
+    const target = document.createElement('i');
+    item.append(label, value, target);
+    objectives.append(item);
+    objectiveNodes.set(objective.id, { item, label, value, target });
+  }
+
+  const alertList = document.createElement('div');
+  alertList.className = 'station-briefing__alerts';
+  stationBriefing.replaceChildren(header, scope, role, objectives, alertList);
+  return { station: performance.station, status, score: scoreValue, scope, trafficScope, authority, objectives: objectiveNodes, alerts: alertList };
 }
 
 function renderControllerCoordination(flights: readonly Flight[]): void {
@@ -2863,15 +3002,19 @@ function updateStationAutomationUi(): void {
     control.closest('label')?.classList.toggle('station-automation__manual', !automated);
   }
   const workloads = new Map(simulation.controllerWorkloads().map((workload) => [workload.station, workload]));
+  const performance = new Map(currentControllerPerformance().map((snapshot) => [snapshot.station, snapshot]));
   for (const control of stationWorkloadControls) {
     const station = control.dataset.stationWorkload as OperationalControllerStation;
     const workload = workloads.get(station);
     if (!workload) continue;
     control.classList.toggle('station-workloads__selected', simulation.state.station === station);
     control.dataset.pressure = workload.workload;
+    const scorecard = performance.get(station);
+    control.dataset.performance = scorecard?.status ?? 'nominal';
+    control.title = scorecard ? `${scorecard.label}: ${scorecard.score}/100 · ${scorecard.summary}` : workload.label;
     control.setAttribute('aria-pressed', String(simulation.state.station === station));
     control.querySelector('span')!.textContent = `${workload.phaseRelevantFlights} track${workload.phaseRelevantFlights === 1 ? '' : 's'}${workload.pendingHandoffs ? ` · ${workload.pendingHandoffs} inbound` : ''}`;
-    control.querySelector('i')!.textContent = `${workload.automated ? 'Auto' : 'Manual'} · ${workload.workload}`;
+    control.querySelector('i')!.textContent = `${workload.automated ? 'Auto' : 'Manual'} · ${workload.workload}${scorecard ? ` · ${scorecard.score}` : ''}`;
   }
 }
 
@@ -2991,7 +3134,7 @@ function airportSnapshot() {
   const operations = simulation.operationProfileSnapshot();
   const movingPhases = new Set(['approach', 'landing', 'taxi-in', 'taxi-out', 'takeoff']);
   return {
-    schemaVersion: 23,
+    schemaVersion: 24,
     airport: {
       code: config.code,
       name: config.name,
@@ -3100,6 +3243,7 @@ function airportSnapshot() {
     controllers: {
       automation: { ...simulation.state.stationAutomation },
       workloads: simulation.controllerWorkloads(),
+      performance: simulation.controllerPerformance(),
       coordination: simulation.state.flights.flatMap((flight) => {
         const handoff = flight.navigation.handoff;
         return handoff && (handoff.status === 'offered' || handoff.status === 'accepted' || handoff.status === 'overdue')
@@ -3943,7 +4087,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
 }
 
 window.airportControl = {
-  version: '2.21.0',
+  version: '2.22.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },
