@@ -343,6 +343,17 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Expose lesson catalog, progress, context, counters, feedback, and typed start/pause/hint/retry/skip/stop actions through API 2.23 / snapshot schema 25, including shareable `?lesson=` launch links.
 - [x] Validate four complete real-command lesson flows, 22 steps, rejected-command recovery, exact checkpoint restoration, zero-conflict no-fail behavior, responsive controls, and desktop/mobile screenshot regressions alongside the full deterministic and browser release suites.
 
+## Airport Auto 2.24 — timed controller challenge shifts
+
+- [x] Add four deterministic five-to-seven-minute shifts for a rush-hour bank, storm operations, runway-closure recovery, and emergency priority, with hub/local capacity targets and reproducible traffic/weather setup.
+- [x] Open every challenge at a deliberate paused briefing; convert Auto/Watch to Assisted, keep Assisted/Manual available, and automate every unstaffed Approach, Tower, Ground, and Ramp desk so a solo player is not penalized by an abandoned position.
+- [x] Lock airport, scenario, density, separation rules, weather, wind, runway plan, and scenario-owned closure until the debrief; reject generic Resume and every incompatible UI/API change with a plain-language reason.
+- [x] Feed scoring from authoritative arrivals, departures, protected-hold delay, aircraft-profile fuel burn, holding fuel, emergency resolutions, go-arounds, collision alerts, runway incursions, unexplained pauses, missed handoffs, and prevented conflicts.
+- [x] Add weighted live objectives, A+–F grades, immediate safety-review termination, early-end grading, exact timed completion, and full throughput/delay/fuel/movement/emergency/safety summaries with Retry and Continue free play.
+- [x] Add a collapsed setup surface, compact briefing/live HUD that closes its objective detail during play, accessible responsive debrief, focus trapping, 44px touch controls, and no persistent challenge chrome outside an active shift.
+- [x] Expose the catalog, definition, lifecycle, locked conditions, objectives, score, grade, summary, and start/begin/end/continue commands through API 2.24 / snapshot schema 26, BroadcastChannel, recording, replay, and shareable `?challenge=` links.
+- [x] Validate catalog weights, grades, safety caps, condition locks, desk automation, fuel accounting, closure protection, emergency seeding, exact clock completion, training exclusivity, deep cloning, desktop/mobile control flow, viewport containment, focus, and screenshot presentation.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.

@@ -13,6 +13,7 @@ import { separationRuleset, type SeparationRulesetId } from './simulation/separa
 import { controllerStationLabel, isControllerStation, OPERATIONAL_CONTROLLER_STATIONS, requiredControllerStation, suggestedHandoffStation } from './simulation/controllerOperations';
 import type {
   ClearanceProposal,
+  ChallengeId,
   ControlMode,
   ControllerPerformanceSnapshot,
   ControllerStation,
@@ -47,6 +48,7 @@ import {
   updateSurfaceDisruptionTargetOptions,
 } from './ui/surfaceDisruptionPanel';
 import { coordinationInboxKey, renderCoordinationInbox } from './ui/coordinationInbox';
+import { createChallengePanel, type ChallengeSnapshot } from './ui/challengePanel';
 
 type AirportControlCommand =
   | {
@@ -154,7 +156,9 @@ type AirportControlCommand =
   | { action: 'startTrainingLesson'; lessonId: TrainingLessonId }
   | {
       action: 'stopTrainingLesson' | 'continueTraining' | 'trainingHint' | 'retryTrainingStep' | 'skipTrainingStep';
-    };
+    }
+  | { action: 'startChallenge'; challengeId: ChallengeId }
+  | { action: 'beginChallenge' | 'endChallenge' | 'continueAfterChallenge' };
 
 type AirportControlResult = {
   accepted: boolean;
@@ -291,6 +295,35 @@ const trainingContinue = $<HTMLButtonElement>('#training-continue');
 const trainingRetry = $<HTMLButtonElement>('#training-retry');
 const trainingSkip = $<HTMLButtonElement>('#training-skip');
 const trainingEnd = $<HTMLButtonElement>('#training-end');
+const challengeSetup = $<HTMLDetailsElement>('#challenge-setup');
+const challengeSelect = $<HTMLSelectElement>('#challenge-select');
+const challengeSetupNote = $<HTMLElement>('#challenge-setup-note');
+const challengeStart = $<HTMLButtonElement>('#challenge-start');
+const challengeHud = $<HTMLElement>('#challenge-hud');
+const challengeTitle = $<HTMLElement>('#challenge-title');
+const challengeClock = $<HTMLElement>('#challenge-clock');
+const challengeGrade = $<HTMLElement>('#challenge-grade');
+const challengeStatus = $<HTMLElement>('#challenge-status');
+const challengeConditions = $<HTMLElement>('#challenge-conditions');
+const challengeObjectiveDetails = $<HTMLDetailsElement>('#challenge-objective-details');
+const challengeObjectives = $<HTMLElement>('#challenge-objectives');
+const challengePrimary = $<HTMLButtonElement>('#challenge-primary');
+const challengeEnd = $<HTMLButtonElement>('#challenge-end');
+const challengeResults = $<HTMLElement>('#challenge-results');
+const challengeResultEyebrow = $<HTMLElement>('#challenge-result-eyebrow');
+const challengeResultTitle = $<HTMLElement>('#challenge-result-title');
+const challengeResultGrade = $<HTMLElement>('#challenge-result-grade');
+const challengeResultScore = $<HTMLElement>('#challenge-result-score');
+const challengeResultReason = $<HTMLElement>('#challenge-result-reason');
+const challengeResultThroughput = $<HTMLElement>('#challenge-result-throughput');
+const challengeResultDelay = $<HTMLElement>('#challenge-result-delay');
+const challengeResultFuel = $<HTMLElement>('#challenge-result-fuel');
+const challengeResultSafety = $<HTMLElement>('#challenge-result-safety');
+const challengeResultOperations = $<HTMLElement>('#challenge-result-operations');
+const challengeResultEmergencies = $<HTMLElement>('#challenge-result-emergencies');
+const challengeResultObjectives = $<HTMLElement>('#challenge-result-objectives');
+const challengeRetry = $<HTMLButtonElement>('#challenge-retry');
+const challengeContinue = $<HTMLButtonElement>('#challenge-continue');
 const introAirportSelect = $<HTMLSelectElement>('#intro-airport-select');
 const introControlSelect = $<HTMLSelectElement>('#intro-control-select');
 const introDensitySelect = $<HTMLSelectElement>('#intro-density-select');
@@ -381,6 +414,47 @@ const debugPanel = $<HTMLElement>('#debug-panel');
 const audioLevelControls = [...document.querySelectorAll<HTMLInputElement>('[data-audio-level]')];
 const surfaceLayerControls = [...document.querySelectorAll<HTMLInputElement>('[data-surface-layer]')];
 const airspaceLayerControls = [...document.querySelectorAll<HTMLInputElement>('[data-airspace-layer]')];
+const challengePanel = createChallengePanel({
+  setup: challengeSetup,
+  select: challengeSelect,
+  setupNote: challengeSetupNote,
+  startButton: challengeStart,
+  lockedControls: [
+    airportSelect,
+    scenarioSelect,
+    densitySelect,
+    separationRulesSelect,
+    weatherToggle,
+    windToggle,
+    weatherConditionSelect,
+    runwayConfigurationSelect,
+    fieldButton,
+    scopeButton,
+  ],
+  hud: challengeHud,
+  title: challengeTitle,
+  clock: challengeClock,
+  grade: challengeGrade,
+  status: challengeStatus,
+  conditions: challengeConditions,
+  objectiveDetails: challengeObjectiveDetails,
+  objectiveList: challengeObjectives,
+  primaryButton: challengePrimary,
+  endButton: challengeEnd,
+  results: challengeResults,
+  resultEyebrow: challengeResultEyebrow,
+  resultTitle: challengeResultTitle,
+  resultGrade: challengeResultGrade,
+  resultScore: challengeResultScore,
+  resultReason: challengeResultReason,
+  resultThroughput: challengeResultThroughput,
+  resultDelay: challengeResultDelay,
+  resultFuel: challengeResultFuel,
+  resultSafety: challengeResultSafety,
+  resultOperations: challengeResultOperations,
+  resultEmergencies: challengeResultEmergencies,
+  resultObjectives: challengeResultObjectives,
+});
 
 let lastTime = performance.now();
 let simulationAccumulator = 0;
@@ -393,6 +467,7 @@ const MAX_SIMULATION_TICKS_PER_FRAME = 3;
 let audioUpdateIn = 0;
 let lastHudSecond = -1;
 let trainingCoachRenderKey = '';
+let lastChallengeStatus: ChallengeSnapshot['status'] = 'inactive';
 let lastArrivals = -1;
 let lastDepartures = -1;
 let hubIndex = 0;
@@ -489,6 +564,7 @@ updateSurfaceDisruptionTargets();
 renderSurfaceDisruptionControls();
 renderFlightStrip();
 renderTrainingCoach(true);
+renderChallengeExperience(true);
 setExclusiveModal(intro);
 requestAnimationFrame(() => enterButton.focus());
 
@@ -632,14 +708,14 @@ document.addEventListener('keydown', (event) => {
     d: [1, 0], arrowright: [1, 0],
   };
   const pan = panDirection[event.key.toLowerCase()];
-  if (pan && intro.classList.contains('modal--hidden') && gameOver.hidden) {
+  if (pan && intro.classList.contains('modal--hidden') && gameOver.hidden && challengeResults.hidden) {
     event.preventDefault();
     clearFlightFocus();
     world.panByScreen(pan[0], pan[1]);
     return;
   }
   const cameraKey = event.key.toLowerCase();
-  if ((cameraKey === 'q' || cameraKey === 'e') && intro.classList.contains('modal--hidden') && gameOver.hidden) {
+  if ((cameraKey === 'q' || cameraKey === 'e') && intro.classList.contains('modal--hidden') && gameOver.hidden && challengeResults.hidden) {
     event.preventDefault();
     clearFlightFocus();
     world.rotateBy(cameraKey === 'q' ? -1 : 1);
@@ -694,6 +770,22 @@ trainingContinue.addEventListener('click', () =>
 trainingRetry.addEventListener('click', () => executeAirportRequest({ action: 'retryTrainingStep' }));
 trainingSkip.addEventListener('click', () => executeAirportRequest({ action: 'skipTrainingStep' }));
 trainingEnd.addEventListener('click', () => executeAirportRequest({ action: 'stopTrainingLesson' }));
+challengeSelect.addEventListener('change', () => renderChallengeExperience(true));
+challengeStart.addEventListener('click', () => {
+  const result = executeAirportRequest({ action: 'startChallenge', challengeId: challengeSelect.value as ChallengeId });
+  if (result.accepted) setControlPanelOpen(false);
+  setStatus(result.accepted ? 'Challenge briefing ready' : 'Challenge could not start', result.reason);
+});
+challengePrimary.addEventListener('click', () => {
+  const result = executeAirportRequest({ action: 'beginChallenge' });
+  setStatus(result.accepted ? 'Challenge clock started' : 'Challenge remains paused', result.reason);
+});
+challengeEnd.addEventListener('click', () => executeAirportRequest({ action: 'endChallenge' }));
+challengeRetry.addEventListener('click', () => {
+  const challengeId = simulation.state.challenge.challengeId;
+  if (challengeId) executeAirportRequest({ action: 'startChallenge', challengeId });
+});
+challengeContinue.addEventListener('click', () => executeAirportRequest({ action: 'continueAfterChallenge' }));
 for (const control of stationAutomationControls) {
   control.addEventListener('change', () => {
     const station = control.dataset.stationAutomation;
@@ -1033,6 +1125,7 @@ function frame(now: number): void {
   if (now - lastFlightStripRender >= 400) {
     renderFlightStrip();
     renderTrainingCoach();
+    renderChallengeExperience();
     lastFlightStripRender = now;
   }
 
@@ -1319,6 +1412,14 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
       completedStepIds: [...state.training.completedStepIds],
       skippedStepIds: [...state.training.skippedStepIds],
     },
+    challenge: {
+      ...state.challenge,
+      objectives: state.challenge.objectives.map((objective) => ({ ...objective })),
+      summary: {
+        ...state.challenge.summary,
+        safety: { ...state.challenge.summary.safety },
+      },
+    },
     activeRunwayEnds: { ...state.activeRunwayEnds },
     activeRunwayRoles: { ...state.activeRunwayRoles },
     runwayConfigurationTransition: state.runwayConfigurationTransition ? {
@@ -1400,7 +1501,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
 function replayRecording(): ReplayRecording {
   return {
     schemaVersion: 1,
-    simulationVersion: window.airportControl?.version ?? '2.23.0',
+    simulationVersion: window.airportControl?.version ?? '2.24.0',
     recordedAt: new Date().toISOString(),
     seed: config.seed,
     airport: { code: config.code, name: config.name, scope: config.scope },
@@ -1517,6 +1618,42 @@ function renderTrainingCoach(force = false): void {
   updatePauseControl();
 }
 
+function closeChallengeResults(): void {
+  if (challengeResults.hidden) return;
+  challengeResults.classList.add('modal--hidden');
+  challengeResults.hidden = true;
+  setExclusiveModal(null);
+}
+
+function showChallengeResults(snapshot: ChallengeSnapshot): void {
+  challengePanel.renderResults(snapshot);
+  challengeResults.hidden = false;
+  setExclusiveModal(challengeResults);
+  requestAnimationFrame(() => {
+    challengeResults.classList.remove('modal--hidden');
+    challengeRetry.focus();
+  });
+  setStatus(snapshot.status === 'complete' ? 'Challenge complete' : 'Challenge debrief ready', snapshot.completionReason ?? 'review the operational summary');
+}
+
+function renderChallengeExperience(force = false): void {
+  const snapshot = simulation.challengeSnapshot();
+  challengePanel.render(snapshot, force);
+  const active = snapshot.status === 'briefing' || snapshot.status === 'active';
+  const terminal = snapshot.status === 'complete' || snapshot.status === 'failed' || snapshot.status === 'abandoned';
+  document.body.classList.toggle('challenge-active', active);
+  if (terminal && snapshot.status !== lastChallengeStatus) {
+    recordTelemetry(`challenge:${snapshot.status}`, undefined, undefined, undefined, {
+      detail: snapshot.completionReason ?? 'challenge debrief ready',
+      payload: snapshot,
+    });
+    showChallengeResults(snapshot);
+  } else if (!terminal && !challengeResults.hidden) {
+    closeChallengeResults();
+  }
+  lastChallengeStatus = snapshot.status;
+}
+
 function beginTrainingLesson(lessonId: TrainingLessonId): boolean {
   simulation.setMode('manual');
   simulation.setTrafficDensity('quiet');
@@ -1540,6 +1677,42 @@ function beginTrainingLesson(lessonId: TrainingLessonId): boolean {
   renderTrainingCoach(true);
   renderFlightStrip();
   renderFlightActions();
+  return true;
+}
+
+function openChallengeBriefing(challengeId: ChallengeId): boolean {
+  const accepted = simulation.startChallenge(challengeId);
+  if (!accepted) return false;
+  simulationAccumulator = 0;
+  previousPresentation = capturePresentation(simulation.state);
+  world.snapToAuthoritativeState();
+  controlSelect.value = simulation.state.mode;
+  introControlSelect.value = simulation.state.mode;
+  scenarioSelect.value = simulation.state.scenario;
+  densitySelect.value = simulation.state.trafficFlow.density;
+  introDensitySelect.value = simulation.state.trafficFlow.density;
+  separationRulesSelect.value = simulation.state.separationRuleset;
+  introSeparationRulesSelect.value = simulation.state.separationRuleset;
+  stationSelect.value = simulation.state.station;
+  weatherSelection = simulation.state.weather.condition;
+  replayFrames.length = 0;
+  commandHistory.length = 0;
+  initialReplayState = cloneAirportState(simulation.state);
+  lastArrivals = -1;
+  lastDepartures = -1;
+  lastHudSecond = -1;
+  lastChallengeStatus = 'inactive';
+  setFlightStripCollapsed(false);
+  updateModeControl();
+  updateStationAutomationUi();
+  updateWeatherUi();
+  updatePauseControl();
+  surfaceDisruptionUiKey = '';
+  renderSurfaceDisruptionControls();
+  renderFlightStrip();
+  renderFlightActions();
+  renderTrainingCoach(true);
+  renderChallengeExperience(true);
   return true;
 }
 
@@ -2981,6 +3154,10 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   renderSurfaceDisruptionControls();
   trainingCoachRenderKey = '';
   renderTrainingCoach(true);
+  closeChallengeResults();
+  challengePanel.reset();
+  lastChallengeStatus = 'inactive';
+  renderChallengeExperience(true);
   updatePauseControl();
 }
 
@@ -2998,7 +3175,7 @@ function setExclusiveModal(modal: HTMLElement | null): void {
 
 document.addEventListener('keydown', (event) => {
   if (event.key !== 'Tab') return;
-  const modal = [intro, gameOver].find((candidate) => !candidate.hidden && !candidate.classList.contains('modal--hidden'));
+  const modal = [intro, gameOver, challengeResults].find((candidate) => !candidate.hidden && !candidate.classList.contains('modal--hidden'));
   if (!modal) return;
   const focusable = [...modal.querySelectorAll<HTMLElement>('button:not(:disabled), select:not(:disabled), input:not(:disabled), [href], [tabindex]:not([tabindex="-1"])')];
   if (!focusable.length) return;
@@ -3138,8 +3315,14 @@ function selectAirport(code: string, paused: boolean): void {
   setStatus(`${config.code === 'LOCAL' ? config.name : config.code} selected`, trafficDescription());
 }
 
-function selectControl(mode: ControlMode): void {
-  simulation.setMode(mode);
+function selectControl(mode: ControlMode): boolean {
+  const accepted = simulation.setMode(mode);
+  if (!accepted) {
+    controlSelect.value = simulation.state.mode;
+    introControlSelect.value = simulation.state.mode;
+    setStatus('Control mode unchanged', simulation.lastCommandReason());
+    return false;
+  }
   if (mode === 'watch' && groupSelectActive) setGroupSelectActive(false, false);
   updateModeControl();
   if (mode === 'manual' || mode === 'assisted') setFlightStripCollapsed(false);
@@ -3150,10 +3333,16 @@ function selectControl(mode: ControlMode): void {
   }
   renderFlightStrip();
   setStatus(modeName(mode), modeDescription(mode));
+  return true;
 }
 
-function setScenario(scenario: TrafficScenario): void {
-  simulation.setScenario(scenario);
+function setScenario(scenario: TrafficScenario): boolean {
+  const accepted = simulation.setScenario(scenario);
+  if (!accepted) {
+    scenarioSelect.value = simulation.state.scenario;
+    setStatus('Scenario unchanged', simulation.lastCommandReason());
+    return false;
+  }
   scenarioSelect.value = scenario;
   densitySelect.value = simulation.state.trafficFlow.density;
   introDensitySelect.value = simulation.state.trafficFlow.density;
@@ -3181,26 +3370,41 @@ function setScenario(scenario: TrafficScenario): void {
   );
   surfaceDisruptionUiKey = '';
   renderSurfaceDisruptionControls();
+  return true;
 }
 
-function setTrafficDensity(density: TrafficDensity): void {
-  if (!isTrafficDensity(density)) return;
-  simulation.setTrafficDensity(density);
+function setTrafficDensity(density: TrafficDensity): boolean {
+  if (!isTrafficDensity(density)) return false;
+  const accepted = simulation.setTrafficDensity(density);
+  if (!accepted) {
+    densitySelect.value = simulation.state.trafficFlow.density;
+    introDensitySelect.value = simulation.state.trafficFlow.density;
+    setStatus('Traffic density unchanged', simulation.lastCommandReason());
+    return false;
+  }
   densitySelect.value = density;
   introDensitySelect.value = density;
   const profile = trafficDensityProfile(density);
   setStatus(`${profile.label} traffic`, `${profile.description} · holding capacity ${profile.holdingCapacity}`);
   renderQueueInspector();
   updateWeatherUi();
+  return true;
 }
 
-function setSeparationRules(ruleset: SeparationRulesetId): void {
-  simulation.setSeparationRuleset(ruleset);
+function setSeparationRules(ruleset: SeparationRulesetId): boolean {
+  const accepted = simulation.setSeparationRuleset(ruleset);
+  if (!accepted) {
+    separationRulesSelect.value = simulation.state.separationRuleset;
+    introSeparationRulesSelect.value = simulation.state.separationRuleset;
+    setStatus('Separation rules unchanged', simulation.lastCommandReason());
+    return false;
+  }
   separationRulesSelect.value = ruleset;
   introSeparationRulesSelect.value = ruleset;
   const profile = separationRuleset(ruleset);
   setStatus(`${profile.label} active`, `${profile.radarHorizontalNm} NM nominal radar minimum · ${profile.wakeModel.label}`);
   renderFlightStrip();
+  return true;
 }
 
 function setStation(station: ControllerStation): void {
@@ -3364,8 +3568,9 @@ function airportSnapshot() {
   const operations = simulation.operationProfileSnapshot();
   const movingPhases = new Set(['approach', 'landing', 'taxi-in', 'taxi-out', 'takeoff']);
   return {
-    schemaVersion: 25,
+    schemaVersion: 26,
     training: simulation.trainingSnapshot(),
+    challenge: simulation.challengeSnapshot(),
     airport: {
       code: config.code,
       name: config.name,
@@ -4008,8 +4213,14 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
   let accepted = true;
   let reason = 'accepted';
   let data: GroupInstructionPreview | GroupInstructionIssueResult | undefined;
-  if (command.action === 'pause') simulation.setPaused(true);
-  if (command.action === 'resume') simulation.setPaused(false);
+  if (command.action === 'pause') {
+    accepted = simulation.setPaused(true);
+    reason = simulation.lastCommandReason();
+  }
+  if (command.action === 'resume') {
+    accepted = simulation.setPaused(false);
+    reason = simulation.lastCommandReason();
+  }
   if (command.action === 'nextView') world.nextView();
   if (command.action === 'zoomIn') world.zoomIn();
   if (command.action === 'zoomOut') world.zoomOut();
@@ -4022,9 +4233,9 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
     else reason = 'speed must be a finite number';
   }
   if (command.action === 'setMode') {
-    accepted = ['auto', 'assisted', 'manual', 'watch'].includes(command.value);
-    if (accepted) selectControl(command.value);
-    else reason = 'mode must be auto, assisted, manual, or watch';
+    const valid = ['auto', 'assisted', 'manual', 'watch'].includes(command.value);
+    accepted = valid && selectControl(command.value);
+    reason = valid ? simulation.lastCommandReason() : 'mode must be auto, assisted, manual, or watch';
   }
   if (command.action === 'setNightMode') {
     simulation.setNightMode(command.enabled);
@@ -4053,9 +4264,10 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
   if (command.action === 'setContrailsVisible') setContrailsVisible(command.enabled);
   if (command.action === 'selectAirport') {
     const code = command.code.toUpperCase();
-    accepted = code === 'LOCAL' || HUB_AIRPORTS.some((airport) => airport.code === code);
+    const known = code === 'LOCAL' || HUB_AIRPORTS.some((airport) => airport.code === code);
+    accepted = known && !simulation.challengeSnapshot().conditionsLocked;
     if (accepted) selectAirport(code, false);
-    else reason = `unknown airport ${code}`;
+    else reason = known ? 'the active challenge locks its airport until the debrief' : `unknown airport ${code}`;
   }
   if (command.action === 'clearFlight') {
     accepted = simulation.clearFlight(command.flightId, command.runway);
@@ -4239,19 +4451,19 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
     }
   }
   if (command.action === 'setScenario') {
-    accepted = ['normal', 'rush', 'storm', 'closure', 'training', 'emergency'].includes(command.scenario);
-    if (accepted) setScenario(command.scenario);
-    else reason = 'unknown scenario';
+    const valid = ['normal', 'rush', 'storm', 'closure', 'training', 'emergency'].includes(command.scenario);
+    accepted = valid && setScenario(command.scenario);
+    reason = valid ? simulation.lastCommandReason() : 'unknown scenario';
   }
   if (command.action === 'setTrafficDensity') {
-    accepted = isTrafficDensity(command.density);
-    if (accepted) setTrafficDensity(command.density);
-    else reason = 'traffic density must be quiet, realistic, busy, rush, or extreme';
+    const valid = isTrafficDensity(command.density);
+    accepted = valid && setTrafficDensity(command.density);
+    reason = valid ? simulation.lastCommandReason() : 'traffic density must be quiet, realistic, busy, rush, or extreme';
   }
   if (command.action === 'setSeparationRuleset') {
-    accepted = command.ruleset === 'forgiving' || command.ruleset === 'realistic';
-    if (accepted) setSeparationRules(command.ruleset);
-    else reason = 'separation ruleset must be forgiving or realistic';
+    const valid = command.ruleset === 'forgiving' || command.ruleset === 'realistic';
+    accepted = valid && setSeparationRules(command.ruleset);
+    reason = valid ? simulation.lastCommandReason() : 'separation ruleset must be forgiving or realistic';
   }
   if (command.action === 'setStation') {
     accepted = isControllerStation(command.station);
@@ -4271,15 +4483,24 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
     reason = simulation.lastCommandReason();
   }
   if (command.action === 'setWeather') {
-    accepted = ['clear', 'rain', 'fog', 'snow'].includes(command.condition) && Number.isFinite(command.directionDegrees) && Number.isFinite(command.windSpeed);
+    const valid = ['clear', 'rain', 'fog', 'snow'].includes(command.condition) && Number.isFinite(command.directionDegrees) && Number.isFinite(command.windSpeed);
+    accepted = valid && simulation.setWeather(command.condition, aviationDegreesToMathAngle(command.directionDegrees), command.windSpeed);
     if (accepted) {
       weatherSelection = command.condition;
-      simulation.setWeather(command.condition, aviationDegreesToMathAngle(command.directionDegrees), command.windSpeed);
     }
-    else reason = 'weather requires a valid condition, direction, and wind speed';
+    reason = valid ? simulation.lastCommandReason() : 'weather requires a valid condition, direction, and wind speed';
+    updateWeatherUi();
   }
-  if (command.action === 'setWeatherEnabled') simulation.setWeatherEnabled(command.enabled);
-  if (command.action === 'setWindEnabled') simulation.setWindEnabled(command.enabled);
+  if (command.action === 'setWeatherEnabled') {
+    accepted = simulation.setWeatherEnabled(command.enabled);
+    reason = simulation.lastCommandReason();
+    updateWeatherUi();
+  }
+  if (command.action === 'setWindEnabled') {
+    accepted = simulation.setWindEnabled(command.enabled);
+    reason = simulation.lastCommandReason();
+    updateWeatherUi();
+  }
   if (command.action === 'setRunwayConfiguration') {
     accepted = simulation.setRunwayConfiguration(command.configurationId);
     reason = simulation.lastCommandReason();
@@ -4348,7 +4569,31 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
     accepted = simulation.skipTrainingStep();
     reason = simulation.lastCommandReason();
   }
-  if (command.action === 'restart') newSession(false, config.code === 'LOCAL' ? generateAirportConfig() : generateHubConfig(hubIndex));
+  if (command.action === 'startChallenge') {
+    const validChallenge = ['rush-hour', 'storm-operations', 'runway-closure', 'emergency-priority'].includes(command.challengeId);
+    accepted = validChallenge && openChallengeBriefing(command.challengeId);
+    reason = validChallenge ? simulation.lastCommandReason() : 'unknown controller challenge';
+  }
+  if (command.action === 'beginChallenge') {
+    accepted = simulation.beginChallenge();
+    reason = simulation.lastCommandReason();
+  }
+  if (command.action === 'endChallenge') {
+    accepted = simulation.endChallenge();
+    reason = simulation.lastCommandReason();
+  }
+  if (command.action === 'continueAfterChallenge') {
+    accepted = simulation.continueAfterChallenge();
+    reason = simulation.lastCommandReason();
+  }
+  if (command.action === 'restart') {
+    if (simulation.challengeSnapshot().conditionsLocked) {
+      accepted = false;
+      reason = 'end the active challenge before restarting the airport';
+    } else {
+      newSession(false, config.code === 'LOCAL' ? generateAirportConfig() : generateHubConfig(hubIndex));
+    }
+  }
   if (isTrainingOperationalAction(command.action)) {
     const commandWithFlight = 'flightId' in command ? command : null;
     const commandWithStation = 'station' in command ? command : null;
@@ -4362,6 +4607,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
     });
   }
   renderTrainingCoach();
+  renderChallengeExperience();
   updatePauseControl();
   recordTelemetry(`command:${command.action}`, undefined, undefined, undefined, { accepted, detail: reason, payload: command });
   const snapshot = airportSnapshot();
@@ -4373,7 +4619,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
 }
 
 window.airportControl = {
-  version: '2.23.0',
+  version: '2.24.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },
@@ -4442,6 +4688,11 @@ window.airportControl = {
       trainingContinue: "airportControl.request({ action: 'continueTraining' })",
       trainingSkip: "airportControl.request({ action: 'skipTrainingStep' }) // no score or safety penalty",
       trainingEnd: "airportControl.request({ action: 'stopTrainingLesson' })",
+      challengeCatalog: 'airportControl.snapshot().challenge.availableChallenges',
+      challengeStart: "airportControl.request({ action: 'startChallenge', challengeId: 'rush-hour' }) // opens a paused briefing with locked conditions",
+      challengeBegin: "airportControl.request({ action: 'beginChallenge' })",
+      challengeEnd: "airportControl.request({ action: 'endChallenge' }) // closes early and opens the debrief",
+      challengeContinue: "airportControl.request({ action: 'continueAfterChallenge' })",
       emergency: "airportControl.command({ action: 'triggerEmergency', flightId: 1, type: 'medical' })",
       aircraft: 'airportControl.snapshot().flights[0].aircraft',
       surfaceGraph: 'airportControl.snapshot().surfaceGraph',
@@ -4561,7 +4812,15 @@ if (launchLesson && ['arrival-basics', 'tower-landing', 'surface-flow', 'handoff
   trainingLessonSelect.value = launchLesson;
   beginTrainingLesson(launchLesson);
 }
-if (launchOptions.get('autostart') === '1' || soakEnabled) startShift();
+const launchChallenge = launchOptions.get('challenge') as ChallengeId | null;
+if (launchChallenge && ['rush-hour', 'storm-operations', 'runway-closure', 'emergency-priority'].includes(launchChallenge)) {
+  challengeSelect.value = launchChallenge;
+  openChallengeBriefing(launchChallenge);
+}
+if (launchOptions.get('autostart') === '1' || soakEnabled) {
+  startShift();
+  if (simulation.state.challenge.status === 'briefing') executeAirportRequest({ action: 'beginChallenge' });
+}
 
 requestAnimationFrame(frame);
 window.addEventListener('beforeunload', () => {

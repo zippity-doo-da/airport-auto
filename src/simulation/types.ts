@@ -32,6 +32,61 @@ export interface TrainingState {
   feedback: string | null;
   noFail: true;
 }
+
+export type ChallengeId = 'rush-hour' | 'storm-operations' | 'runway-closure' | 'emergency-priority';
+export type ChallengeStatus = 'inactive' | 'briefing' | 'active' | 'complete' | 'failed' | 'abandoned';
+export type ChallengeGrade = 'A+' | 'A' | 'B' | 'C' | 'D' | 'F';
+export type ChallengeObjectiveStatus = 'pending' | 'on-track' | 'met' | 'attention' | 'failed';
+
+export interface ChallengeObjectiveSnapshot {
+  id: string;
+  label: string;
+  detail: string;
+  displayValue: string;
+  target: string;
+  value: number;
+  targetValue: number;
+  progress: number;
+  weight: number;
+  status: ChallengeObjectiveStatus;
+}
+
+export interface ChallengeOperationalSummary {
+  elapsedSeconds: number;
+  remainingSeconds: number;
+  operations: number;
+  arrivals: number;
+  departures: number;
+  throughputPerHour: number;
+  totalDelaySeconds: number;
+  delayPerOperationSeconds: number;
+  fuelBurnKg: number;
+  holdingFuelBurnKg: number;
+  holdingFuelPercent: number;
+  emergencyResolutions: number;
+  goArounds: number;
+  safety: {
+    score: number;
+    collisionAlerts: number;
+    runwayIncursions: number;
+    unexplainedPauses: number;
+    missedHandoffs: number;
+    preventedConflicts: number;
+  };
+}
+
+export interface ChallengeState {
+  status: ChallengeStatus;
+  challengeId: ChallengeId | null;
+  startedAtSeconds: number;
+  durationSeconds: number;
+  endedAtSeconds: number | null;
+  completionReason: string | null;
+  score: number;
+  grade: ChallengeGrade;
+  objectives: ChallengeObjectiveSnapshot[];
+  summary: ChallengeOperationalSummary;
+}
 export type StationAutomationState = Record<OperationalControllerStation, boolean>;
 export type FlightInstruction = 'slow' | 'normal' | 'expedite' | 'hold' | 'resume' | 'zigzag';
 export type GroupFlightInstruction = Extract<FlightInstruction, 'slow' | 'normal' | 'hold' | 'resume'>;
@@ -763,6 +818,10 @@ export interface ShiftMetrics {
   handoffAcceptances: number;
   handoffRejections: number;
   missedHandoffs: number;
+  fuelBurnKg: number;
+  holdingFuelBurnKg: number;
+  goArounds: number;
+  emergencyResolutions: number;
 }
 
 export interface ReplayFrame {
@@ -819,4 +878,5 @@ export interface AirportState {
   activeRunwayRoles: Record<number, RunwayOperationalRole>;
   closedRunway: number | null;
   training: TrainingState;
+  challenge: ChallengeState;
 }

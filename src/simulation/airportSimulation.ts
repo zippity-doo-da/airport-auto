@@ -2,6 +2,7 @@ import type { AirportConfig, AirportRunwayConfiguration, RunwayOperationalRole }
 import type {
   AirportEvent,
   AirportState,
+  ChallengeId,
   ClearanceProposal,
   ConflictPrediction,
   ControlMode,
@@ -70,6 +71,7 @@ import {
 } from './controllerOperations';
 import { controllerPerformanceSnapshots } from './controllerPerformance';
 import { cloneTrainingState, createInactiveTrainingState, currentTrainingStep, trainingContext, trainingLesson, trainingLessons, trainingObservationCompletesStep, type TrainingCommandObservation } from './trainingProgram';
+import { challengeDefinition, challengeDefinitions, cloneChallengeState, createInactiveChallengeState, evaluateChallenge } from './challengeProgram';
 import { assessAirborneSeparation, requiredRadarSeparationNm, runwayPairIndependent, runwayReleaseReason, separationRuleset, weatherCapacityMultiplier, type RunwayOperationRecord, type SeparationRulesetId } from './separationRules';
 
 const PHASE_DURATION: Record<FlightPhase, number> = {
@@ -191,6 +193,7 @@ export class AirportSimulation {
     activeRunwayRoles: {},
     closedRunway: null,
     training: createInactiveTrainingState(),
+    challenge: createInactiveChallengeState(),
   };
 
   private nextId = 1;
@@ -231,6 +234,10 @@ export class AirportSimulation {
     handoffAcceptances: 0,
     handoffRejections: 0,
     missedHandoffs: 0,
+    fuelBurnKg: 0,
+    holdingFuelBurnKg: 0,
+    goArounds: 0,
+    emergencyResolutions: 0,
   };
 
   private readonly stationarySeconds = new Map<number, number>();
@@ -259,7 +266,17 @@ export class AirportSimulation {
     this.speed = speed;
   }
 
-  setPaused(paused: boolean): void {
+  setPaused(paused: boolean): boolean {
+    if (!paused && this.state.challenge.status === 'briefing') {
+      this.state.paused = true;
+      this.decisionReason = 'begin the challenge from its briefing before resuming the clock';
+      return false;
+    }
+    if (!paused && (this.state.challenge.status === 'complete' || this.state.challenge.status === 'failed' || this.state.challenge.status === 'abandoned')) {
+      this.state.paused = true;
+      this.decisionReason = 'continue or retry from the challenge debrief';
+      return false;
+    }
     this.state.paused = paused;
     if (!paused && this.state.training.status === 'coach-paused') {
       this.state.training.status = 'active';
@@ -268,6 +285,8 @@ export class AirportSimulation {
       this.state.training.status = 'coach-paused';
       this.state.training.feedback = 'Lesson paused. Review the objective, request a hint, or retry the current checkpoint.';
     }
+    this.decisionReason = paused ? 'simulation paused' : 'simulation resumed';
+    return true;
   }
 
   trainingSnapshot() {
@@ -309,6 +328,7 @@ export class AirportSimulation {
   startTrainingLesson(lessonId: TrainingLessonId): boolean {
     const lesson = trainingLesson(lessonId);
     if (!lesson) return this.rejectDecision(`unknown training lesson ${lessonId}`);
+    this.state.challenge = createInactiveChallengeState();
     this.setMode('manual');
     this.setTrafficDensity('quiet');
     this.reset('training');
@@ -522,7 +542,141 @@ export class AirportSimulation {
     this.lastArrivalAdmissionReason = checkpoint.lastArrivalAdmissionReason;
   }
 
-  setMode(mode: ControlMode): void {
+  challengeSnapshot() {
+    const definition = challengeDefinition(this.state.challenge.challengeId);
+    return {
+      ...cloneChallengeState(this.state.challenge),
+      definition: definition
+        ? {
+            id: definition.id,
+            title: definition.title,
+            shortTitle: definition.shortTitle,
+            summary: definition.summary,
+            briefing: definition.briefing,
+            scenario: definition.scenario,
+            density: definition.density,
+            separationRuleset: definition.separationRuleset,
+            durationSeconds: definition.durationSeconds,
+            weather: { ...definition.weather },
+          }
+        : null,
+      availableChallenges: challengeDefinitions().map((candidate) => ({
+        id: candidate.id,
+        title: candidate.title,
+        shortTitle: candidate.shortTitle,
+        summary: candidate.summary,
+        briefing: candidate.briefing,
+        scenario: candidate.scenario,
+        density: candidate.density,
+        separationRuleset: candidate.separationRuleset,
+        durationSeconds: candidate.durationSeconds,
+        weather: { ...candidate.weather },
+        objectives: candidate.objectives.map((objective) => objective.label),
+      })),
+      conditionsLocked: this.challengeConditionsLocked(),
+    };
+  }
+
+  startChallenge(challengeId: ChallengeId): boolean {
+    const definition = challengeDefinition(challengeId);
+    if (!definition) return this.rejectDecision(`unknown challenge ${challengeId}`);
+    this.state.challenge = createInactiveChallengeState();
+    if (this.state.mode === 'auto' || this.state.mode === 'watch') this.setMode('assisted');
+    this.setTrafficDensity(definition.density);
+    this.setSeparationRuleset(definition.separationRuleset);
+    this.reset(definition.scenario);
+    this.state.stationAutomation = createStationAutomation(true);
+    this.coordinateControllerStations();
+    this.setScenario(definition.scenario);
+    this.setWeather(definition.weather.condition, this.baseWindDirection, definition.weather.windSpeedKts);
+    this.weatherOverrideUntil = Number.MAX_SAFE_INTEGER;
+    this.state.challenge = {
+      ...createInactiveChallengeState(),
+      status: 'briefing',
+      challengeId,
+      startedAtSeconds: this.state.elapsed,
+      durationSeconds: definition.durationSeconds,
+    };
+    this.state.paused = true;
+    this.updateChallengeState();
+    this.decisionReason = `${definition.title} briefing ready; scenario conditions are locked until the debrief`;
+    return true;
+  }
+
+  beginChallenge(): boolean {
+    const definition = challengeDefinition(this.state.challenge.challengeId);
+    if (!definition || this.state.challenge.status !== 'briefing') return this.rejectDecision('no challenge briefing is ready');
+    this.state.challenge.status = 'active';
+    this.state.challenge.startedAtSeconds = this.state.elapsed;
+    this.state.challenge.endedAtSeconds = null;
+    this.state.challenge.completionReason = null;
+    this.state.gameOver = false;
+    this.state.paused = false;
+    this.updateChallengeState();
+    this.decisionReason = `${definition.title} challenge clock started`;
+    return true;
+  }
+
+  endChallenge(): boolean {
+    const definition = challengeDefinition(this.state.challenge.challengeId);
+    if (!definition || (this.state.challenge.status !== 'briefing' && this.state.challenge.status !== 'active')) {
+      return this.rejectDecision('no challenge shift is running');
+    }
+    this.finishChallenge('abandoned', `${definition.title} ended early by the controller`);
+    this.decisionReason = this.state.challenge.completionReason ?? 'challenge ended';
+    return true;
+  }
+
+  continueAfterChallenge(): boolean {
+    if (this.state.challenge.status !== 'complete' && this.state.challenge.status !== 'failed' && this.state.challenge.status !== 'abandoned') {
+      return this.rejectDecision('no completed challenge debrief is available');
+    }
+    const title = challengeDefinition(this.state.challenge.challengeId)?.title ?? 'Challenge';
+    this.state.challenge = createInactiveChallengeState();
+    this.state.gameOver = false;
+    this.state.paused = false;
+    this.weatherOverrideUntil = 0;
+    this.decisionReason = `${title} debrief closed; continuing the current airport as free play`;
+    return true;
+  }
+
+  private challengeConditionsLocked(): boolean {
+    return this.state.challenge.status === 'briefing' || this.state.challenge.status === 'active';
+  }
+
+  private updateChallengeState(): void {
+    if (this.state.challenge.status !== 'briefing' && this.state.challenge.status !== 'active') return;
+    Object.assign(
+      this.state.challenge,
+      evaluateChallenge(this.state.challenge, this.metrics, this.config.scope, this.state.elapsed),
+    );
+    if (this.state.challenge.status !== 'active') return;
+    const safety = this.state.challenge.summary.safety;
+    if (safety.collisionAlerts || safety.runwayIncursions || safety.unexplainedPauses) {
+      this.finishChallenge('failed', 'Safety invariant breached; the shift closed for review');
+      return;
+    }
+    if (this.state.challenge.summary.remainingSeconds <= 1e-6) {
+      this.finishChallenge('complete', 'Challenge clock complete');
+    }
+  }
+
+  private finishChallenge(status: 'complete' | 'failed' | 'abandoned', reason: string): void {
+    this.state.challenge.status = status;
+    this.state.challenge.endedAtSeconds = this.state.elapsed;
+    this.state.challenge.completionReason = reason;
+    Object.assign(
+      this.state.challenge,
+      evaluateChallenge(this.state.challenge, this.metrics, this.config.scope, this.state.elapsed),
+    );
+    this.state.gameOver = true;
+    this.state.paused = true;
+  }
+
+  setMode(mode: ControlMode): boolean {
+    if (this.challengeConditionsLocked() && (mode === 'auto' || mode === 'watch')) {
+      return this.rejectDecision('challenge shifts require Assisted or Manual control');
+    }
     this.state.mode = mode;
     if (this.isAutomaticMode()) {
       for (const flight of this.state.flights) {
@@ -550,17 +704,29 @@ export class AirportSimulation {
         }
       }
     }
+    this.decisionReason = `${mode} control active`;
+    return true;
   }
 
-  setTrafficDensity(density: TrafficDensity): void {
+  setTrafficDensity(density: TrafficDensity): boolean {
+    const challenge = challengeDefinition(this.state.challenge.challengeId);
+    if (this.challengeConditionsLocked() && challenge) {
+      return this.rejectDecision(`${challenge.title} locks ${challenge.density} traffic until the debrief`);
+    }
     setTrafficFlowDensity(this.state.trafficFlow, density, this.state.elapsed);
     this.spawnIn = Math.max(0, this.state.trafficFlow.nextArrivalDemandSeconds - this.state.elapsed);
     this.decisionReason = `${trafficDensityProfile(density).label} traffic density active`;
+    return true;
   }
 
-  setSeparationRuleset(id: SeparationRulesetId): void {
+  setSeparationRuleset(id: SeparationRulesetId): boolean {
+    const challenge = challengeDefinition(this.state.challenge.challengeId);
+    if (this.challengeConditionsLocked() && challenge) {
+      return this.rejectDecision(`${challenge.title} locks ${challenge.separationRuleset} separation until the debrief`);
+    }
     this.state.separationRuleset = id;
     this.decisionReason = `${separationRuleset(id).label} separation active`;
+    return true;
   }
 
   setNightMode(enabled: boolean): void {
@@ -620,6 +786,9 @@ export class AirportSimulation {
   }
 
   setRunwayConfiguration(configurationId: string | null): boolean {
+    if (this.challengeConditionsLocked()) {
+      return this.rejectDecision('the active challenge locks its runway configuration until the debrief');
+    }
     if (this.state.station !== 'supervisor') {
       return this.rejectDecision(`${this.state.station} station cannot change the airport runway plan`);
     }
@@ -694,6 +863,9 @@ export class AirportSimulation {
         candidate.kind === kind && (candidate.id === targetId || candidate.targetId === targetId)
       ));
       if (!disruption) return this.rejectDecision('no matching active surface restriction');
+      if (this.challengeConditionsLocked() && disruption.source === 'scenario') {
+        return this.rejectDecision('the active challenge locks its scenario runway restriction');
+      }
       return this.removeSurfaceDisruption(disruption.id, 'supervisor reopened the movement area');
     }
     return this.createSurfaceDisruption(kind, targetId, 'controller', durationSeconds);
@@ -707,6 +879,9 @@ export class AirportSimulation {
     if (!disruption) return this.rejectDecision(`unknown surface restriction ${id}`);
     if (disruption.kind === 'disabled-aircraft') {
       return this.rejectDecision('dispatch recovery for a disabled aircraft before reopening its pavement');
+    }
+    if (this.challengeConditionsLocked() && disruption.source === 'scenario') {
+      return this.rejectDecision('the active challenge locks its scenario runway restriction');
     }
     return this.removeSurfaceDisruption(id, 'supervisor reopened the movement area');
   }
@@ -725,7 +900,11 @@ export class AirportSimulation {
     return true;
   }
 
-  setScenario(scenario: TrafficScenario): void {
+  setScenario(scenario: TrafficScenario): boolean {
+    const challenge = challengeDefinition(this.state.challenge.challengeId);
+    if (this.challengeConditionsLocked() && challenge) {
+      return this.rejectDecision(`${challenge.title} locks the ${challenge.scenario} scenario until the debrief`);
+    }
     this.state.scenario = scenario;
     this.removeSurfaceDisruptionsBySource('scenario');
     if (scenario === 'closure') {
@@ -738,6 +917,8 @@ export class AirportSimulation {
     if (scenario === 'storm') this.setWeather('rain', this.state.weather.windDirection, Math.max(18, this.state.weather.windSpeed));
     if (scenario === 'normal' || scenario === 'rush' || scenario === 'closure') this.weatherOverrideUntil = 0;
     this.updateActiveRunwayConfiguration();
+    this.decisionReason = `${scenario} scenario active`;
+    return true;
   }
 
   shiftMetrics(): ShiftMetrics { return { ...this.metrics }; }
@@ -856,7 +1037,11 @@ export class AirportSimulation {
     return violations;
   }
 
-  setWeather(condition: WeatherCondition, windDirection: number, windSpeed: number): void {
+  setWeather(condition: WeatherCondition, windDirection: number, windSpeed: number): boolean {
+    const challenge = challengeDefinition(this.state.challenge.challengeId);
+    if (this.challengeConditionsLocked() && challenge) {
+      return this.rejectDecision(`${challenge.title} locks weather until the debrief`);
+    }
     this.state.weather.weatherEnabled = true;
     this.state.weather.windEnabled = true;
     this.state.weather.condition = condition;
@@ -876,9 +1061,15 @@ export class AirportSimulation {
     this.weatherOverrideUntil = this.state.elapsed + (condition === 'snow' ? 2400 : 180);
     this.refreshDeicingPlansForWeather();
     this.updateActiveRunwayConfiguration();
+    this.decisionReason = `${condition} weather active`;
+    return true;
   }
 
-  setWeatherEnabled(enabled: boolean): void {
+  setWeatherEnabled(enabled: boolean): boolean {
+    const challenge = challengeDefinition(this.state.challenge.challengeId);
+    if (this.challengeConditionsLocked() && challenge) {
+      return this.rejectDecision(`${challenge.title} locks weather until the debrief`);
+    }
     this.state.weather.weatherEnabled = enabled;
     if (!enabled) {
       this.state.weather.condition = 'clear';
@@ -891,11 +1082,19 @@ export class AirportSimulation {
     }
     this.updateWeather();
     this.refreshDeicingPlansForWeather();
+    this.decisionReason = `weather ${enabled ? 'enabled' : 'disabled'}`;
+    return true;
   }
 
-  setWindEnabled(enabled: boolean): void {
+  setWindEnabled(enabled: boolean): boolean {
+    const challenge = challengeDefinition(this.state.challenge.challengeId);
+    if (this.challengeConditionsLocked() && challenge) {
+      return this.rejectDecision(`${challenge.title} locks wind until the debrief`);
+    }
     this.state.weather.windEnabled = enabled;
     this.updateWeather();
+    this.decisionReason = `wind ${enabled ? 'enabled' : 'disabled'}`;
+    return true;
   }
 
   clearFlight(id: number, runway: number): boolean {
@@ -1901,6 +2100,7 @@ export class AirportSimulation {
 
   private goAround(flight: Flight, detail: string): void {
     if (flight.goAround || flight.diversion) return;
+    this.metrics.goArounds += 1;
     this.supersedeActiveRouteClearance(flight, 'superseded by go-around clearance');
     const start = flight.motion;
     flight.goAround = {
@@ -1974,6 +2174,7 @@ export class AirportSimulation {
     this.state.gameOver = false;
     this.state.paused = false;
     this.state.training = createInactiveTrainingState();
+    this.state.challenge = createInactiveChallengeState();
     this.trainingCheckpoint = null;
     this.nextId = 1;
     this.nextDisruptionId = 1;
@@ -1997,7 +2198,7 @@ export class AirportSimulation {
         ?? this.config.runwayConfigurations[0],
     );
     this.stationarySeconds.clear();
-    Object.assign(this.metrics, { safeArrivals: 0, safeDepartures: 0, preventedConflicts: 0, holdsIssued: 0, manualCommands: 0, maxConcurrent: 0, airborneSeconds: 0, taxiSeconds: 0, estimatedDelaySeconds: 0, emergencyResponses: 0, safetyHolds: 0, collisionAlerts: 0, runwayIncursions: 0, unexplainedPauses: 0, longestHoldSeconds: 0, diversions: 0, cancellations: 0, handoffOffers: 0, handoffAcceptances: 0, handoffRejections: 0, missedHandoffs: 0 });
+    Object.assign(this.metrics, { safeArrivals: 0, safeDepartures: 0, preventedConflicts: 0, holdsIssued: 0, manualCommands: 0, maxConcurrent: 0, airborneSeconds: 0, taxiSeconds: 0, estimatedDelaySeconds: 0, emergencyResponses: 0, safetyHolds: 0, collisionAlerts: 0, runwayIncursions: 0, unexplainedPauses: 0, longestHoldSeconds: 0, diversions: 0, cancellations: 0, handoffOffers: 0, handoffAcceptances: 0, handoffRejections: 0, missedHandoffs: 0, fuelBurnKg: 0, holdingFuelBurnKg: 0, goArounds: 0, emergencyResolutions: 0 });
     this.updateWeather();
     this.seedInitialTraffic();
   }
@@ -2131,7 +2332,14 @@ export class AirportSimulation {
       const moved = nextProgress > previousProgress + 1e-9;
       if (flight.phase === 'approach' || flight.phase === 'landing' || flight.phase === 'takeoff') this.metrics.airborneSeconds += delta;
       if (onSurface) this.metrics.taxiSeconds += delta;
-      if (flight.safetyHold || (onSurface && (flight.controlHold || flight.automaticHold))) this.metrics.estimatedDelaySeconds += delta;
+      if (
+        flight.safetyHold
+        || flight.controlHold
+        || flight.automaticHold
+        || Boolean(flight.navigation.hold)
+      ) {
+        this.metrics.estimatedDelaySeconds += delta;
+      }
       if (flight.phase === 'approach' && !flight.cleared && !flight.goAround && !flight.diversion && !flight.navigation.hold) {
         flight.clearanceLeft -= delta;
         flight.phaseElapsed += delta;
@@ -2185,6 +2393,7 @@ export class AirportSimulation {
         }
       }
     }
+    this.updateChallengeState();
   }
 
   drainEvents(): AirportEvent[] {
@@ -3111,6 +3320,9 @@ export class AirportSimulation {
       this.recordRunwayOperation(flight, 'arrival');
       this.state.arrivals += 1;
       this.metrics.safeArrivals += 1;
+      if (flight.emergency === 'medical' || flight.emergency === 'birdstrike') {
+        this.metrics.emergencyResolutions += 1;
+      }
       this.events.push({ type: 'land', flight });
       this.events.push({ type: 'chime', flight });
     }
@@ -3936,10 +4148,21 @@ export class AirportSimulation {
     telemetry.verticalSpeedFpm = (currentAltitude - previousAltitude) / delta * 60;
 
     if (flight.phase !== 'resting') {
-      telemetry.fuelPercent = Math.max(
-        0,
-        telemetry.fuelPercent - fuelBurnPercentPerSecond(flight.aircraft, flight.phase, moving) * delta,
+      const burnPercent = Math.min(
+        telemetry.fuelPercent,
+        fuelBurnPercentPerSecond(flight.aircraft, flight.phase, moving) * delta,
       );
+      telemetry.fuelPercent = Math.max(0, telemetry.fuelPercent - burnPercent);
+      const burnKg = burnPercent / 100 * aircraftProfile(flight.aircraft).usableFuelKg;
+      this.metrics.fuelBurnKg += burnKg;
+      if (
+        flight.safetyHold
+        || flight.controlHold
+        || flight.automaticHold
+        || Boolean(flight.navigation.hold)
+      ) {
+        this.metrics.holdingFuelBurnKg += burnKg;
+      }
     }
     void measuredSpeed;
     void previousProgress;

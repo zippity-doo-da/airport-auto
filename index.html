@@ -92,6 +92,19 @@
           <button id="training-start" type="button">Begin no-fail lesson</button>
           <small>Unsafe instructions are rejected with a plain-language explanation. Retry restores the exact step checkpoint.</small>
         </fieldset>
+        <details class="challenge-setup" id="challenge-setup">
+          <summary>Challenge shifts <span>timed · graded</span></summary>
+          <div>
+            <label><span>Shift</span><select id="challenge-select" aria-label="Controller challenge">
+              <option value="rush-hour">Rush hour · 6 min</option>
+              <option value="storm-operations">Storm · 7 min</option>
+              <option value="runway-closure">Closure · 7 min</option>
+              <option value="emergency-priority">Emergency · 5 min</option>
+            </select></label>
+            <button id="challenge-start" type="button">Open challenge briefing</button>
+            <small id="challenge-setup-note">Choose a deterministic shift with locked conditions, live objectives, and a full operational debrief.</small>
+          </div>
+        </details>
         <label class="speed-control"><span>Speed <output id="speed-output" for="speed-control">1×</output></span><input id="speed-control" type="range" min="0.5" max="3" step="0.25" value="1" aria-label="Simulation speed" /></label>
         <div class="weather-readout" aria-label="Current weather">
           <span id="weather-condition">WX off</span><b id="weather-wind">calm · wind off</b><small id="weather-visibility">10 mi visibility</small><small id="operation-bank">06:20 local · Morning traffic</small><small id="traffic-flow">Realistic · metering clear</small><small id="runway-configuration">Primary flow</small>
@@ -189,6 +202,17 @@
           <button id="training-skip" type="button">Skip</button>
           <button id="training-end" type="button">End</button>
         </footer>
+      </aside>
+
+      <aside id="challenge-hud" class="challenge-hud" aria-label="Active controller challenge" hidden>
+        <header><span id="challenge-title">Challenge shift</span><b id="challenge-clock">06:00</b></header>
+        <div class="challenge-hud__grade"><b id="challenge-grade">Briefing</b><span id="challenge-conditions">Locked operating conditions</span></div>
+        <p id="challenge-status" aria-live="polite" aria-atomic="true">Review the shift before starting its clock.</p>
+        <details id="challenge-objective-details">
+          <summary>Objectives and live grade</summary>
+          <div id="challenge-objectives" class="challenge-objectives"></div>
+        </details>
+        <footer><button id="challenge-primary" type="button">Begin timed shift</button><button id="challenge-end" type="button">Leave challenge</button></footer>
       </aside>
 
       <aside id="flight-strip" class="flight-strip" aria-label="Live flight information">
@@ -314,6 +338,26 @@
           <p>You kept <b id="final-airport">the airport</b> moving for <b id="final-time">00:00</b>.</p>
           <div class="final-score"><span><b id="final-landed">00</b> landed</span><span><b id="final-departed">00</b> departed</span></div>
           <button id="restart" class="primary" type="button">Restart shift <span aria-hidden="true">↻</span></button>
+        </div>
+      </div>
+      <div id="challenge-results" class="modal modal--challenge modal--hidden" role="dialog" aria-labelledby="challenge-result-title" aria-modal="true" hidden>
+        <div class="modal__panel challenge-results__panel">
+          <div class="challenge-results__heading">
+            <span id="challenge-result-eyebrow">Shift complete</span>
+            <h2 id="challenge-result-title">Rush-hour bank</h2>
+            <p id="challenge-result-reason">Challenge debrief ready.</p>
+          </div>
+          <div class="challenge-results__grade" aria-label="Challenge grade"><strong id="challenge-result-grade">A</strong><span id="challenge-result-score">90 / 100</span></div>
+          <section class="challenge-results__summary" aria-label="Operational summary">
+            <span><b id="challenge-result-throughput">0 ops/hr</b><small>Throughput</small></span>
+            <span><b id="challenge-result-delay">0 sec/op</b><small>Delay</small></span>
+            <span><b id="challenge-result-fuel">0 kg held</b><small>Holding fuel</small></span>
+            <span><b id="challenge-result-safety">100 / 100</b><small>Safety</small></span>
+            <span><b id="challenge-result-operations">0 in · 0 out</b><small>Movements</small></span>
+            <span><b id="challenge-result-emergencies">0 resolved</b><small>Priority / go-arounds</small></span>
+          </section>
+          <details class="challenge-results__objectives" open><summary>Objective breakdown</summary><div id="challenge-result-objectives" class="challenge-objectives"></div></details>
+          <footer><button id="challenge-retry" class="primary" type="button">Retry challenge <span aria-hidden="true">↻</span></button><button id="challenge-continue" type="button">Continue free play</button></footer>
         </div>
       </div>
       <aside id="debug-panel" class="debug-panel" aria-label="Runtime diagnostics" hidden></aside>

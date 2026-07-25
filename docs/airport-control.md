@@ -4,7 +4,7 @@ Airport Auto exposes a local, versioned interface for playtests, scripted contro
 
 ## Browser API
 
-The current API version is `2.23.0`; snapshots use schema version `25`.
+The current API version is `2.24.0`; snapshots use schema version `26`.
 
 ```js
 airportControl.version;
@@ -267,9 +267,24 @@ Available lesson IDs are `arrival-basics`, `tower-landing`, `surface-flow`, and 
 
 `snapshot().training` contains status, lesson and step metadata, the selected target, objective, explanation, hint, live context, completed/skipped steps, mistake/recovery/hint counters, and the complete lesson catalog. `?lesson=arrival-basics&autostart=1` opens a lesson directly for testing or sharing.
 
+### Timed challenge shifts
+
+Four deterministic controller challenges cover a rush bank, storm operations, runway-closure recovery, and emergency priority. Starting one rebuilds its traffic picture, selects Assisted if the player was in Auto or Watch, automates every unstaffed operational desk, and pauses at a briefing. The airport, scenario, density, separation rules, weather, wind, runway plan, and scenario closure remain locked until the debrief.
+
+```js
+airportControl.request({ action: "startChallenge", challengeId: "rush-hour" });
+airportControl.request({ action: "beginChallenge" });
+airportControl.request({ action: "endChallenge" });
+airportControl.request({ action: "continueAfterChallenge" });
+```
+
+Available IDs are `rush-hour`, `storm-operations`, `runway-closure`, and `emergency-priority`. A generic `resume` cannot bypass the briefing. Auto and Watch are unavailable while the challenge clock is live; Assisted and Manual can be switched normally. A physical conflict, runway incursion, or unexplained motion pause ends the challenge for safety review, while ending early records an abandoned `F` debrief.
+
+`snapshot().challenge` contains lifecycle status, definition and full catalog, locked-condition state, authoritative start/duration/end clocks, score, grade, weighted objective progress, completion reason, and an operational summary of arrivals, departures, throughput, delay, total/holding fuel, emergency resolutions, go-arounds, and safety diagnostics. UI, page-local clients, and BroadcastChannel clients all use these same commands and structured rejection reasons. `?challenge=rush-hour&autostart=1` opens and begins a shareable shift. See [challenge-shifts.md](challenge-shifts.md) for target values and grading rules.
+
 ## Snapshot and events
 
-Snapshot schema 25 adds deterministic no-fail lesson/coaching state and the lesson catalog while retaining schema 24 Supervisor, Approach, Tower, Ground, and Ramp definitions, objectives, scoped alerts, workload context, status, and 0–100 game scorecards. The scorecards and coach are read-only feedback; operational instructions still pass through the normal typed command and safety path.
+Snapshot schema 26 adds deterministic challenge definitions, lifecycle, locked conditions, weighted objectives, grade, and complete operational summaries while retaining schema 25 no-fail lesson/coaching state and the lesson catalog. Scorecards, challenge grading, and coaching are read-only feedback; operational instructions still pass through the normal typed command and safety path.
 
 Top-level `selection` reports the focused flight, whether Group select is active, and the selected grouped flight IDs.
 
@@ -311,6 +326,8 @@ http://127.0.0.1:5173/?airport=ORD&mode=auto&scenario=rush&speed=3&autostart=1&t
 ```
 
 Supported airports are `LOCAL`, `ATL`, `ORD`, `DXB`, `HND`, `DFW`, `LHR`, `IST`, `DEN`, `LAX`, and `JFK`. Modes are `auto`, `assisted`, `manual`, and `watch`; densities are `quiet`, `realistic`, `busy`, `rush`, and `extreme`; separation rules are `forgiving` (default) and `realistic`; stations are `supervisor`, `approach`, `tower`, `ground`, and `ramp`; scenarios are `normal`, `rush`, `storm`, `closure`, `training`, and `emergency`.
+
+Challenge launch values are `rush-hour`, `storm-operations`, `runway-closure`, and `emergency-priority`. For example, `?airport=ORD&challenge=storm-operations&autostart=1` starts the timed storm shift directly.
 
 `density=busy` selects an initial traffic profile and rebuilds the opening bank at that density. `rules=realistic` enables the FAA-inspired physical terminal option; this remains a simulation ruleset and the wake categories are explicitly simplified rather than CWT/RECAT. `runwayConfig=ORD-EAST-IFR` requests a specific eligible runway plan after launch; `runwayConfig=auto` restores automatic selection. `weather=snow` opens ORD with contaminated-surface performance and active deicing routes; weather may also be `clear`, `rain`, `fog`, or `off`. `contrails=1` enables the otherwise-off upper-scope contrail layer. `?soak=1` starts an ORD Rush session at 3× for long-run health monitoring. Add `debug=1` for renderer/simulation probes and `detail=low` to force the mobile rendering tier.
 

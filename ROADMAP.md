@@ -1,7 +1,7 @@
 # Airport Auto — Forward Roadmap
 
 Last reconciled: July 25, 2026
-Baseline: Airport Auto 2.23.0
+Baseline: Airport Auto 2.24.0
 
 Airport Auto is an **ASMR-first web airport simulation with an optional serious ATC layer**. The simulation should remain enjoyable as a calm, hands-off miniature world while also supporting increasingly authentic controller work when the player asks for it.
 
@@ -125,7 +125,7 @@ Make each controller position a complete, satisfying job rather than a filtered 
 - [x] Give Approach, Tower, Ground, Ramp, and Supervisor distinct traffic, authority, alerts, workload, and success measures. (2.22: complete role definitions, scoped deterministic scorecards and alerts, compact stable-DOM briefings in Assisted/Manual, and schema-24 telemetry for all modes and airports.)
 - [x] Add configurable automation for unstaffed positions so one player can work a single station while the airport continues safely. (2.16: Supervisor can automate each desk; selecting Approach, Tower, Ground, or Ramp staffs the other positions.)
 - [x] Add training lessons, contextual explanations, pause-and-recover tools, and a no-fail learning mode. (2.23: four purpose-built lessons, command-aware contextual coaching, deliberate coach pauses, exact checkpoint retry, penalty-free skip, and the same authority/safety arbiter used by normal play and API clients.)
-- [ ] Add challenge shifts, runway-closure/storm/emergency scenarios, objectives, grades, delay, fuel, throughput, and safety summaries.
+- [x] Add challenge shifts, runway-closure/storm/emergency scenarios, objectives, grades, delay, fuel, throughput, and safety summaries. (2.24: four deterministic five-to-seven-minute shifts, deliberate briefing and locked conditions, solo-desk automation, authoritative fuel/delay/safety metrics, weighted live objectives, A+–F debriefs, Retry/Continue flow, responsive UI, typed API, and schema-26 replay state.)
 - [ ] Add a true sandbox with traffic injection, weather/configuration controls, and no score pressure.
 - [ ] Add a unified keyboard, mouse, touch, and optional gamepad action layer.
 - [ ] Allow focus/follow for aircraft, runway, taxiway, gate, queue, or detected conflict.

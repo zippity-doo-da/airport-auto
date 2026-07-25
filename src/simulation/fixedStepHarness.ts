@@ -597,6 +597,10 @@ function snapshotMetrics(metrics: ShiftMetrics): ShiftMetrics {
     handoffAcceptances: metrics.handoffAcceptances,
     handoffRejections: metrics.handoffRejections,
     missedHandoffs: metrics.missedHandoffs,
+    fuelBurnKg: round(metrics.fuelBurnKg),
+    holdingFuelBurnKg: round(metrics.holdingFuelBurnKg),
+    goArounds: metrics.goArounds,
+    emergencyResolutions: metrics.emergencyResolutions,
   };
 }
 
