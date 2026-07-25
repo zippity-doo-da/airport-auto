@@ -124,6 +124,7 @@ export type WorldDiagnostics = {
 
 export interface AirportWorld {
   update(state: AirportState, delta: number): void;
+  snapToAuthoritativeState(): void;
   nextView(): void;
   pickFlight(clientX: number, clientY: number): number | null;
   pickRunway(clientX: number, clientY: number): number | null;
@@ -781,6 +782,9 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
 
   return {
     update,
+    snapToAuthoritativeState() {
+      for (const visual of flightVisuals.values()) visual.poseInitialized = false;
+    },
     nextView,
     pickFlight,
     pickRunway,

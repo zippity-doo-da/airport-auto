@@ -333,6 +333,16 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Expose all five immutable scorecards through API 2.22 / snapshot schema 24 for human dashboards, scripted controllers, and future agents; scorecards remain read-only and cannot issue commands or alter aircraft motion.
 - [x] Validate five roles, twenty distinct objectives, role-scoped stress alerts, deterministic output, input immutability, every normal-UI desk, disclosure focus stability, and responsive ORD/local-airport presentation.
 
+## Airport Auto 2.23 — no-fail controller training
+
+- [x] Add four purpose-built lessons for arrival foundations, the Tower landing sequence, Ramp/surface flow, and controller handoffs, with 22 command-driven steps that use real aircraft and the normal typed command path.
+- [x] Explain each objective, its operational reason, a contextual hint, the selected aircraft's live state, and every rejected instruction in plain language without bypassing station authority or safety validation.
+- [x] Add deliberate coach pause/continue, hint, exact-step retry, penalty-free skip, lesson end, and completion-summary controls; an incorrect lesson instruction never ends the shift or weakens the safety arbiter.
+- [x] Restore authoritative time, aircraft and vehicle poses, queues, reservations, controller state, weather, metrics, and other operational state from the exact start-of-step checkpoint while preserving the lesson's mistake/recovery audit counters.
+- [x] Add a compact stable-DOM training school and coach for desktop, short-laptop, and mobile layouts, with keyboard-safe controls, focused live announcements, and no training chrome outside an active lesson.
+- [x] Expose lesson catalog, progress, context, counters, feedback, and typed start/pause/hint/retry/skip/stop actions through API 2.23 / snapshot schema 25, including shareable `?lesson=` launch links.
+- [x] Validate four complete real-command lesson flows, 22 steps, rejected-command recovery, exact checkpoint restoration, zero-conflict no-fail behavior, responsive controls, and desktop/mobile screenshot regressions alongside the full deterministic and browser release suites.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.

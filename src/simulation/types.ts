@@ -14,6 +14,24 @@ export type WeatherCondition = 'clear' | 'rain' | 'fog' | 'snow';
 export type TrafficScenario = 'normal' | 'rush' | 'storm' | 'closure' | 'training' | 'emergency';
 export type OperationalControllerStation = 'approach' | 'tower' | 'ground' | 'ramp';
 export type ControllerStation = OperationalControllerStation | 'supervisor';
+export type TrainingLessonId = 'arrival-basics' | 'tower-landing' | 'surface-flow' | 'handoff-workflow';
+export type TrainingStatus = 'inactive' | 'active' | 'coach-paused' | 'complete';
+
+export interface TrainingState {
+  status: TrainingStatus;
+  lessonId: TrainingLessonId | null;
+  stepIndex: number;
+  targetFlightId: number | null;
+  completedStepIds: string[];
+  skippedStepIds: string[];
+  startedAtSeconds: number;
+  stepStartedAtSeconds: number;
+  mistakeCount: number;
+  recoveryCount: number;
+  hintCount: number;
+  feedback: string | null;
+  noFail: true;
+}
 export type StationAutomationState = Record<OperationalControllerStation, boolean>;
 export type FlightInstruction = 'slow' | 'normal' | 'expedite' | 'hold' | 'resume' | 'zigzag';
 export type GroupFlightInstruction = Extract<FlightInstruction, 'slow' | 'normal' | 'hold' | 'resume'>;
@@ -800,4 +818,5 @@ export interface AirportState {
   activeRunwayEnds: Record<number, -1 | 1>;
   activeRunwayRoles: Record<number, RunwayOperationalRole>;
   closedRunway: number | null;
+  training: TrainingState;
 }

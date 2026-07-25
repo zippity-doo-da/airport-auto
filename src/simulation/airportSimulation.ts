@@ -1,5 +1,34 @@
 import type { AirportConfig, AirportRunwayConfiguration, RunwayOperationalRole } from './airportConfig';
-import type { AirportEvent, AirportState, ClearanceProposal, ConflictPrediction, ControlMode, ControllerPerformanceSnapshot, ControllerStation, ControllerWorkloadSnapshot, EmergencyType, Flight, FlightHandoffState, FlightInstruction, FlightNavigationState, FlightOperationPlan, FlightPhase, FlightRouteClearanceState, FlightRunwayExitState, GroupInstructionIssueResult, GroupInstructionPreview, OperationalControllerStation, ServiceVehicleState, ShiftMetrics, SurfaceDisruptionKind, SurfaceDisruptionSource, SurfaceDisruptionState, TrafficScenario, WeatherCondition } from './types';
+import type {
+  AirportEvent,
+  AirportState,
+  ClearanceProposal,
+  ConflictPrediction,
+  ControlMode,
+  ControllerPerformanceSnapshot,
+  ControllerStation,
+  ControllerWorkloadSnapshot,
+  EmergencyType,
+  Flight,
+  FlightHandoffState,
+  FlightInstruction,
+  FlightNavigationState,
+  FlightOperationPlan,
+  FlightPhase,
+  FlightRouteClearanceState,
+  FlightRunwayExitState,
+  GroupInstructionIssueResult,
+  GroupInstructionPreview,
+  OperationalControllerStation,
+  ServiceVehicleState,
+  ShiftMetrics,
+  SurfaceDisruptionKind,
+  SurfaceDisruptionSource,
+  SurfaceDisruptionState,
+  TrafficScenario,
+  TrainingLessonId,
+  WeatherCondition,
+} from './types';
 import { aircraftProfile, type AircraftModel } from './aircraftProfiles';
 import { airlineProfile, type AirlineCode } from './airlineProfiles';
 import { aircraftCollisionEnvelope, detectCommittedRunwaySweepConflict, detectFlightConflict, findFlightConflicts, findObstacleConflicts, findProposedConflict } from './collisionDetection';
@@ -40,16 +69,8 @@ import {
   suggestedHandoffStation,
 } from './controllerOperations';
 import { controllerPerformanceSnapshots } from './controllerPerformance';
-import {
-  assessAirborneSeparation,
-  requiredRadarSeparationNm,
-  runwayPairIndependent,
-  runwayReleaseReason,
-  separationRuleset,
-  weatherCapacityMultiplier,
-  type RunwayOperationRecord,
-  type SeparationRulesetId,
-} from './separationRules';
+import { cloneTrainingState, createInactiveTrainingState, currentTrainingStep, trainingContext, trainingLesson, trainingLessons, trainingObservationCompletesStep, type TrainingCommandObservation } from './trainingProgram';
+import { assessAirborneSeparation, requiredRadarSeparationNm, runwayPairIndependent, runwayReleaseReason, separationRuleset, weatherCapacityMultiplier, type RunwayOperationRecord, type SeparationRulesetId } from './separationRules';
 
 const PHASE_DURATION: Record<FlightPhase, number> = {
   approach: 38,
@@ -115,6 +136,27 @@ function serviceVehicleStandLaneOrder(
 const KNOT_TO_MPS = 0.514444;
 const CROSSING_CLEARANCE_RANGE_M = 190;
 
+type TrainingCheckpoint = {
+  state: AirportState;
+  nextId: number;
+  nextDisruptionId: number;
+  lastSurfaceReplanSecond: number;
+  spawnIn: number;
+  speed: number;
+  runwayReservations: Array<[number, number]>;
+  runwayOperationHistory: RunwayOperationRecord[];
+  taxiOutReleaseIn: number;
+  baseWindDirection: number;
+  baseWindSpeed: number;
+  weatherOverrideUntil: number;
+  closedRunway: number | null;
+  runwayConfigurationOverrideId: string | null;
+  metrics: ShiftMetrics;
+  stationarySeconds: Array<[number, number]>;
+  decisionReason: string;
+  lastArrivalAdmissionReason: string;
+};
+
 const NEXT_PHASE: Partial<Record<FlightPhase, FlightPhase>> = {
   approach: 'landing',
   landing: 'taxi-in',
@@ -148,6 +190,7 @@ export class AirportSimulation {
     activeRunwayEnds: {},
     activeRunwayRoles: {},
     closedRunway: null,
+    training: createInactiveTrainingState(),
   };
 
   private nextId = 1;
@@ -193,6 +236,7 @@ export class AirportSimulation {
   private readonly stationarySeconds = new Map<number, number>();
   private decisionReason = 'accepted';
   private lastArrivalAdmissionReason = 'arrival meter awaiting a release opportunity';
+  private trainingCheckpoint: TrainingCheckpoint | null = null;
 
   constructor(private readonly config: AirportConfig, density: TrafficDensity = 'realistic') {
     this.state.trafficFlow = createTrafficFlowState(density);
@@ -217,6 +261,265 @@ export class AirportSimulation {
 
   setPaused(paused: boolean): void {
     this.state.paused = paused;
+    if (!paused && this.state.training.status === 'coach-paused') {
+      this.state.training.status = 'active';
+      this.state.training.feedback = 'Lesson resumed. The safety arbiter remains active.';
+    } else if (paused && this.state.training.status === 'active') {
+      this.state.training.status = 'coach-paused';
+      this.state.training.feedback = 'Lesson paused. Review the objective, request a hint, or retry the current checkpoint.';
+    }
+  }
+
+  trainingSnapshot() {
+    const lesson = trainingLesson(this.state.training.lessonId);
+    const step = currentTrainingStep(this.state.training);
+    return {
+      ...cloneTrainingState(this.state.training),
+      lesson: lesson
+        ? {
+            id: lesson.id,
+            title: lesson.title,
+            summary: lesson.summary,
+            estimatedMinutes: lesson.estimatedMinutes,
+          }
+        : null,
+      step: step
+        ? {
+            id: step.id,
+            number: this.state.training.stepIndex + 1,
+            count: lesson?.steps.length ?? 0,
+            objective: step.objective,
+            why: step.why,
+            hint: step.hint,
+            expectedActions: [...step.actions],
+            recommendedStation: step.station ?? null,
+          }
+        : null,
+      context: trainingContext(this.state),
+      availableLessons: trainingLessons().map((candidate) => ({
+        id: candidate.id,
+        title: candidate.title,
+        summary: candidate.summary,
+        estimatedMinutes: candidate.estimatedMinutes,
+        steps: candidate.steps.length,
+      })),
+    };
+  }
+
+  startTrainingLesson(lessonId: TrainingLessonId): boolean {
+    const lesson = trainingLesson(lessonId);
+    if (!lesson) return this.rejectDecision(`unknown training lesson ${lessonId}`);
+    this.setMode('manual');
+    this.setTrafficDensity('quiet');
+    this.reset('training');
+    if (!this.prepareTrainingTraffic(lessonId)) {
+      return this.rejectDecision(`could not prepare an eligible aircraft for ${lesson.title}`);
+    }
+    this.setStation(lessonId === 'surface-flow' ? 'ramp' : lessonId === 'arrival-basics' ? 'supervisor' : 'approach');
+    this.state.training = {
+      ...createInactiveTrainingState(),
+      status: 'coach-paused',
+      lessonId,
+      startedAtSeconds: this.state.elapsed,
+      stepStartedAtSeconds: this.state.elapsed,
+      feedback: 'No-fail lesson ready. Read the first objective, then continue when you are comfortable.',
+    };
+    this.state.paused = true;
+    this.trainingCheckpoint = this.captureTrainingCheckpoint();
+    this.decisionReason = `${lesson.title} training started at a recoverable checkpoint`;
+    return true;
+  }
+
+  private prepareTrainingTraffic(lessonId: TrainingLessonId): boolean {
+    if (lessonId === 'surface-flow') {
+      const flight = this.state.flights.find((candidate) => candidate.flightPlan.direction === 'departure');
+      if (!flight) return false;
+      flight.phase = 'resting';
+      flight.progress = 1;
+      flight.phaseElapsed = flight.duration;
+      flight.pushbackCleared = false;
+      flight.pushbackProgress = 0;
+      flight.tugAttached = false;
+      flight.engineState = 'off';
+      flight.runwayEntryCleared = false;
+      flight.takeoffCleared = false;
+      flight.controlHold = false;
+      flight.automaticHold = false;
+      flight.automaticHoldReason = undefined;
+      flight.safetyHold = false;
+      flight.safetyHoldReason = undefined;
+      flight.navigation.frequencyOwner = 'ramp';
+      flight.navigation.handoff = undefined;
+      flight.navigation.handoffStatus = 'owned';
+      completeTurnaround(flight.turnaround, this.state.elapsed);
+      if (flight.gateAssignment) {
+        flight.gateAssignment.actualGateInSeconds ??= this.state.elapsed - flight.turnaround.plannedDurationSeconds;
+        flight.gateAssignment.actualGateOutSeconds = undefined;
+      }
+      syncFlightMotion(this.config, flight);
+      this.events = [];
+      return true;
+    }
+
+    this.state.flights = [];
+    this.state.serviceVehicles = [];
+    this.state.trafficFlow = createTrafficFlowState('quiet');
+    this.nextId = 1;
+    this.events = [];
+    this.runwayReservations.clear();
+    this.runwayOperationHistory = [];
+    this.stationarySeconds.clear();
+    this.spawnIn = Math.min(3, this.arrivalSpacing() * 0.55);
+    this.state.trafficFlow.nextArrivalDemandSeconds = this.spawnIn;
+    return this.spawnFlight() !== null && this.state.flights.some((flight) => flight.flightPlan.direction === 'arrival' && flight.phase === 'approach');
+  }
+
+  stopTrainingLesson(): boolean {
+    if (this.state.training.status === 'inactive') return this.rejectDecision('no training lesson is active');
+    const title = trainingLesson(this.state.training.lessonId)?.title ?? 'Training';
+    this.state.training = createInactiveTrainingState();
+    this.trainingCheckpoint = null;
+    this.state.paused = false;
+    this.decisionReason = `${title} ended; the current airport state remains available`;
+    return true;
+  }
+
+  continueTraining(): boolean {
+    if (this.state.training.status === 'inactive') return this.rejectDecision('no training lesson is active');
+    if (this.state.training.status === 'complete') {
+      const title = trainingLesson(this.state.training.lessonId)?.title ?? 'Training';
+      this.state.training = createInactiveTrainingState();
+      this.trainingCheckpoint = null;
+      this.state.paused = false;
+      this.decisionReason = `${title} complete; continuing the shift`;
+      return true;
+    }
+    this.state.training.status = 'active';
+    this.state.training.feedback = 'Lesson running. Unsafe instructions will be rejected and paused for explanation.';
+    this.state.paused = false;
+    this.decisionReason = 'training lesson resumed';
+    return true;
+  }
+
+  requestTrainingHint(): boolean {
+    const step = currentTrainingStep(this.state.training);
+    if (!step) return this.rejectDecision('no active training step has a hint');
+    this.state.training.hintCount += 1;
+    this.state.training.feedback = step.hint;
+    this.decisionReason = `training hint: ${step.hint}`;
+    return true;
+  }
+
+  retryTrainingStep(): boolean {
+    if (!this.trainingCheckpoint || !currentTrainingStep(this.state.training)) {
+      return this.rejectDecision('no recoverable training checkpoint is available');
+    }
+    const counters = {
+      mistakes: this.state.training.mistakeCount,
+      recoveries: this.state.training.recoveryCount + 1,
+      hints: this.state.training.hintCount,
+    };
+    const checkpoint = this.trainingCheckpoint;
+    this.restoreTrainingCheckpoint(checkpoint);
+    this.state.training.mistakeCount = counters.mistakes;
+    this.state.training.recoveryCount = counters.recoveries;
+    this.state.training.hintCount = counters.hints;
+    this.state.training.status = 'coach-paused';
+    this.state.training.feedback = 'Checkpoint restored exactly. Review the explanation, then continue and try the step again.';
+    this.state.paused = true;
+    this.decisionReason = 'training checkpoint restored';
+    return true;
+  }
+
+  skipTrainingStep(): boolean {
+    const lesson = trainingLesson(this.state.training.lessonId);
+    const step = currentTrainingStep(this.state.training);
+    if (!lesson || !step) return this.rejectDecision('no active training step can be skipped');
+    this.state.training.skippedStepIds.push(step.id);
+    this.advanceTrainingStep(lesson.title, `${step.objective} skipped without penalty.`);
+    this.decisionReason = `${step.id} skipped in no-fail training`;
+    return true;
+  }
+
+  observeTrainingCommand(observation: TrainingCommandObservation): void {
+    if (this.state.training.status === 'inactive' || this.state.training.status === 'complete') return;
+    const step = currentTrainingStep(this.state.training);
+    const lesson = trainingLesson(this.state.training.lessonId);
+    if (!step || !lesson) return;
+    if (!observation.accepted) {
+      this.state.training.mistakeCount += 1;
+      this.state.training.status = 'coach-paused';
+      this.state.training.feedback = `Instruction not issued: ${observation.reason}. ${step.why}`;
+      this.state.paused = true;
+      this.decisionReason = this.state.training.feedback;
+      return;
+    }
+    if (!trainingObservationCompletesStep(this.state, step, observation)) return;
+    if (step.candidate && observation.flightId !== undefined) this.state.training.targetFlightId = observation.flightId;
+    this.state.training.completedStepIds.push(step.id);
+    this.advanceTrainingStep(lesson.title, `Completed: ${step.objective}`);
+  }
+
+  private advanceTrainingStep(lessonTitle: string, feedback: string): void {
+    const lesson = trainingLesson(this.state.training.lessonId);
+    if (!lesson) return;
+    this.state.training.stepIndex += 1;
+    this.state.training.stepStartedAtSeconds = this.state.elapsed;
+    this.state.training.feedback = feedback;
+    if (this.state.training.stepIndex >= lesson.steps.length) {
+      this.state.training.status = 'complete';
+      this.state.paused = true;
+      this.trainingCheckpoint = null;
+      this.state.training.feedback = `${lessonTitle} complete. No safety rules were bypassed; continue the shift or choose another lesson.`;
+      return;
+    }
+    this.trainingCheckpoint = this.captureTrainingCheckpoint();
+  }
+
+  private captureTrainingCheckpoint(): TrainingCheckpoint {
+    return {
+      state: structuredClone(this.state),
+      nextId: this.nextId,
+      nextDisruptionId: this.nextDisruptionId,
+      lastSurfaceReplanSecond: this.lastSurfaceReplanSecond,
+      spawnIn: this.spawnIn,
+      speed: this.speed,
+      runwayReservations: [...this.runwayReservations.entries()],
+      runwayOperationHistory: structuredClone(this.runwayOperationHistory),
+      taxiOutReleaseIn: this.taxiOutReleaseIn,
+      baseWindDirection: this.baseWindDirection,
+      baseWindSpeed: this.baseWindSpeed,
+      weatherOverrideUntil: this.weatherOverrideUntil,
+      closedRunway: this.closedRunway,
+      runwayConfigurationOverrideId: this.runwayConfigurationOverrideId,
+      metrics: { ...this.metrics },
+      stationarySeconds: [...this.stationarySeconds.entries()],
+      decisionReason: this.decisionReason,
+      lastArrivalAdmissionReason: this.lastArrivalAdmissionReason,
+    };
+  }
+
+  private restoreTrainingCheckpoint(checkpoint: TrainingCheckpoint): void {
+    Object.assign(this.state, structuredClone(checkpoint.state));
+    this.nextId = checkpoint.nextId;
+    this.nextDisruptionId = checkpoint.nextDisruptionId;
+    this.lastSurfaceReplanSecond = checkpoint.lastSurfaceReplanSecond;
+    this.spawnIn = checkpoint.spawnIn;
+    this.speed = checkpoint.speed;
+    this.events = [];
+    this.runwayReservations = new Map(checkpoint.runwayReservations);
+    this.runwayOperationHistory = structuredClone(checkpoint.runwayOperationHistory);
+    this.taxiOutReleaseIn = checkpoint.taxiOutReleaseIn;
+    this.baseWindDirection = checkpoint.baseWindDirection;
+    this.baseWindSpeed = checkpoint.baseWindSpeed;
+    this.weatherOverrideUntil = checkpoint.weatherOverrideUntil;
+    this.closedRunway = checkpoint.closedRunway;
+    this.runwayConfigurationOverrideId = checkpoint.runwayConfigurationOverrideId;
+    Object.assign(this.metrics, checkpoint.metrics);
+    this.stationarySeconds.clear();
+    for (const [flightId, seconds] of checkpoint.stationarySeconds) this.stationarySeconds.set(flightId, seconds);
+    this.decisionReason = checkpoint.decisionReason;
+    this.lastArrivalAdmissionReason = checkpoint.lastArrivalAdmissionReason;
   }
 
   setMode(mode: ControlMode): void {
@@ -272,6 +575,8 @@ export class AirportSimulation {
         this.state.stationAutomation[candidate] = candidate !== station;
       }
       this.coordinateControllerStations();
+    } else if (this.state.training.status !== 'inactive') {
+      for (const candidate of OPERATIONAL_CONTROLLER_STATIONS) this.state.stationAutomation[candidate] = false;
     }
   }
 
@@ -1658,7 +1963,7 @@ export class AirportSimulation {
     this.events.push({ type: 'hold-release', flight, detail: this.decisionReason });
   }
 
-  reset(): void {
+  reset(scenario: TrafficScenario = 'normal'): void {
     const density = this.state.trafficFlow.density;
     this.state.elapsed = 0;
     this.state.flights = [];
@@ -1668,6 +1973,8 @@ export class AirportSimulation {
     this.state.departures = 0;
     this.state.gameOver = false;
     this.state.paused = false;
+    this.state.training = createInactiveTrainingState();
+    this.trainingCheckpoint = null;
     this.nextId = 1;
     this.nextDisruptionId = 1;
     this.lastSurfaceReplanSecond = -1;
@@ -1679,7 +1986,7 @@ export class AirportSimulation {
     this.taxiOutReleaseIn = 0;
     this.closedRunway = null;
     this.state.closedRunway = null;
-    this.state.scenario = 'normal';
+    this.state.scenario = scenario;
     this.state.station = 'supervisor';
     this.state.stationAutomation = createStationAutomation();
     this.runwayConfigurationOverrideId = null;

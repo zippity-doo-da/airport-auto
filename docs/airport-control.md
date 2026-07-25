@@ -4,7 +4,7 @@ Airport Auto exposes a local, versioned interface for playtests, scripted contro
 
 ## Browser API
 
-The current API version is `2.22.0`; snapshots use schema version `24`.
+The current API version is `2.23.0`; snapshots use schema version `25`.
 
 ```js
 airportControl.version;
@@ -247,9 +247,29 @@ airportControl.request({ action: "recoverDisabledAircraft", flightId: 12 });
 
 In Manual mode, the normal departure sequence is: monitor the required fueling/baggage/cargo/cabin/maintenance tasks and their assigned ramp vehicles, wait until the turnaround is ready and the stand lane is physically clear, issue Ramp pushback clearance, monitor tug/engine start and tug release, hand the flight to Ground for movement-area taxi and every required crossing, then hand it to Tower for runway entry / line-up and takeoff. Assisted mode proposes the same pushback command only after services and stand clearance finish. Auto and Watch use the same safety arbiter. Rejected early pushback commands name either the blocking services or equipment still clearing.
 
+### No-fail training
+
+Four airport-agnostic lessons teach arrival fundamentals, the Tower landing sequence, Ramp/Ground surface flow, and explicit controller handoffs. Starting a lesson rebuilds a quiet deterministic traffic picture, enters Manual control, and pauses on a recoverable first-step checkpoint:
+
+```js
+airportControl.request({
+  action: "startTrainingLesson",
+  lessonId: "arrival-basics",
+});
+airportControl.request({ action: "continueTraining" });
+airportControl.request({ action: "trainingHint" });
+airportControl.request({ action: "retryTrainingStep" });
+airportControl.request({ action: "skipTrainingStep" });
+airportControl.request({ action: "stopTrainingLesson" });
+```
+
+Available lesson IDs are `arrival-basics`, `tower-landing`, `surface-flow`, and `handoff-workflow`. The normal HUD, BroadcastChannel clients, and page-local API all use the same typed operational commands during a lesson. An unsafe or mistimed instruction is still rejected by the normal authority/safety arbiter; training records the mistake, explains the reason in plain language, and deliberately pauses instead of ending the shift. Retry restores authoritative simulation time, aircraft and vehicle state, reservations, queues, weather, controller state, and metrics from the exact start-of-step checkpoint. The renderer drops interpolation history at that discontinuity so an aircraft never appears to slide backward. Skip carries no score or safety penalty.
+
+`snapshot().training` contains status, lesson and step metadata, the selected target, objective, explanation, hint, live context, completed/skipped steps, mistake/recovery/hint counters, and the complete lesson catalog. `?lesson=arrival-basics&autostart=1` opens a lesson directly for testing or sharing.
+
 ## Snapshot and events
 
-Snapshot schema 24 adds deterministic Supervisor, Approach, Tower, Ground, and Ramp definitions, objectives, scoped alerts, workload context, status, and 0–100 game scorecards while retaining schema 23 route-aware aircraft and fuel telemetry. The scorecards are read-only operational feedback and cannot issue clearances or alter the safety arbiter.
+Snapshot schema 25 adds deterministic no-fail lesson/coaching state and the lesson catalog while retaining schema 24 Supervisor, Approach, Tower, Ground, and Ramp definitions, objectives, scoped alerts, workload context, status, and 0–100 game scorecards. The scorecards and coach are read-only feedback; operational instructions still pass through the normal typed command and safety path.
 
 Top-level `selection` reports the focused flight, whether Group select is active, and the selected grouped flight IDs.
 

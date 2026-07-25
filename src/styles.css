@@ -473,6 +473,31 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
   .camera-tools { bottom: 12px; }
 }
 
+.training-setup { display: grid; grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 7px 8px; margin: 2px 0; border: 1px solid rgba(121, 200, 232, 0.3); padding: 9px; background: rgba(8, 29, 31, 0.34); }
+.training-setup legend { padding: 0 5px; color: var(--blue); font-size: 9px; font-weight: 900; letter-spacing: 0.1em; text-transform: uppercase; }
+.training-setup label { display: grid; min-width: 0; gap: 4px; }
+.training-setup label span { color: rgba(244, 232, 206, 0.58); font-size: 8px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; }
+.training-setup select, .training-setup button { min-width: 0; min-height: 36px; border: 1px solid rgba(121, 200, 232, 0.34); border-radius: 2px; padding: 6px 8px; color: var(--ivory); background: rgba(8, 29, 31, 0.78); font: 800 9px/1.2 "Segoe UI", sans-serif; }
+.training-setup button { border-color: rgba(239, 199, 117, 0.58); color: var(--ink); background: var(--amber); cursor: pointer; }
+.training-setup > small { grid-column: 1 / -1; color: rgba(244, 232, 206, 0.48); font-size: 8px; line-height: 1.4; }
+
+.training-coach { position: absolute; top: 88px; left: 50%; z-index: 7; display: grid; width: min(440px, calc(100vw - 560px)); min-width: 310px; gap: 7px; border: 1px solid rgba(121, 200, 232, 0.58); padding: 11px 12px; color: var(--ivory); background: rgba(5, 25, 27, 0.9); box-shadow: 0 18px 46px rgba(3, 16, 18, 0.3); transform: translateX(-50%); backdrop-filter: blur(14px); clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px); }
+.training-coach[data-status="coach-paused"] { border-color: rgba(239, 199, 117, 0.72); }
+.training-coach[data-status="complete"] { border-color: rgba(167, 216, 193, 0.75); }
+.training-coach header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.training-coach header span { overflow: hidden; font: 400 13px/1.15 Georgia, serif; text-overflow: ellipsis; white-space: nowrap; }
+.training-coach header b { color: var(--blue); font-size: 8px; letter-spacing: 0.12em; white-space: nowrap; }
+.training-coach > p { margin: 0; font: 400 14px/1.3 Georgia, serif; }
+.training-coach > small { overflow: hidden; color: rgba(244, 232, 206, 0.62); font-size: 9px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.training-coach details { border-top: 1px solid rgba(244, 232, 206, 0.13); padding-top: 6px; }
+.training-coach summary { color: rgba(244, 232, 206, 0.68); font-size: 8px; font-weight: 900; letter-spacing: 0.09em; text-transform: uppercase; cursor: pointer; }
+.training-coach details p { margin: 6px 0 0; color: rgba(244, 232, 206, 0.66); font-size: 9px; line-height: 1.45; }
+.training-coach #training-feedback { border-left: 2px solid var(--amber); padding-left: 7px; color: var(--ivory); }
+.training-coach footer { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; }
+.training-coach footer button { min-width: 0; min-height: 34px; border: 1px solid rgba(244, 232, 206, 0.22); padding: 5px 4px; color: var(--ivory); background: rgba(244, 232, 206, 0.055); font-size: 8px; font-weight: 900; cursor: pointer; }
+.training-coach footer button:nth-child(2) { border-color: rgba(239, 199, 117, 0.6); color: var(--ink); background: var(--amber); }
+.training-coach footer button:disabled { opacity: 0.38; cursor: not-allowed; }
+
 /* 2.1 ATC advisor, soak diagnostics, and ASMR presentation. */
 .clearance-advisor { margin-top: 6px; border: 1px solid rgba(121, 200, 232, 0.44); padding: 10px; color: var(--ivory); background: rgba(8, 29, 31, 0.94); box-shadow: 0 16px 44px rgba(4, 18, 20, 0.26); backdrop-filter: blur(18px); }
 .clearance-advisor[data-priority="urgent"] { border-color: rgba(239, 147, 127, 0.8); }
@@ -585,6 +610,9 @@ body.watch-mode .flight-strip:not(:focus-within) { opacity: 0.72; }
 body.watch-mode .brand { opacity: 0.75; }
 
 @media (max-width: 760px) {
+  .training-coach { top: 100px; right: 70px; left: auto; width: min(330px, calc(100vw - 88px)); min-width: 0; transform: none; }
+  .training-coach > small { white-space: normal; }
+  .training-coach footer button { min-height: 44px; }
   .station-briefing__role summary { min-height: 44px; }
   .clearance-advisor header { grid-template-columns: 1fr; }
   .clearance-advisor button { width: 100%; }
@@ -599,6 +627,10 @@ body.watch-mode .brand { opacity: 0.75; }
 }
 
 @media (max-width: 520px) {
+  .training-setup { grid-template-columns: 1fr; }
+  .training-setup > small { grid-column: 1; }
+  .training-coach { width: min(285px, calc(100vw - 82px)); padding: 10px; }
+  .training-coach footer { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .scoreboard strong { font-size: 14px; }
   .scoreboard span { font-size: 7px; }
   .audio-mixer { grid-template-columns: 1fr; }
@@ -667,7 +699,7 @@ body.watch-mode .brand { opacity: 0.75; }
   }
   .control-panel > .controls .control > span { font-size: 14px; }
   .control-panel > .controls .control small { overflow: hidden; font-size: 8px; letter-spacing: 0.08em; text-overflow: ellipsis; white-space: nowrap; }
-  .control-panel > .advanced-tools { grid-row: 2; grid-column: 2; align-self: start; margin-top: 0; }
+  .control-panel > .advanced-tools { grid-row: 2; grid-column: 2; align-self: start; margin-top: 3px; }
   .radar-panel { right: 20px; bottom: 76px; width: min(270px, calc(100vw - 40px)); }
   .queue-panel { top: 118px; right: 20px; bottom: 68px; max-height: none; }
   body.radar-visible.queue-visible .queue-panel {
@@ -695,6 +727,7 @@ body.watch-mode .brand { opacity: 0.75; }
   .instruction { display: none; }
   .camera-tools { right: 8px; bottom: 8px; }
   .radar-panel, .queue-panel { right: 64px; bottom: 64px; max-height: calc(100dvh - 112px); }
+  .training-coach { top: 98px; right: 64px; width: min(340px, calc(100vw - 76px)); max-height: calc(100dvh - 106px); overflow-y: auto; }
 }
 
 @media (max-width: 520px) and (max-height: 640px) {
