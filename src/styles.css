@@ -68,6 +68,10 @@ body.night-mode #app::after {
 .flight-strip__toggle i { color: var(--amber); font-family: Georgia, serif; font-size: 16px; font-style: normal; line-height: 1; }
 .flight-strip__toggle:hover, .flight-strip__toggle:focus-visible { border-color: rgba(239, 199, 117, 0.7); outline: none; }
 .flight-strip__body { min-height: 0; overflow-x: hidden; overflow-y: auto; padding-right: 3px; overscroll-behavior: contain; scrollbar-color: rgba(239, 199, 117, 0.4) transparent; scrollbar-gutter: stable; scrollbar-width: thin; }
+.flight-strip__tools { display: flex; min-height: 44px; align-items: center; justify-content: space-between; gap: 8px; margin-top: 5px; border: 1px solid rgba(244, 232, 206, 0.16); padding: 4px 6px; background: rgba(8, 29, 31, 0.62); }
+.flight-strip__tools button { min-height: 34px; border: 1px solid rgba(121, 200, 232, 0.36); padding: 6px 9px; color: var(--ivory); background: rgba(121, 200, 232, 0.08); font-size: 9px; font-weight: 900; letter-spacing: 0.06em; cursor: pointer; }
+.flight-strip__tools button:hover, .flight-strip__tools button[aria-pressed="true"] { border-color: var(--amber); color: var(--ink); background: var(--amber); }
+.flight-strip__tools span { color: rgba(244, 232, 206, 0.55); font-size: 9px; font-weight: 800; letter-spacing: 0.06em; text-align: right; }
 .flight-chips { display: grid; gap: 5px; margin-top: 5px; }
 .flight-strip--collapsed { width: 164px; }
 .flight-strip--collapsed .flight-strip__body { display: none; }
@@ -75,6 +79,9 @@ body.night-mode #app::after {
 .flight-chip { --flight-accent: var(--blue); position: relative; display: grid; width: 100%; gap: 7px; overflow: hidden; border: 1px solid rgba(121, 200, 232, 0.25); padding: 9px 10px 8px 12px; color: var(--ivory); background: linear-gradient(105deg, rgba(11, 37, 40, 0.92), rgba(12, 41, 43, 0.7)); text-align: left; cursor: pointer; backdrop-filter: blur(15px); clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px); transition: border-color 150ms ease, background 150ms ease, transform 150ms ease; }
 .flight-chip::before { position: absolute; top: 0; bottom: 0; left: 0; width: 3px; content: ""; background: var(--flight-accent); box-shadow: 0 0 13px color-mix(in srgb, var(--flight-accent) 65%, transparent); }
 .flight-chip:hover, .flight-chip:focus-visible, .flight-chip--selected { border-color: color-mix(in srgb, var(--flight-accent) 68%, transparent); outline: none; background: linear-gradient(105deg, rgba(13, 44, 47, 0.96), rgba(15, 49, 51, 0.78)); transform: translateX(2px); }
+.flight-chip--group-selected { border-color: var(--amber); box-shadow: inset 0 0 0 1px rgba(239, 199, 117, 0.3); background: linear-gradient(105deg, rgba(42, 48, 39, 0.96), rgba(15, 49, 51, 0.82)); }
+.flight-chip--group-selected::after { position: absolute; top: 7px; right: 8px; display: grid; width: 17px; height: 17px; place-items: center; border-radius: 50%; content: "✓"; color: var(--ink); background: var(--amber); font-size: 11px; font-weight: 900; }
+.flight-chip--group-selected .flight-chip__identity { padding-right: 24px; }
 .flight-chip--hold { --flight-accent: var(--amber); }
 .flight-chip--emergency, .flight-chip--low-fuel { --flight-accent: var(--rose); }
 .flight-chip__identity { display: flex; min-width: 0; align-items: baseline; justify-content: space-between; gap: 8px; }
@@ -277,6 +284,18 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
 .flight-actions button:hover { border-color: var(--amber); background: rgba(239, 199, 117, 0.17); }
 .flight-actions button:disabled { opacity: 0.38; cursor: not-allowed; }
 .flight-actions p { margin: 4px 0 0; color: rgba(244, 232, 206, 0.58); font-size: 10px; }
+.group-actions { display: grid; gap: 8px; margin-top: 6px; border: 1px solid rgba(121, 200, 232, 0.48); padding: 10px; color: var(--ivory); background: rgba(8, 29, 31, 0.94); box-shadow: 0 16px 44px rgba(4, 18, 20, 0.26); backdrop-filter: blur(18px); }
+.group-actions[hidden] { display: none; }
+.group-actions header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.group-actions header div { min-width: 0; }
+.group-actions header b, .group-actions header small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.group-actions header b { font: 400 14px/1.2 Georgia, serif; }
+.group-actions header small { margin-top: 3px; color: rgba(244, 232, 206, 0.58); font-size: 9px; }
+.group-actions header button { min-height: 32px; border: 1px solid rgba(244, 232, 206, 0.28); padding: 5px 7px; color: rgba(244, 232, 206, 0.72); background: transparent; font-size: 9px; cursor: pointer; }
+.group-actions__buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
+.group-actions__buttons button { border: 1px solid rgba(239, 199, 117, 0.48); padding: 7px 8px; color: var(--ivory); background: rgba(239, 199, 117, 0.1); font-size: 10px; font-weight: 900; cursor: pointer; }
+.group-actions__buttons button:hover { border-color: var(--amber); color: var(--ink); background: var(--amber); }
+.group-actions p { margin: 0; color: rgba(244, 232, 206, 0.62); font-size: 10px; line-height: 1.4; }
 .runway-exit-panel, .navigation-panel { display: grid; gap: 5px; margin: 0 0 9px; border: 1px solid rgba(239, 199, 117, 0.24); padding: 8px; background: linear-gradient(105deg, rgba(239, 199, 117, 0.08), rgba(121, 200, 232, 0.04)); }
 .runway-exit-panel__heading, .navigation-panel__heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .runway-exit-panel__heading b, .navigation-panel__heading b { color: var(--ivory); font: 400 11px/1.2 Georgia, serif; }

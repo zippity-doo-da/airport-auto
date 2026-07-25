@@ -15,6 +15,24 @@ export type OperationalControllerStation = 'approach' | 'tower' | 'ground' | 'ra
 export type ControllerStation = OperationalControllerStation | 'supervisor';
 export type StationAutomationState = Record<OperationalControllerStation, boolean>;
 export type FlightInstruction = 'slow' | 'normal' | 'expedite' | 'hold' | 'resume' | 'zigzag';
+export type GroupFlightInstruction = Extract<FlightInstruction, 'slow' | 'normal' | 'hold' | 'resume'>;
+export type GroupInstructionDomain = 'airborne' | 'surface';
+
+export interface GroupInstructionPreview {
+  instruction: FlightInstruction;
+  requestedFlightIds: number[];
+  flightIds: number[];
+  callsigns: string[];
+  safeToIssue: boolean;
+  reason: string;
+  domain: GroupInstructionDomain | null;
+  authority: OperationalControllerStation | null;
+  safeguards: string[];
+}
+
+export interface GroupInstructionIssueResult extends GroupInstructionPreview {
+  issued: boolean;
+}
 export type AircraftCategory = 'regional' | 'narrowbody' | 'widebody' | 'cargo';
 export type WakeClass = 'light' | 'medium' | 'heavy';
 export type EmergencyType = 'medical' | 'disabled' | 'birdstrike' | 'go-around';
@@ -639,7 +657,7 @@ export interface ReplayFrame {
 }
 
 export interface AirportEvent {
-  type: 'spawn' | 'gate-assignment' | 'gate-reassignment' | 'gate-release' | 'runway-exit-plan' | 'surface-reroute' | 'taxi-route-clearance' | 'hold-position' | 'taxi-resume' | 'recovery-start' | 'recovery-complete' | 'turnaround-start' | 'service-start' | 'service-complete' | 'turnaround-ready' | 'service-vehicle-dispatch' | 'service-vehicle-arrive' | 'service-vehicle-hold' | 'service-vehicle-release' | 'service-vehicle-return' | 'service-vehicle-clear' | 'deicing-planned' | 'deicing-queue' | 'deicing-pad-entry' | 'deicing-start' | 'deicing-complete' | 'deicing-expired' | 'deicing-return' | 'land' | 'chime' | 'depart' | 'diversion' | 'divert' | 'clear' | 'auto-clear' | 'pushback-clearance' | 'pushback-start' | 'engine-start' | 'tug-release' | 'reject' | 'conflict' | 'safety-hold' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'takeoff-clearance' | 'vector' | 'route-preview' | 'route-clearance-issued' | 'route-readback-accepted' | 'route-readback-rejected' | 'route-clearance-cancelled' | 'route-amendment' | 'airborne-hold' | 'hold-release' | 'approach-clearance' | 'handoff' | 'contact' | 'go-around' | 'emergency';
+  type: 'spawn' | 'gate-assignment' | 'gate-reassignment' | 'gate-release' | 'runway-exit-plan' | 'surface-reroute' | 'taxi-route-clearance' | 'hold-position' | 'taxi-resume' | 'group-instruction' | 'recovery-start' | 'recovery-complete' | 'turnaround-start' | 'service-start' | 'service-complete' | 'turnaround-ready' | 'service-vehicle-dispatch' | 'service-vehicle-arrive' | 'service-vehicle-hold' | 'service-vehicle-release' | 'service-vehicle-return' | 'service-vehicle-clear' | 'deicing-planned' | 'deicing-queue' | 'deicing-pad-entry' | 'deicing-start' | 'deicing-complete' | 'deicing-expired' | 'deicing-return' | 'land' | 'chime' | 'depart' | 'diversion' | 'divert' | 'clear' | 'auto-clear' | 'pushback-clearance' | 'pushback-start' | 'engine-start' | 'tug-release' | 'reject' | 'conflict' | 'safety-hold' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'takeoff-clearance' | 'vector' | 'route-preview' | 'route-clearance-issued' | 'route-readback-accepted' | 'route-readback-rejected' | 'route-clearance-cancelled' | 'route-amendment' | 'airborne-hold' | 'hold-release' | 'approach-clearance' | 'handoff' | 'contact' | 'go-around' | 'emergency';
   flight: Flight;
   runway?: number;
   taxiway?: string;

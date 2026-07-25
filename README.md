@@ -20,7 +20,7 @@ The airport layouts are readable operational schematics inspired by real runway 
 - Auto, Assisted, Manual, and Watch modes; five controller positions with configurable unstaffed-desk automation and workload bays; six scenarios; independent Quiet/Realistic/Busy/Rush/Extreme traffic density; weather and wind controls; a five-channel sound mixer; replay; four camera views; drag/touch/WASD panning; Q/E rotation; and cursor-centered wheel or pinch zoom.
 - Airline-specific schematic hub banks, fleet and gate preferences, complete per-leg flight plans, bounded arrival metering, hold-short departure slots, explainable back-pressure, and deterministic diversion/cancellation recovery.
 - Versioned, explicitly non-navigational SID/STAR programs for every airport, with edge-entry transitions, fixes, sectors, altitude/speed constraints, smooth downwind/base/final geometry, selected missed approaches, departure headings, and optional route/fix/separation overlays.
-- Live Approach commands for heading, altitude, speed, direct-to, approach clearance, holds/EFCs, and re-entry; explicit Approach → Tower → Ground → Ramp arrival ownership and reverse departure handoffs; and Tower landing/line-up/takeoff authority through the same UI/API safety arbiter.
+- Live Approach commands for heading, altitude, speed, direct-to, approach clearance, holds/EFCs, and re-entry; explicit Approach → Tower → Ground → Ramp arrival ownership and reverse departure handoffs; Tower landing/line-up/takeoff authority; and atomic 2–8-aircraft groups limited to a shared safe pace or surface hold/resume instruction.
 - Forgiving and opt-in FAA-inspired terminal separation rulesets in nautical miles, feet, and seconds, with modeled visibility, ceiling, wind, surface condition, runway relationship/configuration, and clearly labeled simplified wake groups.
 - Six sourced O’Hare runway plans with dynamic arrival/departure roles, visual and instrument restrictions, strong-southerly contingency operations, and safe drain-then-switch transitions.
 - An eight-model procedural aircraft fleet, now including a single-engine Pilatus PC-12 utility turboprop, with model-specific size, runway performance, straight/turn taxi speeds, ground acceleration, stopping distance, turn radius, wingtip margin, approach speed, wake class, airline, callsign, registration, and fuel telemetry.
@@ -50,6 +50,7 @@ npm run preview
 ## Controls
 
 - Click a flight strip or aircraft to select and follow it; click the same aircraft again, click empty ground, or press `Escape` to return to the free camera.
+- Use **Group select** in the flight bay, then choose 2–8 strips or aircraft. Only instructions shared by every selected flight appear; grouped runway clearances, vectors, route changes, and expedite are intentionally unavailable.
 - Drag with a mouse or one finger to pan; use the middle mouse button from anywhere; use `WASD` or the arrow keys for stepped movement; use `Q`/`E` to rotate; scroll or pinch to zoom.
 - `L`: clear selected arrival to land.
 - `G`: send the selected arrival into a climbing missed-approach circuit and back into the arrival sequence.

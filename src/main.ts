@@ -16,7 +16,7 @@ import {
   OPERATIONAL_CONTROLLER_STATIONS,
   requiredControllerStation,
 } from './simulation/controllerOperations';
-import type { ClearanceProposal, ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, OperationalControllerStation, ReplayFrame, SurfaceDisruptionKind, TrafficScenario, TurnaroundServiceType, WeatherCondition } from './simulation/types';
+import type { ClearanceProposal, ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, GroupFlightInstruction, GroupInstructionIssueResult, GroupInstructionPreview, OperationalControllerStation, ReplayFrame, SurfaceDisruptionKind, TrafficScenario, TurnaroundServiceType, WeatherCondition } from './simulation/types';
 import { AmbientAudio, type AudioChannel, type AudioPreset } from './audio/ambientAudio';
 import { createWorld, type AirspaceLayer, type SurfaceLayer } from './render/createWorld';
 import { drawRadarInset } from './render/radarInset';
@@ -52,6 +52,8 @@ type AirportControlCommand =
   | { action: 'clearTakeoff'; flightId: number }
   | { action: 'clearRunwayCrossing'; flightId: number; runway: number }
   | { action: 'controlFlights'; flightIds: number[]; instruction: FlightInstruction }
+  | { action: 'previewGroupInstruction'; flightIds: number[]; instruction: GroupFlightInstruction }
+  | { action: 'issueGroupInstruction'; flightIds: number[]; instruction: GroupFlightInstruction }
   | { action: 'assignHeading'; flightId: number; headingDegrees: number }
   | { action: 'assignAltitude'; flightId: number; altitudeFt: number }
   | { action: 'assignAirspeed'; flightId: number; speedKts: number }
@@ -92,6 +94,7 @@ type AirportControlResult = {
   eventId: number;
   snapshot: ReturnType<typeof airportSnapshot>;
   resultingState: ReturnType<typeof airportSnapshot>;
+  data?: GroupInstructionPreview | GroupInstructionIssueResult;
 };
 
 type RecordedCommand = { sequence: number; elapsed: number; command: AirportControlCommand; accepted: boolean; reason: string };
@@ -242,6 +245,9 @@ const flightStripToggle = $<HTMLButtonElement>('#flight-strip-toggle');
 const flightStripTitle = $<HTMLElement>('#flight-strip-title');
 const flightStripCount = $<HTMLElement>('#flight-strip-count');
 const flightChips = $<HTMLElement>('#flight-chips');
+const groupSelectToggle = $<HTMLButtonElement>('#group-select-toggle');
+const groupSelectCount = $<HTMLElement>('#group-select-count');
+const groupActions = $<HTMLElement>('#group-actions');
 const flightActions = $<HTMLElement>('#flight-actions');
 const clearanceAdvisor = $<HTMLElement>('#clearance-advisor');
 const clearanceAdvisorHeader = document.createElement('header');
@@ -323,6 +329,9 @@ let replayMode = false;
 let pausedBeforeReplay = false;
 let focusedFlightId: number | null = null;
 let flightActionsRenderKey = '';
+let groupSelectActive = false;
+let groupActionsRenderKey = '';
+const groupedFlightIds = new Set<number>();
 let runwayLabelsVisible = false;
 const surfaceLayerVisibility: Record<SurfaceLayer, boolean> = {
   'taxiway-labels': false,
@@ -392,12 +401,19 @@ enterButton.addEventListener('click', startShift);
 flightStripToggle.addEventListener('click', () => {
   setFlightStripCollapsed(!flightStrip.classList.contains('flight-strip--collapsed'));
 });
+groupSelectToggle.addEventListener('click', () => {
+  setGroupSelectActive(!groupSelectActive);
+});
 flightChips.addEventListener('click', (event) => {
   const chip = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-flight-chip]');
   if (!chip) return;
   const flightId = Number(chip.dataset.flightChip);
   const flight = displayState().flights.find((item) => item.id === flightId);
   if (!flight) return;
+  if (groupSelectActive) {
+    toggleGroupFlightSelection(flight);
+    return;
+  }
   if (focusedFlightId === flightId) {
     clearFlightFocus('Camera released', 'free map view restored');
     return;
@@ -407,6 +423,21 @@ flightChips.addEventListener('click', (event) => {
   renderFlightStrip();
   renderFlightActions();
   setStatus(`${flight.callsign} tracked`, `${flight.aircraft} · ${formatPhase(flight.phase)} · runway ${runwayDesignation(flight.runway)}`);
+});
+groupActions.addEventListener('click', (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
+  if (!button) return;
+  if (button.dataset.groupAction === 'clear') {
+    groupedFlightIds.clear();
+    renderFlightStrip();
+    setStatus('Group selection cleared', 'choose aircraft that share one controller and control domain');
+    return;
+  }
+  const instruction = button.dataset.groupInstruction as GroupFlightInstruction | undefined;
+  if (!instruction || groupedFlightIds.size < 2) return;
+  const result = executeAirportRequest({ action: 'issueGroupInstruction', flightIds: [...groupedFlightIds], instruction });
+  if (result.accepted) setGroupSelectActive(false, false);
+  else renderGroupActions();
 });
 flightActions.addEventListener('click', (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-flight-action]');
@@ -452,6 +483,10 @@ document.addEventListener('pointerdown', (event) => {
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {
     setControlPanelOpen(false);
+    if (groupSelectActive) {
+      setGroupSelectActive(false);
+      return;
+    }
     if (focusedFlightId !== null) clearFlightFocus('Camera released', 'free map view restored');
     return;
   }
@@ -990,6 +1025,7 @@ function frame(now: number): void {
     if (event.type === 'taxi-route-clearance') setStatus(`${event.flight.callsign} taxi route assigned`, event.detail ?? 'continuous pavement route accepted');
     if (event.type === 'hold-position') setStatus(`${event.flight.callsign} hold position`, event.detail ?? 'decelerating normally');
     if (event.type === 'taxi-resume') setStatus(`${event.flight.callsign} resume taxi`, event.detail ?? 'controller hold released');
+    if (event.type === 'group-instruction') setStatus('Group instruction accepted', event.detail ?? 'shared command applied atomically');
     if (event.type === 'contact') setStatus(`${event.flight.callsign} frequency changed`, event.detail ?? 'contact accepted');
     if (event.type === 'diversion') setStatus(`${event.flight.callsign} diverting`, event.detail ?? 'climbing toward the edge of terminal scope');
     if (event.type === 'divert') setStatus(`${event.flight.callsign} left the scope`, event.detail ?? 'diversion complete');
@@ -1185,7 +1221,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
 function replayRecording(): ReplayRecording {
   return {
     schemaVersion: 1,
-    simulationVersion: window.airportControl?.version ?? '2.18.0',
+    simulationVersion: window.airportControl?.version ?? '2.19.0',
     recordedAt: new Date().toISOString(),
     seed: config.seed,
     airport: { code: config.code, name: config.name, scope: config.scope },
@@ -1208,11 +1244,17 @@ function renderFlightStrip(): void {
     ? 'Live traffic'
     : `${controllerStationLabel(simulation.state.station)} bay`;
   if (focusedFlightId !== null && !flights.some((flight) => flight.id === focusedFlightId)) focusedFlightId = null;
+  const visibleIds = new Set(flights.map((flight) => flight.id));
+  for (const flightId of groupedFlightIds) {
+    if (!visibleIds.has(flightId)) groupedFlightIds.delete(flightId);
+  }
+  updateGroupSelectUi();
   flightStripCount.textContent = selectedWorkload
     ? `${flights.length} tracks · ${selectedWorkload.workload}`
     : `${flights.length} aircraft`;
   if (!flights.length) {
     flightChips.replaceChildren(Object.assign(document.createElement('p'), { className: 'flight-chips__empty', textContent: simulation.state.station === 'supervisor' ? 'No active tracks · waiting at the edge of the scope' : `No ${simulation.state.station} traffic awaiting action` }));
+    renderGroupActions();
     renderFlightActions();
     renderClearanceAdvisor();
     return;
@@ -1232,6 +1274,7 @@ function renderFlightStrip(): void {
     updateFlightChip(item, flight);
     flightChips.append(item);
   }
+  renderGroupActions();
   renderFlightActions();
   renderClearanceAdvisor();
 }
@@ -1288,7 +1331,8 @@ function updateFlightChip(item: HTMLElement, flight: Flight): void {
     ? `RWY ${runwayDesignation(flight.runway)} · EXIT ${flight.runwayExit.taxiwayName}`
     : null;
   button.dataset.flightChip = String(flight.id);
-  button.className = ['flight-chip', focusedFlightId === flight.id ? 'flight-chip--selected' : '', held ? 'flight-chip--hold' : '', flight.emergency ? 'flight-chip--emergency' : '', fuel < 15 ? 'flight-chip--low-fuel' : ''].filter(Boolean).join(' ');
+  const grouped = groupSelectActive && groupedFlightIds.has(flight.id);
+  button.className = ['flight-chip', focusedFlightId === flight.id ? 'flight-chip--selected' : '', grouped ? 'flight-chip--group-selected' : '', held ? 'flight-chip--hold' : '', flight.emergency ? 'flight-chip--emergency' : '', fuel < 15 ? 'flight-chip--low-fuel' : ''].filter(Boolean).join(' ');
   button.style.setProperty('--flight-accent', flight.palette === 'rose' ? 'var(--rose)' : flight.palette === 'sage' ? '#9bc8a0' : 'var(--blue)');
   button.style.setProperty('--fuel', `${fuel.toFixed(1)}%`);
   const holdDetail = flight.automaticHoldReason ?? flight.safetyHoldReason;
@@ -1296,6 +1340,7 @@ function updateFlightChip(item: HTMLElement, flight: Flight): void {
     ? 'GA'
     : flight.operationPlan.trafficClass.charAt(0).toUpperCase() + flight.operationPlan.trafficClass.slice(1);
   button.setAttribute('aria-label', `${flight.callsign}, ${flight.aircraft}, ${trafficClass} traffic, ${phase}${holdDetail ? `, ${holdDetail}` : ''}${gateDisplay ? `, ${gateDisplay}` : ''}${gateTime ? `, ${gateTime}` : ''}, fuel ${fuel.toFixed(0)} percent, ${speedLabel} ${speed.toFixed(0)} knots, altitude ${altitude} feet`);
+  button.setAttribute('aria-pressed', String(grouped || focusedFlightId === flight.id));
   button.title = [`${routeDisplay} · ${flight.flightPlan.route.join(' · ')} · ${flight.flightPlan.procedure}`, assignment?.rationale.join(' · '), flight.phase === 'resting' ? turnaroundLongSummary(flight) : ''].filter(Boolean).join(' · ');
   const identity = button.querySelector('.flight-chip__identity')!;
   identity.querySelector('strong')!.textContent = flight.callsign;
@@ -1405,6 +1450,121 @@ function turnaroundLongSummary(flight: Flight): string {
   return required.map((task) => `${task.label}: ${task.status}`).join(' · ');
 }
 
+function updateGroupSelectUi(): void {
+  groupSelectToggle.setAttribute('aria-pressed', String(groupSelectActive));
+  groupSelectToggle.textContent = groupSelectActive ? 'Done selecting' : 'Group select';
+  groupSelectCount.textContent = groupSelectActive ? `${groupedFlightIds.size} selected` : 'Choose 2–8';
+}
+
+function setGroupSelectActive(active: boolean, announce = true): void {
+  groupSelectActive = active;
+  groupedFlightIds.clear();
+  groupActionsRenderKey = '';
+  if (active) {
+    focusedFlightId = null;
+    world.selectFlight(null);
+  }
+  updateGroupSelectUi();
+  renderFlightStrip();
+  renderFlightActions();
+  if (!announce) return;
+  setStatus(
+    active ? 'Group selection active' : 'Group selection closed',
+    active ? 'choose 2–8 aircraft; only shared safe instructions will appear' : 'individual aircraft controls restored',
+  );
+}
+
+function toggleGroupFlightSelection(flight: Flight): void {
+  if (groupedFlightIds.has(flight.id)) groupedFlightIds.delete(flight.id);
+  else if (groupedFlightIds.size >= 8) {
+    setStatus('Group is full', 'a grouped instruction can include at most eight aircraft');
+    return;
+  } else groupedFlightIds.add(flight.id);
+  groupActionsRenderKey = '';
+  renderFlightStrip();
+  setStatus(
+    `${groupedFlightIds.size} flight${groupedFlightIds.size === 1 ? '' : 's'} selected`,
+    groupedFlightIds.size < 2 ? 'choose at least one more aircraft' : 'available shared instructions are rechecked live',
+  );
+}
+
+function renderGroupActions(): void {
+  if (!groupSelectActive) {
+    groupActions.hidden = true;
+    groupActionsRenderKey = '';
+    return;
+  }
+  const selected = [...groupedFlightIds]
+    .map((id) => displayState().flights.find((flight) => flight.id === id))
+    .filter((flight): flight is Flight => flight !== undefined);
+  const instructions: Array<{ instruction: GroupFlightInstruction; label: string }> = [
+    { instruction: 'hold', label: 'Hold all' },
+    { instruction: 'resume', label: 'Resume all' },
+    { instruction: 'slow', label: 'Slow all' },
+    { instruction: 'normal', label: 'Normal pace' },
+  ];
+  const previews = selected.length >= 2
+    ? instructions.map((option) => ({ ...option, preview: simulation.previewGroupedInstruction(selected.map((flight) => flight.id), option.instruction) }))
+    : [];
+  const renderKey = [
+    simulation.state.station,
+    replayMode,
+    ...selected.map((flight) => `${flight.id}:${flight.phase}:${flight.navigation.frequencyOwner}:${flight.controlHold}:${flight.controlPace ?? 1}:${requiredControllerStation(flight)}`),
+    ...previews.map(({ instruction, preview }) => `${instruction}:${preview.safeToIssue}:${preview.reason}`),
+  ].join('|');
+  if (groupActionsRenderKey === renderKey) {
+    groupActions.hidden = false;
+    return;
+  }
+  groupActionsRenderKey = renderKey;
+  groupActions.replaceChildren();
+  groupActions.hidden = false;
+
+  const heading = document.createElement('header');
+  const identity = document.createElement('div');
+  const title = document.createElement('b');
+  const detail = document.createElement('small');
+  const clear = document.createElement('button');
+  title.textContent = `${selected.length} selected`;
+  detail.textContent = selected.length ? selected.map((flight) => flight.callsign).join(' · ') : 'Choose aircraft from the strips or map';
+  clear.type = 'button';
+  clear.dataset.groupAction = 'clear';
+  clear.textContent = 'Clear';
+  identity.append(title, detail);
+  heading.append(identity, clear);
+  groupActions.append(heading);
+
+  if (selected.length < 2) {
+    const prompt = document.createElement('p');
+    prompt.textContent = 'Select at least two aircraft. Runway clearances, vectors, route changes, and expedite remain individual-only.';
+    groupActions.append(prompt);
+    return;
+  }
+
+  const safePreviews = previews.filter(({ preview }) => preview.safeToIssue);
+  if (safePreviews.length) {
+    const controls = document.createElement('div');
+    controls.className = 'group-actions__buttons';
+    for (const { instruction, label } of safePreviews) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.groupInstruction = instruction;
+      button.textContent = label;
+      button.disabled = replayMode;
+      controls.append(button);
+    }
+    groupActions.append(controls);
+    const note = document.createElement('p');
+    const first = safePreviews[0].preview;
+    note.textContent = `${first.domain} · ${first.authority} authority · ${first.safeguards[0]}`;
+    groupActions.append(note);
+  } else {
+    const warning = document.createElement('p');
+    warning.textContent = previews[0]?.preview.reason ?? 'No shared instruction is currently safe for this selection.';
+    groupActions.append(warning);
+  }
+}
+
 function clearFlightFocus(statusText?: string, detail?: string): void {
   focusedFlightId = null;
   world.selectFlight(null);
@@ -1415,6 +1575,12 @@ function clearFlightFocus(statusText?: string, detail?: string): void {
 
 function selectFlightFromMap(clientX: number, clientY: number): void {
   const flightId = world.pickFlight(clientX, clientY);
+  if (groupSelectActive) {
+    if (flightId === null) return;
+    const groupedFlight = displayState().flights.find((item) => item.id === flightId);
+    if (groupedFlight) toggleGroupFlightSelection(groupedFlight);
+    return;
+  }
   if (flightId === null || focusedFlightId === flightId) {
     clearFlightFocus('Camera released', 'free map view restored');
     return;
@@ -1524,6 +1690,11 @@ function drawRadar(state: typeof simulation.state): void {
 }
 
 function renderFlightActions(): void {
+  if (groupSelectActive) {
+    flightActions.hidden = true;
+    flightActionsRenderKey = '';
+    return;
+  }
   const flight = focusedFlightId === null ? null : displayState().flights.find((item) => item.id === focusedFlightId);
   const renderKey = flight
     ? [
@@ -2338,6 +2509,9 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   commandHistory.length = 0;
   initialReplayState = cloneAirportState(simulation.state);
   focusedFlightId = null;
+  groupSelectActive = false;
+  groupedFlightIds.clear();
+  groupActionsRenderKey = '';
   flightActionsRenderKey = '';
   renderFlightStrip();
   renderFlightActions();
@@ -2511,6 +2685,7 @@ function selectAirport(code: string, paused: boolean): void {
 
 function selectControl(mode: ControlMode): void {
   simulation.setMode(mode);
+  if (mode === 'watch' && groupSelectActive) setGroupSelectActive(false, false);
   updateModeControl();
   if (mode === 'manual' || mode === 'assisted') setFlightStripCollapsed(false);
   if (mode === 'watch') {
@@ -2560,6 +2735,9 @@ function setStation(station: ControllerStation): void {
   updateWeatherUi();
   const label = controllerStationLabel(station);
   focusedFlightId = null;
+  groupSelectActive = false;
+  groupedFlightIds.clear();
+  groupActionsRenderKey = '';
   world.selectFlight(null);
   renderFlightStrip();
   surfaceDisruptionUiKey = '';
@@ -2706,7 +2884,7 @@ function airportSnapshot() {
   const operations = simulation.operationProfileSnapshot();
   const movingPhases = new Set(['approach', 'landing', 'taxi-in', 'taxi-out', 'takeoff']);
   return {
-    schemaVersion: 20,
+    schemaVersion: 21,
     airport: {
       code: config.code,
       name: config.name,
@@ -2806,6 +2984,11 @@ function airportSnapshot() {
     windOverlayVisible,
     serviceVehiclesVisible,
     station: simulation.state.station,
+    selection: {
+      focusedFlightId,
+      groupMode: groupSelectActive,
+      groupedFlightIds: [...groupedFlightIds],
+    },
     controllers: {
       automation: { ...simulation.state.stationAutomation },
       workloads: simulation.controllerWorkloads(),
@@ -3323,6 +3506,7 @@ function executeAirportCommand(command: AirportControlCommand): ReturnType<typeo
 function executeAirportRequest(command: AirportControlCommand): AirportControlResult {
   let accepted = true;
   let reason = 'accepted';
+  let data: GroupInstructionPreview | GroupInstructionIssueResult | undefined;
   if (command.action === 'pause') simulation.setPaused(true);
   if (command.action === 'resume') simulation.setPaused(false);
   if (command.action === 'nextView') world.nextView();
@@ -3392,11 +3576,39 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
     reason = simulation.lastCommandReason();
   }
   if (command.action === 'controlFlights') {
-    const controlled = simulation.controlFlights(command.flightIds, command.instruction);
+    const groupResult = Array.isArray(command.flightIds) && command.flightIds.length > 1
+      ? simulation.issueGroupedInstruction(command.flightIds, command.instruction)
+      : null;
+    const controlled = groupResult
+      ? groupResult.issued ? groupResult.flightIds : []
+      : Array.isArray(command.flightIds) ? simulation.controlFlights(command.flightIds, command.instruction) : [];
+    data = groupResult ?? undefined;
     accepted = controlled.length > 0;
-    reason = simulation.lastCommandReason();
+    reason = Array.isArray(command.flightIds) ? simulation.lastCommandReason() : 'flightIds must be an array';
     const callsigns = simulation.state.flights.filter((flight) => controlled.includes(flight.id)).map((flight) => flight.callsign);
     if (callsigns.length) setStatus(`${command.instruction.toUpperCase()} command`, callsigns.join(' · '));
+  }
+  if (command.action === 'previewGroupInstruction') {
+    if (!Array.isArray(command.flightIds)) {
+      accepted = false;
+      reason = 'flightIds must be an array';
+    } else {
+      data = simulation.previewGroupedInstruction(command.flightIds, command.instruction);
+      accepted = data.safeToIssue;
+      reason = data.reason;
+    }
+  }
+  if (command.action === 'issueGroupInstruction') {
+    if (!Array.isArray(command.flightIds)) {
+      accepted = false;
+      reason = 'flightIds must be an array';
+    } else {
+      const groupResult = simulation.issueGroupedInstruction(command.flightIds, command.instruction);
+      data = groupResult;
+      accepted = groupResult.issued;
+      reason = groupResult.reason;
+      if (groupResult.issued) setStatus(`${command.instruction.toUpperCase()} group command`, groupResult.callsigns.join(' · '));
+    }
   }
   if (command.action === 'assignHeading') {
     accepted = Number.isFinite(command.headingDegrees) && simulation.assignHeading(command.flightId, command.headingDegrees);
@@ -3577,7 +3789,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
   if (command.action === 'restart') newSession(false, config.code === 'LOCAL' ? generateAirportConfig() : generateHubConfig(hubIndex));
   recordTelemetry(`command:${command.action}`, undefined, undefined, undefined, { accepted, detail: reason, payload: command });
   const snapshot = airportSnapshot();
-  const result = { accepted, reason, sequence: telemetrySequence, eventId: telemetrySequence, snapshot, resultingState: snapshot };
+  const result = { accepted, reason, sequence: telemetrySequence, eventId: telemetrySequence, snapshot, resultingState: snapshot, ...(data ? { data } : {}) };
   commandHistory.push({ sequence: telemetrySequence, elapsed: Number(simulation.state.elapsed.toFixed(3)), command: { ...command } as AirportControlCommand, accepted, reason });
   if (commandHistory.length > 2_000) commandHistory.splice(0, commandHistory.length - 2_000);
   airportChannel?.postMessage({ type: 'command-result', command, result });
@@ -3585,7 +3797,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
 }
 
 window.airportControl = {
-  version: '2.18.0',
+  version: '2.19.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },
@@ -3596,7 +3808,7 @@ window.airportControl = {
     return {
       snapshot: 'airportControl.snapshot()',
       events: 'airportControl.events(100)',
-      structuredCommand: "airportControl.request({ action: 'pause' }) // { accepted, reason, sequence, snapshot }",
+      structuredCommand: "airportControl.request({ action: 'pause' }) // { accepted, reason, sequence, snapshot, optional data }",
       pause: "airportControl.command({ action: 'pause' })",
       speed: "airportControl.command({ action: 'setSpeed', value: 2 })",
       airport: "airportControl.command({ action: 'selectAirport', code: 'ORD' })",
@@ -3616,7 +3828,9 @@ window.airportControl = {
       takeoff: "airportControl.request({ action: 'clearTakeoff', flightId: 1 })",
       runwayCrossing: "airportControl.command({ action: 'clearRunwayCrossing', flightId: 1, runway: 4 })",
       controlOne: "airportControl.command({ action: 'controlFlights', flightIds: [1], instruction: 'slow' })",
-      controlMany: "airportControl.command({ action: 'controlFlights', flightIds: [1, 2, 3], instruction: 'expedite' })",
+      groupPreview: "airportControl.request({ action: 'previewGroupInstruction', flightIds: [1, 2], instruction: 'slow' }) // non-mutating compatibility check",
+      groupIssue: "airportControl.request({ action: 'issueGroupInstruction', flightIds: [1, 2], instruction: 'slow' }) // atomic: all accepted or none",
+      controlMany: "airportControl.request({ action: 'controlFlights', flightIds: [1, 2, 3], instruction: 'hold' }) // legacy atomic alias",
       heading: "airportControl.request({ action: 'assignHeading', flightId: 1, headingDegrees: 270 })",
       altitude: "airportControl.request({ action: 'assignAltitude', flightId: 1, altitudeFt: 3000 })",
       airspeed: "airportControl.request({ action: 'assignAirspeed', flightId: 1, speedKts: 170 })",

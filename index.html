@@ -168,6 +168,11 @@
           <i aria-hidden="true">−</i>
         </button>
         <div id="flight-strip-body" class="flight-strip__body">
+          <div class="flight-strip__tools">
+            <button id="group-select-toggle" type="button" aria-pressed="false">Group select</button>
+            <span id="group-select-count" aria-live="polite">Choose 2–8</span>
+          </div>
+          <section id="group-actions" class="group-actions" aria-live="polite" hidden></section>
           <section id="flight-actions" class="flight-actions" aria-live="polite" hidden></section>
           <section id="clearance-advisor" class="clearance-advisor" aria-live="polite" hidden></section>
           <div id="flight-chips" class="flight-chips" role="list"></div>

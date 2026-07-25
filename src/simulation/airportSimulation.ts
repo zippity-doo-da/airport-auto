@@ -1,5 +1,5 @@
 import type { AirportConfig, AirportRunwayConfiguration, RunwayOperationalRole } from './airportConfig';
-import type { AirportEvent, AirportState, ClearanceProposal, ConflictPrediction, ControlMode, ControllerStation, ControllerWorkloadSnapshot, EmergencyType, Flight, FlightInstruction, FlightNavigationState, FlightOperationPlan, FlightPhase, FlightRouteClearanceState, FlightRunwayExitState, OperationalControllerStation, ServiceVehicleState, ShiftMetrics, SurfaceDisruptionKind, SurfaceDisruptionSource, SurfaceDisruptionState, TrafficScenario, WeatherCondition } from './types';
+import type { AirportEvent, AirportState, ClearanceProposal, ConflictPrediction, ControlMode, ControllerStation, ControllerWorkloadSnapshot, EmergencyType, Flight, FlightInstruction, FlightNavigationState, FlightOperationPlan, FlightPhase, FlightRouteClearanceState, FlightRunwayExitState, GroupInstructionIssueResult, GroupInstructionPreview, OperationalControllerStation, ServiceVehicleState, ShiftMetrics, SurfaceDisruptionKind, SurfaceDisruptionSource, SurfaceDisruptionState, TrafficScenario, WeatherCondition } from './types';
 import { aircraftProfile, type AircraftModel } from './aircraftProfiles';
 import { airlineProfile, type AirlineCode } from './airlineProfiles';
 import { aircraftCollisionEnvelope, detectCommittedRunwaySweepConflict, detectFlightConflict, findFlightConflicts, findObstacleConflicts, findProposedConflict } from './collisionDetection';
@@ -26,6 +26,7 @@ import { amendFlightPlan, cloneFlightPlan, createFlightPlan, setFlightPlanStatus
 import { selectTerminalProcedure, type SelectedTerminalProcedure, type TerminalProcedureKind } from './airspaceProcedures';
 import { buildSurfaceRouteViaNodes, selectDiversionExitFix } from './atcRouteCommands';
 import { buildTerminalRouteClearancePreview, type TerminalRouteClearanceCandidate } from './terminalRouteClearance';
+import { buildGroupInstructionPreview } from './groupedFlightInstructions';
 import {
   controllerStationIsAhead,
   controllerWorkloadSnapshots,
@@ -1327,7 +1328,44 @@ export class AirportSimulation {
     return true;
   }
 
+  previewGroupedInstruction(ids: readonly number[], instruction: FlightInstruction): GroupInstructionPreview {
+    return buildGroupInstructionPreview(this.state.flights, ids, instruction, this.state.station);
+  }
+
+  issueGroupedInstruction(ids: readonly number[], instruction: FlightInstruction): GroupInstructionIssueResult {
+    const preview = this.previewGroupedInstruction(ids, instruction);
+    if (!preview.safeToIssue) {
+      this.decisionReason = preview.reason;
+      return { ...preview, issued: false };
+    }
+
+    const selectedIds = new Set(preview.flightIds);
+    const flights = this.state.flights.filter((flight) => selectedIds.has(flight.id));
+    for (const flight of flights) {
+      if (instruction === 'hold') flight.controlHold = true;
+      if (instruction === 'resume') flight.controlHold = false;
+      if (instruction === 'slow') flight.controlPace = 0.55;
+      if (instruction === 'normal') flight.controlPace = 1;
+    }
+    if (instruction === 'hold') this.metrics.holdsIssued += flights.length;
+    this.metrics.manualCommands += flights.length;
+    this.decisionReason = `${instruction} accepted atomically for ${flights.length} flight${flights.length === 1 ? '' : 's'} · ${preview.authority}`;
+    for (const flight of flights) {
+      this.events.push({
+        type: 'group-instruction',
+        flight,
+        taxiway: preview.domain === 'surface' ? flight.taxiway : undefined,
+        detail: `${this.decisionReason} · ${preview.callsigns.join(', ')}`,
+      });
+    }
+    return { ...preview, issued: true, reason: this.decisionReason };
+  }
+
   controlFlights(ids: number[], instruction: FlightInstruction): number[] {
+    if (ids.length > 1) {
+      const result = this.issueGroupedInstruction(ids, instruction);
+      return result.issued ? result.flightIds : [];
+    }
     this.decisionReason = 'no requested flight accepted that instruction';
     const requested = new Set(ids.filter((id) => Number.isInteger(id) && id > 0));
     const controlled: number[] = [];

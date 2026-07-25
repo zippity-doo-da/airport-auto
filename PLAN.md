@@ -293,6 +293,16 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Turn short-screen and browser-zoom laptop Controls into a two-column console with session settings and all primary controls above the fold, visible scrolling, predictable reopen-at-top behavior, and compact radar/queue docking.
 - [x] Cover 1366×768, 1280×720, 1024×600, 912×512, 800×500, and zoomed 700×500 layouts; keep the true narrow-phone layout independently usable.
 
+## Airport Auto 2.19 — atomic grouped ATC instructions
+
+- [x] Add a compact Group select mode to the normal flight bay; desktop, touch, and map selection can collect two to eight visible aircraft without engaging camera follow.
+- [x] Preview every candidate group without mutation and require all selected aircraft to share an active control domain, controller authority, current ownership, and compatible instruction state.
+- [x] Expose only shared surface hold/resume and airborne-or-surface slow/normal commands; runway clearances, vectors, route changes, expedite, zigzag, mixed domains, and mixed authorities remain individual-only.
+- [x] Revalidate at issue time and apply every accepted group atomically; any stale, unknown, duplicate, unowned, or incompatible member rejects the whole command without partial mutation.
+- [x] Preserve normal deceleration, surface reservations, runway protection, physical separation alerts, automatic holds, and safety holds after grouped controller action.
+- [x] Expose non-mutating preview and atomic issue commands, structured data, current UI selection, and per-aircraft `group-instruction` events through API 2.19 / snapshot schema 21 while keeping multi-flight `controlFlights` as an atomic legacy alias.
+- [x] Add deterministic coverage for airborne pace, surface hold/resume, safety-hold preservation, ownership, mixed domain/authority, duplicate/unknown IDs, and forbidden expedite plus a browser interaction and screenshot regression.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.

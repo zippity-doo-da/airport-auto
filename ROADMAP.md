@@ -1,7 +1,7 @@
 # Airport Auto — Forward Roadmap
 
 Last reconciled: July 25, 2026
-Baseline: Airport Auto 2.18.0
+Baseline: Airport Auto 2.19.0
 
 Airport Auto is an **ASMR-first web airport simulation with an optional serious ATC layer**. The simulation should remain enjoyable as a calm, hands-off miniature world while also supporting increasingly authentic controller work when the player asks for it.
 
@@ -120,7 +120,7 @@ Make each controller position a complete, satisfying job rather than a filtered 
 
 - [x] Expand the typed command vocabulary with heading, altitude, speed, direct-to, clear approach, route amendment, pushback, taxi route, hold position, divert, and contact/handoff commands. (2.17: every command uses station ownership and the shared safety boundary; route/taxi amendments remain continuous and diversion flies to the scope edge.)
 - [x] Add safe route editing with previews, conflict warnings, and explicit readback/acceptance state. (2.18: normal-UI route choice, non-mutating map previews, physical look-ahead warnings, staged issue/readback/revalidation, supersession cancellation, and the same arbiter for legacy/API commands.)
-- [ ] Add multi-select and grouped commands only where aircraft share a safe, compatible instruction.
+- [x] Add multi-select and grouped commands only where aircraft share a safe, compatible instruction. (2.19: 2–8-aircraft strip/map selection, non-mutating compatibility previews, shared domain/authority/ownership checks, atomic issue, and explicit exclusion of runway clearances, vectors, route changes, expedite, and zigzag.)
 - [ ] Add controller handoffs, frequency ownership, strip bays, coordination requests, and late/missed-handoff consequences.
 - [ ] Give Approach, Tower, Ground, Ramp, and Supervisor distinct traffic, authority, alerts, workload, and success measures.
 - [x] Add configurable automation for unstaffed positions so one player can work a single station while the airport continues safely. (2.16: Supervisor can automate each desk; selecting Approach, Tower, Ground, or Ramp staffs the other positions.)
