@@ -64,9 +64,10 @@ body.night-mode #app::after {
 .flight-strip__toggle small { color: rgba(244, 232, 206, 0.52); font-size: 6px; font-weight: 900; letter-spacing: 0.14em; text-transform: uppercase; }
 .flight-strip__toggle i { color: var(--amber); font-family: Georgia, serif; font-size: 16px; font-style: normal; line-height: 1; }
 .flight-strip__toggle:hover, .flight-strip__toggle:focus-visible { border-color: rgba(239, 199, 117, 0.7); outline: none; }
-.flight-chips { display: grid; max-height: calc(100vh - 276px); gap: 5px; margin-top: 5px; overflow-x: hidden; overflow-y: auto; padding-right: 3px; scrollbar-color: rgba(239, 199, 117, 0.4) transparent; scrollbar-width: thin; }
+.flight-strip__body { min-height: 0; overflow-x: hidden; overflow-y: auto; padding-right: 3px; overscroll-behavior: contain; scrollbar-color: rgba(239, 199, 117, 0.4) transparent; scrollbar-gutter: stable; scrollbar-width: thin; }
+.flight-chips { display: grid; gap: 5px; margin-top: 5px; }
 .flight-strip--collapsed { width: 164px; }
-.flight-strip--collapsed .flight-chips { display: none; }
+.flight-strip--collapsed .flight-strip__body { display: none; }
 .flight-strip--collapsed .flight-strip__toggle i { transform: rotate(45deg); }
 .flight-chip { --flight-accent: var(--blue); position: relative; display: grid; width: 100%; gap: 7px; overflow: hidden; border: 1px solid rgba(121, 200, 232, 0.25); padding: 9px 10px 8px 12px; color: var(--ivory); background: linear-gradient(105deg, rgba(11, 37, 40, 0.92), rgba(12, 41, 43, 0.7)); text-align: left; cursor: pointer; backdrop-filter: blur(15px); clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px); transition: border-color 150ms ease, background 150ms ease, transform 150ms ease; }
 .flight-chip::before { position: absolute; top: 0; bottom: 0; left: 0; width: 3px; content: ""; background: var(--flight-accent); box-shadow: 0 0 13px color-mix(in srgb, var(--flight-accent) 65%, transparent); }
@@ -244,13 +245,12 @@ body.center-scope .brand__mark { font-size: 11px; letter-spacing: -0.04em; }
 /* Airport Auto 2.1: readable, low-chrome ATC surfaces. */
 button, select, input { min-height: 44px; }
 button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
-.flight-strip { display: flex; width: min(304px, calc(100vw - 44px)); flex-direction: column; }
+.flight-strip { display: flex; width: min(304px, calc(100vw - 44px)); flex-direction: column; overflow: hidden; }
 .flight-strip__toggle { min-height: 44px; padding: 9px 12px; }
 .flight-strip__toggle b { font-size: 14px; }
 .flight-strip__toggle small { font-size: 10px; letter-spacing: 0.1em; }
 .flight-strip--collapsed { width: 190px; }
-.flight-strip--collapsed .flight-actions { display: none; }
-.flight-chips { min-height: 0; max-height: none; flex: 1 1 auto; }
+.flight-strip__body { flex: 1 1 auto; }
 .flight-chip { gap: 8px; padding: 11px 12px 10px 14px; }
 .flight-chip__identity strong { font-size: 14px; }
 .flight-chip__identity span, .flight-chip__metric small { font-size: 9px; }

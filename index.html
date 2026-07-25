@@ -163,13 +163,15 @@
       </aside>
 
       <aside id="flight-strip" class="flight-strip" aria-label="Live flight information">
-        <button id="flight-strip-toggle" class="flight-strip__toggle" type="button" aria-controls="flight-chips" aria-expanded="true">
+        <button id="flight-strip-toggle" class="flight-strip__toggle" type="button" aria-controls="flight-strip-body" aria-expanded="true">
           <span><b id="flight-strip-title">Live traffic</b><small id="flight-strip-count">0 aircraft</small></span>
           <i aria-hidden="true">−</i>
         </button>
-        <section id="flight-actions" class="flight-actions" aria-live="polite" hidden></section>
-        <section id="clearance-advisor" class="clearance-advisor" aria-live="polite" hidden></section>
-        <div id="flight-chips" class="flight-chips" role="list"></div>
+        <div id="flight-strip-body" class="flight-strip__body">
+          <section id="flight-actions" class="flight-actions" aria-live="polite" hidden></section>
+          <section id="clearance-advisor" class="clearance-advisor" aria-live="polite" hidden></section>
+          <div id="flight-chips" class="flight-chips" role="list"></div>
+        </div>
       </aside>
 
       <nav class="camera-tools" aria-label="Camera controls">
