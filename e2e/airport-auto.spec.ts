@@ -2,10 +2,11 @@ import { expect, test } from '@playwright/test';
 
 test('Assisted ORD shift exposes proposals, station workload, and structured control', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chromium', 'The focused mobile Watch test covers the responsive controls and radar inset.');
-  // Hosted software WebGL can take more than two minutes to traverse this
-  // intentionally broad end-to-end scenario even though local Chromium is
-  // much faster. Keep waits individually bounded and allow the full sequence.
-  test.setTimeout(360_000);
+  // Hosted software WebGL can take more than six minutes to traverse this
+  // intentionally broad end-to-end scenario even though hardware-accelerated
+  // Chromium is much faster. Keep waits individually bounded while allowing
+  // the complete release sequence to finish on the CI software renderer.
+  test.setTimeout(600_000);
   await page.goto('/?airport=ORD&mode=assisted&station=supervisor&autostart=1&detail=low');
   await expect(page.locator('#airport-name')).toContainText('O’Hare');
   await expect(page.locator('#flight-strip-count')).toContainText('aircraft');
