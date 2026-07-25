@@ -79,6 +79,41 @@ export function buildOperationQueueSnapshot(
     if (candidate) candidates.push(candidate);
   }
 
+  const activeApproachIds = state.flights
+    .filter((flight) => flight.phase === 'approach' || flight.phase === 'landing')
+    .map((flight) => flight.id);
+  for (const entry of state.trafficFlow.arrivalQueue) {
+    candidates.push({
+      id: `traffic:${entry.id}`,
+      category: state.weather.weatherEnabled && state.weather.condition !== 'clear' ? 'weather' : 'downstream',
+      priority: entry.status === 'holding' ? 'attention' : 'routine',
+      entity: 'system',
+      label: `Inbound meter ${entry.id}`,
+      detail: entry.reason,
+      waitSeconds: entry.delaySeconds,
+      resourceId: 'arrival-stream',
+      blockerFlightIds: [...activeApproachIds],
+      order: entry.releaseSlotSeconds,
+    });
+  }
+  for (const entry of state.trafficFlow.departureQueue) {
+    candidates.push({
+      id: `traffic:${entry.id}`,
+      category: 'runway',
+      priority: entry.status === 'metered' ? 'attention' : 'routine',
+      entity: entry.flightId === undefined ? 'system' : 'aircraft',
+      label: `${entry.callsign ?? entry.id} release slot`,
+      detail: entry.reason,
+      waitSeconds: entry.delaySeconds,
+      flightId: entry.flightId,
+      resourceId: 'departure-release-bank',
+      blockerFlightIds: state.trafficFlow.departureQueue
+        .filter((candidate) => candidate.releaseSlotSeconds < entry.releaseSlotSeconds && candidate.flightId !== undefined)
+        .flatMap((candidate) => candidate.flightId ?? []),
+      order: entry.releaseSlotSeconds,
+    });
+  }
+
   if (state.runwayConfigurationTransition) {
     const blockers = state.runwayConfigurationTransition.blockingFlightIds;
     candidates.push({
@@ -131,7 +166,7 @@ export function buildOperationQueueSnapshot(
   const approachCapacity = Math.max(1, inputs.approachCapacity ?? 1);
   const inboundCount = state.flights.filter((flight) => flight.phase === 'approach' || flight.phase === 'landing').length;
   const nextArrivalIn = Math.max(0, inputs.nextArrivalIn ?? 0);
-  if (inboundCount >= approachCapacity && nextArrivalIn > 0.05) {
+  if (state.trafficFlow.arrivalQueue.length === 0 && inboundCount >= approachCapacity && nextArrivalIn > 0.05) {
     candidates.push({
       id: 'system:arrival-meter',
       category: state.weather.weatherEnabled && state.weather.condition !== 'clear' ? 'weather' : 'wake',

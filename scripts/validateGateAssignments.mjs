@@ -36,6 +36,7 @@ function assignmentFor({
     aircraft,
     airline,
     service,
+    trafficClass: service === 'cargo' ? 'cargo' : aircraft === 'E175' || aircraft === 'Q400' ? 'regional' : 'passenger',
     arrivalRunway: arrivalRunways[0].id,
     arrivalOperatingEnd: arrivalRunways[0].landingEnd,
     departureRunway: departureRunway.id,
@@ -114,6 +115,7 @@ assert(routeScores.every((assignment, index) => assignment.departureRunway === d
 
 const harness = new FixedStepSimulationHarness(ord, { stepSeconds: 0.1 });
 harness.simulation.setScenario('rush');
+harness.simulation.setTrafficDensity('rush');
 let maximumPhysicalOccupancy = 0;
 let preferredAssignments = 0;
 let cargoAssignments = 0;

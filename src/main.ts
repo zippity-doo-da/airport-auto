@@ -6,6 +6,9 @@ import { airlineProfile } from './simulation/airlineProfiles';
 import { sampleAircraftSurfaceMotion, surfaceStoppingDistanceM } from './simulation/surfaceMotion';
 import { surfaceRampControlZones, surfaceStandFlow } from './simulation/surfaceOperations';
 import { GATE_TURN_BUFFER_SECONDS } from './simulation/gateAssignment';
+import { cloneFlightPlan } from './simulation/flightPlanning';
+import { isTrafficDensity, trafficDensityProfile, type TrafficDensity } from './simulation/trafficDensity';
+import { cloneTrafficFlowState } from './simulation/trafficFlowManagement';
 import type { ClearanceProposal, ControlMode, ControllerStation, EmergencyType, Flight, FlightInstruction, FlightPhase, ReplayFrame, SurfaceDisruptionKind, TrafficScenario, TurnaroundServiceType, WeatherCondition } from './simulation/types';
 import { AmbientAudio, type AudioChannel, type AudioPreset } from './audio/ambientAudio';
 import { createWorld, type SurfaceLayer } from './render/createWorld';
@@ -43,6 +46,7 @@ type AirportControlCommand =
   | { action: 'controlFlights'; flightIds: number[]; instruction: FlightInstruction }
   | { action: 'focusFlight'; flightId: number | null }
   | { action: 'setScenario'; scenario: TrafficScenario }
+  | { action: 'setTrafficDensity'; density: TrafficDensity }
   | { action: 'setStation'; station: ControllerStation }
   | { action: 'triggerEmergency'; flightId: number; type: EmergencyType }
   | { action: 'setWeather'; condition: WeatherCondition; directionDegrees: number; windSpeed: number }
@@ -167,15 +171,18 @@ const instructionCopy = $<HTMLElement>('#instruction-copy');
 const airportSelect = $<HTMLSelectElement>('#airport-select');
 const controlSelect = $<HTMLSelectElement>('#control-select');
 const scenarioSelect = $<HTMLSelectElement>('#scenario-select');
+const densitySelect = $<HTMLSelectElement>('#density-select');
 const stationSelect = $<HTMLSelectElement>('#station-select');
 const introAirportSelect = $<HTMLSelectElement>('#intro-airport-select');
 const introControlSelect = $<HTMLSelectElement>('#intro-control-select');
+const introDensitySelect = $<HTMLSelectElement>('#intro-density-select');
 const speedControl = $<HTMLInputElement>('#speed-control');
 const speedOutput = $<HTMLOutputElement>('#speed-output');
 const weatherCondition = $<HTMLElement>('#weather-condition');
 const weatherWind = $<HTMLElement>('#weather-wind');
 const weatherVisibility = $<HTMLElement>('#weather-visibility');
 const operationBank = $<HTMLElement>('#operation-bank');
+const trafficFlowReadout = $<HTMLElement>('#traffic-flow');
 const runwayConfiguration = $<HTMLElement>('#runway-configuration');
 const runwayConfigurationSelect = $<HTMLSelectElement>('#runway-configuration-select');
 const weatherToggle = $<HTMLButtonElement>('#weather-toggle');
@@ -431,8 +438,15 @@ airportSelect.addEventListener('change', () => selectAirport(airportSelect.value
 introAirportSelect.addEventListener('change', () => selectAirport(introAirportSelect.value, true));
 controlSelect.addEventListener('change', () => selectControl(controlSelect.value as ControlMode));
 scenarioSelect.addEventListener('change', () => setScenario(scenarioSelect.value as TrafficScenario));
+densitySelect.addEventListener('change', () => setTrafficDensity(densitySelect.value as TrafficDensity));
 stationSelect.addEventListener('change', () => setStation(stationSelect.value as ControllerStation));
 introControlSelect.addEventListener('change', () => selectControl(introControlSelect.value as ControlMode));
+introDensitySelect.addEventListener('change', () => {
+  const density = introDensitySelect.value as TrafficDensity;
+  simulation.setTrafficDensity(density);
+  newSession(true, config);
+  setStatus(`${trafficDensityProfile(density).label} traffic selected`, 'the opening bank has been rebuilt at this density');
+});
 speedControl.addEventListener('input', () => setSimulationSpeed(Number(speedControl.value)));
 weatherToggle.addEventListener('click', () => {
   const enabling = !simulation.state.weather.weatherEnabled;
@@ -984,6 +998,7 @@ function presentationState(): typeof simulation.state {
 function cloneAirportState(state: typeof simulation.state): typeof simulation.state {
   return {
     ...state,
+    trafficFlow: cloneTrafficFlowState(state.trafficFlow),
     weather: { ...state.weather },
     activeRunwayEnds: { ...state.activeRunwayEnds },
     activeRunwayRoles: { ...state.activeRunwayRoles },
@@ -1025,6 +1040,8 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
         ...flight.gateAssignment,
         rationale: [...flight.gateAssignment.rationale],
       } : undefined,
+      flightPlan: cloneFlightPlan(flight.flightPlan),
+      flightPlanHistory: flight.flightPlanHistory.map(cloneFlightPlan),
       turnaround: {
         ...flight.turnaround,
         tasks: flight.turnaround.tasks.map((task) => ({ ...task, dependencies: [...task.dependencies] })),
@@ -1043,7 +1060,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
 function replayRecording(): ReplayRecording {
   return {
     schemaVersion: 1,
-    simulationVersion: window.airportControl?.version ?? '2.13.0',
+    simulationVersion: window.airportControl?.version ?? '2.14.0',
     recordedAt: new Date().toISOString(),
     seed: config.seed,
     airport: { code: config.code, name: config.name, scope: config.scope },
@@ -1107,6 +1124,7 @@ function updateFlightChip(item: HTMLElement, flight: Flight): void {
   const motionText = acceleration > 0.06 ? `ACC +${acceleration.toFixed(1)} M/S²` : acceleration < -0.06 ? `BRAKE ${acceleration.toFixed(1)} M/S²` : 'SPEED STABLE';
   const fuel = Math.max(0, Math.min(100, kinematics.fuelPercent));
   const operation = flightOperationLabel(flight);
+  const routeDisplay = `${flight.flightPlan.origin}→${flight.flightPlan.destination}`;
   const phase = held ? 'Hold' : operation;
   const assignment = flight.gateAssignment;
   const stand = config.surfaceGraph.stands.find((candidate) => candidate.id === assignment?.standId)
@@ -1144,7 +1162,7 @@ function updateFlightChip(item: HTMLElement, flight: Flight): void {
     ? 'GA'
     : flight.operationPlan.trafficClass.charAt(0).toUpperCase() + flight.operationPlan.trafficClass.slice(1);
   button.setAttribute('aria-label', `${flight.callsign}, ${flight.aircraft}, ${trafficClass} traffic, ${phase}${holdDetail ? `, ${holdDetail}` : ''}${gateDisplay ? `, ${gateDisplay}` : ''}${gateTime ? `, ${gateTime}` : ''}, fuel ${fuel.toFixed(0)} percent, ${speedLabel} ${speed.toFixed(0)} knots, altitude ${altitude} feet`);
-  button.title = [assignment?.rationale.join(' · '), flight.phase === 'resting' ? turnaroundLongSummary(flight) : ''].filter(Boolean).join(' · ');
+  button.title = [`${routeDisplay} · ${flight.flightPlan.route.join(' · ')} · ${flight.flightPlan.procedure}`, assignment?.rationale.join(' · '), flight.phase === 'resting' ? turnaroundLongSummary(flight) : ''].filter(Boolean).join(' · ');
   const identity = button.querySelector('.flight-chip__identity')!;
   identity.querySelector('strong')!.textContent = flight.callsign;
   identity.querySelector('span')!.textContent = phase;
@@ -1154,7 +1172,7 @@ function updateFlightChip(item: HTMLElement, flight: Flight): void {
   metrics[1].querySelector('b')!.innerHTML = `${Math.round(speed)}<em>KT</em>`;
   metrics[2].querySelector('b')!.innerHTML = `${altitude.toLocaleString()}<em>FT</em>`;
   const detail = button.querySelector('.flight-chip__detail')!;
-  detail.children[0].textContent = `${flight.aircraft} · ${trafficClass} · ${operation} · ${runwayExitDisplay ?? gateDisplay ?? `RWY ${runwayDesignation(flight.runway)}`}${runwayExitDisplay && gateDisplay ? ` · ${gateDisplay}` : ''}${gateTime ? ` · ${gateTime}` : ''}`;
+  detail.children[0].textContent = `${routeDisplay} · ${flight.aircraft} · ${trafficClass} · ${operation} · ${runwayExitDisplay ?? gateDisplay ?? `RWY ${runwayDesignation(flight.runway)}`}${runwayExitDisplay && gateDisplay ? ` · ${gateDisplay}` : ''}${gateTime ? ` · ${gateTime}` : ''}`;
   detail.children[1].textContent = held && holdDetail
     ? `HOLD · ${holdDetail.toUpperCase()}`
     : deicingChipSummary(flight)
@@ -1892,11 +1910,12 @@ function renderQueueInspector(): void {
 function newSession(paused: boolean, nextConfig = generateAirportConfig()): void {
   const mode = simulation.state.mode;
   const nightMode = simulation.state.nightMode;
+  const density = simulation.state.trafficFlow.density;
   setControlPanelOpen(false);
   world.dispose();
   config = nextConfig;
   weatherSelection = 'auto';
-  simulation = new AirportSimulation(config);
+  simulation = new AirportSimulation(config, density);
   simulation.setMode(mode);
   simulation.setNightMode(nightMode);
   simulation.setScenario(scenarioSelect.value as TrafficScenario);
@@ -2007,6 +2026,8 @@ function updateAirportUi(): void {
   fieldButton.setAttribute('aria-label', center ? 'Load the next major airport' : 'Generate a new airfield');
   airportSelect.value = config.code;
   introAirportSelect.value = config.code;
+  densitySelect.value = simulation.state.trafficFlow.density;
+  introDensitySelect.value = simulation.state.trafficFlow.density;
   document.body.classList.toggle('center-scope', center);
   mapOrientationToggle.checked = mapOrientationVisible;
   mapOrientation.hidden = !mapOrientationVisible;
@@ -2095,10 +2116,23 @@ function selectControl(mode: ControlMode): void {
 function setScenario(scenario: TrafficScenario): void {
   simulation.setScenario(scenario);
   scenarioSelect.value = scenario;
+  densitySelect.value = simulation.state.trafficFlow.density;
+  introDensitySelect.value = simulation.state.trafficFlow.density;
   const labels: Record<TrafficScenario, string> = { normal: 'Normal flow', rush: 'Rush hour', storm: 'Storm front', closure: 'Runway closure', training: 'Training pattern', emergency: 'Emergency response' };
   setStatus(`${labels[scenario]} scenario`, scenario === 'closure' ? 'one runway closed · arrivals re-sequencing' : scenario === 'storm' ? 'reduced visibility · wider spacing' : scenario === 'rush' ? 'compressed arrival stream · watch separation' : scenario === 'training' ? 'one aircraft at a time · practice clearances' : scenario === 'emergency' ? 'medical priority · keep a protected runway' : 'standard traffic picture');
   surfaceDisruptionUiKey = '';
   renderSurfaceDisruptionControls();
+}
+
+function setTrafficDensity(density: TrafficDensity): void {
+  if (!isTrafficDensity(density)) return;
+  simulation.setTrafficDensity(density);
+  densitySelect.value = density;
+  introDensitySelect.value = density;
+  const profile = trafficDensityProfile(density);
+  setStatus(`${profile.label} traffic`, `${profile.description} · holding capacity ${profile.holdingCapacity}`);
+  renderQueueInspector();
+  updateWeatherUi();
 }
 
 function setStation(station: ControllerStation): void {
@@ -2143,6 +2177,8 @@ function setSimulationSpeed(value: number): void {
 function updateWeatherUi(): void {
   const weather = simulation.state.weather;
   const operation = simulation.operationProfileSnapshot(displayState()).current;
+  const density = trafficDensityProfile(displayState().trafficFlow.density);
+  const flow = simulation.trafficFlowSnapshot(displayState());
   const direction = Math.round(mathAngleToAviationDegrees(weather.windDirection) / 10) * 10 % 360;
   const speed = Math.round(weather.windSpeed);
   const gust = Math.round(weather.gustSpeed);
@@ -2153,7 +2189,10 @@ function updateWeatherUi(): void {
   windOverlayArrow.style.transform = `rotate(${direction + 90}deg)`;
   windOverlayArrow.style.opacity = weather.windEnabled ? '1' : '0.35';
   weatherVisibility.textContent = `${weather.visibility.toFixed(weather.visibility % 1 ? 1 : 0)} mi visibility · ${weather.surfaceCondition} surface`;
-  operationBank.textContent = `${operation.localTime} local · ${operation.periodLabel} · ${operation.demandMultiplier.toFixed(2)}× demand`;
+  operationBank.textContent = `${operation.localTime} local · ${operation.periodLabel} · ${density.label} ${operation.demandMultiplier.toFixed(2)}× bank`;
+  trafficFlowReadout.textContent = flow.backPressure.arrivalsHolding || flow.backPressure.departuresWaiting
+    ? `${density.label} · ARR ${flow.backPressure.arrivalsHolding} metered · DEP ${flow.backPressure.departuresWaiting} queued`
+    : `${density.label} · metering clear`;
   const activeConfiguration = config.runwayConfigurations.find(
     (configuration) => configuration.id === simulation.state.runwayConfigurationId,
   );
@@ -2224,7 +2263,7 @@ function airportSnapshot() {
   const operations = simulation.operationProfileSnapshot();
   const movingPhases = new Set(['approach', 'landing', 'taxi-in', 'taxi-out', 'takeoff']);
   return {
-    schemaVersion: 15,
+    schemaVersion: 16,
     airport: {
       code: config.code,
       name: config.name,
@@ -2297,6 +2336,7 @@ function airportSnapshot() {
     serviceVehiclesVisible,
     station: simulation.state.station,
     scenario: simulation.state.scenario,
+    trafficDensity: simulation.state.trafficFlow.density,
     speed: simulationSpeed,
     weather: {
       enabled: simulation.state.weather.weatherEnabled,
@@ -2331,6 +2371,7 @@ function airportSnapshot() {
       durationSeconds: replayFrames.length ? replayFrames[replayFrames.length - 1].clock - replayFrames[0].clock : 0,
     },
     traffic: diagnostics,
+    trafficManagement: diagnostics.trafficManagement,
     queues: diagnostics.queues,
     surfaceDisruptions: simulation.state.surfaceDisruptions.map((disruption) => ({
       ...disruption,
@@ -2532,6 +2573,8 @@ function airportSnapshot() {
       registration: flight.registration,
       service: flight.service,
       operationPlan: { ...flight.operationPlan },
+      flightPlan: cloneFlightPlan(flight.flightPlan),
+      flightPlanHistory: flight.flightPlanHistory.map(cloneFlightPlan),
       aircraft: {
         model: flight.aircraft,
         name: aircraftProfile(flight.aircraft).name,
@@ -2864,6 +2907,11 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
     if (accepted) setScenario(command.scenario);
     else reason = 'unknown scenario';
   }
+  if (command.action === 'setTrafficDensity') {
+    accepted = isTrafficDensity(command.density);
+    if (accepted) setTrafficDensity(command.density);
+    else reason = 'traffic density must be quiet, realistic, busy, rush, or extreme';
+  }
   if (command.action === 'setStation') {
     accepted = ['supervisor', 'approach', 'tower', 'ground'].includes(command.station);
     if (accepted) setStation(command.station);
@@ -2921,7 +2969,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
 }
 
 window.airportControl = {
-  version: '2.13.0',
+  version: '2.14.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },
@@ -2955,6 +3003,7 @@ window.airportControl = {
       surfaceHold: "airportControl.command({ action: 'controlFlights', flightIds: [3], instruction: 'hold' })",
       focus: "airportControl.command({ action: 'focusFlight', flightId: 1 })",
       scenario: "airportControl.command({ action: 'setScenario', scenario: 'rush' })",
+      trafficDensity: "airportControl.command({ action: 'setTrafficDensity', density: 'busy' })",
       station: "airportControl.command({ action: 'setStation', station: 'ground' })",
       emergency: "airportControl.command({ action: 'triggerEmergency', flightId: 1, type: 'medical' })",
       aircraft: 'airportControl.snapshot().flights[0].aircraft',
@@ -3039,6 +3088,11 @@ if (launchOptions.get('queues') === '1') {
 }
 const launchScenario = (launchOptions.get('scenario') ?? (soakEnabled ? 'rush' : null)) as TrafficScenario | null;
 if (launchScenario && ['normal', 'rush', 'storm', 'closure', 'training', 'emergency'].includes(launchScenario)) setScenario(launchScenario);
+const launchDensity = launchOptions.get('density');
+if (launchDensity && isTrafficDensity(launchDensity)) {
+  simulation.setTrafficDensity(launchDensity);
+  newSession(true, config);
+}
 const launchStation = launchOptions.get('station') as ControllerStation | null;
 if (launchStation && ['supervisor', 'approach', 'tower', 'ground'].includes(launchStation)) setStation(launchStation);
 const launchWeatherValue = launchOptions.get('weather');

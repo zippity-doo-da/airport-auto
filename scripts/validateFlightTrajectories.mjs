@@ -271,12 +271,16 @@ delete goAroundFlight.goAround;
 const normalReentry = sampleFlightTrajectory(ordConfig, goAroundFlight, 0);
 assert(normalReentry && distance(normalReentry, goAroundSamples.at(-1)) < 1e-8, 'ORD go-around did not rejoin the normal approach continuously');
 totals.goAroundChecks += 7;
-const liveHarness = new FixedStepSimulationHarness(ordConfig, { stepSeconds: 0.05, pace: 3, scenario: 'rush' });
+const liveHarness = new FixedStepSimulationHarness(ordConfig, { stepSeconds: 0.05, pace: 3, scenario: 'rush', density: 'rush' });
 const previousMotion = new Map();
 const seenStages = new Set();
 const airborneTakeoffs = new Set();
 const completedRollouts = new Set();
-for (let tick = 0; tick < 7_000; tick += 1) {
+// Imported ORD surface routes can legitimately take more than fifteen
+// simulation minutes from a remote stand to the runway. Keep the live gate
+// long enough to observe two complete, safety-arbitrated departure sequences
+// instead of treating realistic taxi distance as a takeoff failure.
+for (let tick = 0; tick < 9_000; tick += 1) {
   liveHarness.advanceTicks(1);
   totals.liveMotionTicks += 1;
   for (const flight of liveHarness.simulation.state.flights) {

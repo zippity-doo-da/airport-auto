@@ -1,7 +1,7 @@
 # Airport Auto — Forward Roadmap
 
 Last reconciled: July 24, 2026
-Baseline: Airport Auto 2.13.0
+Baseline: Airport Auto 2.14.0
 
 Airport Auto is an **ASMR-first web airport simulation with an optional serious ATC layer**. The simulation should remain enjoyable as a calm, hands-off miniature world while also supporting increasingly authentic controller work when the player asks for it.
 
@@ -83,13 +83,15 @@ Move from plausible continuous traffic to an explainable hub operation.
 
 ### Traffic and capacity
 
+**Status: complete in 2.14.** Version 2.13 established the compressed operation day; 2.14 adds sourced-schematic airline programs, density profiles, complete plans, bounded flow management, pressure relief, and long-session validation.
+
 - [x] Build airport operation profiles with time-of-day arrival, departure, cargo, regional, and general-aviation streams. (2.13: deterministic compressed local clock, smoothly blended demand periods, class-aware fleet generation, visible/API bank state, and profiled arrival/departure cadence.)
-- [ ] Add airline-specific hub banks, fleet mixes, gate preferences, overnight cargo peaks, and recovery lulls.
-- [ ] Add Quiet, Realistic, Busy, Rush, and Extreme density profiles with explicit capacity assumptions.
-- [ ] Generate complete flight plans with origin, destination, route, procedure, airline, aircraft, gate, runway intent, and release time.
-- [ ] Add arrival metering, departure release slots, runway queues, holding capacity, and explainable back-pressure.
-- [ ] Add rerouting, gate swaps, runway changes, diversions, and cancellation behavior when capacity is unavailable.
-- [ ] Ensure a long session continuously creates new traffic without entity leaks, fixed batches, or stand reuse.
+- [x] Add airline-specific hub banks, fleet mixes, gate preferences, overnight cargo peaks, and recovery lulls. (2.14: sourced operator/terminal relationships with explicitly schematic deterministic weights, fleets, markets, cargo periods, and recovery bands.)
+- [x] Add Quiet, Realistic, Busy, Rush, and Extreme density profiles with explicit capacity assumptions. (2.14: independent demand/capacity/holding/entity/delay/recovery parameters that are not overwritten by scenario choice; safety rules never scale down.)
+- [x] Generate complete flight plans with origin, destination, route, procedure, airline, aircraft, gate, runway intent, and release time. (2.14: versioned schematic-direct plans plus status, ETA, revision, and amendment history.)
+- [x] Add arrival metering, departure release slots, runway queues, holding capacity, and explainable back-pressure. (2.14: bounded invisible inbound demand and hold-short departure metering feed the shared queue inspector.)
+- [x] Add rerouting, gate swaps, runway changes, diversions, and cancellation behavior when capacity is unavailable. (2.14: all are plan amendments or pressure-relief history; active movement remains continuous.)
+- [x] Ensure a long session continuously creates new traffic without entity leaks, fixed batches, or stand reuse. (2.14: bounded histories and a 12-hour compressed Extreme ORD soak prove new entities, physical stand exclusivity, concurrent taxiing, and zero safety breaches.)
 
 ### Airspace and procedures
 

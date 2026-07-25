@@ -229,6 +229,18 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Add direction-aware named-taxiway flow reservations, scale physical proxies from the rendered aircraft instead of a fixed hub-wide circle, and let physically clear merge traffic continue only while separation is increasing.
 - [x] Extract traffic-profile construction and interpolation into its own pure module; validate 11 airport choices, 69 periods, mixes, boundaries, deterministic sampling, fixed-step advancement, profile integration, and zero conflicts.
 
+## Airport Auto 2.14 — hub banks and traffic-flow management
+
+- [x] Give all ten hubs and procedural fields deterministic airline programs with time-of-day bank multipliers, compatible fleet mixes, destination markets, airline gate/stand preferences, overnight cargo peaks, and recovery lulls. Published airport/airline directories identify representative operators and terminal relationships; weights and schedules remain explicitly schematic.
+- [x] Add independent Quiet, Realistic, Busy, Rush, and Extreme density profiles with visible demand, modeled-capacity, holding, active-entity, delay, recovery, and unchanged-safety assumptions.
+- [x] Give every leg a replay-safe flight plan containing origin, destination, schematic route, procedure, airline, aircraft, traffic class, stand/gate intent, runway/end intent, release time, ETA, status, revision, and amendment history.
+- [x] Add an invisible-demand arrival meter, bounded holding capacity, departure slots, a hold-short runway queue, pressure relief through pre-entry diversions and slot cancellation/replanning, and one shared explanation in the queue inspector, HUD, diagnostics, replay, and API.
+- [x] Record gate swaps, runway changes, surface-route amendments, diversions, and cancellations without teleporting an active aircraft or weakening the safety arbiter.
+- [x] Preserve concurrent ramp/taxi movement by applying departure slots at the runway queue rather than serializing pushback; the Extreme ORD soak reaches seven simultaneous taxi movers.
+- [x] Prevent imported-graph junction gridlock with arrival-priority local reservations, six-edge merge lookahead, persistent arbitration ownership, and a physically sampled connector escape; the complete ORD snow/deicing lifecycle now clears the Taxiway N merge with zero collision samples.
+- [x] Expose density in the normal Controls and intro setup, `?density=`, `setTrafficDensity`, snapshot schema 16, API 2.14, flight strips, and the compressed-bank/flow readout.
+- [x] Bound flow history and per-aircraft plan history; validate five densities, 11 airport programs, 1,760 deterministic airline/fleet selections, complete plans, all flow transitions, a 12-hour compressed ORD session, new flight creation beyond the startup bank, physical stand exclusivity, and zero collisions/incursions.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.

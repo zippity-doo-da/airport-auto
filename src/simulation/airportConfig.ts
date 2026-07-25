@@ -4,6 +4,7 @@ import { airportVectorManifest, type AirportVectorManifest } from './airportVect
 import { airportSurfaceDataManifest, importedAirportSurfaceGraph, type AirportSurfaceDataManifest } from './importedAirportData';
 import { airportContextDataManifest, type AirportContextDataManifest } from './airportContextData';
 import { buildAirportOperationProfile, type AirportOperationProfile } from './airportOperationProfiles';
+import { airportTrafficProgram, type AirportTrafficProgram } from './airportTrafficPrograms';
 
 export type FlightColor = 'rose' | 'mist' | 'sage';
 export type TerrainTheme = 'coast' | 'highland' | 'woodland';
@@ -65,6 +66,7 @@ export interface AirportConfig {
   treeCount: number;
   annualOperations: number | null;
   operationProfile: AirportOperationProfile;
+  trafficProgram: AirportTrafficProgram;
   trafficInterval: number;
   trafficCap: number;
   vectorData?: AirportVectorManifest;
@@ -76,7 +78,7 @@ export interface AirportConfig {
   surfaceGraph: AirportSurfaceGraph;
 }
 
-type AirportConfigSource = Omit<AirportConfig, 'obstacles' | 'surfaceGraph' | 'runwayConfigurations' | 'defaultRunwayConfigurationId' | 'operationProfile'>;
+type AirportConfigSource = Omit<AirportConfig, 'obstacles' | 'surfaceGraph' | 'runwayConfigurations' | 'defaultRunwayConfigurationId' | 'operationProfile' | 'trafficProgram'>;
 
 type HubProfile = {
   code: string;
@@ -278,6 +280,7 @@ function withSurfaceGraph(config: AirportConfigSource): AirportConfig {
     runwayConfigurations,
     defaultRunwayConfigurationId: runwayConfigurations[0].id,
     operationProfile: buildAirportOperationProfile(config.code, config.annualOperations),
+    trafficProgram: airportTrafficProgram(config.code),
     obstacles: buildAirportObstacleEnvelopes(geometry),
     surfaceGraph: importedSurfaceGraph ?? buildAirportSurfaceGraph(geometry),
   };

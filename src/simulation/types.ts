@@ -4,6 +4,7 @@ import type { FlightColor, RunwayOperationalRole } from './airportConfig';
 import type { AircraftModel } from './aircraftProfiles';
 import type { AirlineCode } from './airlineProfiles';
 import type { OperationTrafficClass } from './airportOperationProfiles';
+import type { TrafficDensity } from './trafficDensity';
 
 export type ControlMode = 'auto' | 'assisted' | 'manual' | 'watch';
 export type WeatherCondition = 'clear' | 'rain' | 'fog' | 'snow';
@@ -297,6 +298,93 @@ export interface FlightOperationPlan {
   demandMultiplier: number;
 }
 
+export type FlightPlanStatus = 'scheduled' | 'active' | 'completed' | 'diverted' | 'cancelled';
+export type FlightPlanAmendmentKind = 'gate-swap' | 'runway-change' | 'route-change' | 'slot-change' | 'diversion' | 'cancellation';
+
+export interface FlightPlanAmendment {
+  revision: number;
+  kind: FlightPlanAmendmentKind;
+  atSeconds: number;
+  detail: string;
+}
+
+/**
+ * A complete, deterministic leg plan. Routes and procedures remain explicitly
+ * schematic until the versioned SID/STAR milestone lands; every operational
+ * intent needed by traffic management is nevertheless present and replayable.
+ */
+export interface FlightPlan {
+  schemaVersion: 1;
+  id: string;
+  revision: number;
+  status: FlightPlanStatus;
+  direction: 'arrival' | 'departure';
+  origin: string;
+  destination: string;
+  route: string[];
+  routeKind: 'schematic-direct';
+  procedure: string;
+  airline: AirlineCode;
+  aircraft: AircraftModel;
+  trafficClass: OperationTrafficClass;
+  gateIntent: {
+    standId: string;
+    gateRef?: string;
+    terminalId?: string;
+    concourse?: string;
+  };
+  runwayIntent: {
+    runwayId: number;
+    operatingEnd: -1 | 1;
+    designation: string;
+  };
+  createdAtSeconds: number;
+  scheduledReleaseSeconds: number;
+  estimatedArrivalSeconds: number;
+  amendments: FlightPlanAmendment[];
+}
+
+export type TrafficFlowStatus = 'scheduled' | 'metered' | 'holding' | 'released' | 'diverted' | 'cancelled';
+
+export interface TrafficFlowEntry {
+  id: string;
+  direction: 'arrival' | 'departure';
+  status: TrafficFlowStatus;
+  createdAtSeconds: number;
+  scheduledAtSeconds: number;
+  releaseSlotSeconds: number;
+  updatedAtSeconds: number;
+  delaySeconds: number;
+  attempts: number;
+  reason: string;
+  flightId?: number;
+  callsign?: string;
+  runwayId?: number;
+}
+
+export interface TrafficFlowState {
+  schemaVersion: 1;
+  density: TrafficDensity;
+  nextDemandId: number;
+  nextArrivalDemandSeconds: number;
+  nextArrivalReleaseSeconds: number;
+  nextDepartureReleaseSeconds: number;
+  arrivalQueue: TrafficFlowEntry[];
+  departureQueue: TrafficFlowEntry[];
+  history: TrafficFlowEntry[];
+  totals: {
+    arrivalDemands: number;
+    departureDemands: number;
+    arrivalReleases: number;
+    departureReleases: number;
+    diversions: number;
+    cancellations: number;
+    gateSwaps: number;
+    runwayChanges: number;
+    routeAmendments: number;
+  };
+}
+
 export type ClearanceProposalAction = 'land' | 'go-around' | 'pushback' | 'cross' | 'line-up' | 'takeoff' | 'resume';
 
 export interface ClearanceProposal {
@@ -371,6 +459,8 @@ export interface Flight {
   registration: string;
   service: FlightService;
   operationPlan: FlightOperationPlan;
+  flightPlan: FlightPlan;
+  flightPlanHistory: FlightPlan[];
   turnaround: FlightTurnaroundState;
   deicing: FlightDeicingState;
   category: AircraftCategory;
@@ -410,6 +500,8 @@ export interface ShiftMetrics {
   runwayIncursions: number;
   unexplainedPauses: number;
   longestHoldSeconds: number;
+  diversions: number;
+  cancellations: number;
 }
 
 export interface ReplayFrame {
@@ -456,6 +548,7 @@ export interface AirportState {
   station: ControllerStation;
   weather: WeatherState;
   scenario: TrafficScenario;
+  trafficFlow: TrafficFlowState;
   runwayConfigurationId: string;
   runwayConfigurationMode: 'automatic' | 'manual';
   runwayConfigurationTransition: RunwayConfigurationTransition | null;

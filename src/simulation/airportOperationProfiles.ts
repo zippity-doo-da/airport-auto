@@ -22,6 +22,7 @@ export interface AirportOperationMix {
 export interface AirportOperationPeriod {
   id: string;
   label: string;
+  kind: "bank" | "balanced" | "recovery" | "overnight";
   startLocalMinute: number;
   endLocalMinute: number;
   demandMultiplier: number;
@@ -69,6 +70,7 @@ interface AirportTrafficCharacter {
 interface DemandBand {
   id: string;
   label: string;
+  kind: AirportOperationPeriod["kind"];
   start: number;
   end: number;
   demand: number;
@@ -170,6 +172,7 @@ const HUB_BANKS: DemandBand[] = [
   {
     id: "overnight",
     label: "Overnight cargo and repositioning",
+    kind: "overnight",
     start: 0,
     end: 300,
     demand: 0.38,
@@ -178,47 +181,80 @@ const HUB_BANKS: DemandBand[] = [
   {
     id: "morning-departure",
     label: "Morning departure bank",
+    kind: "bank",
     start: 300,
-    end: 480,
+    end: 450,
     demand: 1.08,
     arrivalShare: 0.38,
   },
   {
+    id: "morning-recovery",
+    label: "Morning recovery lull",
+    kind: "recovery",
+    start: 450,
+    end: 510,
+    demand: 0.68,
+    arrivalShare: 0.51,
+  },
+  {
     id: "morning-arrival",
     label: "Morning arrival bank",
-    start: 480,
-    end: 660,
+    kind: "bank",
+    start: 510,
+    end: 690,
     demand: 1.24,
     arrivalShare: 0.62,
   },
   {
+    id: "midday-recovery",
+    label: "Midday recovery lull",
+    kind: "recovery",
+    start: 690,
+    end: 780,
+    demand: 0.72,
+    arrivalShare: 0.5,
+  },
+  {
     id: "midday",
     label: "Midday balanced flow",
-    start: 660,
-    end: 900,
+    kind: "balanced",
+    start: 780,
+    end: 960,
     demand: 0.94,
     arrivalShare: 0.5,
   },
   {
     id: "afternoon-arrival",
     label: "Afternoon arrival bank",
-    start: 900,
-    end: 1080,
+    kind: "bank",
+    start: 960,
+    end: 1110,
     demand: 1.3,
     arrivalShare: 0.61,
   },
   {
+    id: "afternoon-recovery",
+    label: "Afternoon recovery lull",
+    kind: "recovery",
+    start: 1110,
+    end: 1170,
+    demand: 0.7,
+    arrivalShare: 0.5,
+  },
+  {
     id: "evening-departure",
     label: "Evening departure bank",
-    start: 1080,
-    end: 1260,
+    kind: "bank",
+    start: 1170,
+    end: 1320,
     demand: 1.18,
     arrivalShare: 0.4,
   },
   {
     id: "late-arrival",
     label: "Late arrivals and cargo",
-    start: 1260,
+    kind: "bank",
+    start: 1320,
     end: 1440,
     demand: 0.74,
     arrivalShare: 0.57,
@@ -229,6 +265,7 @@ const INTERNATIONAL_BANKS: DemandBand[] = [
   {
     id: "overnight",
     label: "Overnight international and cargo",
+    kind: "overnight",
     start: 0,
     end: 300,
     demand: 0.58,
@@ -237,39 +274,71 @@ const INTERNATIONAL_BANKS: DemandBand[] = [
   {
     id: "morning-departure",
     label: "Morning departure wave",
+    kind: "bank",
     start: 300,
-    end: 480,
+    end: 450,
     demand: 0.94,
     arrivalShare: 0.41,
   },
   {
+    id: "morning-recovery",
+    label: "Morning recovery lull",
+    kind: "recovery",
+    start: 450,
+    end: 510,
+    demand: 0.7,
+    arrivalShare: 0.5,
+  },
+  {
     id: "morning-balanced",
     label: "Morning balanced flow",
-    start: 480,
+    kind: "balanced",
+    start: 510,
     end: 720,
     demand: 1.02,
     arrivalShare: 0.5,
   },
   {
+    id: "midday-recovery",
+    label: "Midday recovery lull",
+    kind: "recovery",
+    start: 720,
+    end: 780,
+    demand: 0.74,
+    arrivalShare: 0.5,
+  },
+  {
     id: "afternoon-arrival",
     label: "Afternoon arrival wave",
-    start: 720,
-    end: 960,
+    kind: "bank",
+    start: 780,
+    end: 990,
     demand: 1.12,
     arrivalShare: 0.58,
   },
   {
+    id: "afternoon-recovery",
+    label: "Afternoon recovery lull",
+    kind: "recovery",
+    start: 990,
+    end: 1050,
+    demand: 0.76,
+    arrivalShare: 0.5,
+  },
+  {
     id: "evening-connection",
     label: "Evening connection wave",
-    start: 960,
-    end: 1200,
+    kind: "bank",
+    start: 1050,
+    end: 1230,
     demand: 1.22,
     arrivalShare: 0.48,
   },
   {
     id: "late-international",
     label: "Late international wave",
-    start: 1200,
+    kind: "bank",
+    start: 1230,
     end: 1440,
     demand: 0.9,
     arrivalShare: 0.56,
@@ -280,6 +349,7 @@ const LOCAL_BANKS: DemandBand[] = [
   {
     id: "overnight",
     label: "Quiet overnight field",
+    kind: "overnight",
     start: 0,
     end: 360,
     demand: 0.16,
@@ -288,6 +358,7 @@ const LOCAL_BANKS: DemandBand[] = [
   {
     id: "morning",
     label: "Morning commuter and training flow",
+    kind: "bank",
     start: 360,
     end: 600,
     demand: 0.84,
@@ -296,6 +367,7 @@ const LOCAL_BANKS: DemandBand[] = [
   {
     id: "daytime",
     label: "Daytime mixed operations",
+    kind: "balanced",
     start: 600,
     end: 1020,
     demand: 1.1,
@@ -304,6 +376,7 @@ const LOCAL_BANKS: DemandBand[] = [
   {
     id: "evening",
     label: "Evening return flow",
+    kind: "bank",
     start: 1020,
     end: 1260,
     demand: 0.72,
@@ -312,6 +385,7 @@ const LOCAL_BANKS: DemandBand[] = [
   {
     id: "night",
     label: "Night local traffic",
+    kind: "overnight",
     start: 1260,
     end: 1440,
     demand: 0.3,
@@ -333,6 +407,7 @@ export function buildAirportOperationProfile(
   const periods = bands.map((band) => ({
     id: band.id,
     label: band.label,
+    kind: band.kind,
     startLocalMinute: band.start,
     endLocalMinute: band.end,
     demandMultiplier: band.demand,

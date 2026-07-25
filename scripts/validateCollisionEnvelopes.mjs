@@ -154,7 +154,7 @@ assert(operationalSurfaceSpacing?.type === 'surface', 'prospective taxi separati
 assert(!physicalSurfaceCollision, 'a clear, safely diverging taxi pair was reported as a physical collision');
 
 for (const config of configs) {
-  const harness = new FixedStepSimulationHarness(config, { stepSeconds: 0.1, pace: 3, scenario: 'rush' });
+  const harness = new FixedStepSimulationHarness(config, { stepSeconds: 0.1, pace: 3, scenario: 'rush', density: 'rush' });
   const ticks = 3_000;
   for (let tick = 0; tick < ticks; tick += 1) {
     harness.advanceTicks(1);
@@ -199,7 +199,7 @@ for (const config of configs) {
 }
 
 const watchConfig = generateHubConfig(HUB_AIRPORTS.findIndex((airport) => airport.code === 'ORD'));
-const watchHarness = new FixedStepSimulationHarness(watchConfig, { stepSeconds: 0.1, pace: 3, scenario: 'rush' });
+const watchHarness = new FixedStepSimulationHarness(watchConfig, { stepSeconds: 0.1, pace: 3, scenario: 'rush', density: 'rush' });
 watchHarness.simulation.setMode('watch');
 for (let tick = 0; tick < 3_000; tick += 1) {
   watchHarness.advanceTicks(1);

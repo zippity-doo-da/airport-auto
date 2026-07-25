@@ -1,4 +1,4 @@
-export type AirlineCode = 'UA' | 'AA' | 'DL' | 'WN' | 'B6' | 'F9' | 'EK' | 'NH' | 'BA' | 'TK' | '5X' | 'FX' | 'FDX' | 'LOCAL';
+export type AirlineCode = 'UA' | 'AA' | 'DL' | 'WN' | 'B6' | 'F9' | 'AS' | 'EK' | 'FZ' | 'NH' | 'JL' | 'BA' | 'VS' | 'TK' | '5X' | 'FX' | 'FDX' | 'LOCAL';
 
 export interface AirlineProfile {
   code: AirlineCode;
@@ -17,9 +17,13 @@ export const AIRLINE_PROFILES: Record<AirlineCode, AirlineProfile> = {
   WN: { code: 'WN', name: 'Southwest Airlines', callsign: 'Southwest', primaryColor: 0xf4b63e, accentColor: 0x2c6e9f, cargo: false, registrationPrefix: 'N' },
   B6: { code: 'B6', name: 'JetBlue', callsign: 'JetBlue', primaryColor: 0x2e71a8, accentColor: 0x8dc5dc, cargo: false, registrationPrefix: 'N' },
   F9: { code: 'F9', name: 'Frontier Airlines', callsign: 'Frontier', primaryColor: 0x4e7b49, accentColor: 0xd4e5b5, cargo: false, registrationPrefix: 'N' },
+  AS: { code: 'AS', name: 'Alaska Airlines', callsign: 'Alaska', primaryColor: 0x34586f, accentColor: 0x7bb9ae, cargo: false, registrationPrefix: 'N' },
   EK: { code: 'EK', name: 'Emirates', callsign: 'Emirates', primaryColor: 0xe8e2d8, accentColor: 0xc9433d, cargo: false, registrationPrefix: 'A6-' },
+  FZ: { code: 'FZ', name: 'flydubai', callsign: 'Sky Dubai', primaryColor: 0x2f73a8, accentColor: 0xf09a43, cargo: false, registrationPrefix: 'A6-F' },
   NH: { code: 'NH', name: 'All Nippon Airways', callsign: 'All Nippon', primaryColor: 0xe8eef0, accentColor: 0x3a69a8, cargo: false, registrationPrefix: 'JA' },
+  JL: { code: 'JL', name: 'Japan Airlines', callsign: 'Japan Air', primaryColor: 0xeee9df, accentColor: 0xc93e42, cargo: false, registrationPrefix: 'JA' },
   BA: { code: 'BA', name: 'British Airways', callsign: 'Speedbird', primaryColor: 0xe8ece9, accentColor: 0x274a83, cargo: false, registrationPrefix: 'G-' },
+  VS: { code: 'VS', name: 'Virgin Atlantic', callsign: 'Virgin', primaryColor: 0xe9e4df, accentColor: 0xc63e52, cargo: false, registrationPrefix: 'G-V' },
   TK: { code: 'TK', name: 'Turkish Airlines', callsign: 'Turkish', primaryColor: 0xe9e5df, accentColor: 0xc53f43, cargo: false, registrationPrefix: 'TC-' },
   '5X': { code: '5X', name: 'UPS Airlines', callsign: 'UPS', primaryColor: 0x5a392c, accentColor: 0xf0c346, cargo: true, registrationPrefix: 'N' },
   FX: { code: 'FX', name: 'FedEx Express', callsign: 'FedEx', primaryColor: 0x70529a, accentColor: 0xe8a12b, cargo: true, registrationPrefix: 'N' },
@@ -30,13 +34,13 @@ export const AIRLINE_PROFILES: Record<AirlineCode, AirlineProfile> = {
 export const AIRPORT_AIRLINES: Record<string, AirlineCode[]> = {
   ORD: ['UA', 'AA', 'UA', 'AA', '5X', 'WN'],
   ATL: ['DL', 'DL', 'WN', 'F9', '5X'],
-  DXB: ['EK', 'EK', 'BA', 'TK', 'FX'],
-  HND: ['NH', 'NH', 'DL', 'UA', 'AA'],
+  DXB: ['EK', 'EK', 'FZ', 'BA', 'TK', 'FX'],
+  HND: ['NH', 'JL', 'NH', 'JL', 'DL', 'UA', 'AA'],
   DFW: ['AA', 'AA', 'WN', 'FX', '5X'],
-  LHR: ['BA', 'BA', 'AA', 'UA', 'TK'],
+  LHR: ['BA', 'BA', 'VS', 'AA', 'UA', 'TK'],
   IST: ['TK', 'TK', 'BA', 'EK', 'FX'],
   DEN: ['UA', 'UA', 'WN', 'F9', 'FX'],
-  LAX: ['AA', 'UA', 'DL', 'WN', '5X'],
+  LAX: ['AA', 'UA', 'DL', 'WN', 'AS', '5X'],
   JFK: ['B6', 'DL', 'AA', 'UA', 'FX'],
   LOCAL: ['LOCAL', 'LOCAL', 'WN', 'F9'],
 };

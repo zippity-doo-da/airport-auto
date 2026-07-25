@@ -98,8 +98,8 @@ totals.ticks += timing.tickCount;
 totals.simulatedMinutes += timing.simulation.state.elapsed / 60;
 totals.events += timing.snapshot().events.length;
 
-const ord = createHubSimulationHarness('ORD', { stepSeconds: 0.05, pace: 3, scenario: 'rush' });
-const ordTwin = createHubSimulationHarness('ORD', { stepSeconds: 0.05, pace: 3, scenario: 'rush' });
+const ord = createHubSimulationHarness('ORD', { stepSeconds: 0.05, pace: 3, scenario: 'rush', density: 'rush' });
+const ordTwin = createHubSimulationHarness('ORD', { stepSeconds: 0.05, pace: 3, scenario: 'rush', density: 'rush' });
 ord.advanceBy(300);
 advanceInPattern(ordTwin, 300, partitionPattern);
 assert(canonicalSnapshot(ord) === canonicalSnapshot(ordTwin), 'ORD: seeded hub run was not deterministic');
@@ -141,6 +141,7 @@ assert(eastIfr.simulation.state.activeRunwayRoles[5] === 'arrival', 'ORD: east I
 const highArrival = createHubSimulationHarness('ORD', { stepSeconds: 0.05 });
 highArrival.simulation.state.flights = [];
 highArrival.simulation.setScenario('rush');
+highArrival.simulation.setTrafficDensity('rush');
 highArrival.simulation.setWeather('clear', Math.PI, 14);
 highArrival.advanceTicks(1);
 assert(highArrival.simulation.state.runwayConfigurationId === 'ORD-WEST-HIGH-ARRIVAL', 'ORD: west rush did not select the high-arrival plan');

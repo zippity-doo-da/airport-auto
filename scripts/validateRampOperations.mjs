@@ -128,6 +128,7 @@ for (const stand of ord.surfaceGraph.stands) {
 const harness = new FixedStepSimulationHarness(ord, { stepSeconds: 0.1 });
 const simulation = harness.simulation;
 simulation.setScenario('rush');
+simulation.setTrafficDensity('rush');
 let maximumSurfaceMovers = 0;
 let operationalFlights = 0;
 let congestionPlannedFlights = 0;

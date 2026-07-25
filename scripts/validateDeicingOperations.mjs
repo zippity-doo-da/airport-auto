@@ -63,6 +63,25 @@ assert(reachedTreatment, 'departure never reached deicing treatment: ' + JSON.st
   surfaceNode: treatmentFailure.surfaceNode,
   surfaceEdge: treatmentFailure.surfaceEdge,
   routeNodes: treatmentFailure.surfaceRoute?.length,
+  nearbyTraffic: simulation.state.flights.map((flight) => ({
+    id: flight.id,
+    phase: flight.phase,
+    progress: flight.progress,
+    motion: flight.motion,
+    automaticHold: flight.automaticHoldReason,
+    safetyHold: flight.safetyHoldReason,
+    surfaceNode: flight.surfaceNode,
+    surfaceEdge: flight.surfaceEdge,
+    routeWindow: (() => {
+      const edgeIndex = flight.surfaceRouteEdges?.indexOf(flight.surfaceEdge);
+      return edgeIndex === undefined || edgeIndex < 0 ? undefined : {
+        edgeIndex,
+        edges: flight.surfaceRouteEdges?.slice(Math.max(0, edgeIndex - 2), edgeIndex + 4),
+        nodes: flight.surfaceRoute?.slice(Math.max(0, edgeIndex - 2), edgeIndex + 5),
+      };
+    })(),
+    deicing: flight.deicing.status,
+  })),
   elapsed: simulation.state.elapsed,
 } : { missing: true, elapsed: simulation.state.elapsed }));
 let live = simulation.state.flights.find((flight) => flight.id === departure.id);

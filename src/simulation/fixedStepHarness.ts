@@ -11,6 +11,9 @@ import type {
   TrafficScenario,
 } from './types';
 import { sampleFlightTrajectory, type FlightTrajectoryStage } from './flightTrajectory';
+import { cloneFlightPlan } from './flightPlanning';
+import type { TrafficDensity } from './trafficDensity';
+import type { TrafficFlowSnapshot } from './trafficFlowManagement';
 
 const DEFAULT_STEP_SECONDS = 0.05;
 const MAX_STEP_SECONDS = 0.1;
@@ -21,6 +24,7 @@ export interface FixedStepHarnessOptions {
   pace?: number;
   mode?: ControlMode;
   scenario?: TrafficScenario;
+  density?: TrafficDensity;
 }
 
 export interface FixedStepHarnessEvent {
@@ -54,6 +58,9 @@ export interface FixedStepFlightSnapshot {
   taxiway?: string;
   standId?: string;
   gateSlot: number;
+  operationPlan: Flight['operationPlan'];
+  flightPlan: Flight['flightPlan'];
+  flightPlanHistory: Flight['flightPlanHistory'];
   gateAssignment?: {
     standId: string;
     gateRef?: string;
@@ -134,7 +141,7 @@ export interface FixedStepFlightSnapshot {
 }
 
 export interface FixedStepSimulationSnapshot {
-  schemaVersion: 8;
+  schemaVersion: 9;
   seed: number;
   airportCode: string;
   stepSeconds: number;
@@ -149,6 +156,8 @@ export interface FixedStepSimulationSnapshot {
     paused: boolean;
     mode: ControlMode;
     scenario: TrafficScenario;
+    trafficDensity: TrafficDensity;
+    trafficFlow: TrafficFlowSnapshot;
     runwayConfigurationId: string;
     runwayConfigurationMode: 'automatic' | 'manual';
     runwayConfigurationTransition: RunwayConfigurationTransition | null;
@@ -233,7 +242,7 @@ export class FixedStepSimulationHarness {
     }
 
     this.stepSeconds = stepSeconds;
-    this.simulation = new AirportSimulation(config);
+    this.simulation = new AirportSimulation(config, options.density);
     if (options.pace !== undefined) this.simulation.setPace(options.pace);
     if (options.mode !== undefined) this.simulation.setMode(options.mode);
     if (options.scenario !== undefined) this.simulation.setScenario(options.scenario);
@@ -312,7 +321,7 @@ export class FixedStepSimulationHarness {
   snapshot(): FixedStepSimulationSnapshot {
     const diagnostics = this.simulation.diagnostics();
     return {
-      schemaVersion: 8,
+      schemaVersion: 9,
       seed: this.config.seed,
       airportCode: this.config.code,
       stepSeconds: round(this.stepSeconds),
@@ -327,6 +336,8 @@ export class FixedStepSimulationHarness {
         paused: this.simulation.state.paused,
         mode: this.simulation.state.mode,
         scenario: this.simulation.state.scenario,
+        trafficDensity: this.simulation.state.trafficFlow.density,
+        trafficFlow: this.simulation.trafficFlowSnapshot(),
         runwayConfigurationId: this.simulation.state.runwayConfigurationId,
         runwayConfigurationMode: this.simulation.state.runwayConfigurationMode,
         runwayConfigurationTransition: this.simulation.state.runwayConfigurationTransition ? {
@@ -466,6 +477,9 @@ function snapshotFlight(config: AirportConfig, flight: Flight): FixedStepFlightS
     taxiway: flight.taxiway,
     standId: flight.standId,
     gateSlot: flight.gateSlot,
+    operationPlan: { ...flight.operationPlan },
+    flightPlan: cloneFlightPlan(flight.flightPlan),
+    flightPlanHistory: flight.flightPlanHistory.map(cloneFlightPlan),
     gateAssignment: flight.gateAssignment ? {
       standId: flight.gateAssignment.standId,
       gateRef: flight.gateAssignment.gateRef,
@@ -562,6 +576,8 @@ function snapshotMetrics(metrics: ShiftMetrics): ShiftMetrics {
     airborneSeconds: round(metrics.airborneSeconds),
     taxiSeconds: round(metrics.taxiSeconds),
     estimatedDelaySeconds: round(metrics.estimatedDelaySeconds),
+    diversions: metrics.diversions,
+    cancellations: metrics.cancellations,
     emergencyResponses: metrics.emergencyResponses,
     safetyHolds: metrics.safetyHolds,
     collisionAlerts: metrics.collisionAlerts,

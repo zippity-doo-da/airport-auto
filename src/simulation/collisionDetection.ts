@@ -378,9 +378,27 @@ export function findProposedConflict(
   otherFlights: Flight[],
   proposedProgressById: Map<number, number>,
   resolvedFlightIds?: ReadonlySet<number>,
+  surfaceMergeYieldById?: Map<number, number>,
 ): CollisionConflict | null {
   const proposed = aircraftCollisionEnvelope(config, flight, proposedProgress);
   const current = aircraftCollisionEnvelope(config, flight, flight.progress);
+  const mergeWinnerId = surfaceMergeYieldById?.get(flight.id);
+  if (mergeWinnerId !== undefined) {
+    const winner = otherFlights.find((other) => other.id === mergeWinnerId);
+    if (winner) {
+      const winnerProgress = proposedProgressById.get(winner.id) ?? winner.progress;
+      const winnerEnvelope = aircraftCollisionEnvelope(config, winner, winnerProgress);
+      return {
+        type: 'surface',
+        first: flight.id,
+        second: winner.id,
+        horizontalDistance: Math.hypot(proposed.x - winnerEnvelope.x, proposed.y - winnerEnvelope.y),
+        verticalDistance: Math.abs(proposed.altitude - winnerEnvelope.altitude),
+        requiredHorizontal: proposed.bodyRadius + winnerEnvelope.bodyRadius + SURFACE_GAP,
+        detail: `yielding junction movement to flight ${winner.id}`,
+      };
+    }
+  }
   for (const obstacle of config.obstacles) {
     const conflict = detectAircraftObstacleConflict(proposed, obstacle);
     if (!conflict) continue;
@@ -494,6 +512,25 @@ export function findProposedConflict(
         && physicallyClear
         && distanceToCurrentOther > currentDistance + 1e-6
       ) continue;
+      // Two routes can approach the same junction on a shared taxiway name,
+      // then peel onto separate connector centerlines. A one-tick envelope
+      // check can stop both aircraft just before that turn even though the
+      // earlier-arbitrated movement has a physically clear path through the
+      // merge. Let exactly one movement traverse that short
+      // operational buffer when every sampled pose remains outside the hard
+      // aircraft envelope and the route demonstrably leaves the shared
+      // taxiway. Once it is accepted, the later candidate sees it moving and
+      // stays stopped, so this cannot become a head-on pass or weaken runway
+      // protection. If the first path is not physically clear, the later
+      // candidate may still clear via its own connector.
+      if (
+        conflict.type === 'surface'
+        && physicallyClear
+        && surfaceMergeEscapeIsClear(config, flight, proposedProgress, current, currentOther, currentDistance)
+      ) {
+        surfaceMergeYieldById?.set(other.id, flight.id);
+        continue;
+      }
       if (existingConflict && distanceToCurrentOther > currentDistance + 1e-6) continue;
       return conflict;
     }
@@ -510,6 +547,42 @@ export function findProposedConflict(
     if (!existingConflict && distanceToCurrentOther < currentDistance) return conflict;
   }
   return null;
+}
+
+function surfaceMergeEscapeIsClear(
+  config: AirportConfig,
+  flight: Flight,
+  proposedProgress: number,
+  current: AircraftCollisionEnvelope,
+  stationary: AircraftCollisionEnvelope,
+  currentDistance: number,
+): boolean {
+  if (
+    current.protectedSurface
+    || stationary.protectedSurface
+    || !current.taxiway
+    || current.taxiway !== stationary.taxiway
+  ) return false;
+  const routeDistanceM = flight.motion.totalDistanceM;
+  if (!Number.isFinite(routeDistanceM) || routeDistanceM <= 0) return false;
+  const endProgress = Math.min(1, Math.max(proposedProgress, flight.progress + 240 / routeDistanceM));
+  if (endProgress <= proposedProgress + 1e-9) return false;
+
+  let leftSharedTaxiway = false;
+  let endDistance = currentDistance;
+  const samples = 48;
+  for (let index = 1; index <= samples; index += 1) {
+    const progress = proposedProgress + (endProgress - proposedProgress) * index / samples;
+    const candidate = aircraftCollisionEnvelope(config, flight, progress);
+    if (candidate.protectedSurface) return false;
+    if (candidate.taxiway && candidate.taxiway !== current.taxiway) leftSharedTaxiway = true;
+    const distance = Math.hypot(candidate.x - stationary.x, candidate.y - stationary.y);
+    const verticalOverlap = candidate.minimumAltitude < stationary.maximumAltitude
+      && candidate.maximumAltitude > stationary.minimumAltitude;
+    if (verticalOverlap && distance < candidate.bodyRadius + stationary.bodyRadius + PHYSICAL_GAP) return false;
+    endDistance = distance;
+  }
+  return leftSharedTaxiway && endDistance > currentDistance + 0.2;
 }
 
 function airbornePriority(phase: FlightPhase): number {

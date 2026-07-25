@@ -1,5 +1,7 @@
 import { aircraftProfile, type AircraftModel } from './aircraftProfiles';
 import type { AirlineCode } from './airlineProfiles';
+import type { OperationTrafficClass } from './airportOperationProfiles';
+import { airlineGatePreference } from './airportTrafficPrograms';
 import type { AirportConfig } from './airportConfig';
 import {
   surfaceRouteForFlight,
@@ -29,6 +31,7 @@ export interface GateAssignmentRequest {
   aircraft: AircraftModel;
   airline: AirlineCode;
   service: FlightService;
+  trafficClass: OperationTrafficClass;
   arrivalRunway: number;
   arrivalOperatingEnd: -1 | 1;
   departureRunway: number;
@@ -57,31 +60,6 @@ interface FitScore<T extends string> {
   penalty: number;
   reason: string;
 }
-
-// Schematic preferences follow the Chicago Department of Aviation's May 2026
-// gate allocation: United across B/C/E/F/G, American across G/H/K/L, Delta at
-// M, and common-use traffic primarily at M. They are operational affinities,
-// not a claim that every sampled stand is preferentially leased.
-const ORD_PASSENGER_CONCOURSES: Partial<Record<AirlineCode, readonly string[]>> = {
-  UA: ['B', 'C', 'E', 'F', 'G'],
-  AA: ['G', 'H', 'K', 'L'],
-  DL: ['M'],
-  WN: ['M'],
-  B6: ['M'],
-  F9: ['M'],
-  EK: ['M'],
-  NH: ['M'],
-  BA: ['M'],
-  TK: ['M'],
-};
-
-// CDA identifies the Southwest Cargo Ramp as FedEx-only and the Southeast
-// Cargo Ramp as UPS/FedEx/multi-user. Other cargo stands remain valid fallbacks.
-const ORD_CARGO_RAMP_PREFERENCES: Partial<Record<AirlineCode, readonly string[]>> = {
-  '5X': ['Southeast Cargo Ramp'],
-  FX: ['Southwest Cargo Ramp', 'Southeast Cargo Ramp'],
-  FDX: ['Southwest Cargo Ramp', 'Southeast Cargo Ramp'],
-};
 
 /**
  * Select a physically valid, time-compatible stand. Lower score is better.
@@ -265,22 +243,31 @@ function airlineFit(
     if (area === 'remote-ramp') return { fit: 'compatible', penalty: 24, reason: 'compatible utility-aircraft ramp' };
     return { fit: 'fallback', penalty: 180, reason: 'off-ramp utility-aircraft fallback' };
   }
-  if (request.config.code === 'ORD' && request.service === 'cargo') {
-    const preferredRamps = ORD_CARGO_RAMP_PREFERENCES[request.airline];
-    if (preferredRamps?.includes(zone?.name ?? '')) {
-      return { fit: 'preferred', penalty: preferredRamps.indexOf(zone?.name ?? '') * 12, reason: `${request.airline} home cargo ramp` };
-    }
-    if (zone?.kind === 'cargo-ramp') return { fit: 'compatible', penalty: preferredRamps ? 62 : 20, reason: 'compatible ORD cargo ramp' };
-    return { fit: 'fallback', penalty: 170, reason: 'off-ramp airline fallback' };
+  const preference = airlineGatePreference(request.config.code, request.airline, request.trafficClass);
+  if (preference?.zoneNames?.includes(zone?.name ?? '')) {
+    return { fit: 'preferred', penalty: preference.zoneNames.indexOf(zone?.name ?? '') * 10, reason: `${preference.label} home ramp` };
   }
-
-  if (request.config.code === 'ORD' && request.service === 'passenger') {
-    const preferredConcourses = ORD_PASSENGER_CONCOURSES[request.airline];
-    if (stand.concourse && preferredConcourses?.includes(stand.concourse)) {
-      return { fit: 'preferred', penalty: preferredConcourses.indexOf(stand.concourse) * 2, reason: `${request.airline} home Concourse ${stand.concourse}` };
-    }
-    if (stand.concourse) return { fit: preferredConcourses ? 'fallback' : 'compatible', penalty: preferredConcourses ? 190 : 35, reason: `${stand.concourse} common/overflow gate` };
-    return { fit: 'fallback', penalty: 290, reason: 'non-terminal airline fallback' };
+  if (preference?.concourses?.includes(stand.concourse ?? '')) {
+    return { fit: 'preferred', penalty: preference.concourses.indexOf(stand.concourse ?? '') * 2, reason: `${preference.label} · Concourse ${stand.concourse}` };
+  }
+  if (preference?.concourses && stand.concourse) {
+    return { fit: 'fallback', penalty: 190, reason: `${stand.concourse} overflow outside ${preference.label}` };
+  }
+  if (preference?.zoneNames && request.service === 'cargo' && zone?.kind === 'cargo-ramp') {
+    return { fit: 'compatible', penalty: 62, reason: `compatible cargo overflow outside ${preference.label}` };
+  }
+  if (preference?.standSector) {
+    const stands = request.config.surfaceGraph.stands
+      .filter((candidate) => candidate.terminal === stand.terminal)
+      .sort((first, second) => first.slot - second.slot);
+    const position = Math.max(0, stands.findIndex((candidate) => candidate.id === stand.id));
+    const normalized = stands.length <= 1 ? 0.5 : position / (stands.length - 1);
+    const [start, end] = preference.standSector;
+    const distance = normalized < start ? start - normalized : normalized > end ? normalized - end : 0;
+    if (distance <= 1e-6) return { fit: 'preferred', penalty: 0, reason: preference.label };
+    return distance <= 0.22
+      ? { fit: 'compatible', penalty: Math.round(distance * 180), reason: `adjacent overflow near ${preference.label}` }
+      : { fit: 'fallback', penalty: Math.round(85 + distance * 210), reason: `remote overflow outside ${preference.label}` };
   }
 
   const passengerStands = request.config.surfaceGraph.stands.filter((candidate) => candidate.terminal === stand.terminal);
