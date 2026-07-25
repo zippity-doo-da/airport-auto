@@ -495,8 +495,10 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
 test('Manual ORD supports live procedure control, ownership handoffs, and physical separation options', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chromium', 'The live ATC protocol is covered once in desktop Chromium.');
   test.setTimeout(120_000);
-  await page.goto('/?airport=ORD&mode=manual&station=approach&autostart=1&detail=low&renderFps=0.25');
+  await page.goto('/?airport=ORD&mode=manual&station=approach&density=quiet&autostart=1&detail=low&renderFps=0.25');
   await page.waitForFunction(() => window.airportControl?.version === '2.18.0');
+  const pauseResult = await page.evaluate(() => window.airportControl.request({ action: 'pause' }));
+  expect(pauseResult.accepted).toBe(true);
   const arrival = await page.evaluate(() => window.airportControl.snapshot().flights.find((flight) => flight.phase === 'approach'));
   expect(arrival).toBeTruthy();
   await page.evaluate((flightId) => window.airportControl.request({ action: 'focusFlight', flightId }), arrival!.id);
@@ -506,10 +508,22 @@ test('Manual ORD supports live procedure control, ownership handoffs, and physic
   const routeEditor = page.locator('.route-editor');
   await expect(routeEditor).toBeVisible();
   await routeEditor.locator('summary').click();
-  expect(await routeEditor.locator('.route-editor__options button').count()).toBeGreaterThan(1);
-  await routeEditor.locator('.route-editor__options button').first().click();
+  const routeOptionButtons = routeEditor.locator('.route-editor__options button');
+  expect(await routeOptionButtons.count()).toBeGreaterThan(1);
+  const routeOptions = await routeOptionButtons.evaluateAll((buttons) => buttons.map((button) => (
+    (button as HTMLButtonElement).dataset.routeFixes?.split(',').filter(Boolean) ?? []
+  )));
+  await routeOptionButtons.first().click();
   await page.waitForFunction((flightId) => window.airportControl.snapshot().flights.find((flight) => flight.id === flightId)?.navigation.routeClearance?.status === 'preview', arrival!.id);
-  const previewState = await page.evaluate((flightId) => window.airportControl.snapshot().flights.find((flight) => flight.id === flightId)?.navigation.routeClearance, arrival!.id);
+  let previewState = await page.evaluate((flightId) => window.airportControl.snapshot().flights.find((flight) => flight.id === flightId)?.navigation.routeClearance, arrival!.id);
+  for (const fixIds of routeOptions.slice(1)) {
+    if (previewState?.safeToIssue) break;
+    const nextPreview = await page.evaluate(({ flightId, fixIds: nextFixIds }) => (
+      window.airportControl.request({ action: 'previewRoute', flightId, fixIds: nextFixIds })
+    ), { flightId: arrival!.id, fixIds });
+    expect(nextPreview.accepted).toBe(true);
+    previewState = nextPreview.resultingState.flights.find((flight) => flight.id === arrival!.id)?.navigation.routeClearance;
+  }
   expect(previewState).toMatchObject({ status: 'preview', safeToIssue: true });
   await expect(page.locator('.route-clearance[data-status="preview"]')).toContainText(/Route preview|SAFE/);
   await expect(page.getByRole('button', { name: 'Issue route' })).toBeVisible();
@@ -520,6 +534,8 @@ test('Manual ORD supports live procedure control, ownership handoffs, and physic
   const acceptedRoute = await page.evaluate((flightId) => window.airportControl.request({ action: 'acceptRouteReadback', flightId }), arrival!.id);
   expect(acceptedRoute).toMatchObject({ accepted: true, reason: expect.stringContaining('route amendment accepted') });
   expect(acceptedRoute.resultingState.flights.find((flight) => flight.id === arrival!.id)?.navigation).toMatchObject({ readbackStatus: 'accepted', routeClearance: { status: 'accepted' } });
+  const resumeResult = await page.evaluate(() => window.airportControl.request({ action: 'resume' }));
+  expect(resumeResult.accepted).toBe(true);
   const headingCommand = await page.evaluate((flightId) => {
     const liveFlight = window.airportControl.snapshot().flights.find((flight) => flight.id === flightId);
     if (!liveFlight) throw new Error(`Flight ${flightId} disappeared before the heading command.`);
