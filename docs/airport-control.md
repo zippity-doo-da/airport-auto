@@ -4,7 +4,7 @@ Airport Auto exposes a local, versioned interface for playtests, scripted contro
 
 ## Browser API
 
-The current API version is `2.25.0`; snapshots use schema version `27`.
+The current API version is `2.26.0`; snapshots use schema version `28`.
 
 ```js
 airportControl.version;
@@ -65,6 +65,8 @@ airportControl.request({ action: "setMapOrientationVisible", enabled: true });
 airportControl.request({ action: "setWindOverlayVisible", enabled: true });
 airportControl.request({ action: "setServiceVehiclesVisible", enabled: false });
 airportControl.request({ action: "setContrailsVisible", enabled: true });
+airportControl.request({ action: "setGamepadEnabled", enabled: true });
+airportControl.request({ action: "setGamepadSensitivity", sensitivity: 1.4 });
 airportControl.request({
   action: "setSurfaceLayerVisible",
   layer: "taxiway-labels",
@@ -116,7 +118,7 @@ airportControl.request({ action: "stopSandbox" });
 
 `snapshot().sandbox` reports the no-score/no-fail lifecycle, request state and reasons, totals, released and active injected IDs, active-aircraft count, compatible runway choices, and traffic-class catalog. Arrivals enter at the terminal-scope edge; departures stage on a compatible unoccupied stand and use the complete pushback/taxi/runway lifecycle. Releases still obey traffic caps, stand/runway performance, protected paths, controller authority, separation, and collision prevention. `clearSandboxTraffic` preserves weather and runway configuration. See [sandbox-lab.md](sandbox-lab.md).
 
-Map panning is a direct presentation interaction: drag with a mouse or one finger, including when the gesture begins over ordinary traffic, middle-drag from anywhere, or use WASD/arrow keys. Q/E and the `rotateLeft`/`rotateRight` commands orbit the camera in 15-degree steps; runway-entry clearance moved to the R keyboard shortcut and remains available in the selected-flight panel. The only reserved left-drag is an uncleared arrival in a hands-on mode because that gesture draws its approach clearance. Wheel and pinch zoom remain anchored under the pointer; wide zoom smoothly becomes a map-like overhead view so the ground continues beneath the full viewport. Selecting a flight resumes smooth follow; selecting it again, clicking empty ground, or pressing Escape releases follow; `resetCamera` restores the centered default. `snapshot().renderer.camera` exposes the current focus, zoom, orbit angle, pan limits, detailed-map footprint, much larger plain-terrain dimensions, `groundFillsViewport`, and the nearest visible ground margin for browser verification.
+Map panning is a direct presentation interaction routed through the 2.26 named-action layer: drag with a mouse or one finger, including when the gesture begins over ordinary traffic, middle-drag from anywhere, hold WASD/arrow keys, or use a standard gamepad's left stick/D-pad. Q/E and right-stick input rotate continuously; `rotateLeft`/`rotateRight` retain their discrete 15-degree API steps. Runway-entry clearance remains on R and in the selected-flight panel. The only reserved left-drag is an uncleared arrival because that gesture draws its approach clearance. Wheel and pinch zoom remain anchored under the pointer; wide zoom smoothly becomes a map-like overhead view so the ground continues beneath the full viewport. Selecting a flight resumes smooth follow; selecting it again, clicking empty ground, or pressing Escape releases follow; `resetCamera` restores the centered default. `snapshot().renderer.camera` exposes presentation state, while `snapshot().input` exposes the input context, last device/action/gesture, axes, held actions, preferences, connected-gamepad metadata, and complete action catalog. See [input-controls.md](input-controls.md).
 
 `setRadarVisible` opens a small terminal-radar inset rather than painting rings over the full scene. It plots the same authoritative aircraft poses used by collision checks and the 3D renderer. On short laptop screens the radar and queue inspector dock side by side; on compact or heavily zoomed viewports opening one closes the other so neither panel can become unreachable. Compass/scale, wind readout, taxiway labels, service vehicles, and upper-scope contrails remain independent optional layers; hiding a presentation layer never removes its underlying entities or state from the simulation. Contrails are off by default and appear only behind turbofan aircraft in cold, moist, stable upper-scope conditions.
 

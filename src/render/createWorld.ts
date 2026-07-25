@@ -136,6 +136,13 @@ export interface AirportWorld {
   zoomOut(): void;
   panByScreen(horizontal: number, vertical: number): void;
   rotateBy(direction: -1 | 1): void;
+  applyCameraInput(panX: number, panY: number, rotate: number, zoom: number, deltaSeconds: number): void;
+  panBetweenScreenPoints(previous: { x: number; y: number }, current: { x: number; y: number }): void;
+  pinchBetweenScreenPoints(
+    previous: readonly [{ x: number; y: number }, { x: number; y: number }],
+    current: readonly [{ x: number; y: number }, { x: number; y: number }],
+  ): void;
+  zoomAtScreenPoint(clientX: number, clientY: number, factor: number): void;
   resetCamera(): void;
   setRunwayLabelsVisible(visible: boolean): void;
   setServiceVehiclesVisible(visible: boolean): void;
@@ -262,13 +269,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   let serviceVehiclesVisible = true;
   let contrailsVisible = false;
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const touchPoints = new Map<number, { x: number; y: number }>();
   const attitudeNose = new THREE.Vector3();
-  let previousPinchDistance = 0;
-  let previousPinchGround: THREE.Vector3 | null = null;
-  let dragPointerId: number | null = null;
-  let previousDragPoint: { x: number; y: number } | null = null;
-  let dragHasMoved = false;
   let manualCameraActive = false;
 
   function updateProjection(): void {
@@ -582,11 +583,15 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     camera.updateMatrixWorld();
   }
 
-  function panCameraByScreen(horizontal: number, vertical: number): void {
-    if (!horizontal && !vertical) return;
+  function beginManualCamera(): void {
     manualCameraActive = true;
     selectedFlightId = null;
     applyCameraPose(0);
+  }
+
+  function panCameraByScreen(horizontal: number, vertical: number): void {
+    if (!horizontal && !vertical) return;
+    beginManualCamera();
     const rect = canvas.getBoundingClientRect();
     const centerX = rect.left + rect.width / 2;
     const centerY = rect.top + rect.height / 2;
@@ -597,100 +602,80 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   }
 
   function rotateCamera(direction: -1 | 1): void {
-    manualCameraActive = true;
-    selectedFlightId = null;
+    beginManualCamera();
     manualOrbitOffset = THREE.MathUtils.euclideanModulo(manualOrbitOffset + direction * Math.PI / 12, Math.PI * 2);
     applyCameraPose(0);
   }
 
-  const onWheel = (event: WheelEvent): void => {
-    event.preventDefault();
-    manualCameraActive = true;
-    const before = groundPointAt(event.clientX, event.clientY);
+  function zoomAtScreenPoint(clientX: number, clientY: number, factor: number): void {
+    if (!Number.isFinite(factor) || factor <= 0) return;
+    beginManualCamera();
+    const before = groundPointAt(clientX, clientY);
     const minimumZoom = config.scope === 'center' ? 0.08 : 0.12;
-    manualZoom = THREE.MathUtils.clamp(manualZoom * Math.exp(event.deltaY * 0.0014), minimumZoom, 3);
+    manualZoom = THREE.MathUtils.clamp(manualZoom * factor, minimumZoom, 3);
     updateProjection();
     applyCameraPose(0);
-    const after = groundPointAt(event.clientX, event.clientY);
+    const after = groundPointAt(clientX, clientY);
     if (before && after) moveCameraFocus(before.x - after.x, before.y - after.y);
-  };
+  }
 
-  const onPointerDown = (event: PointerEvent): void => {
-    if (event.pointerType === 'touch') {
-      touchPoints.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    } else if (event.button !== 0 && event.button !== 1) return;
-    if (touchPoints.size === 2) {
-      const [first, second] = [...touchPoints.values()];
-      previousPinchDistance = Math.max(1, Math.hypot(first.x - second.x, first.y - second.y));
-      previousPinchGround = groundPointAt((first.x + second.x) / 2, (first.y + second.y) / 2);
-      dragPointerId = null;
-      previousDragPoint = null;
-      dragHasMoved = false;
-      manualCameraActive = true;
-      canvas.classList.add('scene--panning');
-      return;
-    }
-    const forcePan = event.pointerType !== 'touch' && event.button === 1;
-    const pickedFlightId = pickFlight(event.clientX, event.clientY);
-    const pickedFlight = pickedFlightId === null ? null : currentState?.flights.find((flight) => flight.id === pickedFlightId);
-    const beginsManualArrivalRoute = pickedFlight?.phase === 'approach' && !pickedFlight.cleared;
-    if (!forcePan && beginsManualArrivalRoute) return;
-    dragPointerId = event.pointerId;
-    previousDragPoint = { x: event.clientX, y: event.clientY };
-    dragHasMoved = false;
-    try {
-      canvas.setPointerCapture(event.pointerId);
-    } catch {
-      // Synthetic browser tests do not create an OS pointer to capture.
-    }
-  };
-
-  const onPointerMove = (event: PointerEvent): void => {
-    if (event.pointerType === 'touch' && touchPoints.has(event.pointerId)) {
-      touchPoints.set(event.pointerId, { x: event.clientX, y: event.clientY });
-      if (touchPoints.size === 2) {
-        event.preventDefault();
-        const [first, second] = [...touchPoints.values()];
-        const distance = Math.max(1, Math.hypot(first.x - second.x, first.y - second.y));
-        const midpoint = { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 };
-        const minimumZoom = config.scope === 'center' ? 0.08 : 0.12;
-        manualZoom = THREE.MathUtils.clamp(manualZoom * previousPinchDistance / distance, minimumZoom, 3);
-        updateProjection();
-        applyCameraPose(0);
-        const nextGround = groundPointAt(midpoint.x, midpoint.y);
-        if (previousPinchGround && nextGround) moveCameraFocus(previousPinchGround.x - nextGround.x, previousPinchGround.y - nextGround.y);
-        previousPinchDistance = distance;
-        previousPinchGround = groundPointAt(midpoint.x, midpoint.y);
-        return;
-      }
-    }
-    if (dragPointerId !== event.pointerId || !previousDragPoint) return;
-    if (!dragHasMoved) {
-      if (Math.hypot(event.clientX - previousDragPoint.x, event.clientY - previousDragPoint.y) < 3) return;
-      dragHasMoved = true;
-      manualCameraActive = true;
-      canvas.classList.add('scene--panning');
-    }
-    event.preventDefault();
-    const before = groundPointAt(previousDragPoint.x, previousDragPoint.y);
-    const after = groundPointAt(event.clientX, event.clientY);
+  function panBetweenScreenPoints(previous: { x: number; y: number }, current: { x: number; y: number }): void {
+    beginManualCamera();
+    const before = groundPointAt(previous.x, previous.y);
+    const after = groundPointAt(current.x, current.y);
     if (before && after) moveCameraFocus(before.x - after.x, before.y - after.y);
-    previousDragPoint = { x: event.clientX, y: event.clientY };
-  };
+  }
 
-  const onPointerUp = (event: PointerEvent): void => {
-    if (event.pointerType === 'touch') touchPoints.delete(event.pointerId);
-    if (dragPointerId === event.pointerId) {
-      dragPointerId = null;
-      previousDragPoint = null;
-      dragHasMoved = false;
+  function pinchBetweenScreenPoints(
+    previous: readonly [{ x: number; y: number }, { x: number; y: number }],
+    current: readonly [{ x: number; y: number }, { x: number; y: number }],
+  ): void {
+    beginManualCamera();
+    const previousMidpoint = {
+      x: (previous[0].x + previous[1].x) / 2,
+      y: (previous[0].y + previous[1].y) / 2,
+    };
+    const currentMidpoint = {
+      x: (current[0].x + current[1].x) / 2,
+      y: (current[0].y + current[1].y) / 2,
+    };
+    const before = groundPointAt(previousMidpoint.x, previousMidpoint.y);
+    const previousDistance = Math.max(1, Math.hypot(previous[0].x - previous[1].x, previous[0].y - previous[1].y));
+    const currentDistance = Math.max(1, Math.hypot(current[0].x - current[1].x, current[0].y - current[1].y));
+    const minimumZoom = config.scope === 'center' ? 0.08 : 0.12;
+    manualZoom = THREE.MathUtils.clamp(manualZoom * previousDistance / currentDistance, minimumZoom, 3);
+    updateProjection();
+    applyCameraPose(0);
+    const after = groundPointAt(currentMidpoint.x, currentMidpoint.y);
+    if (before && after) moveCameraFocus(before.x - after.x, before.y - after.y);
+  }
+
+  function applyCameraInput(panX: number, panY: number, rotate: number, zoom: number, deltaSeconds: number): void {
+    if (![panX, panY, rotate, zoom, deltaSeconds].every(Number.isFinite) || deltaSeconds <= 0) return;
+    if (Math.max(Math.abs(panX), Math.abs(panY), Math.abs(rotate), Math.abs(zoom)) <= 0.001) return;
+    beginManualCamera();
+    if (Math.abs(rotate) > 0.001) {
+      manualOrbitOffset = THREE.MathUtils.euclideanModulo(
+        manualOrbitOffset + rotate * THREE.MathUtils.degToRad(75) * deltaSeconds,
+        Math.PI * 2,
+      );
     }
-    if (touchPoints.size < 2) {
-      previousPinchDistance = 0;
-      previousPinchGround = null;
+    if (Math.abs(zoom) > 0.001) {
+      const minimumZoom = config.scope === 'center' ? 0.08 : 0.12;
+      manualZoom = THREE.MathUtils.clamp(manualZoom * Math.exp(-zoom * 1.25 * deltaSeconds), minimumZoom, 3);
+      updateProjection();
     }
-    if (dragPointerId === null && touchPoints.size < 2) canvas.classList.remove('scene--panning');
-  };
+    applyCameraPose(0);
+    if (Math.abs(panX) > 0.001 || Math.abs(panY) > 0.001) {
+      const rect = canvas.getBoundingClientRect();
+      const center = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      const speed = Math.min(560, Math.max(360, Math.min(rect.width, rect.height) * 0.82));
+      const current = { x: center.x + panX * speed * deltaSeconds, y: center.y + panY * speed * deltaSeconds };
+      const before = groundPointAt(center.x, center.y);
+      const after = groundPointAt(current.x, current.y);
+      if (before && after) moveCameraFocus(after.x - before.x, after.y - before.y);
+    }
+  }
 
   function changeZoom(factor: number): void {
     manualCameraActive = true;
@@ -772,11 +757,6 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
 
   resize();
   window.addEventListener('resize', resize);
-  canvas.addEventListener('wheel', onWheel, { passive: false });
-  canvas.addEventListener('pointerdown', onPointerDown);
-  canvas.addEventListener('pointermove', onPointerMove, { passive: false });
-  canvas.addEventListener('pointerup', onPointerUp);
-  canvas.addEventListener('pointercancel', onPointerUp);
   canvas.addEventListener('webglcontextlost', onContextLost);
   canvas.addEventListener('webglcontextrestored', onContextRestored);
 
@@ -799,6 +779,10 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     zoomOut() { changeZoom(1.28); },
     panByScreen(horizontal, vertical) { panCameraByScreen(horizontal, vertical); },
     rotateBy(direction) { rotateCamera(direction); },
+    applyCameraInput,
+    panBetweenScreenPoints,
+    pinchBetweenScreenPoints,
+    zoomAtScreenPoint,
     resetCamera,
     setRunwayLabelsVisible(visible) {
       runwayLabelsVisible = visible;
@@ -877,11 +861,6 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     resize,
     dispose() {
       window.removeEventListener('resize', resize);
-      canvas.removeEventListener('wheel', onWheel);
-      canvas.removeEventListener('pointerdown', onPointerDown);
-      canvas.removeEventListener('pointermove', onPointerMove);
-      canvas.removeEventListener('pointerup', onPointerUp);
-      canvas.removeEventListener('pointercancel', onPointerUp);
       canvas.removeEventListener('webglcontextlost', onContextLost);
       canvas.removeEventListener('webglcontextrestored', onContextRestored);
       contextRuntime?.dispose();

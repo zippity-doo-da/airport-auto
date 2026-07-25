@@ -152,6 +152,14 @@
             <output id="replay-time">LIVE</output>
             <button id="replay-export" type="button">Export</button>
           </div>
+          <fieldset class="input-settings" aria-label="Input settings and bindings">
+            <legend>Unified input</legend>
+            <div class="input-settings__status"><b id="input-device">Keyboard · pointer · touch</b><small id="input-status" aria-live="polite">Connect a standard-mapped controller at any time; no restart is required.</small></div>
+            <label class="input-settings__toggle"><input id="gamepad-enabled" type="checkbox" checked /><span>Enable gamepad</span></label>
+            <label class="input-settings__sensitivity"><span>Stick sensitivity <output id="gamepad-sensitivity-output" for="gamepad-sensitivity">1.0×</output></span><input id="gamepad-sensitivity" type="range" min="0.5" max="2" step="0.1" value="1" aria-label="Gamepad stick sensitivity" /></label>
+            <div id="input-bindings" class="input-bindings" aria-label="Core input bindings"></div>
+            <small>Camera input pauses beneath drawers and modals. Every clearance still passes through the same controller-authority and safety arbiter.</small>
+          </fieldset>
           <fieldset class="audio-mixer" aria-label="Sound levels">
             <legend>Sound mixer</legend>
             <label><span>Ambience</span><input data-audio-level="ambience" type="range" min="0" max="1" step="0.05" value="1" /></label>
@@ -349,7 +357,7 @@
           </div>
           <div class="runway-key"><span><i class="key key--rose"></i>Landing threshold</span><span><i class="key key--blue"></i>Departure chevrons</span></div>
           <button id="enter" class="primary" type="button">Watch the airfield <span aria-hidden="true">→</span></button>
-          <small>Drag or WASD to pan · Q/E to rotate · scroll or pinch to zoom · Sound is optional</small>
+          <small>Drag or WASD to pan · Q/E to rotate · scroll or pinch to zoom · C opens Controls · gamepad and sound are optional</small>
         </div>
       </div>
 

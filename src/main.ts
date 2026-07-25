@@ -52,6 +52,9 @@ import {
 import { coordinationInboxKey, renderCoordinationInbox } from './ui/coordinationInbox';
 import { createChallengePanel, type ChallengeSnapshot } from './ui/challengePanel';
 import { createSandboxPanel } from './ui/sandboxPanel';
+import { createInputSettingsPanel, type InputSettingsPanel } from './ui/inputSettingsPanel';
+import { createUnifiedInput, type CanvasPointerIntent, type ScreenPoint } from './input/unifiedInput';
+import type { InputActionContext, InputActionId, InputAxes } from './input/actionMap';
 
 type AirportControlCommand =
   | {
@@ -73,6 +76,8 @@ type AirportControlCommand =
   | { action: 'setWindOverlayVisible'; enabled: boolean }
   | { action: 'setServiceVehiclesVisible'; enabled: boolean }
   | { action: 'setContrailsVisible'; enabled: boolean }
+  | { action: 'setGamepadEnabled'; enabled: boolean }
+  | { action: 'setGamepadSensitivity'; sensitivity: number }
   | { action: 'selectAirport'; code: string }
   | { action: 'clearFlight'; flightId: number; runway: number }
   | { action: 'clearPushback'; flightId: number }
@@ -227,6 +232,15 @@ type TelemetryEvent = {
   payload?: unknown;
 };
 
+const FLIGHT_PHASE_ORDER: Record<FlightPhase, number> = {
+  landing: 0,
+  approach: 1,
+  takeoff: 2,
+  'taxi-in': 3,
+  'taxi-out': 4,
+  resting: 5,
+};
+
 const $ = <T extends Element>(selector: string): T => {
   const element = document.querySelector<T>(selector);
   if (!element) throw new Error(`Missing element: ${selector}`);
@@ -368,6 +382,12 @@ const weatherToggle = $<HTMLButtonElement>('#weather-toggle');
 const windToggle = $<HTMLButtonElement>('#wind-toggle');
 const weatherConditionSelect = $<HTMLSelectElement>('#weather-condition-select');
 const audioPreset = $<HTMLSelectElement>('#audio-preset');
+const gamepadEnabledControl = $<HTMLInputElement>('#gamepad-enabled');
+const gamepadSensitivityControl = $<HTMLInputElement>('#gamepad-sensitivity');
+const gamepadSensitivityOutput = $<HTMLOutputElement>('#gamepad-sensitivity-output');
+const inputDevice = $<HTMLElement>('#input-device');
+const inputStatus = $<HTMLElement>('#input-status');
+const inputBindings = $<HTMLElement>('#input-bindings');
 const status = $<HTMLElement>('.status');
 const statusLabel = $<HTMLElement>('#status-label');
 const statusDetail = $<HTMLElement>('#status-detail');
@@ -572,7 +592,6 @@ const airspaceLayerVisibility: Record<AirspaceLayer, boolean> = {
 let mapOrientationVisible = false;
 let lastOrientationUpdate = -Infinity;
 let lastRadarUpdate = -Infinity;
-let canvasTap: { pointerId: number; x: number; y: number; moved: boolean } | null = null;
 let previousPresentation = capturePresentation(simulation.state);
 let lastFlightStripRender = -Infinity;
 let renderedFrames = 0;
@@ -593,6 +612,46 @@ const requestedRenderFps = Number(launchOptions.get('renderFps') ?? 0);
 const minimumRenderInterval = Number.isFinite(requestedRenderFps) && requestedRenderFps >= 0.1 && requestedRenderFps < 60
   ? 1_000 / requestedRenderFps
   : 0;
+let inputSettingsPanel: InputSettingsPanel | null = null;
+let refreshInputSettings = (): void => {};
+const requestedGamepadEnabled = launchOptions.get('gamepad');
+const requestedGamepadSensitivity = Number(launchOptions.get('gamepadSensitivity'));
+const inputLayer = createUnifiedInput({
+  canvas,
+  getContext: inputContext,
+  resolvePointerIntent,
+  onAction: handleInputAction,
+  onAxes: handleInputAxes,
+  onTap: (point) => selectFlightFromMap(point.x, point.y),
+  onRouteStart: beginRoute,
+  onRouteMove: updateRoute,
+  onRouteEnd: finishRoute,
+  onRouteCancel: cancelRoute,
+  onCameraGestureStart: () => {
+    if (focusedFlightId !== null) clearFlightFocus();
+  },
+  onPan: (previous, current) => world.panBetweenScreenPoints(previous, current),
+  onPinch: (previous, current) => world.pinchBetweenScreenPoints(previous, current),
+  onWheel: (point, deltaY) => world.zoomAtScreenPoint(point.x, point.y, Math.exp(deltaY * 0.0014)),
+  onStateChange: () => refreshInputSettings(),
+  initialGamepadEnabled: requestedGamepadEnabled === '0' ? false : requestedGamepadEnabled === '1' ? true : undefined,
+  initialGamepadSensitivity: Number.isFinite(requestedGamepadSensitivity) && launchOptions.has('gamepadSensitivity')
+    ? requestedGamepadSensitivity
+    : undefined,
+});
+inputSettingsPanel = createInputSettingsPanel({
+  enabled: gamepadEnabledControl,
+  sensitivity: gamepadSensitivityControl,
+  sensitivityOutput: gamepadSensitivityOutput,
+  device: inputDevice,
+  status: inputStatus,
+  bindings: inputBindings,
+}, {
+  onEnabledChange: (enabled) => inputLayer.setGamepadEnabled(enabled),
+  onSensitivityChange: (sensitivity) => inputLayer.setGamepadSensitivity(sensitivity),
+});
+refreshInputSettings = () => inputSettingsPanel?.render(inputLayer.snapshot());
+refreshInputSettings();
 let lastWorldRender = -Infinity;
 let worldDeltaAccumulator = 0;
 debugPanel.hidden = !debugEnabled;
@@ -726,9 +785,52 @@ document.addEventListener('pointerdown', (event) => {
   const target = event.target;
   if (target instanceof Node && !controlPanel.contains(target) && !menuButton.contains(target)) setControlPanelOpen(false);
 });
-document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape') {
-    setControlPanelOpen(false);
+function modalOpen(element: HTMLElement): boolean {
+  return !element.hidden && !element.classList.contains('modal--hidden');
+}
+
+function inputContext(): InputActionContext {
+  if (modalOpen(intro) || modalOpen(gameOver) || modalOpen(challengeResults)) return 'modal';
+  if (controlPanel.classList.contains('control-panel--open')) return 'ui';
+  return 'gameplay';
+}
+
+function handleInputAxes(axes: InputAxes, deltaSeconds: number): void {
+  if (focusedFlightId !== null) clearFlightFocus();
+  world.applyCameraInput(axes.panX, axes.panY, axes.rotate, axes.zoom, deltaSeconds);
+}
+
+function focusAdjacentFlight(direction: -1 | 1): void {
+  const flights = visibleFlightsForStation(displayState().flights)
+    .sort((first, second) => FLIGHT_PHASE_ORDER[first.phase] - FLIGHT_PHASE_ORDER[second.phase] || first.id - second.id);
+  if (!flights.length) {
+    clearFlightFocus('No aircraft in scope', `${controllerStationLabel(simulation.state.station)} has no visible tracks`);
+    return;
+  }
+  const current = flights.findIndex((flight) => flight.id === focusedFlightId);
+  const index = current < 0
+    ? direction > 0 ? 0 : flights.length - 1
+    : (current + direction + flights.length) % flights.length;
+  const flight = flights[index];
+  const result = executeAirportRequest({ action: 'focusFlight', flightId: flight.id });
+  if (result.accepted) setStatus(`${flight.callsign} tracked`, `${flight.aircraft} · ${formatPhase(flight.phase)} · ${index + 1} of ${flights.length}`);
+}
+
+function handleInputAction(action: InputActionId): void {
+  if (action === 'ui.cancel') {
+    if (controlPanel.classList.contains('control-panel--open')) {
+      setControlPanelOpen(false);
+      canvas.focus({ preventScroll: true });
+      return;
+    }
+    if (queueInspectorVisible) {
+      setQueuePanelVisible(false);
+      return;
+    }
+    if (radarVisible) {
+      setRadarPanelVisible(false);
+      return;
+    }
     if (groupSelectActive) {
       setGroupSelectActive(false);
       return;
@@ -736,53 +838,58 @@ document.addEventListener('keydown', (event) => {
     if (focusedFlightId !== null) clearFlightFocus('Camera released', 'free map view restored');
     return;
   }
-  const target = event.target;
-  if (
-    target instanceof HTMLInputElement ||
-    target instanceof HTMLSelectElement ||
-    target instanceof HTMLTextAreaElement ||
-    target instanceof HTMLButtonElement ||
-    target instanceof HTMLAnchorElement ||
-    (target instanceof HTMLElement && target.closest('summary'))
-  )
-    return;
-  const panDirection: Record<string, [number, number]> = {
-    w: [0, -1], arrowup: [0, -1],
-    a: [-1, 0], arrowleft: [-1, 0],
-    s: [0, 1], arrowdown: [0, 1],
-    d: [1, 0], arrowright: [1, 0],
-  };
-  const pan = panDirection[event.key.toLowerCase()];
-  if (pan && intro.classList.contains('modal--hidden') && gameOver.hidden && challengeResults.hidden) {
-    event.preventDefault();
-    clearFlightFocus();
-    world.panByScreen(pan[0], pan[1]);
+  if (action === 'ui.controls') {
+    setControlPanelOpen(!controlPanel.classList.contains('control-panel--open'));
     return;
   }
-  const cameraKey = event.key.toLowerCase();
-  if ((cameraKey === 'q' || cameraKey === 'e') && intro.classList.contains('modal--hidden') && gameOver.hidden && challengeResults.hidden) {
-    event.preventDefault();
-    clearFlightFocus();
-    world.rotateBy(cameraKey === 'q' ? -1 : 1);
-    return;
-  }
-  if (event.key === '+' || event.key === '=') world.zoomIn();
-  if (event.key === '-') world.zoomOut();
-  if (event.key === '0') world.resetCamera();
-  if (event.key.toLowerCase() === 'v') world.nextView();
-  if (event.key === ' ' && !intro.classList.contains('modal--hidden')) return;
-  if (event.key === ' ') {
-    event.preventDefault();
+  if (action === 'ui.pause') {
     pauseButton.click();
+    return;
+  }
+  if (action === 'ui.radar') {
+    setRadarPanelVisible(!radarVisible);
+    return;
+  }
+  if (action === 'ui.queues') {
+    setQueuePanelVisible(!queueInspectorVisible);
+    return;
+  }
+  if (action === 'camera.reset') {
+    clearFlightFocus();
+    world.resetCamera();
+    return;
+  }
+  if (action === 'camera.next-view') {
+    clearFlightFocus();
+    world.nextView();
+    return;
+  }
+  if (action === 'selection.previous' || action === 'selection.next') {
+    focusAdjacentFlight(action === 'selection.previous' ? -1 : 1);
+    return;
+  }
+  if (action === 'selection.primary') {
+    const primary = flightActions.querySelector<HTMLButtonElement>('.flight-actions__buttons button:not(:disabled)');
+    if (primary) primary.click();
+    else if (focusedFlightId === null) focusAdjacentFlight(1);
+    return;
   }
   if (focusedFlightId === null) return;
-  const key = event.key.toLowerCase();
-  if (key === 'l') handleFlightAction(focusedFlightId, 'clear');
-  if (key === 'g') handleFlightAction(focusedFlightId, 'go-around');
-  if (key === 'h') handleFlightAction(focusedFlightId, 'hold-toggle');
-  if (key === 'r') handleFlightAction(focusedFlightId, 'entry');
-  if (key === 't') handleFlightAction(focusedFlightId, 'takeoff');
-});
+  if (action === 'flight.land') handleFlightAction(focusedFlightId, 'clear');
+  if (action === 'flight.go-around') handleFlightAction(focusedFlightId, 'go-around');
+  if (action === 'flight.hold') handleFlightAction(focusedFlightId, 'hold-toggle');
+  if (action === 'flight.runway-entry') handleFlightAction(focusedFlightId, 'entry');
+  if (action === 'flight.takeoff') handleFlightAction(focusedFlightId, 'takeoff');
+}
+
+function resolvePointerIntent(point: ScreenPoint, _device: 'mouse' | 'touch', button: number): CanvasPointerIntent {
+  if (button === 1 || replayMode || simulation.state.paused || simulation.state.gameOver) return { kind: 'camera' };
+  const flightId = world.pickFlight(point.x, point.y);
+  const flight = simulation.state.flights.find((candidate) => candidate.id === flightId);
+  return flight?.phase === 'approach' && !flight.cleared
+    ? { kind: 'route', flightId: flight.id }
+    : { kind: 'camera' };
+}
 
 airportSelect.addEventListener('change', () => selectAirport(airportSelect.value, false));
 introAirportSelect.addEventListener('change', () => selectAirport(introAirportSelect.value, true));
@@ -1093,43 +1200,31 @@ restartButton.addEventListener('click', () => {
   setStatus('A fresh airfield opens', `${config.runwayCount} directional runway${config.runwayCount === 1 ? '' : 's'} ready`);
 });
 
-canvas.addEventListener('pointerdown', (event) => {
-  if (event.pointerType !== 'touch' && event.button !== 0) return;
-  if (event.pointerType === 'touch' && !event.isPrimary) {
-    canvasTap = null;
-    activeFlightId = null;
-    clearRoute();
-    return;
-  }
-  canvasTap = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
-  if (simulation.state.paused || simulation.state.gameOver) return;
-  const id = world.pickFlight(event.clientX, event.clientY);
-  const flight = simulation.state.flights.find((item) => item.id === id);
+function beginRoute(flightId: number, point: ScreenPoint): void {
+  const flight = simulation.state.flights.find((item) => item.id === flightId);
   if (!flight || flight.phase !== 'approach' || flight.cleared) return;
   activeFlightId = flight.id;
-  routePoints = [world.flightScreenPosition(flight.id) ?? { x: event.clientX, y: event.clientY }, { x: event.clientX, y: event.clientY }];
-  canvas.setPointerCapture(event.pointerId);
+  routePoints = [world.flightScreenPosition(flight.id) ?? point, point];
   executeAirportRequest({ action: 'focusFlight', flightId: flight.id });
   routePath.style.setProperty('--route-color', flight.palette === 'rose' ? '#ef937f' : '#79c8e8');
   routeShadow.style.setProperty('--route-color', flight.palette === 'rose' ? '#ef937f' : '#79c8e8');
   routePath.classList.add('route--active');
   drawRoute();
   setStatus(`${flight.callsign} selected`, `guide it to runway ${flight.runway + 1}'s lit threshold`);
-});
+}
 
-canvas.addEventListener('pointermove', (event) => {
-  if (canvasTap?.pointerId === event.pointerId && Math.hypot(event.clientX - canvasTap.x, event.clientY - canvasTap.y) > 5) canvasTap.moved = true;
+function updateRoute(point: ScreenPoint): void {
   if (activeFlightId === null) return;
   const last = routePoints[routePoints.length - 1];
-  if (Math.hypot(last.x - event.clientX, last.y - event.clientY) > 7) routePoints.push({ x: event.clientX, y: event.clientY });
-  else routePoints[routePoints.length - 1] = { x: event.clientX, y: event.clientY };
+  if (Math.hypot(last.x - point.x, last.y - point.y) > 7) routePoints.push(point);
+  else routePoints[routePoints.length - 1] = point;
   drawRoute();
-});
+}
 
-function finishRoute(event: PointerEvent): void {
+function finishRoute(point: ScreenPoint): void {
   if (activeFlightId === null) return;
   const flight = simulation.state.flights.find((item) => item.id === activeFlightId);
-  const runway = world.pickRunway(event.clientX, event.clientY);
+  const runway = world.pickRunway(point.x, point.y);
   const accepted =
     runway !== null &&
     executeAirportRequest({
@@ -1145,16 +1240,10 @@ function finishRoute(event: PointerEvent): void {
   window.setTimeout(clearRoute, accepted ? 650 : 420);
 }
 
-canvas.addEventListener('pointerup', (event) => {
-  const routed = activeFlightId !== null;
-  finishRoute(event);
-  if (canvasTap?.pointerId === event.pointerId && !canvasTap.moved && !routed) selectFlightFromMap(event.clientX, event.clientY);
-  if (canvasTap?.pointerId === event.pointerId) canvasTap = null;
-});
-canvas.addEventListener('pointercancel', (event) => {
-  finishRoute(event);
-  if (canvasTap?.pointerId === event.pointerId) canvasTap = null;
-});
+function cancelRoute(): void {
+  activeFlightId = null;
+  clearRoute();
+}
 
 function drawRoute(): void {
   const d = routePoints.map((point, index) => `${index ? 'L' : 'M'} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(' ');
@@ -1172,6 +1261,7 @@ function clearRoute(): void {
 function frame(now: number): void {
   const delta = Math.min(0.1, (now - lastTime) / 1000);
   lastTime = now;
+  inputLayer.update(delta);
   worldDeltaAccumulator = Math.min(0.25, worldDeltaAccumulator + delta);
   const renderWorld = minimumRenderInterval === 0 || now - lastWorldRender >= minimumRenderInterval;
   if (renderWorld) {
@@ -1590,7 +1680,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
 function replayRecording(): ReplayRecording {
   return {
     schemaVersion: 1,
-    simulationVersion: window.airportControl?.version ?? '2.25.0',
+    simulationVersion: window.airportControl?.version ?? '2.26.0',
     recordedAt: new Date().toISOString(),
     seed: config.seed,
     airport: { code: config.code, name: config.name, scope: config.scope },
@@ -1603,11 +1693,10 @@ function replayRecording(): ReplayRecording {
 }
 
 function renderFlightStrip(): void {
-  const phaseOrder: Record<FlightPhase, number> = { landing: 0, approach: 1, takeoff: 2, 'taxi-in': 3, 'taxi-out': 4, resting: 5 };
   const allFlights = displayState().flights;
   renderStationBriefing();
   renderControllerCoordination(allFlights);
-  const flights = visibleFlightsForStation(allFlights).sort((first, second) => phaseOrder[first.phase] - phaseOrder[second.phase] || first.id - second.id);
+  const flights = visibleFlightsForStation(allFlights).sort((first, second) => FLIGHT_PHASE_ORDER[first.phase] - FLIGHT_PHASE_ORDER[second.phase] || first.id - second.id);
   const selectedWorkload = simulation.state.station === 'supervisor'
     ? null
     : simulation.controllerWorkloads().find((workload) => workload.station === simulation.state.station);
@@ -3141,7 +3230,7 @@ function updateModeControl(): void {
   modeButton.classList.toggle('control--active', automatic);
   modeIcon.textContent = mode === 'auto' ? 'A' : mode === 'assisted' ? '✓' : mode === 'manual' ? 'M' : '◌';
   modeLabel.textContent = mode === 'auto' ? 'Auto' : mode === 'assisted' ? 'Assist' : mode === 'manual' ? 'Manual' : 'Watch';
-  const zoomHint = ' · drag or WASD to pan · Q/E to rotate · scroll or pinch to zoom';
+  const zoomHint = ' · drag or WASD to pan · Q/E to rotate · scroll or pinch to zoom · C for controls';
   instructionCopy.innerHTML = mode === 'watch'
     ? `Watch mode · calm continuous traffic${zoomHint} · <b>select a flight to follow</b>`
     : mode === 'assisted'
@@ -3150,8 +3239,8 @@ function updateModeControl(): void {
         ? `Full Manual ATC${zoomHint} · <b>select a flight for live clearances</b>`
         : `Continuous Auto tower${zoomHint} · <b>select a flight to follow</b>`;
   canvas.setAttribute('aria-label', mode === 'manual' || mode === 'assisted'
-    ? `${mode === 'assisted' ? 'Assisted' : 'Manual'} air traffic control at ${config.name}. Drag or use WASD to pan, use Q and E to rotate, scroll or pinch to zoom, and select a flight card for clearances. Select it again or choose empty ground to release the camera.`
-    : `${mode === 'watch' ? 'Watch-only' : 'Automatic'} live traffic at ${config.name}. Drag or use WASD to pan, use Q and E to rotate, scroll or pinch to zoom, and select a flight card to follow it. Select it again or choose empty ground to release the camera.`);
+    ? `${mode === 'assisted' ? 'Assisted' : 'Manual'} air traffic control at ${config.name}. Drag or use WASD to pan, use Q and E to rotate, scroll or pinch to zoom, and select a flight card for clearances. Select it again or choose empty ground to release the camera. Optional standard gamepad controls are described in Controls.`
+    : `${mode === 'watch' ? 'Watch-only' : 'Automatic'} live traffic at ${config.name}. Drag or use WASD to pan, use Q and E to rotate, scroll or pinch to zoom, and select a flight card to follow it. Select it again or choose empty ground to release the camera. Optional standard gamepad controls are described in Controls.`);
   controlSelect.value = mode;
   introControlSelect.value = mode;
   document.body.classList.toggle('watch-mode', mode === 'watch');
@@ -3165,7 +3254,10 @@ function setControlPanelOpen(open: boolean): void {
   controlPanel.classList.toggle('control-panel--open', open);
   controlPanel.setAttribute('aria-hidden', String(!open));
   controlPanel.toggleAttribute('inert', !open);
-  if (open && !wasOpen) controlPanel.scrollTop = 0;
+  if (open && !wasOpen) {
+    controlPanel.scrollTop = 0;
+    refreshInputSettings();
+  }
 }
 
 function updateNightControl(): void {
@@ -3711,7 +3803,7 @@ function airportSnapshot() {
   const operations = simulation.operationProfileSnapshot();
   const movingPhases = new Set(['approach', 'landing', 'taxi-in', 'taxi-out', 'takeoff']);
   return {
-    schemaVersion: 27,
+    schemaVersion: 28,
     training: simulation.trainingSnapshot(),
     challenge: simulation.challengeSnapshot(),
     sandbox: simulation.sandboxSnapshot(),
@@ -3820,6 +3912,7 @@ function airportSnapshot() {
       groupMode: groupSelectActive,
       groupedFlightIds: [...groupedFlightIds],
     },
+    input: inputLayer.snapshot(),
     controllers: {
       automation: { ...simulation.state.stationAutomation },
       workloads: simulation.controllerWorkloads(),
@@ -4406,6 +4499,22 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
   if (command.action === 'setWindOverlayVisible') setWindOverlayVisible(command.enabled);
   if (command.action === 'setServiceVehiclesVisible') setServiceVehiclesVisible(command.enabled);
   if (command.action === 'setContrailsVisible') setContrailsVisible(command.enabled);
+  if (command.action === 'setGamepadEnabled') {
+    accepted = typeof command.enabled === 'boolean';
+    if (accepted) {
+      inputLayer.setGamepadEnabled(command.enabled);
+      refreshInputSettings();
+      reason = command.enabled ? 'gamepad input enabled' : 'gamepad input disabled';
+    } else reason = 'gamepad enabled must be a boolean';
+  }
+  if (command.action === 'setGamepadSensitivity') {
+    accepted = Number.isFinite(command.sensitivity) && command.sensitivity >= 0.5 && command.sensitivity <= 2;
+    if (accepted) {
+      inputLayer.setGamepadSensitivity(command.sensitivity);
+      refreshInputSettings();
+      reason = `gamepad sensitivity set to ${command.sensitivity.toFixed(1)}x`;
+    } else reason = 'gamepad sensitivity must be a finite number from 0.5 to 2';
+  }
   if (command.action === 'selectAirport') {
     const code = command.code.toUpperCase();
     const known = code === 'LOCAL' || HUB_AIRPORTS.some((airport) => airport.code === code);
@@ -4799,7 +4908,7 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
 }
 
 window.airportControl = {
-  version: '2.25.0',
+  version: '2.26.0',
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },
@@ -4825,6 +4934,8 @@ window.airportControl = {
       windOverlay: "airportControl.command({ action: 'setWindOverlayVisible', enabled: true })",
       serviceVehicles: "airportControl.command({ action: 'setServiceVehiclesVisible', enabled: false })",
       contrails: "airportControl.command({ action: 'setContrailsVisible', enabled: true })",
+      gamepad: "airportControl.request({ action: 'setGamepadEnabled', enabled: true })",
+      gamepadSensitivity: "airportControl.request({ action: 'setGamepadSensitivity', sensitivity: 1.2 }) // 0.5–2.0",
       clearance: "airportControl.command({ action: 'clearFlight', flightId: 1, runway: 0 })",
       pushback: "airportControl.request({ action: 'clearPushback', flightId: 1 }) // Ramp or Supervisor",
       runwayEntry: "airportControl.command({ action: 'clearRunwayEntry', flightId: 1 })",
@@ -5015,5 +5126,6 @@ if (launchOptions.get('autostart') === '1' || soakEnabled) {
 requestAnimationFrame(frame);
 window.addEventListener('beforeunload', () => {
   airportChannel?.close();
+  inputLayer.dispose();
   world.dispose();
 });

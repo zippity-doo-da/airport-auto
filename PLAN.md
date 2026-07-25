@@ -365,6 +365,16 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Add a compact responsive Controls section and map badge, `?sandbox=1&background=1` launch support, BroadcastChannel commands, API 2.25 / snapshot schema 27, telemetry events, replay cloning, documentation, and desktop/mobile screenshot coverage.
 - [x] Validate clean entry, exact class/runway release, multi-arrival batches, grounded departures, background traffic, cancellation, weather/configuration preservation, deep cloning, training/challenge interlocks, no-fail clock advancement, ordinary-flow exit, and responsive browser control.
 
+## Airport Auto 2.26 — unified human input
+
+- [x] Replace separate renderer and application listeners with one 23-action input catalog for keyboard, mouse, touch, and optional standard-mapped gamepads; keep rendering imperative and ATC commands behind the existing authority/safety arbiter.
+- [x] Make held WASD/arrows, Q/E, plus/minus, analog sticks, D-pad, and triggers move the free camera continuously at display cadence while retaining a small deterministic nudge for quick keyboard taps.
+- [x] Preserve cursor-centered wheel zoom, one-pointer and middle-button pan, two-finger pan/pinch, approach-route drawing, map selection, empty-ground deselection, pointer capture cleanup, and smooth release from aircraft follow through one gesture owner.
+- [x] Add context-aware shortcuts for pause, Controls, radar, queues, aircraft cycling, the selected context action, land, go-around, hold/resume, runway entry, takeoff, cancel, reset, and authored camera views; block camera/clearance input beneath drawers, forms, and dialogs.
+- [x] Add standard gamepad discovery, deadzones, enable/disable, persisted `0.5×`–`2.0×` sensitivity, URL overrides, a compact responsive binding guide, readable touch targets, and accessibility copy without making gamepad support mandatory.
+- [x] Expose input schema/catalog versions, active context, last device/action/gesture, axes, held actions, device metadata, preferences, and the immutable action catalog through API 2.26 / snapshot schema 28 plus structured gamepad-setting commands.
+- [x] Validate unique bindings, action contexts, deadzones, axes, buttons, quick taps, smooth holds, UI blocking, gamepad polling and persistence, mouse/touch pan, pinch zoom, responsive containment, and desktop/mobile screenshot presentation.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.
