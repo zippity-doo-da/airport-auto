@@ -24,6 +24,7 @@ import { trafficDensityProfile, type TrafficDensity } from './trafficDensity';
 import { createTrafficFlowState, enqueueArrivalDemand, expireTrafficFlow, markArrivalHolding, refreshTrafficFlow, registerDepartureDemand, releaseArrivalDemand, releaseDepartureDemand, removeDepartureDemand, scheduleNextArrivalDemand, setTrafficFlowDensity, trafficFlowSnapshot, type TrafficFlowSnapshot } from './trafficFlowManagement';
 import { amendFlightPlan, cloneFlightPlan, createFlightPlan, setFlightPlanStatus } from './flightPlanning';
 import { selectTerminalProcedure, type SelectedTerminalProcedure, type TerminalProcedureKind } from './airspaceProcedures';
+import { buildSurfaceRouteViaNodes, selectDiversionExitFix, validateTerminalRouteAmendment } from './atcRouteCommands';
 import {
   controllerStationIsAhead,
   controllerWorkloadSnapshots,
@@ -211,7 +212,7 @@ export class AirportSimulation {
         flight.controlPace = 1;
         flight.controlPattern = undefined;
         flight.controlPatternStart = undefined;
-        if (flight.phase === 'approach' && !flight.cleared && !flight.goAround) {
+        if (flight.phase === 'approach' && !flight.cleared && !flight.goAround && !flight.diversion) {
           flight.cleared = true;
           flight.navigation.approachCleared = true;
           flight.clearanceLeft = 99;
@@ -325,6 +326,7 @@ export class AirportSimulation {
     const flight = this.state.flights.find((item) => item.id === id && item.phase !== 'resting');
     if (!flight) return this.rejectDecision('flight is not available for that instruction');
     if (!this.ownsFlight(flight)) return this.rejectDecision(`${this.state.station} does not own ${flight.callsign}; handoff required`, flight);
+    if (type === 'go-around' && flight.diversion) return this.rejectDecision(`${flight.callsign} is already established on a diversion exit`, flight);
     if (type === 'go-around' && this.state.station !== 'supervisor' && this.state.station !== 'approach' && this.state.station !== 'tower') {
       return this.rejectDecision(`${this.state.station} station has no go-around authority`, flight);
     }
@@ -415,7 +417,7 @@ export class AirportSimulation {
     if (this.state.mode !== 'assisted') return [];
     const proposals: ClearanceProposal[] = [];
     for (const flight of this.state.flights) {
-      if (flight.phase === 'approach' && !flight.cleared && !flight.goAround && !flight.navigation.hold) {
+      if (flight.phase === 'approach' && !flight.cleared && !flight.goAround && !flight.diversion && !flight.navigation.hold) {
         proposals.push({
           id: `${flight.id}:land:${flight.runway}`,
           flightId: flight.id,
@@ -574,6 +576,7 @@ export class AirportSimulation {
     const flight = this.state.flights.find((item) => item.id === id && item.phase === 'approach');
     if (!flight) return this.rejectDecision('flight is not awaiting an approach clearance');
     if (!this.ownsFlight(flight)) return this.rejectDecision(`${this.state.station} does not own ${flight.callsign}; handoff required`, flight);
+    if (flight.diversion) return this.rejectDecision('flight is established on a diversion exit and cannot be cleared to land', flight);
     if (flight.goAround) return this.rejectDecision('flight is flying the missed-approach circuit before re-entering the arrival sequence', flight);
     if (flight.runway !== runway) return this.rejectDecision(`flight is assigned to runway ${this.activeRunwayDesignation(flight.runway)}`, flight);
     if (runwayClosedByDisruption(this.state.surfaceDisruptions, runway)) return this.rejectDecision(`runway ${this.activeRunwayDesignation(runway)} is closed`, flight);
@@ -674,7 +677,7 @@ export class AirportSimulation {
 
   assignHeading(id: number, headingDegrees: number): boolean {
     if (!this.canIssue('approach')) return this.rejectDecision(`${this.state.station} station has no airborne-vector authority`);
-    const flight = this.state.flights.find((item) => item.id === id && (item.phase === 'approach' || (item.phase === 'takeoff' && !item.motion.onGround)));
+    const flight = this.state.flights.find((item) => item.id === id && !item.diversion && (item.phase === 'approach' || (item.phase === 'takeoff' && !item.motion.onGround)));
     if (!flight) return this.rejectDecision('flight is not airborne and available for a heading assignment');
     if (!this.ownsFlight(flight)) return this.rejectDecision(`${this.state.station} does not own ${flight.callsign}; handoff required`, flight);
     if (flight.phase === 'approach' && (flight.progress >= 0.76 || flight.motion.stage === 'final')) {
@@ -687,11 +690,17 @@ export class AirportSimulation {
       Math.cos((heading - presentHeading) * Math.PI / 180),
     ) * 180 / Math.PI);
     if (turn > 120) return this.rejectDecision(`heading change is ${Math.round(turn)}°; use an intermediate vector`, flight);
+    const departure = flight.phase === 'takeoff';
+    const vectorEndProgress = departure
+      ? Math.min(0.995, flight.progress + 0.2)
+      : Math.min(0.8, flight.progress + (this.config.scope === 'center' ? 0.3 : 0.24));
+    if (vectorEndProgress <= flight.progress + 0.01) return this.rejectDecision('aircraft is leaving terminal scope; heading amendment is too late', flight);
     flight.navigation.assignedHeadingDegrees = heading;
+    if (departure) flight.navigation.departureHeadingDegrees = heading;
     flight.navigation.vector = {
       issuedAtSeconds: this.state.elapsed,
       startProgress: flight.progress,
-      endProgress: Math.min(0.8, flight.progress + (this.config.scope === 'center' ? 0.3 : 0.24)),
+      endProgress: vectorEndProgress,
       headingDegrees: heading,
       rejoinFixId: flight.navigation.routeFixIds[Math.min(flight.navigation.routeFixIds.length - 1, flight.navigation.activeFixIndex + 2)],
       start: this.motionStart(flight),
@@ -706,7 +715,7 @@ export class AirportSimulation {
 
   assignAltitude(id: number, altitudeFt: number): boolean {
     if (!this.canIssue('approach')) return this.rejectDecision(`${this.state.station} station has no altitude authority`);
-    const flight = this.state.flights.find((item) => item.id === id && (item.phase === 'approach' || (item.phase === 'takeoff' && !item.motion.onGround)));
+    const flight = this.state.flights.find((item) => item.id === id && !item.diversion && (item.phase === 'approach' || (item.phase === 'takeoff' && !item.motion.onGround)));
     if (!flight) return this.rejectDecision('flight is not airborne and available for an altitude assignment');
     if (!this.ownsFlight(flight)) return this.rejectDecision(`${this.state.station} does not own ${flight.callsign}; handoff required`, flight);
     const rounded = Math.round(altitudeFt / 100) * 100;
@@ -736,7 +745,7 @@ export class AirportSimulation {
 
   assignAirspeed(id: number, speedKts: number): boolean {
     if (!this.canIssue('approach')) return this.rejectDecision(`${this.state.station} station has no airborne-speed authority`);
-    const flight = this.state.flights.find((item) => item.id === id && (item.phase === 'approach' || (item.phase === 'takeoff' && !item.motion.onGround)));
+    const flight = this.state.flights.find((item) => item.id === id && !item.diversion && (item.phase === 'approach' || (item.phase === 'takeoff' && !item.motion.onGround)));
     if (!flight) return this.rejectDecision('flight is not airborne and available for a speed assignment');
     if (!this.ownsFlight(flight)) return this.rejectDecision(`${this.state.station} does not own ${flight.callsign}; handoff required`, flight);
     const profile = aircraftProfile(flight.aircraft);
@@ -755,7 +764,7 @@ export class AirportSimulation {
 
   directFlightTo(id: number, fixId: string): boolean {
     if (!this.canIssue('approach')) return this.rejectDecision(`${this.state.station} station has no direct-to authority`);
-    const flight = this.state.flights.find((item) => item.id === id && item.phase === 'approach' && !item.goAround && !item.navigation.hold);
+    const flight = this.state.flights.find((item) => item.id === id && item.phase === 'approach' && !item.goAround && !item.diversion && !item.navigation.hold);
     if (!flight) return this.rejectDecision('flight is not available for a direct-to clearance');
     if (!this.ownsFlight(flight)) return this.rejectDecision(`${this.state.station} does not own ${flight.callsign}; handoff required`, flight);
     if (flight.progress >= 0.72) return this.rejectDecision('aircraft is too close to final for a route shortcut', flight);
@@ -786,9 +795,238 @@ export class AirportSimulation {
     return true;
   }
 
+  amendFlightRoute(id: number, fixIds: readonly string[]): boolean {
+    if (!this.canIssue('approach')) return this.rejectDecision(`${this.state.station} station has no route-amendment authority`);
+    const flight = this.state.flights.find((item) => (
+      item.id === id
+      && !item.diversion
+      && (item.phase === 'approach' || (item.phase === 'takeoff' && !item.motion.onGround))
+    ));
+    if (!flight) return this.rejectDecision('flight is not airborne and available for a route amendment');
+    if (!this.ownsFlight(flight)) return this.rejectDecision(`${this.state.station} does not own ${flight.callsign}; handoff required`, flight);
+    if (flight.navigation.hold) return this.rejectDecision('release the aircraft from its hold before amending the route', flight);
+    if (flight.phase === 'approach' && flight.progress >= 0.7) return this.rejectDecision('aircraft is established too close to final for a route amendment', flight);
+
+    const direction = flight.phase === 'approach' ? 'arrival' : 'departure';
+    const procedure = this.config.airspaceProgram.procedures.find((candidate) => candidate.id === flight.navigation.procedureId);
+    if (!procedure) return this.rejectDecision(`assigned procedure ${flight.navigation.procedureId} is unavailable`, flight);
+    const permittedFixIds = new Set([
+      ...this.config.airspaceProgram.fixes.filter((fix) => fix.kind === 'entry').map((fix) => fix.id),
+      ...procedure.commonFixIds,
+      ...procedure.transitions.flatMap((transition) => transition.fixIds),
+    ]);
+    const requiredFinalFixId = direction === 'arrival'
+      ? [...procedure.commonFixIds].reverse().find((fixId) => this.config.airspaceProgram.fixes.find((fix) => fix.id === fixId)?.kind === 'final')
+      : undefined;
+    const validation = validateTerminalRouteAmendment(
+      this.config.airspaceProgram,
+      direction,
+      fixIds,
+      permittedFixIds,
+      requiredFinalFixId,
+    );
+    if (!validation.accepted) return this.rejectDecision(validation.reason, flight);
+
+    const routeFixIds = validation.value.map((fix) => fix.id);
+    const firstFix = validation.value[0];
+    const heading = this.mathAngleToAviationDegrees(Math.atan2(firstFix.position[1] - flight.motion.y, firstFix.position[0] - flight.motion.x));
+    flight.navigation.routeFixIds = routeFixIds;
+    flight.navigation.activeFixIndex = 0;
+    flight.navigation.assignedHeadingDegrees = heading;
+    flight.navigation.vector = {
+      issuedAtSeconds: this.state.elapsed,
+      startProgress: flight.progress,
+      endProgress: Math.min(0.995, flight.progress + (direction === 'arrival' ? 0.3 : 0.2)),
+      headingDegrees: heading,
+      rejoinFixId: firstFix.id,
+      start: this.motionStart(flight),
+    };
+    if (direction === 'arrival') {
+      flight.navigation.approachCleared = false;
+      flight.cleared = false;
+      flight.clearanceLeft = Math.max(flight.clearanceLeft, flight.duration * 0.34);
+    } else {
+      flight.navigation.departureHeadingDegrees = heading;
+    }
+    flight.navigation.readbackStatus = 'accepted';
+    amendFlightPlan(flight.flightPlan, 'route-change', this.state.elapsed, `route amended via ${validation.value.map((fix) => fix.name).join(', ')}`, {
+      route: [flight.flightPlan.origin, ...routeFixIds, flight.flightPlan.destination],
+    });
+    this.state.trafficFlow.totals.routeAmendments += 1;
+    this.metrics.manualCommands += 1;
+    this.decisionReason = `${flight.callsign} route amendment accepted · ${routeFixIds.length} fixes`;
+    this.events.push({ type: 'route-amendment', flight, detail: this.decisionReason });
+    return true;
+  }
+
+  assignTaxiRoute(id: number, viaNodeIds: readonly string[] = []): boolean {
+    const flight = this.state.flights.find((item) => item.id === id && (item.phase === 'taxi-in' || item.phase === 'taxi-out'));
+    if (!flight) return this.rejectDecision('flight is not taxiing on the surface');
+    const authority: OperationalControllerStation = requiredControllerStation(flight) === 'ramp' ? 'ramp' : 'ground';
+    if (!this.canIssue(authority)) return this.rejectDecision(`${this.state.station} station has no ${authority} taxi-route authority`, flight);
+    if (!this.ownsFlight(flight)) return this.rejectDecision(`${this.state.station} does not own ${flight.callsign}; handoff required`, flight);
+    if (flight.emergency === 'disabled') return this.rejectDecision('disabled aircraft cannot accept a taxi route', flight);
+    if (flight.phase === 'taxi-out' && flight.deicing.required && ['enroute', 'queued', 'positioning', 'treating', 'expired'].includes(flight.deicing.status)) {
+      return this.rejectDecision('complete or replan the active deicing movement before issuing a taxi amendment', flight);
+    }
+    const routeNodes = flight.surfaceRoute;
+    const routeEdges = flight.surfaceRouteEdges;
+    const sample = sampleSurfaceRouteWithEdges(this.config.surfaceGraph, routeNodes, routeEdges, flight.progress);
+    if (!sample || !routeNodes?.length || !routeEdges?.length || sample.edgeIndex < 0) return this.rejectDecision('flight has no amendable authoritative surface route', flight);
+    const destinationNodeId = routeNodes.at(-1);
+    const routingStartNodeIndex = Math.min(routeNodes.length - 1, sample.edgeIndex + 1);
+    const routingStartNodeId = routeNodes[routingStartNodeIndex];
+    if (!destinationNodeId || !routingStartNodeId || routingStartNodeId === destinationNodeId) return this.rejectDecision('flight is already at the cleared taxi destination', flight);
+    const prefixNodes = routeNodes.slice(0, routingStartNodeIndex + 1);
+    const prefixEdges = routeEdges.slice(0, routingStartNodeIndex);
+    const profile = aircraftProfile(flight.aircraft);
+    const planning = this.surfaceRoutePlanning(flight.id, new Set(prefixEdges));
+    const result = buildSurfaceRouteViaNodes(
+      this.config.surfaceGraph,
+      routingStartNodeId,
+      destinationNodeId,
+      viaNodeIds,
+      { wingspanM: profile.wingspanM, minimumWingtipClearanceM: profile.minimumWingtipClearanceM },
+      planning,
+    );
+    if (!result.accepted) return this.rejectDecision(result.reason, flight);
+
+    const previousEdgeIds = [...routeEdges];
+    const nodeIds = [...prefixNodes, ...result.value.nodeIds.slice(1)];
+    const edgeIds = [...prefixEdges, ...result.value.edgeIds];
+    const fullSample = sampleSurfaceRouteWithEdges(this.config.surfaceGraph, nodeIds, edgeIds, 1);
+    if (!fullSample || fullSample.totalDistance <= 0) return this.rejectDecision('amended taxi route has no usable pavement distance', flight);
+    const edgeById = new Map(this.config.surfaceGraph.edges.map((edge) => [edge.id, edge]));
+    const taxiwayIds = [...new Set(edgeIds.flatMap((edgeId) => {
+      const taxiwayId = edgeById.get(edgeId)?.taxiwayId;
+      return taxiwayId ? [taxiwayId] : [];
+    }))];
+    const route: SurfaceRoute = {
+      nodeIds,
+      edgeIds,
+      distance: fullSample.totalDistance,
+      taxiwayIds,
+      routingCost: fullSample.totalDistance + result.value.congestionPenalty,
+      congestionPenalty: result.value.congestionPenalty,
+      congestedEdgeIds: [...result.value.congestedEdgeIds],
+    };
+    const oldTotal = sample.totalDistance;
+    flight.surfaceRoute = nodeIds;
+    flight.surfaceRouteEdges = edgeIds;
+    flight.surfaceRoutingCost = route.routingCost;
+    flight.surfaceCongestionPenalty = route.congestionPenalty;
+    flight.surfaceCongestedEdgeIds = route.congestedEdgeIds;
+    flight.progress = Math.max(0, Math.min(0.999999, sample.distanceAlong / route.distance));
+    flight.duration = this.surfaceRouteDuration(flight, route);
+    flight.phaseElapsed = flight.duration * flight.progress;
+    flight.requiredCrossings = surfaceRouteRunwayCrossings(this.config.surfaceGraph, edgeIds, flight.runway);
+    const crossingWindows = surfaceRouteCrossingWindows(this.config.surfaceGraph, nodeIds, flight.progress, flight.runway, edgeIds);
+    const completed = crossingWindows.filter((crossing) => crossing.exitProgress < flight.progress - 1e-6);
+    flight.crossingClearanceIds = completed.map((crossing) => crossing.id);
+    flight.crossingClearances = [...new Set(completed.map((crossing) => crossing.runwayId))];
+    flight.crossingHoldRunway = undefined;
+    flight.crossingHoldPointId = undefined;
+    flight.surfaceReroute = {
+      revision: (flight.surfaceReroute?.revision ?? 0) + 1,
+      status: 'rerouted',
+      selectedAtSeconds: this.state.elapsed,
+      disruptionIds: [],
+      previousEdgeIds,
+      routeEdgeIds: [...edgeIds],
+      addedDistanceM: (route.distance - oldTotal) * WORLD_METERS_PER_UNIT,
+      reason: viaNodeIds.length ? `controller taxi clearance via ${viaNodeIds.join(', ')}` : 'controller refreshed the safest available taxi route',
+    };
+    this.updateSurfaceRouteState(flight);
+    syncFlightMotion(this.config, flight);
+    amendFlightPlan(flight.flightPlan, 'clearance', this.state.elapsed, `taxi via ${taxiwayIds.join(', ') || 'assigned pavement route'}`);
+    this.metrics.manualCommands += 1;
+    this.decisionReason = `${flight.callsign} taxi route accepted · ${edgeIds.length} pavement segments`;
+    this.events.push({ type: 'taxi-route-clearance', flight, taxiway: taxiwayIds.join(' / '), detail: this.decisionReason });
+    return true;
+  }
+
+  holdPosition(id: number): boolean {
+    const flight = this.state.flights.find((item) => item.id === id && (item.phase === 'taxi-in' || item.phase === 'taxi-out'));
+    if (!flight) return this.rejectDecision('flight is not taxiing on the surface');
+    const authority: OperationalControllerStation = requiredControllerStation(flight) === 'ramp' ? 'ramp' : 'ground';
+    if (!this.canIssue(authority)) return this.rejectDecision(`${this.state.station} station has no ${authority} hold-position authority`, flight);
+    if (!this.ownsFlight(flight)) return this.rejectDecision(`${this.state.station} does not own ${flight.callsign}; handoff required`, flight);
+    if (flight.controlHold) return this.rejectDecision(`${flight.callsign} is already holding position`, flight);
+    flight.controlHold = true;
+    this.metrics.holdsIssued += 1;
+    this.metrics.manualCommands += 1;
+    this.decisionReason = `${flight.callsign} hold position accepted · normal braking applied`;
+    this.events.push({ type: 'hold-position', flight, taxiway: flight.taxiway, detail: this.decisionReason });
+    return true;
+  }
+
+  resumeTaxi(id: number): boolean {
+    const flight = this.state.flights.find((item) => item.id === id && (item.phase === 'taxi-in' || item.phase === 'taxi-out'));
+    if (!flight) return this.rejectDecision('flight is not taxiing on the surface');
+    const authority: OperationalControllerStation = requiredControllerStation(flight) === 'ramp' ? 'ramp' : 'ground';
+    if (!this.canIssue(authority)) return this.rejectDecision(`${this.state.station} station has no ${authority} taxi authority`, flight);
+    if (!this.ownsFlight(flight)) return this.rejectDecision(`${this.state.station} does not own ${flight.callsign}; handoff required`, flight);
+    if (!flight.controlHold) return this.rejectDecision(`${flight.callsign} has no controller hold to release`, flight);
+    flight.controlHold = false;
+    this.metrics.manualCommands += 1;
+    this.decisionReason = `${flight.callsign} resume taxi accepted${flight.automaticHold || flight.safetyHold ? ' · another safety hold remains active' : ''}`;
+    this.events.push({ type: 'taxi-resume', flight, taxiway: flight.taxiway, detail: this.decisionReason });
+    return true;
+  }
+
+  divertFlight(id: number, airportCode: string, exitFixId?: string, reason = 'controller diversion'): boolean {
+    if (!this.canIssue('approach')) return this.rejectDecision(`${this.state.station} station has no diversion authority`);
+    const flight = this.state.flights.find((item) => item.id === id && item.phase === 'approach' && !item.diversion);
+    if (!flight) return this.rejectDecision('flight is not an inbound aircraft available for diversion');
+    if (!this.ownsFlight(flight)) return this.rejectDecision(`${this.state.station} does not own ${flight.callsign}; handoff required`, flight);
+    const alternate = airportCode.trim().toUpperCase();
+    if (!/^[A-Z0-9]{3,4}$/.test(alternate)) return this.rejectDecision('alternate airport must be a 3- or 4-character code', flight);
+    if (alternate === this.config.code || alternate === `K${this.config.code}`) return this.rejectDecision('alternate airport must differ from the current airport', flight);
+    const exit = selectDiversionExitFix(
+      this.config.airspaceProgram,
+      [flight.motion.x, flight.motion.y],
+      flight.motion.heading,
+      exitFixId,
+    );
+    if (!exit.accepted) return this.rejectDecision(exit.reason, flight);
+    const detail = reason.trim() || 'controller diversion';
+    flight.diversion = {
+      airportCode: alternate,
+      exitFixId: exit.value.id,
+      issuedAtSeconds: this.state.elapsed,
+      reason: detail,
+      start: this.motionStart(flight),
+    };
+    flight.goAround = undefined;
+    flight.navigation.hold = undefined;
+    flight.navigation.vector = undefined;
+    flight.navigation.approachCleared = false;
+    flight.navigation.routeFixIds = [exit.value.id];
+    flight.navigation.activeFixIndex = 0;
+    flight.cleared = false;
+    flight.progress = 0;
+    flight.phaseElapsed = 0;
+    flight.duration = this.phaseDuration(flight.aircraft, 'approach', flight.runway) * 1.35;
+    flight.clearanceLeft = Number.POSITIVE_INFINITY;
+    flight.destination = alternate;
+    amendFlightPlan(flight.flightPlan, 'diversion', this.state.elapsed, `${detail}; divert ${alternate} via ${exit.value.name}`, {
+      destination: alternate,
+      route: [flight.flightPlan.origin, exit.value.id, alternate],
+      estimatedArrivalSeconds: this.state.elapsed + flight.duration,
+    });
+    flight.flightPlan.status = 'diverted';
+    syncFlightMotion(this.config, flight);
+    this.metrics.diversions += 1;
+    this.metrics.manualCommands += 1;
+    this.state.trafficFlow.totals.diversions += 1;
+    this.decisionReason = `${flight.callsign} diverting to ${alternate} via ${exit.value.name}`;
+    this.events.push({ type: 'diversion', flight, detail: `${this.decisionReason} · ${detail}` });
+    return true;
+  }
+
   clearApproach(id: number): boolean {
     if (!this.canIssue('approach')) return this.rejectDecision(`${this.state.station} station has no approach-clearance authority`);
-    const flight = this.state.flights.find((item) => item.id === id && item.phase === 'approach' && !item.goAround && !item.navigation.hold);
+    const flight = this.state.flights.find((item) => item.id === id && item.phase === 'approach' && !item.goAround && !item.diversion && !item.navigation.hold);
     if (!flight) return this.rejectDecision('flight is not established for an approach clearance');
     if (!this.ownsFlight(flight)) return this.rejectDecision(`${this.state.station} does not own ${flight.callsign}; handoff required`, flight);
     flight.navigation.approachCleared = true;
@@ -802,7 +1040,7 @@ export class AirportSimulation {
 
   holdFlight(id: number, patternId?: string, efcMinutes?: number): boolean {
     if (!this.canIssue('approach')) return this.rejectDecision(`${this.state.station} station has no holding authority`);
-    const flight = this.state.flights.find((item) => item.id === id && item.phase === 'approach' && !item.goAround && !item.navigation.hold);
+    const flight = this.state.flights.find((item) => item.id === id && item.phase === 'approach' && !item.goAround && !item.diversion && !item.navigation.hold);
     if (!flight) return this.rejectDecision('flight is not available for a holding clearance');
     if (!this.ownsFlight(flight)) return this.rejectDecision(`${this.state.station} does not own ${flight.callsign}; handoff required`, flight);
     if (flight.progress >= 0.68) return this.rejectDecision('aircraft is inside the final segment; issue a go-around before holding', flight);
@@ -854,6 +1092,14 @@ export class AirportSimulation {
   }
 
   handoffFlight(id: number, station: ControllerStation): boolean {
+    return this.transferFlightFrequency(id, station, 'handoff');
+  }
+
+  contactFlight(id: number, station: ControllerStation): boolean {
+    return this.transferFlightFrequency(id, station, 'contact');
+  }
+
+  private transferFlightFrequency(id: number, station: ControllerStation, eventType: 'handoff' | 'contact'): boolean {
     const flight = this.state.flights.find((item) => item.id === id);
     if (!flight) return this.rejectDecision('flight is not active');
     if (this.state.station !== 'supervisor' && flight.navigation.frequencyOwner !== this.state.station) {
@@ -865,8 +1111,8 @@ export class AirportSimulation {
     flight.navigation.readbackStatus = 'accepted';
     amendFlightPlan(flight.flightPlan, 'clearance', this.state.elapsed, `contact ${station}`);
     this.metrics.manualCommands += 1;
-    this.decisionReason = `${flight.callsign} handed to ${station}`;
-    this.events.push({ type: 'handoff', flight, detail: this.decisionReason });
+    this.decisionReason = eventType === 'contact' ? `${flight.callsign} contact ${station} accepted` : `${flight.callsign} handed to ${station}`;
+    this.events.push({ type: eventType, flight, detail: this.decisionReason });
     return true;
   }
 
@@ -895,7 +1141,7 @@ export class AirportSimulation {
       if (instruction === 'normal') flight.controlPace = 1;
       if (instruction === 'expedite') flight.controlPace = 1.4;
       if (instruction === 'zigzag') {
-        if (flight.phase !== 'approach' || flight.goAround) continue;
+        if (flight.phase !== 'approach' || flight.goAround || flight.diversion) continue;
         if (!this.canIssue('approach')) continue;
         flight.controlPattern = 'zigzag';
         flight.controlPatternStart = flight.progress;
@@ -908,7 +1154,7 @@ export class AirportSimulation {
   }
 
   private goAround(flight: Flight, detail: string): void {
-    if (flight.goAround) return;
+    if (flight.goAround || flight.diversion) return;
     const start = flight.motion;
     flight.goAround = {
       startedAt: this.state.elapsed,
@@ -1124,7 +1370,7 @@ export class AirportSimulation {
       if (flight.phase === 'approach' || flight.phase === 'landing' || flight.phase === 'takeoff') this.metrics.airborneSeconds += delta;
       if (onSurface) this.metrics.taxiSeconds += delta;
       if (flight.safetyHold || (onSurface && (flight.controlHold || flight.automaticHold))) this.metrics.estimatedDelaySeconds += delta;
-      if (flight.phase === 'approach' && !flight.cleared && !flight.goAround && !flight.navigation.hold) {
+      if (flight.phase === 'approach' && !flight.cleared && !flight.goAround && !flight.diversion && !flight.navigation.hold) {
         flight.clearanceLeft -= delta;
         flight.phaseElapsed += delta;
         if (flight.clearanceLeft <= 0 || flight.phaseElapsed >= flight.duration * 0.96) {
@@ -1871,6 +2117,17 @@ export class AirportSimulation {
   }
 
   private advance(flight: Flight): void {
+    if (flight.phase === 'approach' && flight.diversion) {
+      for (const [runway, owner] of this.runwayReservations) {
+        if (owner === flight.id) this.runwayReservations.delete(runway);
+      }
+      this.archiveFlightPlan(flight);
+      this.events.push({ type: 'divert', flight, detail: `${flight.callsign} left terminal scope for ${flight.diversion.airportCode}` });
+      this.state.flights = this.state.flights.filter((item) => item !== flight);
+      this.state.serviceVehicles = this.state.serviceVehicles.filter((vehicle) => vehicle.flightId !== flight.id);
+      this.stationarySeconds.delete(flight.id);
+      return;
+    }
     if (flight.phase === 'approach' && flight.navigation.hold) {
       if (this.state.elapsed + 1e-6 < flight.navigation.hold.expectFurtherClearanceAtSeconds) {
         flight.navigation.hold.cycle += 1;
@@ -2129,7 +2386,7 @@ export class AirportSimulation {
           detail: `automatic ${previous} → ${required} handoff`,
         });
       }
-      if (required === 'approach' && flight.phase === 'approach' && !flight.navigation.approachCleared) {
+      if (required === 'approach' && flight.phase === 'approach' && !flight.diversion && !flight.navigation.approachCleared) {
         flight.navigation.approachCleared = true;
         amendFlightPlan(flight.flightPlan, 'clearance', this.state.elapsed, 'automated approach clearance');
       }
@@ -2139,6 +2396,7 @@ export class AirportSimulation {
         && flight.navigation.approachCleared
         && !flight.cleared
         && !flight.goAround
+        && !flight.diversion
       ) {
         flight.cleared = true;
         flight.clearanceLeft = 99;
@@ -2877,9 +3135,11 @@ export class AirportSimulation {
       target = (flight.wakeClass === 'heavy' ? 2.6 : flight.category === 'regional' ? 3.6 : 3.2) * surfaceWeather;
       return target * pace;
     }
-    if (flight.phase === 'approach') target = flight.goAround
-      ? profile.approachKts + 22
-      : profile.approachKts + this.lerp(18, 2, flight.progress);
+    if (flight.phase === 'approach') target = flight.diversion
+      ? profile.approachKts + 34
+      : flight.goAround
+        ? profile.approachKts + 22
+        : profile.approachKts + this.lerp(18, 2, flight.progress);
     if ((flight.phase === 'approach' || (flight.phase === 'takeoff' && !flight.motion.onGround)) && flight.navigation.assignedSpeedKts !== undefined) {
       target = flight.navigation.assignedSpeedKts;
     }
@@ -4081,7 +4341,7 @@ export class AirportSimulation {
     if (condition !== previousCondition) this.refreshDeicingPlansForWeather();
     if (this.state.weather.surfaceCondition !== previousSurfaceCondition) {
       for (const flight of this.state.flights) {
-        if (flight.phase === 'approach' && !flight.goAround) this.planRunwayExit(flight, 'braking action changed');
+        if (flight.phase === 'approach' && !flight.goAround && !flight.diversion) this.planRunwayExit(flight, 'braking action changed');
       }
     }
     this.updateActiveRunwayConfiguration();

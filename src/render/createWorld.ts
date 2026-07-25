@@ -1768,13 +1768,13 @@ function positionFlight(
 ): void {
   // The orthographic camera has no natural perspective scaling. Gently scale
   // aircraft down through final approach to preserve the visual cue of descent.
-  const approachDescent = flight.phase === 'approach'
+  const approachDescent = flight.phase === 'approach' && !flight.diversion
     ? THREE.MathUtils.smoothstep(flight.progress, 0.06, 0.96)
     : 1;
   const takeoffClimb = flight.phase === 'takeoff'
     ? THREE.MathUtils.smoothstep(flight.progress, 0.34, 0.92)
     : 0;
-  const presentationScale = flight.phase === 'approach'
+  const presentationScale = flight.phase === 'approach' && !flight.diversion
     ? THREE.MathUtils.lerp(visual.baseScale * 1.3, visual.baseScale, approachDescent)
     : flight.phase === 'takeoff'
       ? THREE.MathUtils.lerp(visual.baseScale, visual.baseScale * 1.22, takeoffClimb)
@@ -1819,7 +1819,7 @@ function positionFlight(
   }
   const airborne = !motion.onGround;
   for (const caster of visual.shadowCasters) caster.castShadow = airborne;
-  visual.gear.visible = (flight.phase === 'approach' && flight.progress > 0.72)
+  visual.gear.visible = (flight.phase === 'approach' && !flight.diversion && flight.progress > 0.72)
     || flight.phase === 'landing'
     || flight.phase === 'taxi-in'
     || flight.phase === 'resting'

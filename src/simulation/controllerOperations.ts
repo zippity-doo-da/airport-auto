@@ -53,6 +53,7 @@ export function controllerStationLabel(station: ControllerStation): string {
  * prompts, and opt-in automation without silently changing authority.
  */
 export function requiredControllerStation(flight: Flight): OperationalControllerStation {
+  if (flight.diversion) return 'approach';
   if (flight.phase === 'approach') return flight.progress >= 0.68 ? 'tower' : 'approach';
   if (flight.phase === 'landing') return 'tower';
   if (flight.phase === 'resting') return 'ramp';

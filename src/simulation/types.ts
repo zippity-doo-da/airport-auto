@@ -294,6 +294,15 @@ export interface FlightGoAroundState {
   };
 }
 
+/** A controller-issued, continuous climb-and-exit path to an alternate airport. */
+export interface FlightDiversionState {
+  airportCode: string;
+  exitFixId: string;
+  issuedAtSeconds: number;
+  reason: string;
+  start: Pick<FlightMotionState, 'x' | 'y' | 'z' | 'heading' | 'pitch' | 'bank' | 'onGround' | 'groundBlend' | 'protectedRunway'>;
+}
+
 /** The traffic stream and local operating period that generated this leg. */
 export interface FlightOperationPlan {
   trafficClass: OperationTrafficClass;
@@ -546,6 +555,7 @@ export interface Flight {
   squawk: string;
   emergency?: EmergencyType;
   goAround?: FlightGoAroundState;
+  diversion?: FlightDiversionState;
   kinematics: FlightKinematics;
   motion: FlightMotionState;
 }
@@ -589,7 +599,7 @@ export interface ReplayFrame {
 }
 
 export interface AirportEvent {
-  type: 'spawn' | 'gate-assignment' | 'gate-reassignment' | 'gate-release' | 'runway-exit-plan' | 'surface-reroute' | 'recovery-start' | 'recovery-complete' | 'turnaround-start' | 'service-start' | 'service-complete' | 'turnaround-ready' | 'service-vehicle-dispatch' | 'service-vehicle-arrive' | 'service-vehicle-hold' | 'service-vehicle-release' | 'service-vehicle-return' | 'service-vehicle-clear' | 'deicing-planned' | 'deicing-queue' | 'deicing-pad-entry' | 'deicing-start' | 'deicing-complete' | 'deicing-expired' | 'deicing-return' | 'land' | 'chime' | 'depart' | 'clear' | 'auto-clear' | 'pushback-clearance' | 'pushback-start' | 'engine-start' | 'tug-release' | 'reject' | 'conflict' | 'safety-hold' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'takeoff-clearance' | 'vector' | 'airborne-hold' | 'hold-release' | 'approach-clearance' | 'handoff' | 'go-around' | 'emergency';
+  type: 'spawn' | 'gate-assignment' | 'gate-reassignment' | 'gate-release' | 'runway-exit-plan' | 'surface-reroute' | 'taxi-route-clearance' | 'hold-position' | 'taxi-resume' | 'recovery-start' | 'recovery-complete' | 'turnaround-start' | 'service-start' | 'service-complete' | 'turnaround-ready' | 'service-vehicle-dispatch' | 'service-vehicle-arrive' | 'service-vehicle-hold' | 'service-vehicle-release' | 'service-vehicle-return' | 'service-vehicle-clear' | 'deicing-planned' | 'deicing-queue' | 'deicing-pad-entry' | 'deicing-start' | 'deicing-complete' | 'deicing-expired' | 'deicing-return' | 'land' | 'chime' | 'depart' | 'diversion' | 'divert' | 'clear' | 'auto-clear' | 'pushback-clearance' | 'pushback-start' | 'engine-start' | 'tug-release' | 'reject' | 'conflict' | 'safety-hold' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'takeoff-clearance' | 'vector' | 'route-amendment' | 'airborne-hold' | 'hold-release' | 'approach-clearance' | 'handoff' | 'contact' | 'go-around' | 'emergency';
   flight: Flight;
   runway?: number;
   taxiway?: string;

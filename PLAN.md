@@ -273,6 +273,16 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Keep the Controls surface inside 1366×768, 1280×720, and 1024×600 laptop viewports with compact chrome, opaque overlap handling, contained scrolling, and regression coverage that reaches the final Advanced section.
 - [x] Document measured browser/simulation budgets and explicit Worker/WASM adoption thresholds; the hardware-accelerated in-app browser sustains about 58 FPS at ORD Auto 3× low detail.
 
+## Airport Auto 2.17 — complete typed ATC command vocabulary
+
+- [x] Complete the local typed command surface with explicit terminal-route amendment, graph taxi-route assignment, hold-position/resume-taxi, continuous diversion, and contact-station actions while retaining every earlier clearance command.
+- [x] Constrain terminal amendments to versioned fixes compatible with the assigned runway procedure; arrivals must retain one assigned final fix and bridge from the live pose without teleporting.
+- [x] Preserve the aircraft's current pavement segment during taxi amendments, then validate ordered via nodes through graph direction, pavement width, closures, congestion, deicing state, and newly derived runway crossings.
+- [x] Make hold position use ordinary model-specific deceleration, and keep any automatic, crossing, or collision safety hold active after a controller releases their own hold.
+- [x] Fly accepted diversions continuously from the captured live pose through a terminal edge fix and beyond the map, with amended destination/plan status, metrics, events, replay state, and no landing-clearance timeout.
+- [x] Apply airborne heading changes to departure climb geometry through a continuous vector bridge instead of changing telemetry alone.
+- [x] Expose command outcomes and new route, taxi, contact, hold, and diversion events through API 2.17 / snapshot schema 19; add a deterministic command-vocabulary gate covering acceptance, rejection, continuity, braking, ownership, and scope exit.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.
@@ -299,7 +309,7 @@ The prioritized implementation order, acceptance gates, and reconciled pre-2.1 b
 - Real recorded engine/ramp/radio libraries after licensing, normalization, and long-loop repetition review.
 - Authenticated remote WebSocket control; static GitHub Pages intentionally exposes local-only control today.
 - Live METAR, NOTAM, schedule, and traffic feeds with caching and offline fallback.
-- Detailed tug types, diversions, and deeper gate-service choreography.
+- Detailed tug types and deeper gate-service choreography.
 - Server-validated leaderboards, shared replay URLs, daily challenges, and classroom accounts.
 - Optional generated or recorded ATC voice; captions and event telemetry remain the accessible source of truth.
 

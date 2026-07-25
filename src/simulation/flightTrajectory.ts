@@ -16,6 +16,8 @@ export type FlightTrajectoryStage =
   | 'go-around-climb'
   | 'go-around-turn'
   | 'go-around-reentry'
+  | 'diversion-climb'
+  | 'diversion-exit'
   | 'flare'
   | 'touchdown'
   | 'rollout'
@@ -78,6 +80,7 @@ const MAXIMUM_CLIMB_PITCH = 13.5 * DEGREES_TO_RADIANS;
 const ROTATION_LIFTOFF_HEIGHT = 0.12;
 const APPROACH_PATH_CACHE = new WeakMap<AirportConfig, Map<string, PreparedSmoothPath>>();
 const GO_AROUND_PATH_CACHE = new WeakMap<FlightGoAroundState, PreparedSmoothPath>();
+const DIVERSION_PATH_CACHE = new WeakMap<NonNullable<Flight['diversion']>, PreparedSmoothPath>();
 const VECTOR_PATH_CACHE = new WeakMap<NonNullable<Flight['navigation']['vector']>, PreparedSmoothPath>();
 const HOLD_PATH_CACHE = new WeakMap<NonNullable<Flight['navigation']['hold']>, PreparedSmoothPath>();
 
@@ -91,6 +94,7 @@ export function sampleFlightTrajectory(
   progress = flight.progress,
 ): FlightTrajectorySample | null {
   const amount = clamp(progress, 0, 1);
+  if (flight.phase === 'approach' && flight.diversion) return sampleDiversion(config, flight, amount);
   if (flight.phase === 'approach' && flight.navigation?.hold) return sampleHoldingPattern(config, flight, amount);
   if (flight.phase === 'approach' && flight.goAround) return sampleGoAround(config, flight, amount);
   if (flight.phase === 'approach') return sampleApproach(config, flight, amount);
@@ -216,7 +220,7 @@ function sampleApproachPath(config: AirportConfig, flight: Flight, progress: num
     APPROACH_PATH_CACHE.set(config, airportPaths);
   }
   const navigation = flight.navigation;
-  const cacheKey = `${navigation?.procedureId ?? 'legacy'}:${navigation?.transitionId ?? 'direct'}:${runway.id}:${landingSign}:${lateralSign}:${altitudeLane}`;
+  const cacheKey = `${navigation?.procedureId ?? 'legacy'}:${navigation?.transitionId ?? 'direct'}:${navigation?.routeFixIds.join('>') ?? 'legacy-route'}:${runway.id}:${landingSign}:${lateralSign}:${altitudeLane}`;
   let path = airportPaths.get(cacheKey);
   if (!path) {
     const startDistance = config.scope === 'center' ? 265 : 175;
@@ -604,6 +608,64 @@ function sampleGoAround(config: AirportConfig, flight: Flight, progress: number)
   };
 }
 
+function sampleDiversion(config: AirportConfig, flight: Flight, progress: number): FlightTrajectorySample {
+  const state = flight.diversion!;
+  let path = DIVERSION_PATH_CACHE.get(state);
+  if (!path) {
+    const exitFix = procedureFix(config.airspaceProgram, state.exitFixId);
+    const center = config.runways.reduce(
+      (sum, runway) => ({ x: sum.x + runway.center[0] / config.runways.length, y: sum.y + runway.center[1] / config.runways.length }),
+      { x: 0, y: 0 },
+    );
+    const fixPoint = exitFix
+      ? { x: exitFix.position[0], y: exitFix.position[1] }
+      : { x: state.start.x + Math.cos(state.start.heading) * (config.scope === 'center' ? 190 : 125), y: state.start.y + Math.sin(state.start.heading) * (config.scope === 'center' ? 190 : 125) };
+    const radialLength = Math.hypot(fixPoint.x - center.x, fixPoint.y - center.y) || 1;
+    const outward = { x: (fixPoint.x - center.x) / radialLength, y: (fixPoint.y - center.y) / radialLength };
+    const leadDistance = config.scope === 'center' ? 52 : 36;
+    const beyond = config.scope === 'center' ? 105 : 72;
+    const cruiseHeight = Math.max(state.start.z + 18, altitudePresentation(exitFix?.altitudeFt ?? 3_000) + 8);
+    path = prepareSmoothPath([
+      { x: state.start.x, y: state.start.y, z: state.start.z },
+      {
+        x: state.start.x + Math.cos(state.start.heading) * leadDistance,
+        y: state.start.y + Math.sin(state.start.heading) * leadDistance,
+        z: Math.max(state.start.z + 8, 13),
+      },
+      { x: fixPoint.x, y: fixPoint.y, z: cruiseHeight },
+      { x: fixPoint.x + outward.x * beyond, y: fixPoint.y + outward.y * beyond, z: cruiseHeight + 7 },
+    ]);
+    DIVERSION_PATH_CACHE.set(state, path);
+  }
+  const base = samplePreparedSmoothPath(path, progress);
+  const before = samplePreparedSmoothPath(path, clamp(progress - 0.004, 0, 1));
+  const after = samplePreparedSmoothPath(path, clamp(progress + 0.004, 0, 1));
+  const turn = shortestAngle(
+    Math.atan2(before.tangent.y, before.tangent.x),
+    Math.atan2(after.tangent.y, after.tangent.x),
+  );
+  const stage: FlightTrajectoryStage = progress < 0.42 ? 'diversion-climb' : 'diversion-exit';
+  const stageProgress = stage === 'diversion-climb' ? progress / 0.42 : (progress - 0.42) / 0.58;
+  const climbPitch = 10 * DEGREES_TO_RADIANS;
+  return {
+    x: base.point.x,
+    y: base.point.y,
+    z: progress <= 0 ? state.start.z : Math.max(2.05, base.point.z),
+    heading: Math.atan2(base.tangent.y, base.tangent.x),
+    pitch: stage === 'diversion-climb'
+      ? lerp(state.start.pitch, climbPitch, smoothRange(progress, 0, 0.16))
+      : lerp(climbPitch, 3 * DEGREES_TO_RADIANS, smoothRange(progress, 0.42, 1)),
+    bank: lerp(state.start.bank, clamp(turn * 2.7, -0.18, 0.18), smoothRange(progress, 0, 0.08)),
+    onGround: false,
+    groundBlend: 0,
+    protectedRunway: state.start.protectedRunway && progress < 0.08,
+    stage,
+    stageProgress: clamp(stageProgress, 0, 1),
+    distanceAlong: base.distanceAlong,
+    totalDistance: base.totalDistance,
+  };
+}
+
 function sampleDeparture(config: AirportConfig, flight: Flight, progress: number): FlightTrajectorySample {
   const runway = config.runways[flight.runway] ?? config.runways[0];
   const timing = departureTrajectoryTiming(config, flight.runway, flight.aircraft);
@@ -636,6 +698,7 @@ function sampleDeparture(config: AirportConfig, flight: Flight, progress: number
   let stageProgress = 0;
   let onGround = true;
   let groundBlend = 1;
+  let bank = 0;
 
   if (elapsed < timing.lineupSeconds) {
     stageProgress = clamp(elapsed / timing.lineupSeconds, 0, 1);
@@ -708,13 +771,35 @@ function sampleDeparture(config: AirportConfig, flight: Flight, progress: number
     y = threshold.y + travel.y * distanceAlong;
     heading = Math.atan2(travel.y, travel.x);
   }
+  const vector = flight.navigation?.vector;
+  if (stage === 'climbout' && vector && progress >= vector.startProgress && progress < vector.endProgress) {
+    const rejoin = sampleDeparture(config, { ...flight, navigation: { ...flight.navigation, vector: undefined } }, vector.endProgress);
+    const amount = clamp((progress - vector.startProgress) / Math.max(0.001, vector.endProgress - vector.startProgress), 0, 1);
+    const targetHeading = aviationDegreesToMathAngle(vector.headingDegrees);
+    const reach = Math.max(18, Math.hypot(rejoin.x - vector.start.x, rejoin.y - vector.start.y));
+    const control = {
+      x: vector.start.x + Math.cos(vector.start.heading) * reach * 0.42,
+      y: vector.start.y + Math.sin(vector.start.heading) * reach * 0.42,
+      z: lerp(vector.start.z, rejoin.z, 0.42),
+    };
+    const target = { x: rejoin.x, y: rejoin.y, z: rejoin.z };
+    const point = quadraticPoint(vector.start, control, target, smooth01(amount));
+    const tangent = quadraticTangent(vector.start, control, target, smooth01(amount));
+    x = point.x;
+    y = point.y;
+    z = point.z;
+    heading = Math.atan2(tangent.y, tangent.x);
+    bank = clamp(shortestAngle(vector.start.heading, targetHeading) * Math.sin(Math.PI * amount) * 0.38, -0.18, 0.18);
+    stage = 'vector';
+    stageProgress = amount;
+  }
   return {
     x,
     y,
     z,
     heading,
     pitch,
-    bank: 0,
+    bank,
     onGround,
     groundBlend,
     protectedRunway: stage !== 'climbout' || stageProgress < 0.08,
