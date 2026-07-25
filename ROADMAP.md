@@ -206,8 +206,8 @@ These tasks travel with the milestones above rather than waiting for a final cle
 - [ ] Add browser smoke coverage for every named airport and scenario plus visual-regression baselines for representative desktop/mobile scenes.
 - [ ] Add property tests for graph imports, exact replay, route crossings, wake/runway rules, and command authorization.
 - [ ] Add accessibility regression checks for focus, keyboard flow, touch targets, readable labels, captions, contrast, and reduced motion.
-- [ ] Refresh GitHub Actions to current Node-supported action releases and keep dependencies routinely audited.
-- [ ] Keep source and Pages CI separate, additive, and capable of proving that the menagerie root still works.
+- [x] Refresh GitHub Actions to current Node-supported action releases and keep dependencies routinely audited. (2.15: Checkout/Setup Node/Upload Artifact 7 and current Pages action generations; source tests split into bounded parallel jobs.)
+- [x] Keep source and Pages CI separate, additive, and capable of proving that the menagerie root still works. (2.15: private source CI and public Pages deployment remain separate; deployment mirrors only `airport-auto/` and verifies the menagerie root.)
 - [ ] Profile before adopting Web Workers or WASM; document the measured problem and target budget first.
 
 ## Decisions still needed

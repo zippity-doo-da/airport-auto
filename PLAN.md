@@ -257,6 +257,7 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Process winter holdover expiry before wake/configuration/runway-release gating so an expired aircraft immediately receives a graph-routed second treatment cycle instead of remaining stranded at hold short.
 - [x] API 2.15 / snapshot schema 17 exposes the full airspace program, per-flight navigation state, active separation ruleset, physical coordinate basis, runway-operation history, and violation diagnostics.
 - [x] Validate 74 airports, 3,562 fixes, 660 procedures, 1,571 configuration/weather selections, 296 holds, 330 missed approaches, live ATC authority/continuity, physical separation rules, 57,644 fixed-step ticks, 919,530 trajectory samples, 225,000 collision ticks, the second deicing cycle, selected missed-approach fixes, deterministic twin runs, and applicable desktop/mobile Chromium UI/API flows with fresh screenshot review.
+- [x] Replace the obsolete single 15-minute CI wrapper with parallel static, operations, fixed-step, trajectory/collision, and browser jobs; use current Node-24 action generations in both the private source repository and the separate additive Pages repository.
 
 ## Airport fidelity policy
 
