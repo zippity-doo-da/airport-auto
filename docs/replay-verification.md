@@ -23,7 +23,7 @@ Open **Controls → Replay & agent tools**.
 
 - **Replay / Live** enters or leaves read-only playback.
 - The slider scrubs the exact recorded frames and drives the 3D world, weather presentation, aircraft state, and recorded sound/caption decisions.
-- **Verify** checks every receipt. Browser verification yields between small groups of frames so a long file does not monopolize animation updates.
+- **Verify** checks every receipt. Browser verification yields between small groups of frames so a long file does not monopolize animation updates. If live traffic adds a newer frame afterward, the verified receipt remains readable but changes to a caution state until the latest buffer is verified; imported playback is immutable and does not become stale.
 - **Event marker** jumps to the nearest recorded frame for a command, safety event, weather change, movement event, coordination event, or other non-audio telemetry event.
 - **Set A** stores a baseline frame. **Compare A ↔ current** reports exact equality or a bounded path-level authoritative state diff.
 - **Import** accepts a local JSON replay up to 250 MB, verifies it before use, and opens read-only playback. If necessary, the scene is rebuilt from the recording's supported airport and seed.

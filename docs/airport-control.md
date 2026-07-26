@@ -4,7 +4,7 @@ Airport Auto exposes a local, versioned interface for playtests, scripted contro
 
 ## Browser API
 
-The current API version is `2.38.0`; the formal control protocol is `1.2.0`, snapshots use schema version `40`, and portable recordings use schema version `4`.
+The current API version is `2.39.0`; the formal control protocol is `1.2.0`, snapshots use schema version `41`, and portable recordings use schema version `4`.
 
 ```js
 airportControl.version;
@@ -23,6 +23,7 @@ airportControl.replayTools.seedLink();
 airportControl.replayTools.shareable();
 await airportControl.replayTools.shareableAsync();
 airportControl.analytics();
+airportControl.performance();
 airportControl.exportData("csv", "runways");
 airportControl.help();
 ```
@@ -37,7 +38,7 @@ const result = airportControl.request({
 
 // {
 //   protocolVersion: '1.2.0',
-//   apiVersion: '2.38.0',
+//   apiVersion: '2.39.0',
 //   sessionId: 'session-…',
 //   requestId: 'req-…',
 //   commandId: 'cmd-…',
@@ -74,8 +75,8 @@ const result = airportControl.dispatch({
     actorId: "tower-agent-a",
   },
   expects: {
-    apiVersion: "2.38.0",
-    snapshotSchemaVersion: 40,
+    apiVersion: "2.39.0",
+    snapshotSchemaVersion: 41,
   },
   command: {
     action: "clearTakeoff",
@@ -456,9 +457,11 @@ The full local snapshot contains flight identity and route history, once-per-sim
 
 Top-level `snapshot().analytics` and the remote gateway carry only a compact overview: schema/window metadata, aggregate summary, observed-flight count, and the local-only disclosure. Raw recorder samples, command payloads, and local exports are intentionally excluded from remote projections. Shared replay data must use an explicit allowlist, strip controller identity and free text, require affirmative consent, and declare retention before this boundary is widened. See [operations-data-lab.md](operations-data-lab.md).
 
+`airportControl.performance()` and top-level `snapshot().performance` expose the same bounded local runtime monitor. It separates display-frame work from display-frame gaps, measures fixed simulation ticks directly, tracks dropped wall time and maximum catch-up ticks, and samples heap, aircraft, service vehicles, spatial audio voices, queues, draw calls, geometries, and textures once per simulation second. Each metric has an explicit warming/nominal/attention/exceeded/unavailable budget result; up to 1,200 frame/tick timings and 21,600 counter samples are retained in memory. The optional **Performance** control shows the compact report without changing traffic, quality, or any safety rule. Browser heap data is unavailable where `performance.memory` is not implemented. See [performance-budget.md](performance-budget.md).
+
 ## Snapshot and events
 
-Snapshot schema 40 adds compact replay source, marker, verification-receipt, and state-comparison diagnostics while retaining schema 39 local analytics, schema 38 deterministic environment/presentation, and schema 37 operational weather. `environment` reports local time, lighting/season modes, resolved solar phase, daylight and sun pose, continuous cloud/wet/snow state, and runway-light demand. `presentation` reports the persisted semantic palette and optional camera-director status/subject. Focus, palettes, scorecards, evaluation, challenge grading, coaching, policy state, decision history, and remote connection health remain presentation or feedback; operational instructions still pass through the normal typed command and safety path.
+Snapshot schema 41 adds bounded runtime performance distributions, counters, growth rates, and budget checks while retaining schema 40 replay verification, schema 39 local analytics, schema 38 deterministic environment/presentation, and schema 37 operational weather. `environment` reports local time, lighting/season modes, resolved solar phase, daylight and sun pose, continuous cloud/wet/snow state, and runway-light demand. `presentation` reports the persisted semantic palette and optional camera-director status/subject. Focus, palettes, scorecards, evaluation, challenge grading, coaching, policy state, decision history, and remote connection health remain presentation or feedback; operational instructions still pass through the normal typed command and safety path.
 
 Top-level `selection` reports the selected flight, compact focused-target reference, whether Group select is active, and the selected grouped flight IDs. Top-level `focus` reports catalog schema 1, the current descriptor, and categorized targets for `flight`, `runway`, `taxiway`, `gate`, `queue`, and `conflict`. A descriptor carries stable key/reference, label, explanation, world bounds, suggested zoom, static/flight/group/vehicle follow strategy, related flight IDs, optional vehicle/selected-flight identity, and presentation tone. `renderer.camera.target` reports the resolved XYZ tracking point, normalized viewport position, containment, and rendered-subject visibility; the height-aware renderer derives moving points from the same interpolated visuals it already displays and never invents a separate route.
 
@@ -500,7 +503,7 @@ channel.postMessage({
     clientId: "local-observer",
     source: "agent",
     authority: { station: "supervisor" },
-    expects: { apiVersion: "2.38.0", snapshotSchemaVersion: 40 },
+    expects: { apiVersion: "2.39.0", snapshotSchemaVersion: 41 },
     command: { action: "focusFlight", flightId: 12 },
   },
 });

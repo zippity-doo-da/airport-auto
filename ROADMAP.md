@@ -1,7 +1,7 @@
 # Airport Auto — Forward Roadmap
 
 Last reconciled: July 26, 2026
-Working baseline: Airport Auto 2.38.0 (local release candidate; deployment intentionally withheld)
+Working baseline: Airport Auto 2.39.0 (local release candidate; deployment intentionally withheld)
 
 Airport Auto is an **ASMR-first web airport simulation with an optional serious ATC layer**. The simulation should remain enjoyable as a calm, hands-off miniature world while also supporting increasingly authentic controller work when the player asks for it.
 
@@ -208,8 +208,8 @@ These tasks travel with the milestones above rather than waiting for a final cle
 - [ ] Add a stable asset manifest instead of treating generated hashed filenames as public APIs.
 - [ ] Extend instancing to suitable lights, markings, buildings, and repeated airport props.
 - [ ] Extend pooling to trails, weather effects, labels, route previews, sound emitters, and transient events.
-- [ ] Add frame-time, simulation-time, memory, entity, audio-source, queue, draw-call, and long-session growth budgets.
-- [ ] Add a multi-hour single-session soak and a measured high-density stress profile without weakening safety rules.
+- [x] Add frame-time, simulation-time, memory, entity, audio-source, queue, draw-call, and long-session growth budgets. (2.39 local candidate: a bounded local monitor separates frame work/gaps, measures fixed ticks, samples heap/entities/audio/queues/renderer resources, exposes explicit per-metric checks in the optional Performance panel, snapshot schema 41, and `airportControl.performance()`, and resets cleanly between sessions.)
+- [ ] Add a multi-hour single-session soak and a measured high-density stress profile without weakening safety rules. (2.39 foundation: `test:runtime-performance` now runs a measured Extreme-ORD profile with hard zero-collision/incursion gates, while `soak:runtime` provides a configurable 0.05–12 modeled-hour single-session acceptance runner with half-hour checkpoints, growth/entity/queue budgets, and nonzero exit on safety or pause failures. The measured short profile still exposes one unexplained pause, so the multi-hour acceptance gate remains open.)
 - [ ] Add browser smoke coverage for every named airport and scenario plus visual-regression baselines for representative desktop/mobile scenes.
 - [ ] Add property tests for graph imports, exact replay, route crossings, wake/runway rules, and command authorization. (2.38 foundation: canonical receipts prove exact fixed-step equality across different wall-frame partitions and localize a mutated nested frame; broader generated graph/rule/authorization properties remain.)
 - [ ] Add accessibility regression checks for focus, keyboard flow, touch targets, readable labels, captions, contrast, and reduced motion.

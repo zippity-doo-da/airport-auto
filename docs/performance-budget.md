@@ -4,6 +4,11 @@ Airport Auto remains a TypeScript, Vite, and Three.js application. Profiling on 
 
 ## Current budgets
 
+- The local runtime monitor separately retains the latest 1,200 display-frame work samples, 1,200 display-frame gap samples, 1,200 simulation-tick samples, and 21,600 once-per-simulation-second counter samples. It never uploads data or changes simulation decisions.
+- Frame-work p95 is budgeted at 20 ms, frame-gap p95 at 34 ms, and fixed simulation-tick p95 at 10 ms. Frame gaps diagnose visible stutter; frame work diagnoses main-thread cost.
+- JavaScript heap is budgeted at 512 MiB with a 32 MiB/hour one-hour-window growth limit where Chromium's optional `performance.memory` is available. Growth remains in warming state until five minutes of one session have been observed.
+- Runtime entity/resource ceilings are 160 aircraft, 96 service vehicles, 14 spatial aircraft voices, and 64 queued operations.
+- Low detail is budgeted at 320 draw calls and 280 resident geometries; high detail is budgeted at 700 draw calls and 760 resident geometries. The monitor also reports triangles and textures without using them to change scene quality.
 - Production simulation authority runs at a fixed 20 Hz and rendering interpolates authoritative aircraft and service-vehicle poses at the display rate.
 - A display frame may execute at most three simulation ticks. Wall-clock delta is capped at 100 ms, so a delayed frame cannot create a catch-up spiral and repeated visible skips.
 - ORD low detail must stay below 320 WebGL draw calls and 280 resident geometries in the browser regression gate.
@@ -20,6 +25,14 @@ Before this pass, the software-rendered ORD scene used roughly 713–778 draw ca
 After batching runway lights, runway/threshold/hold-short markings, and existing repeated scenery, ORD uses roughly 252 draw calls and 220 geometries. Cached immutable graph indexes, service routes, and the established high-resolution committed-runway sweep reduced the measured Extreme ORD tick mean to about 6 ms and p95 to about 9 ms while preserving the trajectory safety gate. The software renderer moved close to its paused ceiling, and the hardware-accelerated in-app browser held about 58 FPS at ORD, Auto, 3×, low detail.
 
 Absolute browser FPS varies by GPU, browser, power mode, display resolution, and capture tooling. The committed regression gates therefore enforce structural scene budgets and viewport behavior; the diagnostic profile records CPU simulation cost separately.
+
+## 2.39 runtime monitor and soak gate
+
+Open **Controls → Performance** (or launch with `?debug=1`) for the compact live report. `airportControl.performance()` and `airportControl.snapshot().performance` expose the same schema-1 snapshot for local tools. Status values are `warming`, `nominal`, `attention`, and `exceeded`; individual heap checks may be `unavailable` outside browsers that expose heap telemetry. Starting a new airport resets the monitor so growth is never mixed across sessions.
+
+`npm run test:runtime-performance` verifies percentile calculation, warning and hard limits, retention caps, reset behavior, and an Extreme-ORD measured profile. On the July 26 development run, its 900 measured fixed ticks after warm-up had a mean near 9.5 ms and p95 near 11.8 ms; the separate 600-tick profiler measured roughly 13.5 ms mean and 17.6 ms p95 on the same busy workstation. Both are above the 10 ms target, so this is an open measured performance regression rather than a passing budget claim. The stress profile retained zero collision alerts and zero runway incursions, but also surfaced one existing unexplained-pause diagnostic; that evidence keeps the multi-hour acceptance item open rather than being hidden by the performance work.
+
+`npm run soak:runtime` runs a four-modeled-hour Extreme ORD single-session gate at unchanged Auto/safety settings. Use `node scripts/soakRuntime.mjs --hours=0.25` for a shorter diagnostic or up to 12 modeled hours. Half-hour checkpoints and the final JSON report include wall time, modeled time, unique flights, maximum aircraft/vehicle/queue counts, simulation p95, heap-growth estimate, collisions, incursions, and unexplained pauses. The command exits nonzero for any safety/pause invariant or active simulation/entity/queue/growth budget breach. It is intentionally local and is not part of every short test run.
 
 ## When to reconsider Workers or WASM
 

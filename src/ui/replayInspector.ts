@@ -15,6 +15,7 @@ export interface ReplayInspectorModel {
   baselineFrame: number | null;
   markers: ReplayMarker[];
   verification: ReplayVerificationResult | null;
+  verificationStale: boolean;
   comparison: ReplayStateComparison | null;
   shareAvailable: boolean;
 }
@@ -65,7 +66,10 @@ function formatClock(seconds: number): string {
   return `${String(minutes).padStart(2, "0")}:${String(whole % 60).padStart(2, "0")}`;
 }
 
-function verificationText(verification: ReplayVerificationResult | null): {
+function verificationText(
+  verification: ReplayVerificationResult | null,
+  stale: boolean,
+): {
   label: string;
   detail: string;
   tone: string;
@@ -86,6 +90,12 @@ function verificationText(verification: ReplayVerificationResult | null): {
     return {
       label: "Migrated · unsealed source",
       detail: verification.reason,
+      tone: "caution",
+    };
+  if (stale)
+    return {
+      label: "Exact fingerprints verified",
+      detail: `Live buffer advanced after this receipt · verify again for the latest frame · ${verification.manifestHash ?? "no receipt"}`,
       tone: "caution",
     };
   return {
@@ -179,7 +189,10 @@ export function createReplayInspector(
     elements.baselineButton.textContent =
       model.baselineFrame === null ? "Set A" : `A · ${model.baselineFrame + 1}`;
 
-    const verification = verificationText(model.verification);
+    const verification = verificationText(
+      model.verification,
+      model.verificationStale,
+    );
     elements.status.dataset.tone = verification.tone;
     elements.status.replaceChildren();
     const verificationLabel = document.createElement("b");

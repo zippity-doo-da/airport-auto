@@ -105,6 +105,7 @@ import {
   type OperationsAnalyticsSnapshot,
   type OperationsExportDataset,
 } from './telemetry/operationsAnalytics';
+import { RuntimePerformanceMonitor, runtimeHeapBytes } from './telemetry/runtimePerformance';
 import { createOperationsLab, type OperationsLab } from './ui/operationsLab';
 import {
   buildReplaySeedLink,
@@ -221,6 +222,7 @@ declare global {
       };
       analytics(flightId?: number): OperationsAnalyticsSnapshot;
       exportData(format: 'json' | 'csv', dataset?: OperationsExportDataset, flightId?: number): string;
+      performance(): ReturnType<RuntimePerformanceMonitor['snapshot']>;
     };
   }
 }
@@ -266,6 +268,7 @@ const operationsAnalytics = new OperationsAnalyticsRecorder(
   operationsAirportDescriptor(config),
   simulation.shiftMetrics(),
 );
+const runtimePerformance = new RuntimePerformanceMonitor();
 let world = createWorld(canvas, config);
 let focusTargetRegistry = createFocusTargetRegistry(config);
 let focusTargetCatalog = focusTargetRegistry.build(
@@ -309,6 +312,8 @@ const queueList = $<HTMLElement>('#queue-list');
 const queueLongest = $<HTMLElement>('#queue-longest');
 const operationsLabButton = $<HTMLButtonElement>('#operations-lab-toggle');
 const operationsLabPanel = $<HTMLElement>('#operations-lab');
+const performanceButton = $<HTMLButtonElement>('#performance-toggle');
+const performanceLabel = $<HTMLElement>('#performance-label');
 const focusToggle = $<HTMLButtonElement>('#focus-toggle');
 const focusPanel = $<HTMLElement>('#focus-panel');
 const focusClose = $<HTMLButtonElement>('#focus-close');
@@ -633,6 +638,7 @@ let pausedBeforeReplay = false;
 let lastReplaySoundIndex = -1;
 let importedReplay: ReplayRecording | null = null;
 let replayVerification: ReplayVerificationResult | null = null;
+let replayVerificationStale = false;
 let replayBaselineIndex: number | null = null;
 let replayComparison: ReplayStateComparison | null = null;
 let radioChatterEnabled = true;
@@ -702,6 +708,7 @@ const remoteControlHost: RemoteControlHost = new RemoteControlHost({
 const launchOptions = new URLSearchParams(window.location.search);
 const telemetryEnabled = launchOptions.get('telemetry') === '1';
 const debugEnabled = launchOptions.get('debug') === '1';
+let performancePanelVisible = debugEnabled;
 const soakEnabled = launchOptions.get('soak') === '1';
 const requestedLightingMode = launchOptions.get('lighting');
 const requestedSeasonMode = launchOptions.get('season');
@@ -819,7 +826,7 @@ refreshInputSettings = () => inputSettingsPanel?.render(inputLayer.snapshot());
 refreshInputSettings();
 let lastWorldRender = -Infinity;
 let worldDeltaAccumulator = 0;
-debugPanel.hidden = !debugEnabled;
+updatePerformancePanelControl();
 updateAirportUi();
 updateNightControl();
 updateCameraDirectorUi();
@@ -1450,6 +1457,18 @@ queueClose.addEventListener('click', () => {
   setStatus('Operation queues closed', 'unobstructed map view restored');
 });
 
+performanceButton.addEventListener('click', () => {
+  performancePanelVisible = !performancePanelVisible;
+  lastDebugSecond = -1;
+  updatePerformancePanelControl();
+  setStatus(
+    performancePanelVisible ? 'Performance budgets visible' : 'Performance budgets hidden',
+    performancePanelVisible
+      ? 'local frame, simulation, memory, entity, audio, queue, and renderer measurements'
+      : 'the local monitor continues collecting bounded diagnostics',
+  );
+});
+
 queueFilter.addEventListener('change', () => {
   if (!isOperationQueueFilter(queueFilter.value)) return;
   queueInspectorFilter = queueFilter.value;
@@ -1542,7 +1561,10 @@ function clearRoute(): void {
 }
 
 function frame(now: number): void {
-  const delta = Math.min(0.1, (now - lastTime) / 1000);
+  const frameStarted = performance.now();
+  const frameGapMs = Math.max(0, now - lastTime);
+  const delta = Math.min(0.1, frameGapMs / 1000);
+  runtimePerformance.recordDroppedSimulationTime(Math.max(0, frameGapMs / 1_000 - delta));
   lastTime = now;
   const statusSnapshot = statusMessages.advance(now);
   status.dataset.queueDepth = String(statusSnapshot.queued.length);
@@ -1560,12 +1582,17 @@ function frame(now: number): void {
     renderedFrames = 0;
     frameWindowStarted = now;
   }
+  let ticks = 0;
   if (!replayMode) {
-    simulationAccumulator = Math.min(SIMULATION_STEP * MAX_SIMULATION_TICKS_PER_FRAME, simulationAccumulator + delta);
-    let ticks = 0;
+    const nextAccumulator = simulationAccumulator + delta;
+    const maximumAccumulator = SIMULATION_STEP * MAX_SIMULATION_TICKS_PER_FRAME;
+    runtimePerformance.recordDroppedSimulationTime(Math.max(0, nextAccumulator - maximumAccumulator));
+    simulationAccumulator = Math.min(maximumAccumulator, nextAccumulator);
     while (simulationAccumulator >= SIMULATION_STEP && ticks < MAX_SIMULATION_TICKS_PER_FRAME) {
       previousPresentation = capturePresentation(simulation.state);
+      const simulationStarted = performance.now();
       simulation.update(SIMULATION_STEP);
+      runtimePerformance.recordSimulationTick(performance.now() - simulationStarted);
       simulationAccumulator -= SIMULATION_STEP;
       ticks += 1;
     }
@@ -1600,8 +1627,8 @@ function frame(now: number): void {
     const predictionKey = predictions.map((prediction) => `${prediction.type}:${prediction.flights.join('-')}`).join('|');
     if (predictions.length && predictionKey !== lastPredictionKey) setStatus('Conflict forecast', predictions[0].detail);
     lastPredictionKey = predictionKey;
+    const queues = simulation.queueSnapshot(displayedState);
     if (!replayMode) {
-      const queues = simulation.queueSnapshot(simulation.state);
       operationsAnalytics.record({
         state: simulation.state,
         predictions,
@@ -1616,11 +1643,25 @@ function frame(now: number): void {
         state: cloneAirportState(simulation.state),
       });
       if (replayFrames.length > 900) replayFrames.shift();
-      if (!importedReplay) replayVerification = null;
+      if (!importedReplay && replayVerification?.exact) replayVerificationStale = true;
     }
     updateSafetyUi(predictions);
     refreshFocusTargets(displayedState, predictions);
     updateReplayUi();
+    const renderer = world.diagnostics();
+    const audioState = audio.snapshot();
+    runtimePerformance.sample({
+      elapsedSeconds: displayedState.elapsed,
+      heapBytes: runtimeHeapBytes(),
+      aircraft: displayedState.flights.length,
+      serviceVehicles: displayedState.serviceVehicles.length,
+      audioVoices: audioState.spatialAircraft.activeVoices,
+      queues: queues.total,
+      drawCalls: renderer.drawCalls,
+      geometries: renderer.geometries,
+      textures: renderer.textures,
+      detail: renderer.detail,
+    });
     updateOperationsHealth();
     renderSurfaceDisruptionControls();
     if (queueInspectorVisible) renderQueueInspector();
@@ -1794,6 +1835,7 @@ function frame(now: number): void {
     updateReplayUi();
     lastTelemetrySecond = hudSecond;
   }
+  runtimePerformance.recordFrame(performance.now() - frameStarted, frameGapMs, ticks);
   requestAnimationFrame(frame);
 }
 
@@ -2108,6 +2150,7 @@ function replayMarkers() {
 function resetReplayWorkspace(): void {
   importedReplay = null;
   replayVerification = null;
+  replayVerificationStale = false;
   replayBaselineIndex = null;
   replayComparison = null;
 }
@@ -2186,6 +2229,7 @@ function loadReplayRecording(input: unknown): ReplayVerificationResult {
 function applyReplayVerification(verification: ReplayVerificationResult): ReplayVerificationResult {
   if (!verification.exact || !verification.recording) {
     replayVerification = verification;
+    replayVerificationStale = false;
     setStatus('Replay rejected', verification.reason, 'critical');
     updateReplayUi();
     return verification;
@@ -2215,6 +2259,7 @@ function applyReplayVerification(verification: ReplayVerificationResult): Replay
   if (config.code !== replayConfig.code || config.seed !== replayConfig.seed) newSession(true, replayConfig);
   importedReplay = recording;
   replayVerification = verification;
+  replayVerificationStale = false;
   replayBaselineIndex = null;
   replayComparison = null;
   replayMode = true;
@@ -2254,6 +2299,7 @@ async function importReplayFile(file: File): Promise<void> {
 function useLiveReplayBuffer(): void {
   importedReplay = null;
   replayVerification = null;
+  replayVerificationStale = false;
   replayBaselineIndex = null;
   replayComparison = null;
   const frames = replayPlaybackFrames();
@@ -2264,18 +2310,22 @@ function useLiveReplayBuffer(): void {
 }
 
 async function verifyActiveReplay(): Promise<void> {
+  const sourceFrames = replayPlaybackFrames().length;
   const recording = await activeReplayRecordingAsync();
   const verification = await verifyReplayRecordingAsync(recording);
   replayVerification = verification;
+  replayVerificationStale = !importedReplay && replayPlaybackFrames().length !== sourceFrames;
   updateReplayUi();
   setStatus(verification.exact ? 'Replay verified' : 'Replay mismatch', verification.reason, verification.exact ? undefined : 'critical');
 }
 
 async function shareActiveReplay(): Promise<void> {
+  const sourceFrames = replayPlaybackFrames().length;
   const localRecording = await activeReplayRecordingAsync();
   const recording = await createShareableReplayRecordingAsync(localRecording);
   const verification = await verifyReplayRecordingAsync(recording);
   replayVerification = verification;
+  replayVerificationStale = !importedReplay && replayPlaybackFrames().length !== sourceFrames;
   updateReplayUi();
   if (!verification.exact) {
     setStatus('Replay not shared', verification.reason, 'critical');
@@ -4033,14 +4083,30 @@ function updateOperationsHealth(): void {
   operationsHealth.dataset.state = state.toLowerCase();
 }
 
+function updatePerformancePanelControl(): void {
+  debugPanel.hidden = !performancePanelVisible;
+  performanceButton.classList.toggle('control--active', performancePanelVisible);
+  performanceButton.setAttribute('aria-pressed', String(performancePanelVisible));
+  performanceButton.setAttribute('aria-expanded', String(performancePanelVisible));
+  performanceLabel.textContent = performancePanelVisible ? 'Performance on' : 'Performance';
+}
+
 function renderDebugPanel(): void {
   const renderer = world.diagnostics();
   const diagnostics = simulation.diagnostics();
+  const runtime = runtimePerformance.snapshot();
+  const budgetIssues = runtime.checks
+    .filter((check) => check.status === 'attention' || check.status === 'exceeded')
+    .map((check) => check.label)
+    .join(', ');
   debugPanel.textContent = [
     `${config.code} · ${simulation.state.mode.toUpperCase()} · ${simulation.state.station.toUpperCase()}`,
-    `${measuredFps.toFixed(1)} fps · ${renderer.drawCalls} draws · ${renderer.triangles.toLocaleString()} tris`,
+    `${runtime.status.toUpperCase()} · ${measuredFps.toFixed(1)} fps · ${runtime.frameGapMs.p95.toFixed(1)} ms gap p95 · ${runtime.frameWorkMs.p95.toFixed(1)} ms work p95`,
+    `${runtime.simulationTickMs.p95.toFixed(2)} ms sim p95 · ${runtime.droppedSimulationSeconds.toFixed(2)} s dropped · ${runtime.maximumTicksPerFrame} max ticks/frame`,
+    `${renderer.drawCalls} draws · ${renderer.geometries} geometries · ${renderer.triangles.toLocaleString()} tris`,
     `${simulation.state.flights.length} aircraft · ${diagnostics.runwayReservations.length} runway reservations`,
     `${diagnostics.metrics.collisionAlerts} conflicts · ${diagnostics.metrics.runwayIncursions} incursions · ${diagnostics.metrics.unexplainedPauses} pauses`,
+    budgetIssues ? `Budget watch: ${budgetIssues}` : 'Budgets within measured limits',
   ].join('\n');
 }
 
@@ -4069,6 +4135,7 @@ function updateReplayUi(): void {
     baselineFrame: replayBaselineIndex,
     markers: replayMarkers(),
     verification: replayVerification,
+    verificationStale: replayVerificationStale,
     comparison: replayComparison,
     shareAvailable: true,
   });
@@ -4398,6 +4465,7 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   }
   lastOrientationUpdate = -Infinity;
   simulationAccumulator = 0;
+  runtimePerformance.reset();
   previousPresentation = capturePresentation(simulation.state);
   updateAirportUi();
   clearRoute();
@@ -5157,6 +5225,7 @@ function airportSnapshot() {
         checkedFrames: replayVerification.checkedFrames,
         manifestHash: replayVerification.manifestHash,
         reason: replayVerification.reason,
+        stale: replayVerificationStale,
       } : null,
       baselineFrame: replayBaselineIndex,
       comparison: replayComparison ? {
@@ -5179,6 +5248,7 @@ function airportSnapshot() {
       fullSnapshot: 'airportControl.analytics(flightId?)',
       exportData: "airportControl.exportData('json' | 'csv', dataset?, flightId?)",
     },
+    performance: runtimePerformance.snapshot(),
     traffic: diagnostics,
     trafficManagement: diagnostics.trafficManagement,
     queues: diagnostics.queues,
@@ -6445,6 +6515,7 @@ window.airportControl = {
     seedLink: replaySeedLink,
   },
   analytics(flightId) { return operationsAnalyticsSnapshot(Number.isFinite(flightId) ? flightId ?? null : null); },
+  performance() { return runtimePerformance.snapshot(); },
   exportData(format, dataset = 'flights', flightId) {
     return serializeOperationsExport(format, isOperationsExportDataset(dataset) ? dataset : 'flights', flightId);
   },
@@ -6464,7 +6535,7 @@ window.airportControl = {
       events: 'airportControl.events(100)',
       protocol: 'airportControl.protocol() // command/event JSON Schemas, authority, compatibility, examples',
       validate: "airportControl.validate({ action: 'pause' }) // structural validation without execution",
-      formalDispatch: "airportControl.dispatch({ protocolVersion: '1.2.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.38.0', snapshotSchemaVersion: 40 }, command: { action: 'pause' } })",
+      formalDispatch: "airportControl.dispatch({ protocolVersion: '1.2.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.39.0', snapshotSchemaVersion: 41 }, command: { action: 'pause' } })",
       structuredCommand: "airportControl.request({ action: 'pause' }) // legacy-compatible bare command; result includes requestId, commandId, eventId, authority, and compatibility",
       pause: "airportControl.command({ action: 'pause' })",
       speed: "airportControl.command({ action: 'setSpeed', value: 2 })",
@@ -6557,6 +6628,7 @@ window.airportControl = {
       replaySeedLink: 'airportControl.replayTools.seedLink() // safe deterministic launch URL; no identity or replay data',
       replayShareable: 'await airportControl.replayTools.shareableAsync() // removes identity, correlations, payloads, and free text, then fingerprints again',
       analytics: 'airportControl.analytics() // local flight recorder, utilization, queues, metrics, and conflict heatmap',
+      performance: 'airportControl.performance() // bounded frame, simulation, memory, entity, audio, queue, and renderer budgets',
       analyticsFlight: 'airportControl.analytics(1) // select one observed flight recorder trace',
       exportJson: "airportControl.exportData('json') // complete local operations bundle; no upload",
       exportCsv: "airportControl.exportData('csv', 'runways') // flights, commands, events, queues, delays, runways, taxiways, shift-metrics, flight-recorder, or conflicts",

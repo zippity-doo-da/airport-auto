@@ -515,6 +515,21 @@ The 2.38-focused validators and browser checks below pass. A broader aggregate `
 - [x] Publish exact semantics, security limitations, privacy classes, migration behavior, controls, and verification in [docs/replay-verification.md](docs/replay-verification.md).
 - [x] Validate canonical key ordering, nested tamper localization, comparisons, marker placement, migrations, unsupported versions, redaction/non-leakage, shared-package verification, cooperative yields, fixed-step partition equality, types, lint, production build, and the real desktop/mobile replay workflow locally without invoking GitHub Actions.
 
+## Airport Auto 2.39 — runtime budgets and soak instrumentation (local release candidate)
+
+Deployment remains intentionally withheld to conserve GitHub Actions minutes. This candidate has only been built and tested locally.
+
+- [x] Add one bounded runtime monitor for frame-work and frame-gap distributions, fixed simulation-tick timing, dropped wall time, catch-up ticks, heap, aircraft, service vehicles, spatial audio voices, operation queues, draw calls, geometries, textures, and one-hour growth rates.
+- [x] Define explicit warming, nominal, attention, exceeded, and unavailable results for every applicable metric with separate low/high renderer budgets and no automatic quality or safety mutation.
+- [x] Add an ordinary Performance control plus `?debug=1`, top-level snapshot schema 41 diagnostics, and read-only `airportControl.performance()` access; reset every sample window on a new airport.
+- [x] Bound retention to 1,200 frame-work/gap samples, 1,200 simulation-tick samples, and 21,600 once-per-simulation-second counter samples without persistence or upload.
+- [x] Add a deterministic validator for percentile math, warning/hard thresholds, retention/reset behavior, and a measured Extreme-ORD stress profile with unchanged safety rules and hard zero-collision/incursion gates.
+- [x] Add a configurable 0.05–12 modeled-hour local soak runner with half-hour progress, unique-flight/entity/queue/growth metrics, and nonzero exit for collision, incursion, unexplained-pause, simulation, memory-growth, entity, or queue budget failure.
+- [x] Document budgets, browser limitations, API/UI access, measured stress evidence, the existing unexplained-pause finding, and the Worker/WASM decision boundary in [docs/performance-budget.md](docs/performance-budget.md).
+- [x] Validate the focused monitor/stress harness, TypeScript, lint, production build, protocol compatibility, and desktop/mobile Performance UI locally without invoking GitHub Actions.
+
+The multi-hour roadmap acceptance item remains open until the full soak exits cleanly. The short Extreme-ORD profile still reports one pre-existing unexplained pause, so 2.39 does not claim the long-session gate is met.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.
