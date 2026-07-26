@@ -13,6 +13,12 @@ const HIDDEN_CONTRAIL: ContrailPresentation = {
   lengthScale: 1,
 };
 
+// The simulation models terminal airspace rather than cruise flight. Keep the
+// cosmetic trail at the very top of that scope so it never reads as exhaust on
+// final, initial climb, taxi, or the runway surface.
+export const MIN_CONTRAIL_ALTITUDE_FT = 3_500;
+const FULL_CONTRAIL_ALTITUDE_FT = 5_000;
+
 /**
  * Cosmetic, terminal-scale atmospheric presentation only. This adapter reads
  * authoritative flight/weather state and never feeds a result back into the
@@ -29,14 +35,18 @@ export function contrailPresentation(
 
   const altitude = flight.kinematics.altitudeFt;
   const upperArrival =
-    flight.phase === "approach" && flight.progress < 0.42 && altitude >= 3_000;
+    flight.phase === "approach" &&
+    flight.progress < 0.42 &&
+    altitude >= MIN_CONTRAIL_ALTITUDE_FT;
   const upperDeparture =
     flight.phase === "takeoff" &&
     flight.motion.stage === "climbout" &&
     flight.motion.stageProgress > 0.56 &&
-    altitude >= 2_200;
-  const missedApproach = Boolean(flight.goAround) && altitude >= 2_600;
-  const scopeExit = Boolean(flight.diversion) && altitude >= 3_000;
+    altitude >= MIN_CONTRAIL_ALTITUDE_FT;
+  const missedApproach =
+    Boolean(flight.goAround) && altitude >= MIN_CONTRAIL_ALTITUDE_FT;
+  const scopeExit =
+    Boolean(flight.diversion) && altitude >= MIN_CONTRAIL_ALTITUDE_FT;
   if (!upperArrival && !upperDeparture && !missedApproach && !scopeExit)
     return HIDDEN_CONTRAIL;
 
@@ -44,14 +54,20 @@ export function contrailPresentation(
     weather.weatherEnabled &&
     (weather.condition === "rain" ||
       weather.condition === "fog" ||
-      weather.condition === "snow");
+      weather.condition === "snow" ||
+      weather.condition === "thunderstorm");
   const coldLayer = weather.weatherEnabled && weather.temperatureC <= 10;
   // Humidity is not yet authoritative simulation state. A stable per-flight
   // moisture band gives occasional clear-weather trails without flicker.
   const moistureBand = deterministicMoisture(flight.id) < 0.42;
   if (!moistWeather && !coldLayer && !moistureBand) return HIDDEN_CONTRAIL;
 
-  const altitudeMix = clamp((altitude - 2_200) / 2_200, 0, 1);
+  const altitudeMix = clamp(
+    (altitude - MIN_CONTRAIL_ALTITUDE_FT) /
+      (FULL_CONTRAIL_ALTITUDE_FT - MIN_CONTRAIL_ALTITUDE_FT),
+    0,
+    1,
+  );
   const moistureMix = moistWeather ? 1 : coldLayer ? 0.72 : 0.46;
   return {
     visible: true,

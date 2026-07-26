@@ -21,6 +21,7 @@ export interface AmbientAudioSnapshot {
     wind: number;
     rain: number;
     snow: number;
+    lowVisibility: number;
     field: number;
     room: number;
     ramp: number;
@@ -87,6 +88,7 @@ export class AmbientAudio {
     wind: 0,
     rain: 0,
     snow: 0,
+    lowVisibility: 0,
     field: 0,
     room: 0,
     ramp: 0,
@@ -157,12 +159,19 @@ export class AmbientAudio {
     this.environment.wind = windOn
       ? 0.008 + (state.weather.windSpeed / 40) * 0.048
       : 0;
-    this.environment.rain =
-      weatherOn && state.weather.condition === "rain" ? 0.056 : 0;
-    this.environment.snow =
-      weatherOn && state.weather.condition === "snow" ? 0.018 : 0;
-    this.environment.field = Math.min(0.026, 0.009 + moving * 0.00075);
-    this.environment.room = state.mode === "watch" ? 0.01 : 0.014;
+    this.environment.rain = weatherOn && state.weather.precipitation === "rain"
+      ? 0.026 + state.weather.intensity * 0.05
+      : 0;
+    this.environment.snow = weatherOn && state.weather.precipitation === "snow"
+      ? 0.008 + state.weather.intensity * 0.018
+      : 0;
+    this.environment.lowVisibility = weatherOn
+      ? Math.max(0, Math.min(1, (6 - state.weather.visibility) / 5))
+      : 0;
+    this.environment.field = Math.min(0.026, 0.009 + moving * 0.00075)
+      * (1 - this.environment.lowVisibility * 0.32);
+    this.environment.room = (state.mode === "watch" ? 0.01 : 0.014)
+      + this.environment.lowVisibility * 0.005;
     this.environment.ramp = Math.min(0.024, rampVehicles * 0.0018);
     this.environment.apu = Math.min(0.018, gateActivity * 0.0014);
 

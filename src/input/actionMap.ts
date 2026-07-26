@@ -381,6 +381,14 @@ export const ZERO_INPUT_AXES: InputAxes = {
   zoom: 0,
 };
 
+/**
+ * A second, post-deadzone threshold prevents an aging or resting controller
+ * from turning harmless stick drift into a deliberate camera gesture. The
+ * normal deadzone still preserves smooth response once the player commits to
+ * moving the stick.
+ */
+export const GAMEPAD_CAMERA_ACTIVATION_THRESHOLD = 0.12;
+
 export function applyInputDeadzone(value: number, deadzone = 0.18): number {
   if (!Number.isFinite(value)) return 0;
   const magnitude = Math.abs(value);
@@ -420,11 +428,19 @@ export function standardGamepadAxes(
     gamepadButtonValue(gamepad, 7) - gamepadButtonValue(gamepad, 6);
   const strongest = (first: number, second: number): number =>
     Math.abs(first) >= Math.abs(second) ? first : second;
-  return {
+  const axes: InputAxes = {
     panX: Math.max(-1, Math.min(1, strongest(axis(0), dpadX))),
     panY: Math.max(-1, Math.min(1, strongest(axis(1), dpadY))),
     rotate: Math.max(-1, Math.min(1, axis(2))),
     zoom: Math.max(-1, Math.min(1, strongest(-axis(3), triggerZoom * amount))),
+  };
+  const intentional = (value: number): number =>
+    Math.abs(value) < GAMEPAD_CAMERA_ACTIVATION_THRESHOLD ? 0 : value;
+  return {
+    panX: intentional(axes.panX),
+    panY: intentional(axes.panY),
+    rotate: intentional(axes.rotate),
+    zoom: intentional(axes.zoom),
   };
 }
 

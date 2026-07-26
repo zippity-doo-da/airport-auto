@@ -6,6 +6,7 @@ import { airportContextDataManifest, type AirportContextDataManifest } from './a
 import { buildAirportOperationProfile, type AirportOperationProfile } from './airportOperationProfiles';
 import { airportTrafficProgram, type AirportTrafficProgram } from './airportTrafficPrograms';
 import { buildAirportAirspaceProgram, type AirportAirspaceProgram } from './airspaceProcedures';
+import type { WeatherCondition } from './types';
 
 export type FlightColor = 'rose' | 'mist' | 'sage';
 export type TerrainTheme = 'coast' | 'highland' | 'woodland';
@@ -25,7 +26,7 @@ export interface RunwayConfig {
 }
 
 export interface RunwayConfigurationRestrictions {
-  conditions: Array<'clear' | 'rain' | 'fog' | 'snow'>;
+  conditions: WeatherCondition[];
   minimumVisibilityMiles?: number;
   minimumWindSpeedKts?: number;
   preferredWindDirectionDegrees?: number;
@@ -318,7 +319,7 @@ function buildRunwayConfigurations(code: string, runways: RunwayConfig[]): Airpo
     operatingEnds: Object.fromEntries(runways.map((runway) => [runway.id, end])) as Record<number, -1 | 1>,
     runwayRoles: Object.fromEntries(runways.map((runway) => [runway.id, runway.role])) as Record<number, RunwayOperationalRole>,
     restrictions: {
-      conditions: ['clear', 'rain', 'fog', 'snow'],
+      conditions: ['clear', 'haze', 'rain', 'fog', 'snow', 'thunderstorm'],
       autoSelectable: true,
       note: 'Schematic configuration available in all simulated weather.',
     },
@@ -376,7 +377,7 @@ function buildRunwayConfigurations(code: string, runways: RunwayConfig[]): Airpo
         [0, 1, 4],
         [2, 3, 7],
         'parallel',
-        { conditions: ['clear', 'rain', 'fog', 'snow'], autoSelectable: true, note: 'Preferred O’Hare flow and the robust option in marginal and winter weather.' },
+        { conditions: ['clear', 'haze', 'rain', 'fog', 'snow', 'thunderstorm'], autoSelectable: true, note: 'Preferred O’Hare flow and the robust option in marginal, convective, and winter weather.' },
         0.08,
       ),
       ordConfiguration(
@@ -420,7 +421,7 @@ function buildRunwayConfigurations(code: string, runways: RunwayConfig[]): Airpo
         [0, 1, 5],
         [2, 3],
         'instrument-parallel',
-        { conditions: ['rain', 'fog'], autoSelectable: true, note: 'Instrument east-flow variant that avoids simultaneous 10C and 10R arrivals.' },
+        { conditions: ['haze', 'rain', 'fog', 'thunderstorm'], autoSelectable: true, note: 'Instrument east-flow variant that avoids simultaneous 10C and 10R arrivals.' },
         0.12,
       ),
       ordConfiguration(
@@ -432,7 +433,7 @@ function buildRunwayConfigurations(code: string, runways: RunwayConfig[]): Airpo
         [7],
         'crosswind-contingency',
         {
-          conditions: ['clear', 'rain', 'fog', 'snow'],
+          conditions: ['clear', 'haze', 'rain', 'fog', 'snow', 'thunderstorm'],
           minimumWindSpeedKts: 18,
           preferredWindDirectionDegrees: 220,
           windDirectionToleranceDegrees: 55,

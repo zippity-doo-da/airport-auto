@@ -5,6 +5,12 @@ import { aircraftSystemsState } from '../simulation/aircraftSystems';
 import type { AirportState, Flight, FlightMotionState, ServiceVehicleType, WeatherState } from '../simulation/types';
 import { applyAircraftOrientation } from './aircraftOrientation';
 import { contrailPresentation } from './aircraftEffects';
+import { weatherPresentation } from './weatherPresentation';
+import {
+  environmentPresentation,
+  type EnvironmentPresentation,
+  type EnvironmentSurfaceKind,
+} from './environmentPresentation';
 import {
   aircraftPoolKey,
   applyAircraftVisualSystems,
@@ -16,6 +22,10 @@ import { treePlacement } from './sceneryPlacement';
 import { updateSurfaceDisruptionVisuals } from './surfaceDisruptionVisuals';
 import { createAirspaceOverlay, type AirspaceLayer } from './airspaceOverlay';
 import type { FocusTargetKind, FocusTargetTone } from '../presentation/focusTargets';
+import {
+  accessibilityPaletteDefinition,
+  type AccessibilityPalette,
+} from '../presentation/accessibilityPalette';
 export type { AirspaceLayer } from './airspaceOverlay';
 
 const APPROACH_PRESENTATION_PITCH = THREE.MathUtils.degToRad(6);
@@ -67,6 +77,7 @@ export type WorldDiagnostics = {
   pooledServiceVehicles: number;
   serviceVehiclesVisible: boolean;
   contrailsVisible: boolean;
+  accessibilityPalette: AccessibilityPalette;
   activeContrails: number;
   attachedTugs: number;
   startingEngines: number;
@@ -127,6 +138,16 @@ export type WorldDiagnostics = {
     departureMarkerVisible: boolean;
   }>;
   context: AirportContextDiagnostics | { status: 'procedural' };
+  environment: {
+    phase: AirportState['environment']['phase'];
+    season: AirportState['environment']['season'];
+    daylight: number;
+    cloudCover: number;
+    snowCover: number;
+    wetPavement: number;
+    runwayLightIntensity: number;
+    trackedSurfaceMaterials: number;
+  };
 };
 
 export interface WorldFocusTarget {
@@ -166,6 +187,7 @@ export interface AirportWorld {
   setRunwayLabelsVisible(visible: boolean): void;
   setServiceVehiclesVisible(visible: boolean): void;
   setContrailsVisible(visible: boolean): void;
+  setAccessibilityPalette(palette: AccessibilityPalette): void;
   setSurfaceLayerVisible(layer: SurfaceLayer, visible: boolean): void;
   setAirspaceLayerVisible(layer: AirspaceLayer, visible: boolean): void;
   diagnostics(): WorldDiagnostics;
@@ -259,6 +281,8 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   const clouds = buildClouds(scene, lowDetail);
   const rain = buildRain(scene, config.seed, lowDetail);
   const ripples = buildRipples(world, config);
+  const environmentMaterials = collectEnvironmentMaterials(world);
+  const semanticMaterials = collectSemanticMaterials(world);
 
   const flightVisuals = new Map<number, FlightVisual>();
   const flightPool = new Map<string, FlightVisual[]>();
@@ -294,6 +318,8 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   let runwayLabelsVisible = false;
   let serviceVehiclesVisible = true;
   let contrailsVisible = false;
+  let accessibilityPalette: AccessibilityPalette = 'standard';
+  applySemanticPalette(semanticMaterials, accessibilityPalette);
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const attitudeNose = new THREE.Vector3();
   let manualCameraActive = false;
@@ -313,18 +339,25 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   function update(state: AirportState, delta: number): void {
     currentState = state;
     cameraTime += delta;
-    const baseWeatherFog = state.weather.condition === 'fog' ? 0.0074 : state.weather.condition === 'snow' ? 0.0064 : state.weather.condition === 'rain' ? 0.0052 : 0.0032;
-    const weatherFog = baseWeatherFog / Math.sqrt(Math.max(1, manualZoom));
+    const weatherEnvironment = weatherPresentation(state.weather);
+    const environment = environmentPresentation(state.environment, state.weather);
+    const weatherFog = weatherEnvironment.fogDensity / Math.sqrt(Math.max(1, manualZoom));
     fog.density = THREE.MathUtils.lerp(fog.density, weatherFog, Math.min(1, delta * 0.9));
-    nightMix = THREE.MathUtils.lerp(nightMix, state.nightMode ? 1 : 0, Math.min(1, delta * 2.2));
-    const skyTarget = new THREE.Color(state.weather.condition === 'snow' ? 0x96a4a1 : state.weather.condition === 'rain' ? 0x627675 : state.weather.condition === 'fog' ? 0x89938c : COLORS.sky);
-    skyTarget.lerp(new THREE.Color(state.weather.condition === 'fog' || state.weather.condition === 'snow' ? 0x28343b : 0x091b29), nightMix);
-    (scene.background as THREE.Color).lerp(skyTarget, Math.min(1, delta * 0.6));
-    fog.color.lerp(skyTarget, Math.min(1, delta * 0.6));
-    sun.intensity = THREE.MathUtils.lerp(2.25, 0.5, nightMix);
-    sun.color.setHex(state.nightMode ? 0xa8c6df : 0xffd6a3);
-    hemisphere.intensity = THREE.MathUtils.lerp(1.45, 0.62, nightMix);
-    renderer.toneMappingExposure = THREE.MathUtils.lerp(0.94, 0.86, nightMix);
+    nightMix = THREE.MathUtils.lerp(nightMix, 1 - environment.daylight, Math.min(1, delta * 2.2));
+    environmentColorScratch.setHex(environment.sky);
+    (scene.background as THREE.Color).lerp(environmentColorScratch, Math.min(1, delta * 0.6));
+    fog.color.lerp(environmentColorScratch, Math.min(1, delta * 0.6));
+    sun.intensity = environment.sunIntensity;
+    sun.color.setHex(environment.sun);
+    const sunRadius = 170;
+    sun.position.set(
+      Math.cos(state.environment.sunAzimuthRadians) * sunRadius,
+      Math.sin(state.environment.sunAzimuthRadians) * sunRadius,
+      Math.max(28, Math.sin(state.environment.sunElevationRadians) * sunRadius),
+    );
+    hemisphere.intensity = environment.hemisphereIntensity;
+    renderer.toneMappingExposure = environment.exposure;
+    updateEnvironmentMaterials(environmentMaterials, environment);
     for (let index = 0; index < runwayLights.length; index += 1) {
       const light = runwayLights[index];
       const activeEnd = state.activeRunwayEnds[light.runwayId] ?? config.runways[light.runwayId]?.landingEnd;
@@ -335,7 +368,12 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
       if (!light.mesh.visible) continue;
       const material = light.mesh.material as THREE.MeshBasicMaterial;
       const shimmer = Math.sin(state.elapsed * 2.4 + light.phase) * 0.035;
-      material.opacity = THREE.MathUtils.clamp(THREE.MathUtils.lerp(light.dayOpacity, light.nightOpacity, nightMix) + shimmer * nightMix, 0.08, 1);
+      material.opacity = THREE.MathUtils.clamp(
+        THREE.MathUtils.lerp(light.dayOpacity, light.nightOpacity, environment.runwayLightIntensity)
+          + shimmer * environment.runwayLightIntensity,
+        0.08,
+        1,
+      );
     }
     for (let index = 0; index < airportBuild.runwayVisuals.length; index += 1) {
       const runway = config.runways[index];
@@ -460,6 +498,11 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
 
     for (let index = 0; index < clouds.length; index += 1) {
       const cloud = clouds[index];
+      cloud.visible = environment.cloudOpacity > 0.045;
+      for (const child of cloud.children) {
+        const material = (child as THREE.Mesh).material;
+        if (material instanceof THREE.MeshBasicMaterial) material.opacity = environment.cloudOpacity;
+      }
       const windTo = state.weather.windDirection + Math.PI;
       const cloudSpeed = delta * (0.35 + state.weather.windSpeed * 0.045 + index * 0.05);
       cloud.position.x += Math.cos(windTo) * cloudSpeed;
@@ -656,7 +699,8 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     focusMarker.position.set(focus.x, focus.y, Math.max(2.25, focus.z));
     const pulse = reducedMotion ? 1 : 1 + Math.sin(elapsed * 2.6) * 0.035;
     focusMarker.scale.setScalar(Math.max(5, focus.radius) * pulse);
-    const color = target.tone === 'rose' ? 0xf0a29b : target.tone === 'amber' ? 0xefc775 : 0x89cee6;
+    const semantic = accessibilityPaletteDefinition(accessibilityPalette).semantic;
+    const color = target.tone === 'rose' ? semantic.critical : target.tone === 'amber' ? semantic.caution : semantic.info;
     for (const child of focusMarker.children) {
       const material = (child as THREE.Mesh | THREE.LineSegments).material;
       if (material instanceof THREE.Material && 'color' in material) {
@@ -890,6 +934,10 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
       contrailsVisible = visible;
       if (!visible) for (const visual of flightVisuals.values()) visual.contrail.visible = false;
     },
+    setAccessibilityPalette(palette) {
+      accessibilityPalette = palette;
+      applySemanticPalette(semanticMaterials, palette);
+    },
     setSurfaceLayerVisible(layer, visible) {
       airportBuild.surfaceLayers[layer].visible = visible;
     },
@@ -930,6 +978,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
         pooledServiceVehicles: [...serviceVehiclePool.values()].reduce((sum, pool) => sum + pool.length, 0),
         serviceVehiclesVisible,
         contrailsVisible,
+        accessibilityPalette,
         activeContrails: [...flightVisuals.values()].filter((visual) => visual.contrail.visible).length,
         attachedTugs: [...flightVisuals.values()].filter((visual) => visual.tug.visible).length,
         startingEngines: [...flightVisuals.values()].filter((visual) => visual.root.userData.engineState === 'starting').length,
@@ -995,6 +1044,16 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
           departureMarkerVisible: visual.departureMarker.visible,
         })),
         context: contextRuntime?.diagnostics() ?? { status: 'procedural' },
+        environment: {
+          phase: currentState?.environment.phase ?? 'day',
+          season: currentState?.environment.season ?? 'summer',
+          daylight: Number((currentState?.environment.daylight ?? 1).toFixed(4)),
+          cloudCover: Number((currentState?.environment.cloudCover ?? 0).toFixed(4)),
+          snowCover: Number((currentState?.environment.snowCover ?? 0).toFixed(4)),
+          wetPavement: Number((currentState?.environment.wetPavement ?? 0).toFixed(4)),
+          runwayLightIntensity: Number((currentState?.environment.runwayLightIntensity ?? 0).toFixed(4)),
+          trackedSurfaceMaterials: environmentMaterials.length,
+        },
       };
     },
     resize,
@@ -1024,6 +1083,101 @@ type LandscapeDimensions = {
   panY: number;
 };
 
+type EnvironmentMaterialState = {
+  material: THREE.MeshStandardMaterial;
+  baseColor: THREE.Color;
+  baseRoughness: number;
+  kind: EnvironmentSurfaceKind;
+};
+
+type SemanticMaterialKind = 'runwayLine' | 'arrival' | 'departure' | 'critical';
+
+type SemanticMaterialState = {
+  material: THREE.MeshBasicMaterial;
+  kind: SemanticMaterialKind;
+};
+
+const environmentColorScratch = new THREE.Color();
+
+function collectEnvironmentMaterials(root: THREE.Object3D): EnvironmentMaterialState[] {
+  const collected: EnvironmentMaterialState[] = [];
+  const seen = new Set<THREE.Material>();
+  root.traverse((object) => {
+    if (!(object instanceof THREE.Mesh || object instanceof THREE.InstancedMesh)) return;
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    for (const material of materials) {
+      if (!(material instanceof THREE.MeshStandardMaterial) || seen.has(material)) continue;
+      if (!material.name.startsWith('environment:')) continue;
+      const kind = material.name.slice('environment:'.length) as EnvironmentSurfaceKind;
+      if (kind !== 'terrain' && kind !== 'district' && kind !== 'pavement') continue;
+      seen.add(material);
+      collected.push({
+        material,
+        baseColor: material.color.clone(),
+        baseRoughness: material.roughness,
+        kind,
+      });
+    }
+  });
+  return collected;
+}
+
+function updateEnvironmentMaterials(
+  materials: readonly EnvironmentMaterialState[],
+  environment: EnvironmentPresentation,
+): void {
+  for (const entry of materials) {
+    entry.material.color.copy(entry.baseColor);
+    if (entry.kind === 'pavement') {
+      entry.material.color.lerp(environmentColorScratch.setHex(0x263638), environment.wetPavement * 0.34);
+      entry.material.color.lerp(environmentColorScratch.setHex(environment.snowTint), environment.snowCover * 0.16);
+      entry.material.roughness = THREE.MathUtils.lerp(
+        THREE.MathUtils.lerp(entry.baseRoughness, 0.38, environment.wetPavement),
+        0.78,
+        environment.snowCover * 0.35,
+      );
+      continue;
+    }
+    entry.material.color.lerp(
+      environmentColorScratch.setHex(environment.terrainTint),
+      entry.kind === 'terrain' ? 0.22 : 0.14,
+    );
+    entry.material.color.lerp(
+      environmentColorScratch.setHex(environment.snowTint),
+      environment.snowCover * (entry.kind === 'terrain' ? 0.78 : 0.62),
+    );
+  }
+}
+
+function collectSemanticMaterials(root: THREE.Object3D): SemanticMaterialState[] {
+  const collected: SemanticMaterialState[] = [];
+  const seen = new Set<THREE.Material>();
+  root.traverse((object) => {
+    if (!(object instanceof THREE.Mesh || object instanceof THREE.InstancedMesh)) return;
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    for (const material of materials) {
+      if (!(material instanceof THREE.MeshBasicMaterial) || seen.has(material)) continue;
+      if (!material.name.startsWith('semantic:')) continue;
+      const kind = material.name.slice('semantic:'.length) as SemanticMaterialKind;
+      if (kind !== 'runwayLine' && kind !== 'arrival' && kind !== 'departure' && kind !== 'critical') continue;
+      seen.add(material);
+      collected.push({ material, kind });
+    }
+  });
+  return collected;
+}
+
+function applySemanticPalette(
+  materials: readonly SemanticMaterialState[],
+  palette: AccessibilityPalette,
+): void {
+  const semantic = accessibilityPaletteDefinition(palette).semantic;
+  for (const entry of materials) {
+    const color = entry.kind === 'critical' ? semantic.critical : semantic[entry.kind];
+    entry.material.color.setHex(color);
+  }
+}
+
 function landscapeDimensions(config: Pick<AirportConfig, 'scope'>): LandscapeDimensions {
   return config.scope === 'center'
     ? { width: 16000, height: 12000, detailedWidth: 4000, detailedHeight: 3000, panX: 5200, panY: 3900 }
@@ -1036,9 +1190,11 @@ function buildLandscape(root: THREE.Group, config: AirportConfig, dimensions: La
     highland: { ground: 0x756f55, district: 0x918868 },
     woodland: { ground: 0x4f6852, district: 0x687a5c },
   }[config.terrain];
+  const groundMaterial = new THREE.MeshStandardMaterial({ color: terrainColors.ground, roughness: 1 });
+  groundMaterial.name = 'environment:terrain';
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(dimensions.width, dimensions.height),
-    new THREE.MeshStandardMaterial({ color: terrainColors.ground, roughness: 1 }),
+    groundMaterial,
   );
   ground.position.z = 1.24;
   ground.receiveShadow = true;
@@ -1047,6 +1203,7 @@ function buildLandscape(root: THREE.Group, config: AirportConfig, dimensions: La
   if (config.contextData) return;
 
   const districtMaterial = new THREE.MeshStandardMaterial({ color: terrainColors.district, roughness: 1 });
+  districtMaterial.name = 'environment:district';
   for (let row = -3; row <= 3; row += 1) {
     for (let column = -4; column <= 4; column += 1) {
       if (Math.abs(row) <= 1 && Math.abs(column) <= 1) continue;
@@ -1072,6 +1229,7 @@ function addHighway(root: THREE.Group, start: THREE.Vector3, end: THREE.Vector3,
     new THREE.BoxGeometry(length, width, 0.22),
     new THREE.MeshStandardMaterial({ color: 0x414a49, roughness: 0.92 }),
   );
+  (road.material as THREE.MeshStandardMaterial).name = 'environment:pavement';
   road.position.copy(midpoint);
   road.rotation.z = angle;
   road.receiveShadow = true;
@@ -1118,7 +1276,11 @@ function createBoxInstances(
 
 function buildAirport(root: THREE.Group, config: AirportConfig, lowDetail: boolean): AirportBuild {
   const asphalt = new THREE.MeshStandardMaterial({ color: COLORS.runway, roughness: 0.88 });
+  asphalt.name = 'environment:pavement';
   const stripe = new THREE.MeshBasicMaterial({ color: COLORS.runwayLine });
+  stripe.name = 'semantic:runwayLine';
+  const arrivalMaterial = new THREE.MeshBasicMaterial({ color: COLORS.runwayLine });
+  arrivalMaterial.name = 'semantic:arrival';
   const unitBox = new THREE.BoxGeometry(1, 1, 1);
   const unitLight = new THREE.SphereGeometry(1, lowDetail ? 6 : 8, lowDetail ? 4 : 6);
   const runwayLights: RunwayLight[] = [];
@@ -1146,11 +1308,12 @@ function buildAirport(root: THREE.Group, config: AirportConfig, lowDetail: boole
       const across = barCount === 1 ? 0 : (bar / (barCount - 1) - 0.5) * Math.max(0.5, data.width - 0.5);
       arrivalTransforms.push({ x: 0, y: across, z: 0, width: 0.55, depth: Math.min(0.36, data.width / (barCount * 1.35)), height: 0.06 });
     }
-    arrivalMarker.add(createBoxInstances(unitBox, stripe, arrivalTransforms));
+    arrivalMarker.add(createBoxInstances(unitBox, arrivalMaterial, arrivalTransforms));
     arrivalMarker.visible = data.role === 'arrival' || data.role === 'mixed';
     marker.add(arrivalMarker);
     const departureMarker = new THREE.Group();
     const departureMaterial = new THREE.MeshBasicMaterial({ color: 0x79c8e8 });
+    departureMaterial.name = 'semantic:departure';
     departureMarker.add(createBoxInstances(unitBox, departureMaterial, [-1, 1].map((side) => ({
       x: -0.7,
       y: side * data.width * 0.23,
@@ -1179,6 +1342,7 @@ function buildAirport(root: THREE.Group, config: AirportConfig, lowDetail: boole
     const closure = new THREE.Group();
     closure.position.z = 0.29;
     const closureMaterial = new THREE.MeshBasicMaterial({ color: 0xef6f62 });
+    closureMaterial.name = 'semantic:critical';
     closure.add(createBoxInstances(unitBox, closureMaterial, [-0.72, 0.72].map((rotation) => ({
       x: 0,
       y: 0,
@@ -1250,6 +1414,7 @@ function buildAirport(root: THREE.Group, config: AirportConfig, lowDetail: boole
 
   if (config.vectorData) addImportedAprons(root, config.vectorData.runtimeReference.aprons);
   const taxiMaterial = new THREE.MeshStandardMaterial({ color: 0x515b58, roughness: 0.96 });
+  taxiMaterial.name = 'environment:pavement';
   addTaxiNetwork(root, config.surfaceGraph, taxiMaterial);
   const surfaceLayers = addSurfaceMapLayers(root, config);
   addHoldShortMarkings(root, config, unitBox);
@@ -1305,6 +1470,7 @@ function buildAirport(root: THREE.Group, config: AirportConfig, lowDetail: boole
 
 function addImportedAprons(root: THREE.Group, aprons: NonNullable<AirportConfig['vectorData']>['runtimeReference']['aprons']): void {
   const material = new THREE.MeshStandardMaterial({ color: 0x59635e, roughness: 0.98, side: THREE.DoubleSide });
+  material.name = 'environment:pavement';
   for (const apron of aprons) {
     const shape = shapeFromRings(apron.rings);
     if (!shape) continue;
@@ -1479,19 +1645,19 @@ function buildRain(scene: THREE.Scene, seed: number, lowDetail: boolean): THREE.
 }
 
 function updateRain(rain: THREE.Points, state: AirportState, delta: number): void {
-  const snow = state.weather.condition === 'snow';
-  rain.visible = state.weather.condition === 'rain' || snow;
+  const presentation = weatherPresentation(state.weather);
+  rain.visible = presentation.precipitation !== 'none';
   if (!rain.visible) return;
   const material = rain.material as THREE.PointsMaterial;
-  material.color.setHex(snow ? 0xf1f3ed : 0xc9e1e4);
-  material.size = snow ? 1.15 : 0.75;
-  material.opacity = snow ? 0.72 : 0.5;
+  material.color.setHex(presentation.particleColor);
+  material.size = presentation.particleSize;
+  material.opacity = presentation.particleOpacity;
   const positions = rain.geometry.getAttribute('position') as THREE.BufferAttribute;
   const windTo = state.weather.windDirection + Math.PI;
   for (let index = 0; index < positions.count; index += 1) {
-    let x = positions.getX(index) + Math.cos(windTo) * state.weather.windSpeed * delta * (snow ? 0.25 : 0.16);
-    let y = positions.getY(index) + Math.sin(windTo) * state.weather.windSpeed * delta * (snow ? 0.25 : 0.16);
-    let z = positions.getZ(index) - delta * (snow ? 8 : 34);
+    let x = positions.getX(index) + Math.cos(windTo) * state.weather.windSpeed * delta * presentation.windDrift;
+    let y = positions.getY(index) + Math.sin(windTo) * state.weather.windSpeed * delta * presentation.windDrift;
+    let z = positions.getZ(index) - delta * presentation.fallSpeed;
     if (z < 0) z += 95;
     if (x > 250) x -= 500;
     if (x < -250) x += 500;

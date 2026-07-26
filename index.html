@@ -133,8 +133,8 @@
         </details>
         <label class="speed-control"><span>Speed <output id="speed-output" for="speed-control">1×</output></span><input id="speed-control" type="range" min="0.5" max="3" step="0.25" value="1" aria-label="Simulation speed" /></label>
         <div class="weather-readout" aria-label="Current weather">
-          <span id="weather-condition">WX off</span><b id="weather-wind">calm · wind off</b><small id="weather-visibility">10 mi visibility</small><small id="operation-bank">06:20 local · Morning traffic</small><small id="traffic-flow">Realistic · metering clear</small><small id="runway-configuration">Primary flow</small>
-          <div class="weather-readout__switches"><button id="weather-toggle" type="button" aria-pressed="false">WX OFF</button><button id="wind-toggle" type="button" aria-pressed="false">WIND OFF</button><select id="weather-condition-select" aria-label="Weather condition"><option value="auto">Auto cycle</option><option value="clear">Clear</option><option value="rain">Rain</option><option value="fog">Fog</option><option value="snow">Snow / deicing</option></select></div>
+          <span id="weather-condition">WX off</span><b id="weather-wind">calm · wind off</b><small id="weather-visibility">10 mi visibility</small><small id="weather-runway-condition">Runways dry · RwyCC 6/6/6</small><small id="environment-readout">Automatic light · dawn · summer</small><small id="operation-bank">06:20 local · Morning traffic</small><small id="traffic-flow">Realistic · metering clear</small><small id="runway-configuration">Primary flow</small>
+          <div class="weather-readout__switches"><button id="weather-toggle" type="button" aria-pressed="false">WX OFF</button><button id="wind-toggle" type="button" aria-pressed="false">WIND OFF</button><select id="weather-condition-select" aria-label="Weather condition"><option value="auto">Auto cycle</option><option value="clear">Clear</option><option value="haze">Haze</option><option value="rain">Rain</option><option value="fog">Fog</option><option value="snow">Snow / deicing</option><option value="thunderstorm">Thunderstorm</option></select></div>
           <label class="runway-configuration-control"><span>Runway plan</span><select id="runway-configuration-select" aria-label="Runway configuration"><option value="auto">Automatic</option></select></label>
         </div>
         <label class="audio-preset"><span>Soundscape</span><select id="audio-preset"><option value="full">Full field</option><option value="calm">Calm</option><option value="radio">Radio focus</option><option value="engines">Engines only</option><option value="silent">Silent simulation</option></select></label>
@@ -143,12 +143,13 @@
         <nav class="controls" aria-label="Game controls">
           <button id="mode-toggle" class="control control--active" type="button" aria-label="Switch control mode" aria-pressed="true"><span id="mode-icon" aria-hidden="true">A</span><small id="mode-label">Auto</small></button>
           <button id="scope-toggle" class="control" type="button" aria-label="Switch between airfield and center view" aria-pressed="false"><span aria-hidden="true">⌁</span><small id="scope-label">Center</small></button>
-          <button id="night-toggle" class="control" type="button" aria-label="Toggle night mode" aria-pressed="false"><span id="night-icon" aria-hidden="true">☀</span><small id="night-label">Day</small></button>
+          <button id="night-toggle" class="control" type="button" aria-label="Cycle automatic, night, and day lighting" aria-pressed="false"><span id="night-icon" aria-hidden="true">◐</span><small id="night-label">Auto</small></button>
           <button id="sound-toggle" class="control" type="button" aria-label="Toggle sound" aria-pressed="false"><span aria-hidden="true">◖))</span><small>Sound</small></button>
           <button id="pause-toggle" class="control" type="button" aria-label="Pause shift" aria-pressed="false"><span id="pause-icon" aria-hidden="true">Ⅱ</span><small id="pause-label">Pause</small></button>
           <button id="view-toggle" class="control" type="button" aria-label="Change camera view"><span aria-hidden="true">◇</span><small>New view</small></button>
           <button id="radar-toggle" class="control" type="button" aria-label="Show radar inset" aria-pressed="false"><span aria-hidden="true">◎</span><small id="radar-label">Radar off</small></button>
           <button id="queue-toggle" class="control" type="button" aria-label="Show operation queue inspector" aria-pressed="false"><span aria-hidden="true">≡</span><small id="queue-label">Queues off</small></button>
+          <button id="operations-lab-toggle" class="control" type="button" aria-label="Open operations data lab" aria-controls="operations-lab" aria-expanded="false" aria-pressed="false"><span aria-hidden="true">⌁</span><small>Data lab</small></button>
           <button id="runway-label-toggle" class="control" type="button" aria-label="Show runway labels" aria-pressed="false"><span aria-hidden="true">09</span><small id="runway-label-label">Labels off</small></button>
           <button id="field-toggle" class="control" type="button" aria-label="Generate a new airfield"><span aria-hidden="true">↻</span><small id="field-label">New field</small></button>
         </nav>
@@ -177,6 +178,14 @@
             <div id="input-bindings" class="input-bindings" aria-label="Core input bindings"></div>
             <small>Camera input pauses beneath drawers and modals. Every clearance still passes through the same controller-authority and safety arbiter.</small>
           </fieldset>
+          <fieldset class="presentation-settings" aria-label="Scene and accessibility settings">
+            <legend>Scene &amp; accessibility</legend>
+            <label><span>Lighting</span><select id="lighting-mode-select"><option value="automatic">Automatic time</option><option value="day">Force day</option><option value="night">Force night</option></select></label>
+            <label><span>Season</span><select id="season-mode-select"><option value="automatic">Automatic</option><option value="spring">Spring</option><option value="summer">Summer</option><option value="autumn">Autumn</option><option value="winter">Winter</option></select></label>
+            <label><span>Palette</span><select id="accessibility-palette-select"><option value="standard">Original</option><option value="high-contrast">High contrast</option><option value="cvd-safe">Blue / amber safe</option><option value="monochrome">Monochrome</option></select></label>
+            <label class="presentation-settings__toggle"><input id="camera-director-enabled" type="checkbox" /><span>Calm camera director</span></label>
+            <div class="presentation-settings__status"><b id="camera-director-status">Director off</b><small>Optional observer only; any pan, zoom, rotation, or selection turns it off immediately.</small></div>
+          </fieldset>
           <fieldset class="audio-mixer" aria-label="Sound levels">
             <legend>Sound mixer</legend>
             <label><span>Ambience</span><input data-audio-level="ambience" type="range" min="0" max="1" step="0.05" value="1" /></label>
@@ -187,7 +196,7 @@
             <div class="audio-mixer__switches">
               <label><input id="radio-chatter-enabled" type="checkbox" checked /><span>Radio cues</span></label>
               <label><input id="radio-captions-enabled" type="checkbox" checked /><span>Radio captions</span></label>
-              <label><input id="high-stakes-weather-enabled" type="checkbox" /><span>Rare thunder</span></label>
+              <label><input id="high-stakes-weather-enabled" type="checkbox" /><span>Rare severe weather</span></label>
             </div>
             <small>Project-original procedural soundscape with fictional offline ATC captions. No live radio, voice generation, microphone, or network audio.</small>
           </fieldset>
@@ -206,7 +215,7 @@
             <label><input id="wind-overlay-toggle" type="checkbox" />Wind on map</label>
             <label><input id="service-vehicles-toggle" type="checkbox" checked />Service vehicles</label>
             <label><input id="airport-life-toggle" type="checkbox" />Airport-life details</label>
-            <label><input id="contrails-toggle" type="checkbox" />Upper-scope contrails</label>
+            <label><input id="contrails-toggle" type="checkbox" />High-altitude contrails</label>
             <small>All overlays start hidden to preserve the clean field view.</small>
           </fieldset>
           <fieldset class="surface-disruptions" aria-label="Surface availability controls">
@@ -334,6 +343,45 @@
         <label><span>Blocker type</span><select id="queue-filter"><option value="all">All blockers</option><option value="gate">Gate</option><option value="ramp">Ramp</option><option value="taxi">Taxi</option><option value="crossing">Crossing</option><option value="runway">Runway</option><option value="wake">Wake</option><option value="weather">Weather</option><option value="downstream">Downstream</option></select></label>
         <div id="queue-list" class="queue-panel__list" role="list" aria-live="polite"><p class="queue-panel__empty">No active operational blockers.</p></div>
         <footer><span id="queue-longest">Flowing</span><small>Select any queue to follow its live blocker</small></footer>
+      </aside>
+
+      <aside id="operations-lab" class="operations-lab" aria-label="Airport operations data lab" aria-hidden="true" hidden inert>
+        <header class="operations-lab__header">
+          <div><span>Local analysis</span><h2>Operations data lab</h2><small data-operations-airport>LOCAL · Airport Auto</small></div>
+          <button data-operations-close type="button" aria-label="Close operations data lab">×</button>
+        </header>
+        <div class="operations-lab__scroll">
+          <section class="operations-lab__summary" aria-label="Shift summary">
+            <header><b>Shift pulse</b><span data-operations-duration>0:00 observed</span></header>
+            <div data-operations-summary></div>
+          </section>
+          <section class="operations-lab__recorder" aria-labelledby="operations-recorder-title">
+            <header><div><b id="operations-recorder-title">Flight data recorder</b><span>One-second authoritative samples</span></div><button data-operations-focus type="button">Follow</button></header>
+            <label><span>Aircraft</span><select data-operations-flight aria-label="Flight data recorder aircraft"></select></label>
+            <p data-operations-flight-state>Select an observed aircraft to inspect its recorder trace.</p>
+            <svg data-operations-chart viewBox="0 0 360 92" role="img" aria-label="No flight recorder samples yet." preserveAspectRatio="none">
+              <path class="operations-lab__grid" d="M0 23H360M0 46H360M0 69H360" />
+              <path data-operations-altitude class="operations-lab__chart-altitude" />
+              <path data-operations-speed class="operations-lab__chart-speed" />
+              <path data-operations-fuel class="operations-lab__chart-fuel" />
+            </svg>
+            <footer><span>Altitude</span><span>Speed</span><span>Fuel</span></footer>
+          </section>
+          <div class="operations-lab__utilization">
+            <section aria-labelledby="operations-runways-title"><header><b id="operations-runways-title">Runway utilization</b><span>Occupied time</span></header><div data-operations-runways></div></section>
+            <section aria-labelledby="operations-taxiways-title"><header><b id="operations-taxiways-title">Taxiway utilization</b><span>Top observed routes</span></header><div data-operations-taxiways><p>Taxiway observations will appear as surface traffic moves.</p></div></section>
+          </div>
+          <section class="operations-lab__heatmap" aria-labelledby="operations-heatmap-title">
+            <header><b id="operations-heatmap-title">Conflict forecast heatmap</b><span>Cautions are prevented forecasts—not collisions</span></header>
+            <div><svg data-operations-heatmap role="img" aria-label="Spatial history of conflict forecasts and runway layout"></svg><p data-operations-heatmap-empty>No conflict forecasts recorded. The runway schematic remains visible for context.</p></div>
+          </section>
+          <section class="operations-lab__exports" aria-labelledby="operations-exports-title">
+            <header><b id="operations-exports-title">Local exports</b><span>Nothing is uploaded</span></header>
+            <label><span>Dataset</span><select data-operations-dataset aria-label="Operations export dataset"></select></label>
+            <div><button data-operations-export-json type="button">Download JSON bundle</button><button data-operations-export-csv type="button">Download CSV</button></div>
+            <small data-operations-disclosure>Exports remain in this browser unless you explicitly download and share them.</small>
+          </section>
+        </div>
       </aside>
 
       <section class="scoreboard" aria-label="Shift score">

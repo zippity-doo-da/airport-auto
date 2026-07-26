@@ -5,7 +5,7 @@ Airport Auto 2.34 adds a deterministic long-form sound foundation for Auto, Watc
 ## Current sound model
 
 - Persistent per-aircraft voices follow the authoritative model, engine type, power state, position, and ground/air state. The nearest 14 useful voices receive camera-relative stereo position, distance attenuation, restrained Doppler, simple distance/ground occlusion, and smooth gain/frequency targets.
-- Field, tower-room, ramp, APU, wind, rain, and snow beds crossfade from the displayed live or replay weather and traffic state. Wind audio is silent when either weather or wind is switched off.
+- Field, tower-room, ramp, APU, wind, rain, and snow beds crossfade from the displayed live or replay weather and traffic state. Low visibility shifts the field/room balance, thunderstorm precipitation drives the rain layer, and wind audio is silent when either weather or wind is switched off.
 - Deterministic event decisions add touchdown, reverse thrust, takeoff power, engine start, tug, service vehicle, ramp clatter, deicing spray, gear, gust, weather-transition, and optional rare-thunder cues.
 - Fictional offline ATC captions are derived from accepted simulation events. They use a bounded priority queue and 4.2–8 second wall-clock dwell, so busy traffic cannot make them flicker unreadably.
 - Five independent buses—Ambience, Aircraft, Weather, Radio, and UI—support Full field, Calm, Radio focus, Engines only, and Silent presets.
@@ -29,7 +29,7 @@ Watch mode selects the Calm preset but does not silently change a player's radio
 
 Replay schema 3 stores `soundEvents` alongside full-state frames, commands, weather history, and causal events. Scrubbing changes both the rendered environment mix and nearby recorded sound/caption decision; it never continues to sonify the hidden live weather state.
 
-The schema-36 snapshot exposes:
+The schema-37 snapshot exposes:
 
 - `audio.enabled`, context state, selected preset, bus levels, radio/caption switches, and played/suppressed counts;
 - current environment targets for wind, rain, snow, field, room, ramp, and APU;

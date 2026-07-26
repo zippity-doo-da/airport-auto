@@ -109,6 +109,13 @@ type StoredInputPreferences = {
 };
 
 const INPUT_PREFERENCES_KEY = "airport-auto.input.v1";
+const MOUSE_DRAG_THRESHOLD_PX = 6;
+const TOUCH_DRAG_THRESHOLD_PX = 10;
+const WHEEL_GESTURE_THRESHOLD = 0.75;
+
+function pointerDragThreshold(device: "mouse" | "touch"): number {
+  return device === "touch" ? TOUCH_DRAG_THRESHOLD_PX : MOUSE_DRAG_THRESHOLD_PX;
+}
 
 function inputPreferenceStorage(): Storage | null {
   try {
@@ -376,7 +383,8 @@ export function createUnifiedInput(options: UnifiedInputOptions): UnifiedInput {
     if (record.intent.kind === "route") {
       if (
         !record.routeStarted &&
-        Math.hypot(current.x - record.start.x, current.y - record.start.y) < 3
+        Math.hypot(current.x - record.start.x, current.y - record.start.y) <
+          pointerDragThreshold(record.device)
       )
         return;
       event.preventDefault();
@@ -396,7 +404,8 @@ export function createUnifiedInput(options: UnifiedInputOptions): UnifiedInput {
     if (record.intent.kind !== "camera") return;
     if (
       !record.moved &&
-      Math.hypot(current.x - record.start.x, current.y - record.start.y) < 3
+      Math.hypot(current.x - record.start.x, current.y - record.start.y) <
+        pointerDragThreshold(record.device)
     )
       return;
     event.preventDefault();
@@ -456,6 +465,11 @@ export function createUnifiedInput(options: UnifiedInputOptions): UnifiedInput {
 
   const handleWheel = (event: WheelEvent): void => {
     if (options.getContext() !== "gameplay") return;
+    if (
+      !Number.isFinite(event.deltaY) ||
+      Math.abs(event.deltaY) < WHEEL_GESTURE_THRESHOLD
+    )
+      return;
     event.preventDefault();
     markDevice("mouse", undefined, "wheel");
     options.onCameraGestureStart("mouse");

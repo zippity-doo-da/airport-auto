@@ -11,7 +11,7 @@ test("busy 3x traffic keeps transient notices readable", async ({
   await page.goto(
     "/?airport=ORD&mode=auto&scenario=rush&density=extreme&speed=3&autostart=1&detail=low&renderFps=2",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.34.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.37.0");
   await page.waitForFunction(
     () => document.querySelector<HTMLElement>(".status")?.dataset.messageId,
   );

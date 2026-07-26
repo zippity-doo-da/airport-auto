@@ -1,6 +1,6 @@
 import './styles.css';
 import { AirportSimulation } from './simulation/airportSimulation';
-import { generateAirportConfig, generateHubConfig, HUB_AIRPORTS } from './simulation/airportConfig';
+import { generateAirportConfig, generateHubConfig, HUB_AIRPORTS, type AirportConfig } from './simulation/airportConfig';
 import { aircraftProfile } from './simulation/aircraftProfiles';
 import { aircraftSystemsState } from './simulation/aircraftSystems';
 import { airlineProfile } from './simulation/airlineProfiles';
@@ -8,8 +8,15 @@ import { sampleAircraftSurfaceMotion, surfaceStoppingDistanceM } from './simulat
 import { surfaceRampControlZones, surfaceStandFlow } from './simulation/surfaceOperations';
 import { GATE_TURN_BUFFER_SECONDS } from './simulation/gateAssignment';
 import { cloneFlightPlan } from './simulation/flightPlanning';
+import { airportPlaceLabel, airportRouteLabel } from './simulation/airportDirectory';
 import { isTrafficDensity, trafficDensityProfile, type TrafficDensity } from './simulation/trafficDensity';
 import { cloneTrafficFlowState } from './simulation/trafficFlowManagement';
+import { cloneWeatherState, isWeatherCondition, weatherConditionProfile } from './simulation/weatherOperations';
+import {
+  cloneEnvironmentState,
+  isEnvironmentLightingMode,
+  isEnvironmentSeasonMode,
+} from './simulation/environmentOperations';
 import { separationRuleset, type SeparationRulesetId } from './simulation/separationRules';
 import { controllerStationLabel, isControllerStation, OPERATIONAL_CONTROLLER_STATIONS, requiredControllerStation, suggestedHandoffStation } from './simulation/controllerOperations';
 import type {
@@ -19,6 +26,8 @@ import type {
   ControllerPerformanceSnapshot,
   ControllerPolicyPresetId,
   ControllerStation,
+  EnvironmentLightingMode,
+  EnvironmentSeasonMode,
   ConflictPrediction,
   Flight,
   FlightPhase,
@@ -54,6 +63,12 @@ import {
   type StatusMessageView,
 } from './presentation/statusMessages';
 import { RadioCaptionCoordinator } from './presentation/radioCaptions';
+import { CameraDirector } from './presentation/cameraDirector';
+import {
+  accessibilityPaletteDefinition,
+  isAccessibilityPalette,
+  type AccessibilityPalette,
+} from './presentation/accessibilityPalette';
 import { createFocusNavigator, type FocusNavigator } from './ui/focusNavigator';
 import {
   isOperationQueueFilter,
@@ -80,6 +95,17 @@ import {
   controllerEvaluationSnapshot,
   type ControllerEvaluationSnapshot,
 } from './telemetry/controllerEvaluation';
+import {
+  OPERATIONS_EXPORT_DATASETS,
+  OperationsAnalyticsRecorder,
+  buildOperationsExportBundle,
+  isOperationsExportDataset,
+  serializeOperationsCsv,
+  type OperationsAirportDescriptor,
+  type OperationsAnalyticsSnapshot,
+  type OperationsExportDataset,
+} from './telemetry/operationsAnalytics';
+import { createOperationsLab, type OperationsLab } from './ui/operationsLab';
 import {
   AIRPORT_CONTROL_COMMAND_DEFINITIONS,
   CONTROL_API_VERSION,
@@ -193,6 +219,8 @@ declare global {
       help(): Record<string, string>;
       replay(): ReplayFrame[];
       recording(): ReplayRecording;
+      analytics(flightId?: number): OperationsAnalyticsSnapshot;
+      exportData(format: 'json' | 'csv', dataset?: OperationsExportDataset, flightId?: number): string;
     };
   }
 }
@@ -229,6 +257,8 @@ const FLIGHT_PHASE_ORDER: Record<FlightPhase, number> = {
   resting: 5,
 };
 
+const ACCESSIBILITY_PALETTE_STORAGE_KEY = 'airport-auto:accessibility-palette';
+
 const $ = <T extends Element>(selector: string): T => {
   const element = document.querySelector<T>(selector);
   if (!element) throw new Error(`Missing element: ${selector}`);
@@ -254,6 +284,11 @@ const audio = new AmbientAudio();
 let config = generateAirportConfig();
 const soundscape = new SoundscapeEventScheduler(config.seed);
 let simulation = new AirportSimulation(config);
+const operationsAnalytics = new OperationsAnalyticsRecorder(
+  controlSessionId,
+  operationsAirportDescriptor(config),
+  simulation.shiftMetrics(),
+);
 let world = createWorld(canvas, config);
 let focusTargetRegistry = createFocusTargetRegistry(config);
 let focusTargetCatalog = focusTargetRegistry.build(
@@ -295,6 +330,8 @@ const queueCount = $<HTMLElement>('#queue-count');
 const queueFilter = $<HTMLSelectElement>('#queue-filter');
 const queueList = $<HTMLElement>('#queue-list');
 const queueLongest = $<HTMLElement>('#queue-longest');
+const operationsLabButton = $<HTMLButtonElement>('#operations-lab-toggle');
+const operationsLabPanel = $<HTMLElement>('#operations-lab');
 const focusToggle = $<HTMLButtonElement>('#focus-toggle');
 const focusPanel = $<HTMLElement>('#focus-panel');
 const focusClose = $<HTMLButtonElement>('#focus-close');
@@ -398,6 +435,8 @@ const speedOutput = $<HTMLOutputElement>('#speed-output');
 const weatherCondition = $<HTMLElement>('#weather-condition');
 const weatherWind = $<HTMLElement>('#weather-wind');
 const weatherVisibility = $<HTMLElement>('#weather-visibility');
+const weatherRunwayCondition = $<HTMLElement>('#weather-runway-condition');
+const environmentReadout = $<HTMLElement>('#environment-readout');
 const operationBank = $<HTMLElement>('#operation-bank');
 const trafficFlowReadout = $<HTMLElement>('#traffic-flow');
 const runwayConfiguration = $<HTMLElement>('#runway-configuration');
@@ -409,6 +448,11 @@ const audioPreset = $<HTMLSelectElement>('#audio-preset');
 const radioChatterEnabledControl = $<HTMLInputElement>('#radio-chatter-enabled');
 const radioCaptionsEnabledControl = $<HTMLInputElement>('#radio-captions-enabled');
 const highStakesWeatherControl = $<HTMLInputElement>('#high-stakes-weather-enabled');
+const lightingModeSelect = $<HTMLSelectElement>('#lighting-mode-select');
+const seasonModeSelect = $<HTMLSelectElement>('#season-mode-select');
+const accessibilityPaletteSelect = $<HTMLSelectElement>('#accessibility-palette-select');
+const cameraDirectorEnabledControl = $<HTMLInputElement>('#camera-director-enabled');
+const cameraDirectorStatus = $<HTMLElement>('#camera-director-status');
 const gamepadEnabledControl = $<HTMLInputElement>('#gamepad-enabled');
 const gamepadSensitivityControl = $<HTMLInputElement>('#gamepad-sensitivity');
 const gamepadSensitivityOutput = $<HTMLOutputElement>('#gamepad-sensitivity-output');
@@ -595,6 +639,10 @@ let windOverlayVisible = false;
 let serviceVehiclesVisible = true;
 let airportLifeVisible = false;
 let contrailsVisible = false;
+let accessibilityPalette: AccessibilityPalette = loadAccessibilityPalette();
+const cameraDirector = new CameraDirector();
+let cameraDirectorApplying = false;
+const reducedMotionMedia = window.matchMedia('(prefers-reduced-motion: reduce)');
 let telemetrySequence = 0;
 let lastWeatherCondition: WeatherCondition | null = null;
 let weatherSelection: 'auto' | WeatherCondition = 'auto';
@@ -673,6 +721,14 @@ const launchOptions = new URLSearchParams(window.location.search);
 const telemetryEnabled = launchOptions.get('telemetry') === '1';
 const debugEnabled = launchOptions.get('debug') === '1';
 const soakEnabled = launchOptions.get('soak') === '1';
+const requestedLightingMode = launchOptions.get('lighting');
+const requestedSeasonMode = launchOptions.get('season');
+const requestedAccessibilityPalette = launchOptions.get('palette');
+if (isEnvironmentLightingMode(requestedLightingMode)) simulation.setEnvironmentLightingMode(requestedLightingMode);
+if (isEnvironmentSeasonMode(requestedSeasonMode)) simulation.setEnvironmentSeasonMode(requestedSeasonMode);
+if (isAccessibilityPalette(requestedAccessibilityPalette)) accessibilityPalette = requestedAccessibilityPalette;
+applyAccessibilityPalette(accessibilityPalette);
+if (launchOptions.get('director') === '1' && !reducedMotionMedia.matches) cameraDirector.setEnabled(true, performance.now() / 1_000);
 const requestedRenderFps = Number(launchOptions.get('renderFps') ?? 0);
 const minimumRenderInterval = Number.isFinite(requestedRenderFps) && requestedRenderFps >= 0.1 && requestedRenderFps < 60
   ? 1_000 / requestedRenderFps
@@ -703,6 +759,7 @@ const focusNavigator: FocusNavigator = createFocusNavigator({
       canvas.focus({ preventScroll: true });
       return;
     }
+    if (operationsLab.visible()) operationsLab.setVisible(false, false);
     if (queueInspectorVisible) setQueuePanelVisible(false);
     if (compactOverlayMedia.matches && radarVisible) setRadarPanelVisible(false);
   },
@@ -711,6 +768,25 @@ const focusNavigator: FocusNavigator = createFocusNavigator({
     setStatus(result.accepted ? 'Observer focus engaged' : 'Focus unavailable', result.reason);
   },
   onRelease: () => clearFlightFocus('Camera released', 'free map view restored'),
+});
+const operationsLab: OperationsLab = createOperationsLab(operationsLabPanel, operationsLabButton, {
+  onVisibilityChange: (visible) => {
+    if (!visible) {
+      canvas.focus({ preventScroll: true });
+      return;
+    }
+    setControlPanelOpen(false);
+    focusNavigator.setVisible(false);
+    if (radarVisible) setRadarPanelVisible(false);
+    if (queueInspectorVisible) setQueuePanelVisible(false);
+    renderOperationsLabSnapshot();
+  },
+  onFlightChange: (flightId) => renderOperationsLabSnapshot(flightId),
+  onFocusFlight: (flightId) => {
+    const result = executeAirportRequest({ action: 'focusFlight', flightId });
+    setStatus(result.accepted ? 'Following recorder aircraft' : 'Flight focus unavailable', result.reason);
+  },
+  onExport: exportOperationsData,
 });
 const inputLayer = createUnifiedInput({
   canvas,
@@ -724,6 +800,7 @@ const inputLayer = createUnifiedInput({
   onRouteEnd: finishRoute,
   onRouteCancel: cancelRoute,
   onCameraGestureStart: () => {
+    yieldCameraDirector('Manual camera gesture');
     if (activeFocusRef !== null) clearFlightFocus();
   },
   onPan: (previous, current) => world.panBetweenScreenPoints(previous, current),
@@ -753,6 +830,7 @@ let worldDeltaAccumulator = 0;
 debugPanel.hidden = !debugEnabled;
 updateAirportUi();
 updateNightControl();
+updateCameraDirectorUi();
 updateRadarControl();
 updateQueueInspectorControl();
 renderFocusNavigator(true);
@@ -883,6 +961,35 @@ windOverlayToggle.addEventListener('change', () => setWindOverlayVisible(windOve
 serviceVehiclesToggle.addEventListener('change', () => setServiceVehiclesVisible(serviceVehiclesToggle.checked));
 airportLifeToggle.addEventListener('change', () => setAirportLifeVisible(airportLifeToggle.checked));
 contrailsToggle.addEventListener('change', () => setContrailsVisible(contrailsToggle.checked));
+lightingModeSelect.addEventListener('change', () => {
+  if (!isEnvironmentLightingMode(lightingModeSelect.value)) return;
+  simulation.setEnvironmentLightingMode(lightingModeSelect.value);
+  updateNightControl();
+  setStatus('Scene lighting updated', environmentLightingDescription(simulation.state.environment.lightingMode));
+});
+seasonModeSelect.addEventListener('change', () => {
+  if (!isEnvironmentSeasonMode(seasonModeSelect.value)) return;
+  simulation.setEnvironmentSeasonMode(seasonModeSelect.value);
+  updateNightControl();
+  setStatus('Scene season updated', environmentSeasonDescription(simulation.state.environment.seasonMode));
+});
+accessibilityPaletteSelect.addEventListener('change', () => {
+  if (!isAccessibilityPalette(accessibilityPaletteSelect.value)) return;
+  applyAccessibilityPalette(accessibilityPaletteSelect.value);
+  const definition = accessibilityPaletteDefinition(accessibilityPalette);
+  setStatus(`${definition.label} palette active`, definition.description);
+});
+cameraDirectorEnabledControl.addEventListener('change', () => {
+  const accepted = setCameraDirectorEnabled(cameraDirectorEnabledControl.checked);
+  setStatus(
+    accepted ? cameraDirectorEnabledControl.checked ? 'Camera director enabled' : 'Camera director disabled' : 'Camera director unavailable',
+    accepted ? cameraDirector.snapshot(performance.now() / 1_000).reason : 'Reduced-motion preference keeps automatic camera movement off',
+  );
+});
+reducedMotionMedia.addEventListener('change', () => {
+  if (reducedMotionMedia.matches) setCameraDirectorEnabled(false, 'Reduced-motion preference');
+  updateCameraDirectorUi();
+});
 menuButton.addEventListener('click', (event) => {
   event.stopPropagation();
   setControlPanelOpen(!controlPanel.classList.contains('control-panel--open'));
@@ -898,12 +1005,16 @@ function modalOpen(element: HTMLElement): boolean {
 
 function inputContext(): InputActionContext {
   if (modalOpen(intro) || modalOpen(gameOver) || modalOpen(challengeResults)) return 'modal';
-  if (controlPanel.classList.contains('control-panel--open') || focusNavigator.visible()) return 'ui';
+  if (controlPanel.classList.contains('control-panel--open') || focusNavigator.visible() || operationsLab.visible()) return 'ui';
   return 'gameplay';
 }
 
 function handleInputAxes(axes: InputAxes, deltaSeconds: number): void {
-  if (activeFocusRef !== null) clearFlightFocus();
+  const movingCamera = Math.abs(axes.panX) + Math.abs(axes.panY) + Math.abs(axes.rotate) + Math.abs(axes.zoom) > 0.001;
+  if (movingCamera) {
+    yieldCameraDirector('Manual camera input');
+    if (activeFocusRef !== null) clearFlightFocus();
+  }
   world.applyCameraInput(axes.panX, axes.panY, axes.rotate, axes.zoom, deltaSeconds);
 }
 
@@ -925,6 +1036,10 @@ function focusAdjacentFlight(direction: -1 | 1): void {
 
 function handleInputAction(action: InputActionId): void {
   if (action === 'ui.cancel') {
+    if (operationsLab.visible()) {
+      operationsLab.setVisible(false);
+      return;
+    }
     if (controlPanel.classList.contains('control-panel--open')) {
       setControlPanelOpen(false);
       canvas.focus({ preventScroll: true });
@@ -1176,8 +1291,16 @@ radioCaptionsEnabledControl.addEventListener('change', () => {
   if (!radioCaptionsEnabled) radioCaptions.reset();
 });
 highStakesWeatherControl.addEventListener('change', () => {
-  highStakesWeatherEnabled = highStakesWeatherControl.checked;
+  const requested = highStakesWeatherControl.checked;
+  const accepted = simulation.setWeatherHazardsEnabled(requested);
+  highStakesWeatherEnabled = simulation.state.weather.hazardsEnabled;
+  highStakesWeatherControl.checked = highStakesWeatherEnabled;
   soundscape.setHighStakesWeatherEnabled(highStakesWeatherEnabled);
+  setStatus(
+    accepted ? `Rare severe weather ${requested ? 'enabled' : 'disabled'}` : 'Weather setting unchanged',
+    simulation.lastCommandReason(),
+  );
+  updateWeatherUi();
 });
 for (const control of audioLevelControls) {
   control.addEventListener('input', () => audio.setLevel(control.dataset.audioLevel as AudioChannel, Number(control.value)));
@@ -1308,9 +1431,12 @@ modeButton.addEventListener('click', () => {
   setStatus(modeName(mode), modeDescription(mode));
 });
 nightButton.addEventListener('click', () => {
-  simulation.setNightMode(!simulation.state.nightMode);
+  const modes: EnvironmentLightingMode[] = ['automatic', 'night', 'day'];
+  const current = simulation.state.environment.lightingMode;
+  const mode = modes[(modes.indexOf(current) + 1) % modes.length];
+  simulation.setEnvironmentLightingMode(mode);
   updateNightControl();
-  setStatus(simulation.state.nightMode ? 'Night lighting active' : 'Day lighting active', simulation.state.nightMode ? 'runway and aircraft lights are illuminated' : 'full daylight visibility restored');
+  setStatus(`${mode === 'automatic' ? 'Automatic' : mode === 'night' ? 'Night' : 'Day'} lighting active`, environmentLightingDescription(mode));
 });
 radarButton.addEventListener('click', () => {
   setRadarPanelVisible(!radarVisible);
@@ -1432,6 +1558,7 @@ function frame(now: number): void {
   inputLayer.update(delta);
   worldDeltaAccumulator = Math.min(0.25, worldDeltaAccumulator + delta);
   const renderWorld = minimumRenderInterval === 0 || now - lastWorldRender >= minimumRenderInterval;
+  if (!replayMode) updateCameraDirector(now / 1_000);
   if (renderWorld) {
     renderedFrames += 1;
     lastWorldRender = now;
@@ -1482,6 +1609,13 @@ function frame(now: number): void {
     if (predictions.length && predictionKey !== lastPredictionKey) setStatus('Conflict forecast', predictions[0].detail);
     lastPredictionKey = predictionKey;
     if (!replayMode) {
+      const queues = simulation.queueSnapshot(simulation.state);
+      operationsAnalytics.record({
+        state: simulation.state,
+        predictions,
+        queues,
+        metrics: simulation.shiftMetrics(),
+      });
       replayFrames.push({
         clock: Number(simulation.state.elapsed.toFixed(2)),
         score: { landed: simulation.state.arrivals, departed: simulation.state.departures },
@@ -1497,6 +1631,7 @@ function frame(now: number): void {
     updateOperationsHealth();
     renderSurfaceDisruptionControls();
     if (queueInspectorVisible) renderQueueInspector();
+    if (operationsLab.visible()) renderOperationsLabSnapshot();
   }
   if (simulation.state.arrivals !== lastArrivals) {
     landedCount.textContent = two(simulation.state.arrivals);
@@ -1722,6 +1857,7 @@ function playReplaySoundFrame(): void {
 function capturePresentation(state: typeof simulation.state) {
   return {
     elapsed: state.elapsed,
+    environment: cloneEnvironmentState(state.environment),
     flights: new Map(state.flights.map((flight) => [flight.id, {
       phase: flight.phase,
       progress: flight.progress,
@@ -1748,9 +1884,25 @@ function capturePresentation(state: typeof simulation.state) {
 function presentationState(): typeof simulation.state {
   const current = simulation.state;
   const alpha = Math.max(0, Math.min(1, simulationAccumulator / SIMULATION_STEP));
+  const mix = (first: number, second: number) => first + (second - first) * alpha;
   return {
     ...current,
-    elapsed: previousPresentation.elapsed + (current.elapsed - previousPresentation.elapsed) * alpha,
+    elapsed: mix(previousPresentation.elapsed, current.elapsed),
+    environment: {
+      ...current.environment,
+      localMinute: mix(previousPresentation.environment.localMinute, current.environment.localMinute),
+      daylight: mix(previousPresentation.environment.daylight, current.environment.daylight),
+      sunAzimuthRadians: previousPresentation.environment.sunAzimuthRadians
+        + Math.atan2(
+          Math.sin(current.environment.sunAzimuthRadians - previousPresentation.environment.sunAzimuthRadians),
+          Math.cos(current.environment.sunAzimuthRadians - previousPresentation.environment.sunAzimuthRadians),
+        ) * alpha,
+      sunElevationRadians: mix(previousPresentation.environment.sunElevationRadians, current.environment.sunElevationRadians),
+      cloudCover: mix(previousPresentation.environment.cloudCover, current.environment.cloudCover),
+      snowCover: mix(previousPresentation.environment.snowCover, current.environment.snowCover),
+      wetPavement: mix(previousPresentation.environment.wetPavement, current.environment.wetPavement),
+      runwayLightIntensity: mix(previousPresentation.environment.runwayLightIntensity, current.environment.runwayLightIntensity),
+    },
     serviceVehicles: current.serviceVehicles.map((vehicle) => {
       const previous = previousPresentation.serviceVehicles.get(vehicle.id);
       if (!previous || previous.status !== vehicle.status) return vehicle;
@@ -1803,7 +1955,8 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
     stationAutomation: { ...state.stationAutomation },
     scriptedControllers: structuredClone(state.scriptedControllers),
     trafficFlow: cloneTrafficFlowState(state.trafficFlow),
-    weather: { ...state.weather },
+    weather: cloneWeatherState(state.weather),
+    environment: cloneEnvironmentState(state.environment),
     training: {
       ...state.training,
       completedStepIds: [...state.training.completedStepIds],
@@ -1895,7 +2048,13 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
       requiredCrossings: flight.requiredCrossings ? [...flight.requiredCrossings] : undefined,
       crossingClearances: flight.crossingClearances ? [...flight.crossingClearances] : undefined,
       crossingClearanceIds: flight.crossingClearanceIds ? [...flight.crossingClearanceIds] : undefined,
-      goAround: flight.goAround ? { ...flight.goAround, start: { ...flight.goAround.start } } : undefined,
+      goAround: flight.goAround ? {
+        ...flight.goAround,
+        weatherEscape: flight.goAround.weatherEscape ? { ...flight.goAround.weatherEscape } : undefined,
+        start: { ...flight.goAround.start },
+      } : undefined,
+      weatherEscape: flight.weatherEscape ? { ...flight.weatherEscape } : undefined,
+      takeoffPerformance: flight.takeoffPerformance ? { ...flight.takeoffPerformance } : undefined,
       diversion: flight.diversion ? { ...flight.diversion, start: { ...flight.diversion.start } } : undefined,
       kinematics: { ...flight.kinematics },
       motion: { ...flight.motion },
@@ -1919,6 +2078,111 @@ function replayRecording(): ReplayRecording {
     events: telemetryEvents.map((event) => ({ ...event })),
     frames: replayFrames.map((frame) => ({ ...frame, state: cloneAirportState(frame.state) })),
   };
+}
+
+function operationsAirportDescriptor(configuration: AirportConfig): OperationsAirportDescriptor {
+  const points = configuration.surfaceGraph.nodes.map((node) => node.position);
+  for (const runway of configuration.runways) {
+    const halfX = Math.cos(runway.heading) * runway.length * 0.5;
+    const halfZ = Math.sin(runway.heading) * runway.length * 0.5;
+    points.push(
+      [runway.center[0] - halfX, runway.center[1] - halfZ],
+      [runway.center[0] + halfX, runway.center[1] + halfZ],
+    );
+  }
+  const xs = points.map((point) => point[0]);
+  const zs = points.map((point) => point[1]);
+  const margin = 12;
+  return {
+    code: configuration.code,
+    name: configuration.name,
+    scope: configuration.scope,
+    runways: configuration.runways.map((runway) => ({
+      id: runway.id,
+      label: runway.designation?.join('/') ?? `Runway ${runway.id + 1}`,
+      center: [...runway.center],
+      headingRadians: runway.heading,
+      length: runway.length,
+    })),
+    bounds: {
+      minX: Math.min(...xs, -60) - margin,
+      maxX: Math.max(...xs, 60) + margin,
+      minZ: Math.min(...zs, -60) - margin,
+      maxZ: Math.max(...zs, 60) + margin,
+    },
+  };
+}
+
+function operationsAnalyticsSnapshot(flightId: number | null = operationsLab.selectedFlightId()): OperationsAnalyticsSnapshot {
+  return operationsAnalytics.snapshot(
+    simulation.state,
+    simulation.queueSnapshot(simulation.state),
+    flightId,
+  );
+}
+
+function operationsExportBundle(flightId: number | null = operationsLab.selectedFlightId()) {
+  return buildOperationsExportBundle(
+    operationsAnalyticsSnapshot(flightId),
+    operationsAnalytics.allFlightSamples(),
+    commandHistory,
+    telemetryEvents,
+    simulation.queueSnapshot(simulation.state),
+  );
+}
+
+function renderOperationsLabSnapshot(flightId: number | null = operationsLab.selectedFlightId()): void {
+  operationsLab.render(operationsAnalyticsSnapshot(flightId));
+}
+
+function serializeOperationsExport(
+  format: 'json' | 'csv',
+  dataset: OperationsExportDataset = 'flights',
+  flightId?: number,
+): string {
+  const resolvedDataset = isOperationsExportDataset(dataset) ? dataset : 'flights';
+  const bundle = operationsExportBundle(Number.isFinite(flightId) ? flightId ?? null : operationsLab.selectedFlightId());
+  return format === 'csv'
+    ? serializeOperationsCsv(bundle, resolvedDataset, flightId)
+    : JSON.stringify(bundle, null, 2);
+}
+
+function downloadText(filename: string, payload: string, mimeType: string): void {
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([payload], { type: mimeType }));
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+function exportOperationsData(
+  format: 'json' | 'csv',
+  dataset: OperationsExportDataset,
+  flightId: number | null,
+): void {
+  const suffix = format === 'json' ? 'bundle' : dataset;
+  const payload = serializeOperationsExport(format, dataset, flightId ?? undefined);
+  downloadText(
+    `${config.code.toLowerCase()}-operations-${suffix}.${format}`,
+    payload,
+    format === 'json' ? 'application/json' : 'text/csv;charset=utf-8',
+  );
+  setStatus(
+    `${format.toUpperCase()} export ready`,
+    format === 'json'
+      ? 'local operations bundle downloaded; nothing was uploaded'
+      : `${dataset.replaceAll('-', ' ')} rows downloaded locally`,
+  );
+}
+
+function resetOperationsAnalytics(): void {
+  operationsAnalytics.reset(
+    controlSessionId,
+    operationsAirportDescriptor(config),
+    simulation.shiftMetrics(),
+    simulation.state.elapsed,
+  );
+  if (operationsLab.visible()) renderOperationsLabSnapshot(null);
 }
 
 function renderFlightStrip(): void {
@@ -1958,7 +2222,7 @@ function renderFlightStrip(): void {
       item = document.createElement('div');
       item.dataset.flightItem = String(flight.id);
       item.setAttribute('role', 'listitem');
-      item.innerHTML = '<button class="flight-chip" type="button"><span class="flight-chip__identity"><strong></strong><span></span></span><span class="flight-chip__metrics"><span class="flight-chip__metric"><small>Fuel</small><b></b></span><span class="flight-chip__metric"><small></small><b></b></span><span class="flight-chip__metric"><small>Altitude</small><b></b></span><span class="flight-chip__metric"><small>Heading</small><b></b></span></span><span class="flight-chip__detail"><span></span><span class="flight-chip__trend"></span></span><span class="flight-chip__fuel" aria-hidden="true"><i></i></span></button>';
+      item.innerHTML = '<button class="flight-chip" type="button"><span class="flight-chip__identity"><strong></strong><span></span></span><span class="flight-chip__route"></span><span class="flight-chip__metrics"><span class="flight-chip__metric"><small>Fuel</small><b></b></span><span class="flight-chip__metric"><small></small><b></b></span><span class="flight-chip__metric"><small>Altitude</small><b></b></span><span class="flight-chip__metric"><small>Heading</small><b></b></span></span><span class="flight-chip__detail"><span></span><span class="flight-chip__trend"></span></span><span class="flight-chip__fuel" aria-hidden="true"><i></i></span></button>';
     }
     updateFlightChip(item, flight);
     flightChips.append(item);
@@ -2081,6 +2345,7 @@ function openSandbox(backgroundTraffic = false): boolean {
   replayFrames.length = 0;
   commandHistory.length = 0;
   initialReplayState = cloneAirportState(simulation.state);
+  resetOperationsAnalytics();
   lastArrivals = -1;
   lastDepartures = -1;
   lastHudSecond = -1;
@@ -2125,6 +2390,7 @@ function beginTrainingLesson(lessonId: TrainingLessonId): boolean {
   const accepted = simulation.startTrainingLesson(lessonId);
   if (!accepted) return false;
   initialReplayState = cloneAirportState(simulation.state);
+  resetOperationsAnalytics();
   stationSelect.value = simulation.state.station;
   updateModeControl();
   updateStationAutomationUi();
@@ -2156,6 +2422,7 @@ function openChallengeBriefing(challengeId: ChallengeId): boolean {
   replayFrames.length = 0;
   commandHistory.length = 0;
   initialReplayState = cloneAirportState(simulation.state);
+  resetOperationsAnalytics();
   lastArrivals = -1;
   lastDepartures = -1;
   lastHudSecond = -1;
@@ -2383,6 +2650,7 @@ function updateFlightChip(item: HTMLElement, flight: Flight): void {
   const operation = flightOperationLabel(flight);
   const airportLife = airportLifeVisible ? flight.operationalDetail : null;
   const routeDisplay = `${flight.flightPlan.origin}→${flight.flightPlan.destination}`;
+  const routePlaceDisplay = airportRouteLabel(flight.flightPlan.origin, flight.flightPlan.destination);
   const phase = held ? 'Hold' : operation;
   const assignment = flight.gateAssignment;
   const stand = config.surfaceGraph.stands.find((candidate) => candidate.id === assignment?.standId)
@@ -2420,15 +2688,16 @@ function updateFlightChip(item: HTMLElement, flight: Flight): void {
   const trafficClass = flight.operationPlan.trafficClass === 'general-aviation'
     ? 'GA'
     : flight.operationPlan.trafficClass.charAt(0).toUpperCase() + flight.operationPlan.trafficClass.slice(1);
-  button.setAttribute('aria-label', `${flight.callsign}, ${flight.aircraft}, ${trafficClass} traffic, ${phase}${holdDetail ? `, ${holdDetail}` : ''}${gateDisplay ? `, ${gateDisplay}` : ''}${gateTime ? `, ${gateTime}` : ''}, fuel ${fuel.toFixed(1)} percent, ${speedLabel} ${speed.toFixed(0)} knots, altitude ${altitude} feet, heading ${String(headingDisplay).padStart(3, '0')} degrees ${headingCardinal}`);
+  button.setAttribute('aria-label', `${flight.callsign}, ${flight.aircraft}, from ${airportPlaceLabel(flight.flightPlan.origin, false)} to ${airportPlaceLabel(flight.flightPlan.destination, false)}, ${trafficClass} traffic, ${phase}${holdDetail ? `, ${holdDetail}` : ''}${gateDisplay ? `, ${gateDisplay}` : ''}${gateTime ? `, ${gateTime}` : ''}, fuel ${fuel.toFixed(1)} percent, ${speedLabel} ${speed.toFixed(0)} knots, altitude ${altitude} feet, heading ${String(headingDisplay).padStart(3, '0')} degrees ${headingCardinal}`);
   button.setAttribute('aria-pressed', String(grouped || focusedFlightId === flight.id));
   const fuelPlan = flight.phase === 'approach' || flight.phase === 'landing' || flight.phase === 'taxi-in'
     ? `modeled arrival reserve ${flight.fuelPlan.modeledArrivalFuelPercent.toFixed(1)}% · ${flight.fuelPlan.arrival.estimatedDistanceNm.toLocaleString()} NM inbound`
     : `dispatch plan ${flight.fuelPlan.departure.dispatchFuelPercent.toFixed(1)}% · ${flight.fuelPlan.departure.estimatedDistanceNm.toLocaleString()} NM outbound`;
-  button.title = [`${routeDisplay} · ${flight.flightPlan.route.join(' · ')} · ${flight.flightPlan.procedure}`, fuelPlan, airportLife?.reason, airportLife?.maintenanceReason, assignment?.rationale.join(' · '), flight.phase === 'resting' ? turnaroundLongSummary(flight) : ''].filter(Boolean).join(' · ');
+  button.title = [routePlaceDisplay, `${routeDisplay} · ${flight.flightPlan.route.join(' · ')} · ${flight.flightPlan.procedure}`, fuelPlan, airportLife?.reason, airportLife?.maintenanceReason, assignment?.rationale.join(' · '), flight.phase === 'resting' ? turnaroundLongSummary(flight) : ''].filter(Boolean).join(' · ');
   const identity = button.querySelector('.flight-chip__identity')!;
   identity.querySelector('strong')!.textContent = flight.callsign;
   identity.querySelector('span')!.textContent = phase;
+  button.querySelector<HTMLElement>('.flight-chip__route')!.textContent = routePlaceDisplay;
   const metrics = button.querySelectorAll<HTMLElement>('.flight-chip__metric');
   metrics[0].querySelector('b')!.innerHTML = `${fuel.toFixed(fuel < 20 ? 1 : 0)}<em>%</em>`;
   metrics[1].querySelector('small')!.textContent = speedLabel;
@@ -2695,6 +2964,7 @@ function renderFocusNavigator(force = false): void {
 }
 
 function focusObserverTarget(ref: FocusTargetRef): { accepted: boolean; reason: string } {
+  if (!cameraDirectorApplying) yieldCameraDirector('Manual observer selection');
   let target = focusTargetCatalog.targets.find((candidate) => candidate.key === focusTargetKey(ref));
   if (!target) {
     focusTargetCatalog = focusTargetRegistry.build(
@@ -2718,6 +2988,7 @@ function focusObserverTarget(ref: FocusTargetRef): { accepted: boolean; reason: 
 }
 
 function clearFlightFocus(statusText?: string, detail?: string): void {
+  if (!cameraDirectorApplying) yieldCameraDirector('Observer released camera');
   activeFocusRef = null;
   activeFocusTarget = null;
   focusedFlightId = null;
@@ -2860,6 +3131,8 @@ function renderFlightActions(): void {
     ? [
         flight.id,
         flight.callsign,
+        flight.origin,
+        flight.destination,
         flight.phase,
         flight.cleared,
         flight.goAround ? flight.motion.stage : 'normal-approach',
@@ -2924,9 +3197,13 @@ function renderFlightActions(): void {
   const standLabel = flight.gateAssignment?.gateRef
     ? `Gate ${flight.gateAssignment.gateRef}`
     : flight.gateAssignment?.zoneName?.replace(/ Ramp$/i, '');
-  heading.querySelector('small')!.textContent = `${flight.aircraft} · ${flight.origin} → ${flight.destination}${standLabel ? ` · ${standLabel}` : ''}`;
+  heading.querySelector('small')!.textContent = `${flight.aircraft}${standLabel ? ` · ${standLabel}` : ''}`;
   heading.querySelector('span')!.textContent = simulation.state.station.toUpperCase();
   flightActions.append(heading);
+  const route = document.createElement('p');
+  route.className = 'flight-actions__route';
+  route.textContent = `From ${airportPlaceLabel(flight.origin)} · To ${airportPlaceLabel(flight.destination)}`;
+  flightActions.append(route);
   if (flight.phase !== 'resting') flightActions.append(createNavigationPanel(flight));
   if (flight.runwayExit && (flight.phase === 'approach' || flight.phase === 'landing' || flight.phase === 'taxi-in')) {
     flightActions.append(createRunwayExitPanel(flight));
@@ -3629,6 +3906,7 @@ function updateModeControl(): void {
 
 function setControlPanelOpen(open: boolean): void {
   const wasOpen = controlPanel.classList.contains('control-panel--open');
+  if (open && operationsLab.visible()) operationsLab.setVisible(false, false);
   menuButton.classList.toggle('menu-toggle--open', open);
   menuButton.setAttribute('aria-expanded', String(open));
   menuButton.setAttribute('aria-label', open ? 'Close controls' : 'Open controls');
@@ -3642,13 +3920,105 @@ function setControlPanelOpen(open: boolean): void {
 }
 
 function updateNightControl(): void {
-  const night = simulation.state.nightMode;
-  nightButton.setAttribute('aria-pressed', String(night));
-  nightButton.classList.toggle('control--active', night);
-  nightIcon.textContent = night ? '☾' : '☀';
-  nightLabel.textContent = night ? 'Night' : 'Day';
+  const environment = simulation.state.environment;
+  const night = environment.daylight < 0.42;
+  const forced = environment.lightingMode !== 'automatic';
+  nightButton.setAttribute('aria-pressed', String(forced));
+  nightButton.setAttribute(
+    'aria-label',
+    `Lighting ${environment.lightingMode}; ${environment.phase} at ${environment.localTime}. Activate to cycle mode.`,
+  );
+  nightButton.classList.toggle('control--active', forced);
+  nightIcon.textContent = environment.phase === 'night' ? '☾' : environment.phase === 'day' ? '☀' : '◐';
+  nightLabel.textContent = environment.lightingMode === 'automatic'
+    ? 'Auto'
+    : environment.lightingMode === 'night' ? 'Night' : 'Day';
+  lightingModeSelect.value = environment.lightingMode;
+  seasonModeSelect.value = environment.seasonMode;
+  environmentReadout.textContent = `${environment.localTime} · ${environment.lightingMode === 'automatic' ? 'auto' : 'forced'} ${environment.phase} · ${environment.season} · ${Math.round(environment.daylight * 100)}% light`;
   document.body.classList.toggle('night-mode', night);
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', night ? '#071827' : '#183638');
+}
+
+function environmentLightingDescription(mode: EnvironmentLightingMode): string {
+  return mode === 'automatic'
+    ? 'sunlight, twilight, and runway lights follow the airport’s local operating clock'
+    : mode === 'night'
+      ? 'night presentation is held until automatic lighting is restored'
+      : 'day presentation is held until automatic lighting is restored';
+}
+
+function environmentSeasonDescription(mode: EnvironmentSeasonMode): string {
+  return mode === 'automatic'
+    ? `deterministic calendar season restored · currently ${simulation.state.environment.season}`
+    : `${mode} terrain, daylight window, and surface transitions selected`;
+}
+
+function loadAccessibilityPalette(): AccessibilityPalette {
+  try {
+    const stored = window.localStorage.getItem(ACCESSIBILITY_PALETTE_STORAGE_KEY);
+    return isAccessibilityPalette(stored) ? stored : 'standard';
+  } catch {
+    return 'standard';
+  }
+}
+
+function applyAccessibilityPalette(palette: AccessibilityPalette): void {
+  accessibilityPalette = palette;
+  document.documentElement.dataset.accessibilityPalette = palette;
+  accessibilityPaletteSelect.value = palette;
+  world.setAccessibilityPalette(palette);
+  try {
+    window.localStorage.setItem(ACCESSIBILITY_PALETTE_STORAGE_KEY, palette);
+  } catch {
+    // Privacy modes may deny local storage; the selected palette still applies
+    // for the current page session.
+  }
+}
+
+function setCameraDirectorEnabled(enabled: boolean, yieldReason?: string): boolean {
+  if (enabled && reducedMotionMedia.matches) {
+    cameraDirectorEnabledControl.checked = false;
+    updateCameraDirectorUi();
+    return false;
+  }
+  const previous = cameraDirector.snapshot(performance.now() / 1_000);
+  if (enabled) cameraDirector.setEnabled(true, performance.now() / 1_000);
+  else if (yieldReason) cameraDirector.yieldToManualInput(yieldReason, performance.now() / 1_000);
+  else cameraDirector.setEnabled(false, performance.now() / 1_000);
+  if (!enabled && previous.targetFlightId !== null && activeFocusRef?.kind === 'flight' && activeFocusRef.id === String(previous.targetFlightId)) {
+    cameraDirectorApplying = true;
+    clearFlightFocus();
+    cameraDirectorApplying = false;
+  }
+  updateCameraDirectorUi();
+  return true;
+}
+
+function yieldCameraDirector(reason: string): void {
+  if (!cameraDirector.snapshot(performance.now() / 1_000).enabled) return;
+  setCameraDirectorEnabled(false, reason);
+}
+
+function updateCameraDirector(nowSeconds: number): void {
+  const decision = cameraDirector.update(simulation.state, nowSeconds);
+  if (!decision) return;
+  cameraDirectorApplying = true;
+  const result = focusObserverTarget(decision.target);
+  cameraDirectorApplying = false;
+  if (!result.accepted) cameraDirector.reset(nowSeconds + 1);
+  updateCameraDirectorUi();
+}
+
+function updateCameraDirectorUi(): void {
+  const snapshot = cameraDirector.snapshot(performance.now() / 1_000);
+  cameraDirectorEnabledControl.disabled = reducedMotionMedia.matches;
+  cameraDirectorEnabledControl.checked = snapshot.enabled;
+  cameraDirectorStatus.textContent = reducedMotionMedia.matches
+    ? 'Director off · reduced motion'
+    : snapshot.status === 'following' && snapshot.targetCallsign
+      ? `${snapshot.targetCallsign} · ${snapshot.reason}`
+      : snapshot.reason;
 }
 
 function updateRadarControl(): void {
@@ -3664,6 +4034,7 @@ function updateRadarControl(): void {
 
 function setRadarPanelVisible(visible: boolean): void {
   radarVisible = visible;
+  if (visible && operationsLab.visible()) operationsLab.setVisible(false, false);
   if (visible && focusNavigator.visible()) focusNavigator.setVisible(false);
   if (visible && compactOverlayMedia.matches && queueInspectorVisible) {
     queueInspectorVisible = false;
@@ -3684,6 +4055,7 @@ function updateQueueInspectorControl(): void {
 
 function setQueuePanelVisible(visible: boolean): void {
   queueInspectorVisible = visible;
+  if (visible && operationsLab.visible()) operationsLab.setVisible(false, false);
   if (visible && focusNavigator.visible()) focusNavigator.setVisible(false);
   if (visible && compactOverlayMedia.matches && radarVisible) {
     radarVisible = false;
@@ -3709,7 +4081,8 @@ function renderQueueInspector(): void {
 
 function newSession(paused: boolean, nextConfig = generateAirportConfig()): void {
   const mode = simulation.state.mode;
-  const nightMode = simulation.state.nightMode;
+  const lightingMode = simulation.state.environment.lightingMode;
+  const seasonMode = simulation.state.environment.seasonMode;
   const density = simulation.state.trafficFlow.density;
   const ruleset = simulation.state.separationRuleset;
   const controllerPolicyPresetId = simulation.state.scriptedControllers.presetId;
@@ -3722,6 +4095,7 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   radioCaptions.reset();
   weatherSelection = 'auto';
   simulation = new AirportSimulation(config, density);
+  simulation.setWeatherHazardsEnabled(highStakesWeatherEnabled);
   focusTargetRegistry = createFocusTargetRegistry(config);
   focusTargetCatalog = focusTargetRegistry.build(
     simulation.state,
@@ -3731,7 +4105,8 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   simulation.setSeparationRuleset(ruleset);
   simulation.setControllerPolicyPreset(controllerPolicyPresetId);
   simulation.setMode(mode);
-  simulation.setNightMode(nightMode);
+  simulation.setEnvironmentLightingMode(lightingMode);
+  simulation.setEnvironmentSeasonMode(seasonMode);
   simulation.setScenario(scenarioSelect.value as TrafficScenario);
   simulation.setStation(stationSelect.value as ControllerStation);
   simulation.setPace(simulationSpeed);
@@ -3745,6 +4120,7 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   world.setRunwayLabelsVisible(runwayLabelsVisible);
   world.setServiceVehiclesVisible(serviceVehiclesVisible);
   world.setContrailsVisible(contrailsVisible);
+  world.setAccessibilityPalette(accessibilityPalette);
   for (const [layer, visible] of Object.entries(surfaceLayerVisibility) as Array<[SurfaceLayer, boolean]>) {
     world.setSurfaceLayerVisible(layer, visible);
   }
@@ -3759,9 +4135,11 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   replayFrames.length = 0;
   commandHistory.length = 0;
   initialReplayState = cloneAirportState(simulation.state);
+  resetOperationsAnalytics();
   activeFocusRef = null;
   activeFocusTarget = null;
   focusedFlightId = null;
+  cameraDirector.reset(performance.now() / 1_000);
   focusNavigatorUiKey = '';
   focusNavigator.reset();
   groupSelectActive = false;
@@ -3779,6 +4157,7 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   updateReplayUi();
   updateModeControl();
   updateNightControl();
+  updateCameraDirectorUi();
   updateRadarControl();
   updateQueueInspectorControl();
   renderQueueInspector();
@@ -4121,19 +4500,35 @@ function setSimulationSpeed(value: number): void {
 
 function updateWeatherUi(): void {
   const weather = simulation.state.weather;
+  const conditionProfile = weatherConditionProfile(weather.condition);
   const operation = simulation.operationProfileSnapshot(displayState()).current;
   const density = trafficDensityProfile(displayState().trafficFlow.density);
   const flow = simulation.trafficFlowSnapshot(displayState());
   const direction = Math.round(mathAngleToAviationDegrees(weather.windDirection) / 10) * 10 % 360;
   const speed = Math.round(weather.windSpeed);
   const gust = Math.round(weather.gustSpeed);
-  weatherCondition.textContent = weather.weatherEnabled ? `${weather.condition} · ${Math.round(weather.temperatureC)}°C` : 'wx off';
+  weatherCondition.textContent = weather.weatherEnabled ? `${conditionProfile.label} · ${Math.round(weather.temperatureC)}°C` : 'wx off';
   weatherWind.textContent = weather.windEnabled ? `${String(direction || 360).padStart(3, '0')}° ${speed}G${gust} kt` : 'calm · wind off';
   windOverlayHeading.textContent = weather.windEnabled ? `WIND ${String(direction || 360).padStart(3, '0')}°` : 'WIND OFF';
   windOverlaySpeed.textContent = weather.windEnabled ? `${speed}G${gust} kt` : 'calm';
   windOverlayArrow.style.transform = `rotate(${direction + 90}deg)`;
   windOverlayArrow.style.opacity = weather.windEnabled ? '1' : '0.35';
   weatherVisibility.textContent = `${weather.visibility.toFixed(weather.visibility % 1 ? 1 : 0)} mi · ceiling ${weather.ceilingFt.toLocaleString()} ft · ${weather.surfaceCondition}`;
+  const activeReports = weather.runwayConditionReports.filter((report) => (
+    (simulation.state.activeRunwayRoles[report.runwayId] ?? config.runways[report.runwayId]?.role) !== 'inactive'
+  ));
+  const reportLines = activeReports.map((report) => (
+    `${activeRunwayDesignation(report.runwayId)} ${report.codes.join('/')} ${report.brakingAction.replaceAll('-', ' ')}`
+  ));
+  const hazard = weather.activeHazard;
+  weatherRunwayCondition.textContent = hazard
+    ? `${hazard.kind.replace('-', ' ')} · ${hazard.locationNm} NM RWY ${activeRunwayDesignation(hazard.runwayId)} · ${hazard.windChangeKts} kt`
+    : reportLines.length
+      ? `RwyCC ${reportLines.slice(0, 2).join(' · ')}${reportLines.length > 2 ? ` · +${reportLines.length - 2}` : ''}`
+      : 'Runway condition unavailable';
+  weatherRunwayCondition.title = hazard
+    ? `${hazard.operation} ${hazard.kind.replace('-', ' ')} alert; deterministic simulation only, not for navigation`
+    : `${reportLines.join(' · ')} · modeled RCAM-inspired simulation reports, not for navigation`;
   operationBank.textContent = `${operation.localTime} local · ${operation.periodLabel} · ${density.label} ${operation.demandMultiplier.toFixed(2)}× bank`;
   trafficFlowReadout.textContent = flow.backPressure.arrivalsHolding || flow.backPressure.departuresWaiting
     ? `${density.label} · ARR ${flow.backPressure.arrivalsHolding} metered · DEP ${flow.backPressure.departuresWaiting} queued`
@@ -4155,12 +4550,29 @@ function updateWeatherUi(): void {
   weatherToggle.textContent = weather.weatherEnabled ? 'WX ON' : 'WX OFF';
   windToggle.setAttribute('aria-pressed', String(weather.windEnabled));
   windToggle.textContent = weather.windEnabled ? 'WIND ON' : 'WIND OFF';
+  highStakesWeatherControl.checked = weather.hazardsEnabled;
+  highStakesWeatherControl.disabled = simulation.challengeSnapshot().conditionsLocked;
   weatherConditionSelect.value = weatherSelection;
   updateStationAutomationUi();
   if (lastWeatherCondition !== null && weather.condition !== lastWeatherCondition) {
-    setStatus(`${weather.condition === 'clear' ? 'Weather improving' : `${weather.condition} moving onto the field`}`, weather.condition === 'snow' ? 'deicing routes active · contaminated-surface performance' : weather.condition === 'fog' ? 'reduced arrival rate · slower taxi' : weather.condition === 'rain' ? 'wet runway spacing is active' : 'normal spacing restored');
+    const detail: Record<WeatherCondition, string> = {
+      clear: 'normal spacing and dry-runway performance restored',
+      haze: 'reduced visibility and modest arrival metering are active',
+      rain: 'wet-runway spacing, braking, and exit planning are active',
+      fog: 'low-ceiling arrival metering and slower surface movement are active',
+      snow: 'deicing routes and contaminated-runway performance are active',
+      thunderstorm: weather.hazardsEnabled
+        ? 'convective capacity limits and opt-in wind-shear protection are active'
+        : 'convective capacity limits are active · severe hazards remain off',
+    };
+    setStatus(
+      weather.condition === 'clear' ? 'Weather improving' : `${conditionProfile.label} moving onto the field`,
+      detail[weather.condition],
+    );
   }
   lastWeatherCondition = weather.condition;
+  updateNightControl();
+  updateCameraDirectorUi();
 }
 
 function recordTelemetry(
@@ -4242,6 +4654,7 @@ function airportSnapshot() {
   const diagnostics = simulation.diagnostics();
   const operations = simulation.operationProfileSnapshot();
   const controllerEvaluation = buildControllerEvaluation(diagnostics);
+  const analytics = operationsAnalyticsSnapshot(focusedFlightId);
   const movingPhases = new Set(['approach', 'landing', 'taxi-in', 'taxi-out', 'takeoff']);
   return {
     schemaVersion: CONTROL_SNAPSHOT_SCHEMA_VERSION,
@@ -4351,6 +4764,11 @@ function airportSnapshot() {
     gameOver: simulation.state.gameOver,
     mode: simulation.state.mode,
     nightMode: simulation.state.nightMode,
+    environment: cloneEnvironmentState(simulation.state.environment),
+    presentation: {
+      accessibilityPalette,
+      cameraDirector: cameraDirector.snapshot(performance.now() / 1_000),
+    },
     radarVisible,
     queueInspectorVisible,
     windOverlayVisible,
@@ -4392,6 +4810,9 @@ function airportSnapshot() {
       enabled: simulation.state.weather.weatherEnabled,
       windEnabled: simulation.state.weather.windEnabled,
       condition: simulation.state.weather.condition,
+      precipitation: simulation.state.weather.precipitation,
+      intensity: Number(simulation.state.weather.intensity.toFixed(3)),
+      cloudCover: Number(simulation.state.weather.cloudCover.toFixed(3)),
       windDirectionDegrees: Math.round(mathAngleToAviationDegrees(simulation.state.weather.windDirection)),
       windSpeed: Number(simulation.state.weather.windSpeed.toFixed(1)),
       gustSpeed: Number(simulation.state.weather.gustSpeed.toFixed(1)),
@@ -4399,6 +4820,23 @@ function airportSnapshot() {
       ceilingFt: simulation.state.weather.ceilingFt,
       temperatureC: Number(simulation.state.weather.temperatureC.toFixed(1)),
       surfaceCondition: simulation.state.weather.surfaceCondition,
+      runwayConditionReports: simulation.state.weather.runwayConditionReports.map((report) => ({
+        ...report,
+        codes: [...report.codes],
+        runwayDesignation: activeRunwayDesignation(report.runwayId),
+      })),
+      reportsUpdatedAtSeconds: Number.isFinite(simulation.state.weather.reportsUpdatedAtSeconds)
+        ? Number(simulation.state.weather.reportsUpdatedAtSeconds.toFixed(2))
+        : null,
+      hazardsEnabled: simulation.state.weather.hazardsEnabled,
+      activeHazard: simulation.state.weather.activeHazard ? {
+        ...simulation.state.weather.activeHazard,
+        affectedFlightIds: [...simulation.state.weather.activeHazard.affectedFlightIds],
+      } : null,
+      hazardHistory: simulation.state.weather.hazardHistory.map((hazard) => ({
+        ...hazard,
+        affectedFlightIds: [...hazard.affectedFlightIds],
+      })),
     },
     audio: {
       ...audio.snapshot(),
@@ -4429,6 +4867,18 @@ function airportSnapshot() {
       frames: replayFrames.length,
       durationSeconds: replayFrames.length ? replayFrames[replayFrames.length - 1].clock - replayFrames[0].clock : 0,
       soundEvents: soundscapeEvents.length,
+    },
+    analytics: {
+      schemaVersion: analytics.schemaVersion,
+      generatedAtSeconds: analytics.generatedAtSeconds,
+      window: { ...analytics.window },
+      summary: { ...analytics.summary },
+      observedFlights: analytics.flights.length,
+      selectedFlightId: analytics.selectedFlightId,
+      exportDatasets: [...OPERATIONS_EXPORT_DATASETS],
+      disclosure: { ...analytics.disclosure },
+      fullSnapshot: 'airportControl.analytics(flightId?)',
+      exportData: "airportControl.exportData('json' | 'csv', dataset?, flightId?)",
     },
     traffic: diagnostics,
     trafficManagement: diagnostics.trafficManagement,
@@ -4710,7 +5160,10 @@ function airportSnapshot() {
           z: Number(flight.goAround.start.z.toFixed(3)),
           headingDegrees: Number((flight.goAround.start.heading * 180 / Math.PI).toFixed(2)),
         },
+        weatherEscape: flight.goAround.weatherEscape ? { ...flight.goAround.weatherEscape } : null,
       } : null,
+      weatherEscape: flight.weatherEscape ? { ...flight.weatherEscape } : null,
+      takeoffPerformance: flight.takeoffPerformance ? { ...flight.takeoffPerformance } : null,
       diversion: flight.diversion ? {
         airportCode: flight.diversion.airportCode,
         exitFixId: flight.diversion.exitFixId,
@@ -5153,6 +5606,31 @@ function executeAirportRequest(candidate: unknown, requestContext: AirportReques
     simulation.setNightMode(command.enabled);
     updateNightControl();
   }
+  if (command.action === 'setEnvironmentLightingMode') {
+    accepted = isEnvironmentLightingMode(command.mode)
+      && simulation.setEnvironmentLightingMode(command.mode);
+    reason = accepted ? environmentLightingDescription(command.mode) : 'lighting mode must be automatic, day, or night';
+    updateNightControl();
+  }
+  if (command.action === 'setEnvironmentSeasonMode') {
+    accepted = isEnvironmentSeasonMode(command.mode)
+      && simulation.setEnvironmentSeasonMode(command.mode);
+    reason = accepted ? environmentSeasonDescription(command.mode) : 'season mode must be automatic, spring, summer, autumn, or winter';
+    updateNightControl();
+  }
+  if (command.action === 'setAccessibilityPalette') {
+    accepted = isAccessibilityPalette(command.palette);
+    if (accepted) {
+      applyAccessibilityPalette(command.palette);
+      reason = accessibilityPaletteDefinition(command.palette).description;
+    } else reason = 'palette must be standard, high-contrast, cvd-safe, or monochrome';
+  }
+  if (command.action === 'setCameraDirectorEnabled') {
+    accepted = setCameraDirectorEnabled(command.enabled);
+    reason = accepted
+      ? cameraDirector.snapshot(performance.now() / 1_000).reason
+      : 'reduced-motion preference prevents automatic camera movement';
+  }
   if (command.action === 'setRadarVisible') {
     setRadarPanelVisible(command.enabled);
   }
@@ -5443,7 +5921,7 @@ function executeAirportRequest(candidate: unknown, requestContext: AirportReques
     reason = simulation.lastCommandReason();
   }
   if (command.action === 'setWeather') {
-    const valid = ['clear', 'rain', 'fog', 'snow'].includes(command.condition) && Number.isFinite(command.directionDegrees) && Number.isFinite(command.windSpeed);
+    const valid = isWeatherCondition(command.condition) && Number.isFinite(command.directionDegrees) && Number.isFinite(command.windSpeed);
     accepted = valid && simulation.setWeather(command.condition, aviationDegreesToMathAngle(command.directionDegrees), command.windSpeed);
     if (accepted) {
       weatherSelection = command.condition;
@@ -5453,6 +5931,14 @@ function executeAirportRequest(candidate: unknown, requestContext: AirportReques
   }
   if (command.action === 'setWeatherEnabled') {
     accepted = simulation.setWeatherEnabled(command.enabled);
+    reason = simulation.lastCommandReason();
+    updateWeatherUi();
+  }
+  if (command.action === 'setWeatherHazardsEnabled') {
+    accepted = simulation.setWeatherHazardsEnabled(command.enabled);
+    highStakesWeatherEnabled = simulation.state.weather.hazardsEnabled;
+    highStakesWeatherControl.checked = highStakesWeatherEnabled;
+    soundscape.setHighStakesWeatherEnabled(highStakesWeatherEnabled);
     reason = simulation.lastCommandReason();
     updateWeatherUi();
   }
@@ -5644,6 +6130,10 @@ window.airportControl = {
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },
   recording: replayRecording,
+  analytics(flightId) { return operationsAnalyticsSnapshot(Number.isFinite(flightId) ? flightId ?? null : null); },
+  exportData(format, dataset = 'flights', flightId) {
+    return serializeOperationsExport(format, isOperationsExportDataset(dataset) ? dataset : 'flights', flightId);
+  },
   command: executeAirportCommand,
   request: executeAirportRequest,
   validate: validateAirportControlCommand,
@@ -5660,13 +6150,17 @@ window.airportControl = {
       events: 'airportControl.events(100)',
       protocol: 'airportControl.protocol() // command/event JSON Schemas, authority, compatibility, examples',
       validate: "airportControl.validate({ action: 'pause' }) // structural validation without execution",
-      formalDispatch: "airportControl.dispatch({ protocolVersion: '1.2.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.34.0', snapshotSchemaVersion: 36 }, command: { action: 'pause' } })",
+      formalDispatch: "airportControl.dispatch({ protocolVersion: '1.2.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.37.0', snapshotSchemaVersion: 39 }, command: { action: 'pause' } })",
       structuredCommand: "airportControl.request({ action: 'pause' }) // legacy-compatible bare command; result includes requestId, commandId, eventId, authority, and compatibility",
       pause: "airportControl.command({ action: 'pause' })",
       speed: "airportControl.command({ action: 'setSpeed', value: 2 })",
       airport: "airportControl.command({ action: 'selectAirport', code: 'ORD' })",
       mode: "airportControl.command({ action: 'setMode', value: 'auto' })",
       nightMode: "airportControl.command({ action: 'setNightMode', enabled: true })",
+      environmentLighting: "airportControl.request({ action: 'setEnvironmentLightingMode', mode: 'automatic' }) // automatic | day | night",
+      environmentSeason: "airportControl.request({ action: 'setEnvironmentSeasonMode', mode: 'winter' }) // automatic | spring | summer | autumn | winter",
+      accessibilityPalette: "airportControl.request({ action: 'setAccessibilityPalette', palette: 'cvd-safe' })",
+      cameraDirector: "airportControl.request({ action: 'setCameraDirectorEnabled', enabled: true }) // yields immediately to manual camera input",
       radar: "airportControl.command({ action: 'setRadarVisible', enabled: true })",
       queues: "airportControl.request({ action: 'setQueueInspectorVisible', enabled: true })",
       observerFocus: "airportControl.request({ action: 'focusTarget', target: { kind: 'taxiway', id: 'A' } }) // flight | runway | taxiway | gate | queue | conflict; null releases",
@@ -5742,9 +6236,14 @@ window.airportControl = {
       surfaceGraph: 'airportControl.snapshot().surfaceGraph',
       replay: 'airportControl.replay()',
       recording: 'airportControl.recording() // seed + commands + weather + full-state frames',
+      analytics: 'airportControl.analytics() // local flight recorder, utilization, queues, metrics, and conflict heatmap',
+      analyticsFlight: 'airportControl.analytics(1) // select one observed flight recorder trace',
+      exportJson: "airportControl.exportData('json') // complete local operations bundle; no upload",
+      exportCsv: "airportControl.exportData('csv', 'runways') // flights, commands, events, queues, delays, runways, taxiways, shift-metrics, flight-recorder, or conflicts",
       zigzag: "airportControl.command({ action: 'controlFlights', flightIds: [1], instruction: 'zigzag' })",
       weather: "airportControl.command({ action: 'setWeather', condition: 'rain', directionDegrees: 270, windSpeed: 18 })",
       weatherToggle: "airportControl.command({ action: 'setWeatherEnabled', enabled: false })",
+      weatherHazards: "airportControl.command({ action: 'setWeatherHazardsEnabled', enabled: true }) // opt-in deterministic wind-shear/microburst events",
       windToggle: "airportControl.command({ action: 'setWindEnabled', enabled: false })",
       runwayConfiguration: "airportControl.request({ action: 'setRunwayConfiguration', configurationId: 'ORD-EAST-IFR' }) // supervisor only; null restores automatic",
       closeTaxiway: "airportControl.request({ action: 'setSurfaceDisruption', kind: 'taxiway-closure', targetId: 'A', enabled: true, durationSeconds: 180 }) // supervisor",
@@ -5816,6 +6315,13 @@ function runwayDesignation(runwayId: number): string {
   return config.runways[runwayId]?.designation?.join('/') ?? String(runwayId + 1);
 }
 
+function activeRunwayDesignation(runwayId: number): string {
+  const runway = config.runways[runwayId];
+  if (!runway) return String(runwayId + 1);
+  const end = simulation.state.activeRunwayEnds[runwayId] ?? runway.landingEnd;
+  return runway.designation?.[end === 1 ? 1 : 0] ?? String(runwayId + 1);
+}
+
 function aviationDegreesToMathAngle(degrees: number): number {
   return (90 - degrees) * Math.PI / 180;
 }
@@ -5873,12 +6379,17 @@ const launchWeather = launchWeatherValue as WeatherCondition | null;
 const launchWindDirection = Number(launchOptions.get('windDir') ?? 270);
 const launchWindValue = launchOptions.get('wind');
 const launchWindSpeed = Number(launchWindValue ?? 12);
-if ((launchWeather === 'clear' || launchWeather === 'rain' || launchWeather === 'fog' || launchWeather === 'snow') && Number.isFinite(launchWindDirection) && Number.isFinite(launchWindSpeed)) {
+if (isWeatherCondition(launchWeather) && Number.isFinite(launchWindDirection) && Number.isFinite(launchWindSpeed)) {
   weatherSelection = launchWeather;
   simulation.setWeather(launchWeather, aviationDegreesToMathAngle(launchWindDirection), launchWindSpeed);
 }
 if (launchWeatherValue === 'off') simulation.setWeatherEnabled(false);
 if (launchWindValue === 'off') simulation.setWindEnabled(false);
+if (launchOptions.get('hazards') === '1') {
+  highStakesWeatherEnabled = simulation.setWeatherHazardsEnabled(true);
+  highStakesWeatherControl.checked = highStakesWeatherEnabled;
+  soundscape.setHighStakesWeatherEnabled(highStakesWeatherEnabled);
+}
 const launchRunwayConfiguration = launchOptions.get('runwayConfig');
 if (launchRunwayConfiguration) {
   simulation.setRunwayConfiguration(launchRunwayConfiguration === 'auto' ? null : launchRunwayConfiguration);

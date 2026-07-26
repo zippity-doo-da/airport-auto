@@ -365,7 +365,7 @@ function buildRunwayProcedures(
     operatingEnd,
     runwayDesignation: designation,
     configurationIds,
-    conditions: conditions.length ? conditions : ['clear', 'rain', 'fog', 'snow'],
+    conditions: conditions.length ? conditions : ['clear', 'haze', 'rain', 'fog', 'snow', 'thunderstorm'],
     transitions: closestEntries.map((entry, index) => ({
       id: `${prefix}-${entry.id.split('-').at(-2)}-TRANSITION`,
       name: `${entry.name} TRANSITION`,
@@ -413,7 +413,7 @@ function buildRunwayProcedures(
     operatingEnd,
     runwayDesignation: designation,
     configurationIds,
-    conditions: conditions.length ? conditions : ['clear', 'rain', 'fog', 'snow'],
+    conditions: conditions.length ? conditions : ['clear', 'haze', 'rain', 'fog', 'snow', 'thunderstorm'],
     transitions: nearestDepartureEntries.map((entry) => ({
       id: `${prefix}-${entry.id.split('-').at(-2)}-TRANSITION`,
       name: `${entry.name} TRANSITION`,

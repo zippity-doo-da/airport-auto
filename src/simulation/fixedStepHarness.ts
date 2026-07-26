@@ -3,6 +3,7 @@ import { AirportSimulation } from './airportSimulation';
 import type {
   AirportEvent,
   ControlMode,
+  EnvironmentState,
   Flight,
   FlightPhase,
   RunwayConfigurationTransition,
@@ -10,6 +11,7 @@ import type {
   ShiftMetrics,
   SurfaceDisruptionState,
   TrafficScenario,
+  WeatherState,
 } from './types';
 import { sampleFlightTrajectory, type FlightTrajectoryStage } from './flightTrajectory';
 import { cloneFlightPlan } from './flightPlanning';
@@ -120,6 +122,9 @@ export interface FixedStepFlightSnapshot {
   safetyHoldReason?: string;
   runwayEntryCleared: boolean;
   takeoffCleared: boolean;
+  takeoffPerformance?: Flight['takeoffPerformance'];
+  weatherEscape?: Flight['weatherEscape'];
+  goAroundWeatherEscape?: NonNullable<Flight['goAround']>['weatherEscape'];
   crossingClearances: number[];
   crossingClearanceIds: string[];
   airspeedKts: number;
@@ -144,7 +149,7 @@ export interface FixedStepFlightSnapshot {
 }
 
 export interface FixedStepSimulationSnapshot {
-  schemaVersion: 11;
+  schemaVersion: 13;
   seed: number;
   airportCode: string;
   stepSeconds: number;
@@ -168,10 +173,14 @@ export interface FixedStepSimulationSnapshot {
     activeRunwayRoles: Record<number, RunwayOperationalRole>;
     surfaceDisruptions: SurfaceDisruptionState[];
     scriptedControllers: ScriptedControllerRuntime;
+    environment: EnvironmentState;
     weather: {
       enabled: boolean;
       windEnabled: boolean;
       condition: string;
+      precipitation: WeatherState['precipitation'];
+      intensity: number;
+      cloudCover: number;
       windDirection: number;
       windSpeed: number;
       gustSpeed: number;
@@ -179,6 +188,10 @@ export interface FixedStepSimulationSnapshot {
       ceilingFt: number;
       temperatureC: number;
       surfaceCondition: 'dry' | 'wet' | 'contaminated';
+      runwayConditionReports: WeatherState['runwayConditionReports'];
+      hazardsEnabled: boolean;
+      activeHazard: WeatherState['activeHazard'];
+      hazardHistory: WeatherState['hazardHistory'];
     };
   };
   flights: FixedStepFlightSnapshot[];
@@ -326,7 +339,7 @@ export class FixedStepSimulationHarness {
   snapshot(): FixedStepSimulationSnapshot {
     const diagnostics = this.simulation.diagnostics();
     return {
-      schemaVersion: 11,
+      schemaVersion: 13,
       seed: this.config.seed,
       airportCode: this.config.code,
       stepSeconds: round(this.stepSeconds),
@@ -358,10 +371,14 @@ export class FixedStepSimulationHarness {
           reroutedFlightIds: [...disruption.reroutedFlightIds],
         })),
         scriptedControllers: structuredClone(this.simulation.state.scriptedControllers),
+        environment: { ...this.simulation.state.environment },
         weather: {
           enabled: this.simulation.state.weather.weatherEnabled,
           windEnabled: this.simulation.state.weather.windEnabled,
           condition: this.simulation.state.weather.condition,
+          precipitation: this.simulation.state.weather.precipitation,
+          intensity: round(this.simulation.state.weather.intensity),
+          cloudCover: round(this.simulation.state.weather.cloudCover),
           windDirection: round(this.simulation.state.weather.windDirection),
           windSpeed: round(this.simulation.state.weather.windSpeed),
           gustSpeed: round(this.simulation.state.weather.gustSpeed),
@@ -369,6 +386,20 @@ export class FixedStepSimulationHarness {
           ceilingFt: round(this.simulation.state.weather.ceilingFt),
           temperatureC: round(this.simulation.state.weather.temperatureC),
           surfaceCondition: this.simulation.state.weather.surfaceCondition,
+          runwayConditionReports: this.simulation.state.weather.runwayConditionReports.map((report) => ({
+            ...report,
+            codes: [...report.codes],
+            reportedAtSeconds: round(report.reportedAtSeconds),
+          })),
+          hazardsEnabled: this.simulation.state.weather.hazardsEnabled,
+          activeHazard: this.simulation.state.weather.activeHazard ? {
+            ...this.simulation.state.weather.activeHazard,
+            affectedFlightIds: [...this.simulation.state.weather.activeHazard.affectedFlightIds],
+          } : null,
+          hazardHistory: this.simulation.state.weather.hazardHistory.map((hazard) => ({
+            ...hazard,
+            affectedFlightIds: [...hazard.affectedFlightIds],
+          })),
         },
       },
       flights: [...this.simulation.state.flights]
@@ -555,6 +586,9 @@ function snapshotFlight(config: AirportConfig, flight: Flight): FixedStepFlightS
     safetyHoldReason: flight.safetyHoldReason,
     runwayEntryCleared: Boolean(flight.runwayEntryCleared),
     takeoffCleared: Boolean(flight.takeoffCleared),
+    takeoffPerformance: flight.takeoffPerformance ? { ...flight.takeoffPerformance } : undefined,
+    weatherEscape: flight.weatherEscape ? { ...flight.weatherEscape } : undefined,
+    goAroundWeatherEscape: flight.goAround?.weatherEscape ? { ...flight.goAround.weatherEscape } : undefined,
     crossingClearances: [...(flight.crossingClearances ?? [])].sort((first, second) => first - second),
     crossingClearanceIds: [...(flight.crossingClearanceIds ?? [])].sort(),
     airspeedKts: round(flight.kinematics.airspeedKts),

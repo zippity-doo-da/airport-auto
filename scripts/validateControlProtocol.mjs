@@ -23,12 +23,16 @@ function assert(condition, message) {
 }
 
 assert(CONTROL_PROTOCOL_VERSION === '1.2.0', 'control protocol version changed unexpectedly');
-assert(CONTROL_API_VERSION === '2.34.0', 'control API version changed unexpectedly');
-assert(CONTROL_SNAPSHOT_SCHEMA_VERSION === 36, 'snapshot schema version changed unexpectedly');
+assert(CONTROL_API_VERSION === '2.37.0', 'control API version changed unexpectedly');
+assert(CONTROL_SNAPSHOT_SCHEMA_VERSION === 39, 'snapshot schema version changed unexpectedly');
 assert(CONTROL_REPLAY_SCHEMA_VERSION === 3, 'replay schema version changed unexpectedly');
 
 const definitions = Object.values(AIRPORT_CONTROL_COMMAND_DEFINITIONS);
-assert(definitions.length === 87, 'formal command catalog count changed unexpectedly');
+assert(definitions.length === 92, 'formal command catalog count changed unexpectedly');
+assert(validateAirportControlCommand({ action: 'setEnvironmentLightingMode', mode: 'automatic' }).valid, 'environment lighting command was rejected');
+assert(validateAirportControlCommand({ action: 'setEnvironmentSeasonMode', mode: 'winter' }).valid, 'environment season command was rejected');
+assert(validateAirportControlCommand({ action: 'setAccessibilityPalette', palette: 'cvd-safe' }).valid, 'accessibility palette command was rejected');
+assert(validateAirportControlCommand({ action: 'setCameraDirectorEnabled', enabled: true }).valid, 'camera director command was rejected');
 assert(new Set(definitions.map((definition) => definition.action)).size === definitions.length, 'command actions are not unique');
 assert(definitions.every((definition) => definition.schema.additionalProperties === false), 'a command schema permits unknown parameters');
 assert(definitions.every((definition) => definition.compatibility.protocolMajor === 1), 'a command has the wrong protocol major');
@@ -49,6 +53,8 @@ assert(!validateAirportControlCommand({ action: 'setSpeed', value: Number.NaN })
 assert(validateAirportControlCommand({ action: 'issueRouteAmendment', flightId: 1 }).valid, 'optional route fix list became required');
 assert(validateAirportControlCommand({ action: 'setControllerPolicyPreset', preset: 'realistic' }).valid, 'controller policy command was rejected');
 assert(validateAirportControlCommand({ action: 'setAirportLifeVisible', enabled: true }).valid, 'airport-life presentation command was rejected');
+assert(validateAirportControlCommand({ action: 'setWeather', condition: 'thunderstorm', directionDegrees: 240, windSpeed: 25 }).valid, 'thunderstorm weather command was rejected');
+assert(validateAirportControlCommand({ action: 'setWeatherHazardsEnabled', enabled: true }).valid, 'severe-weather opt-in command was rejected');
 assert(!validateAirportControlCommand({ action: 'setControllerPolicyPreset', preset: 'reckless' }).valid, 'unknown controller policy was accepted');
 
 const envelope = {

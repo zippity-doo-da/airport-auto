@@ -12,6 +12,8 @@ import type {
   ControllerStation,
   ControllerWorkloadSnapshot,
   EmergencyType,
+  EnvironmentLightingMode,
+  EnvironmentSeasonMode,
   Flight,
   FlightHandoffState,
   FlightInstruction,
@@ -31,6 +33,7 @@ import type {
   SurfaceDisruptionKind,
   SurfaceDisruptionSource,
   SurfaceDisruptionState,
+  TerminalWeatherHazard,
   TrafficScenario,
   TrainingLessonId,
   WeatherCondition,
@@ -42,7 +45,7 @@ import { aircraftCollisionEnvelope, detectCommittedRunwaySweepConflict, detectFl
 import { findSurfaceRoute, sampleSurfaceRouteWithEdges, surfacePushbackPlan, surfaceRouteCrossingWindows, surfaceRouteForFlight, surfaceRouteRunwayCrossings, validateAirportSurfaceGraph, type SurfaceGraphValidation, type SurfaceRoute, type SurfaceRouteCrossingWindow, type SurfaceRoutePlanning } from './surfaceGraph';
 import { validateAirportObstacleEnvelopes, type AirportObstacleValidation } from './airportObstacles';
 import { departureTrajectoryTiming, landingTrajectoryTiming } from './flightTrajectory';
-import { runwaySupportsAircraft, WORLD_METERS_PER_UNIT } from './runwayPerformance';
+import { assessRunwayPerformance, runwaySupportsAircraft, WORLD_METERS_PER_UNIT } from './runwayPerformance';
 import { sampleAircraftSurfaceMotion } from './surfaceMotion';
 import { progressAfterDistance, syncFlightMotion } from './flightMotion';
 import { intersectingRunways, runwaysConflict } from './runwayConflict';
@@ -93,6 +96,24 @@ import { cloneTrainingState, createInactiveTrainingState, currentTrainingStep, t
 import { challengeDefinition, challengeDefinitions, cloneChallengeState, createInactiveChallengeState, evaluateChallenge } from './challengeProgram';
 import { cloneSandboxState, createInactiveSandboxState, SANDBOX_TRAFFIC_CLASSES } from './sandboxProgram';
 import { assessAirborneSeparation, requiredRadarSeparationNm, runwayPairIndependent, runwayReleaseReason, separationRuleset, weatherCapacityMultiplier, type RunwayOperationRecord, type SeparationRulesetId } from './separationRules';
+import {
+  applyWeatherCondition,
+  buildRunwayConditionReports,
+  createTerminalWeatherHazard,
+  createWeatherState,
+  nextWeatherHazardDelaySeconds,
+  runwayConditionReport,
+  taxiBrakingFactor,
+  taxiSpeedFactor,
+  weatherConditionProfile,
+  weatherDurationMultiplier as modeledWeatherDurationMultiplier,
+} from './weatherOperations';
+import {
+  createEnvironmentState,
+  isEnvironmentLightingMode,
+  isEnvironmentSeasonMode,
+  updateEnvironmentState,
+} from './environmentOperations';
 
 const PHASE_DURATION: Record<FlightPhase, number> = {
   approach: 38,
@@ -229,11 +250,12 @@ export class AirportSimulation {
     gameOver: false,
     paused: false,
     mode: 'auto',
+    environment: createEnvironmentState(),
     nightMode: false,
     station: 'supervisor',
     stationAutomation: createStationAutomation(),
     scriptedControllers: createScriptedControllerRuntime(),
-    weather: { weatherEnabled: false, windEnabled: false, condition: 'clear', windDirection: Math.PI, windSpeed: 0, gustSpeed: 0, visibility: 10, ceilingFt: 12_000, temperatureC: 18, surfaceCondition: 'dry' },
+    weather: createWeatherState(),
     scenario: 'normal',
     trafficFlow: createTrafficFlowState(),
     separationRuleset: 'forgiving',
@@ -272,6 +294,8 @@ export class AirportSimulation {
   private trainingCheckpoint: TrainingCheckpoint | null = null;
 
   constructor(private readonly config: AirportConfig, density: TrafficDensity = 'realistic') {
+    this.state.weather = createWeatherState(config.seed);
+    this.state.environment = createEnvironmentState(config.seed);
     this.state.trafficFlow = createTrafficFlowState(density);
     this.spawnIn = Math.min(3, this.arrivalSpacing() * 0.55);
     this.state.trafficFlow.nextArrivalDemandSeconds = this.spawnIn;
@@ -285,6 +309,7 @@ export class AirportSimulation {
     ) ?? config.runwayConfigurations[0];
     this.applyRunwayConfiguration(initialConfiguration);
     this.updateWeather();
+    this.updateEnvironment(0);
     this.seedInitialTraffic();
     refreshScriptedControllerModes(this.state, this.state.scriptedControllers, 'initial controller staffing');
   }
@@ -924,8 +949,23 @@ export class AirportSimulation {
   }
 
   setNightMode(enabled: boolean): void {
-    this.state.nightMode = enabled;
-    this.updateActiveRunwayConfiguration();
+    this.setEnvironmentLightingMode(enabled ? 'night' : 'day');
+  }
+
+  setEnvironmentLightingMode(mode: EnvironmentLightingMode): boolean {
+    if (!isEnvironmentLightingMode(mode)) return this.rejectDecision('lighting mode must be automatic, day, or night');
+    this.state.environment.lightingMode = mode;
+    this.updateEnvironment(0);
+    this.decisionReason = `${mode} lighting active`;
+    return true;
+  }
+
+  setEnvironmentSeasonMode(mode: EnvironmentSeasonMode): boolean {
+    if (!isEnvironmentSeasonMode(mode)) return this.rejectDecision('season must be automatic, spring, summer, autumn, or winter');
+    this.state.environment.seasonMode = mode;
+    this.updateEnvironment(0);
+    this.decisionReason = `${mode} season presentation active`;
+    return true;
   }
 
   setStation(station: ControllerStation): void {
@@ -1280,22 +1320,23 @@ export class AirportSimulation {
     }
     this.state.weather.weatherEnabled = true;
     this.state.weather.windEnabled = true;
-    this.state.weather.condition = condition;
     this.state.weather.windDirection = this.normalizeAngle(windDirection);
     this.state.weather.windSpeed = Math.max(0, Math.min(40, windSpeed));
-    this.state.weather.gustSpeed = this.state.weather.windSpeed + (condition === 'clear' ? 3 : 7);
-    this.state.weather.visibility = condition === 'fog' ? 2.5 : condition === 'snow' ? 3 : condition === 'rain' ? 5 : 10;
-    this.state.weather.ceilingFt = condition === 'fog' ? 600 : condition === 'snow' ? 1_000 : condition === 'rain' ? 2_500 : 12_000;
-    this.state.weather.temperatureC = condition === 'snow' ? -4 : condition === 'rain' ? 9 : condition === 'fog' ? 7 : 18;
-    this.state.weather.surfaceCondition = condition === 'snow' ? 'contaminated' : condition === 'rain' || condition === 'fog' ? 'wet' : 'dry';
+    applyWeatherCondition(this.state.weather, condition, this.state.elapsed, this.config.seed);
+    this.state.weather.gustSpeed = this.state.weather.windSpeed + weatherConditionProfile(condition).gustDeltaKts;
+    this.refreshRunwayConditionReports(true);
     this.baseWindDirection = this.state.weather.windDirection;
     this.baseWindSpeed = this.state.weather.windSpeed;
     // Keep an explicitly selected winter bank stable long enough for a busy
     // hub departure to push, queue, receive treatment, and use its holdover
     // window. Surface congestion can make that lifecycle substantially longer
     // than the nominal route duration.
-    this.weatherOverrideUntil = this.state.elapsed + (condition === 'snow' ? 2400 : 180);
+    this.weatherOverrideUntil = this.state.elapsed + (condition === 'snow' ? 2400 : condition === 'thunderstorm' ? 240 : 180);
+    if (condition === 'thunderstorm' && this.state.weather.hazardsEnabled) {
+      this.state.weather.nextHazardAtSeconds = this.state.elapsed + 10 + (this.config.seed % 11);
+    }
     this.refreshDeicingPlansForWeather();
+    this.updateEnvironment(0);
     this.updateActiveRunwayConfiguration();
     this.decisionReason = `${condition} weather active`;
     return true;
@@ -1308,17 +1349,33 @@ export class AirportSimulation {
     }
     this.state.weather.weatherEnabled = enabled;
     if (!enabled) {
-      this.state.weather.condition = 'clear';
-      this.state.weather.visibility = 10;
-      this.state.weather.ceilingFt = 12_000;
-      this.state.weather.temperatureC = 18;
-      this.state.weather.surfaceCondition = 'dry';
+      applyWeatherCondition(this.state.weather, 'clear', this.state.elapsed, this.config.seed);
+      this.expireActiveWeatherHazard('weather disabled');
+      this.refreshRunwayConditionReports(true);
     } else {
       this.weatherOverrideUntil = 0;
     }
     this.updateWeather();
+    this.updateEnvironment(0);
     this.refreshDeicingPlansForWeather();
     this.decisionReason = `weather ${enabled ? 'enabled' : 'disabled'}`;
+    return true;
+  }
+
+  setWeatherHazardsEnabled(enabled: boolean): boolean {
+    const challenge = challengeDefinition(this.state.challenge.challengeId);
+    if (this.challengeConditionsLocked() && challenge) {
+      return this.rejectDecision(`${challenge.title} locks high-stakes weather until the debrief`);
+    }
+    this.state.weather.hazardsEnabled = enabled;
+    if (!enabled) this.expireActiveWeatherHazard('high-stakes weather disabled');
+    else if (this.state.weather.condition === 'thunderstorm') {
+      this.state.weather.nextHazardAtSeconds = Math.min(
+        this.state.weather.nextHazardAtSeconds,
+        this.state.elapsed + 10 + (this.config.seed % 11),
+      );
+    }
+    this.decisionReason = `wind-shear and microburst events ${enabled ? 'enabled' : 'disabled'}`;
     return true;
   }
 
@@ -1433,6 +1490,15 @@ export class AirportSimulation {
     if (!flight) return this.rejectDecision('flight is not lined up with runway-entry clearance');
     if (!this.ownsFlight(flight)) return this.rejectDecision(`${this.state.station} does not own ${flight.callsign}; handoff required`, flight);
     if (flight.takeoffCleared) return this.rejectDecision('takeoff is already cleared', flight);
+    const hazard = this.state.weather.activeHazard;
+    if (hazard?.status === 'active' && hazard.operation === 'departure' && hazard.runwayId === flight.runway) {
+      return this.rejectDecision(`${hazard.kind.replace('-', ' ')} alert is active ${hazard.locationNm} NM from ${this.activeRunwayDesignation(flight.runway)} departure`, flight);
+    }
+    const performance = this.assessTakeoffPerformance(flight);
+    if (!performance.safe) {
+      return this.rejectDecision(`${this.activeRunwayDesignation(flight.runway)} has ${Math.round(Math.abs(performance.marginM))} m less than the modeled ${flight.aircraft} takeoff requirement at RwyCC ${performance.runwayConditionCode}`, flight);
+    }
+    flight.takeoffPerformance = performance;
     const release = this.runwayReleaseBlocker(flight, 'departure');
     if (release) return this.rejectDecision(`takeoff held: ${release}`, flight);
     const blocker = this.runwayBlocker(flight.runway, flight.id);
@@ -1450,6 +1516,9 @@ export class AirportSimulation {
     if (!this.canIssue('approach')) return this.rejectDecision(`${this.state.station} station has no airborne-vector authority`);
     const flight = this.state.flights.find((item) => item.id === id && !item.diversion && (item.phase === 'approach' || (item.phase === 'takeoff' && !item.motion.onGround)));
     if (!flight) return this.rejectDecision('flight is not airborne and available for a heading assignment');
+    if (flight.weatherEscape?.status === 'active' || (flight.goAround?.weatherEscape && flight.goAround.weatherEscape.completedAtSeconds === undefined)) {
+      return this.rejectDecision(`${flight.callsign} is flying a wind-shear escape; do not issue a contrary heading until the escape is complete`, flight);
+    }
     if (!this.ownsFlight(flight)) return this.rejectDecision(`${this.state.station} does not own ${flight.callsign}; handoff required`, flight);
     if (flight.phase === 'approach' && (flight.progress >= 0.76 || flight.motion.stage === 'final')) {
       return this.rejectDecision('aircraft is established too close to final; issue a go-around before a new vector', flight);
@@ -2341,7 +2410,7 @@ export class AirportSimulation {
     return controlled;
   }
 
-  private goAround(flight: Flight, detail: string): void {
+  private goAround(flight: Flight, detail: string, weatherHazard?: TerminalWeatherHazard): void {
     if (flight.goAround || flight.diversion) return;
     this.metrics.goArounds += 1;
     this.supersedeActiveRouteClearance(flight, 'superseded by go-around clearance');
@@ -2350,6 +2419,14 @@ export class AirportSimulation {
       startedAt: this.state.elapsed,
       detail,
       cycle: 1,
+      weatherEscape: weatherHazard
+        ? {
+            hazardId: weatherHazard.id,
+            kind: weatherHazard.kind,
+            windChangeKts: weatherHazard.windChangeKts,
+            straightAheadProgress: 0.3,
+          }
+        : undefined,
       start: {
         x: start.x,
         y: start.y,
@@ -2409,6 +2486,8 @@ export class AirportSimulation {
   reset(scenario: TrafficScenario = 'normal'): void {
     const density = this.state.trafficFlow.density;
     const controllerPolicyPresetId = this.state.scriptedControllers.presetId;
+    const lightingMode = this.state.environment.lightingMode;
+    const seasonMode = this.state.environment.seasonMode;
     this.state.elapsed = 0;
     this.state.flights = [];
     this.state.serviceVehicles = [];
@@ -2436,6 +2515,9 @@ export class AirportSimulation {
     this.state.station = 'supervisor';
     this.state.stationAutomation = createStationAutomation();
     this.state.scriptedControllers = createScriptedControllerRuntime(controllerPolicyPresetId);
+    this.state.environment = createEnvironmentState(this.config.seed);
+    this.state.environment.lightingMode = lightingMode;
+    this.state.environment.seasonMode = seasonMode;
     this.runwayConfigurationOverrideId = null;
     this.state.runwayConfigurationMode = 'automatic';
     this.state.runwayConfigurationTransition = null;
@@ -2446,6 +2528,7 @@ export class AirportSimulation {
     this.stationarySeconds.clear();
     Object.assign(this.metrics, createShiftMetrics());
     this.updateWeather();
+    this.updateEnvironment(0);
     this.seedInitialTraffic();
     refreshScriptedControllerModes(this.state, this.state.scriptedControllers, 'session reset');
   }
@@ -2470,6 +2553,7 @@ export class AirportSimulation {
     this.runwayOperationHistory = this.runwayOperationHistory.filter((operation) => this.state.elapsed - operation.atSeconds <= 300);
     this.state.breeze = Math.sin(this.state.elapsed * 0.07) * 0.5 + 0.5;
     this.updateWeather();
+    this.updateEnvironment(delta);
     this.updateSurfaceDisruptions(delta);
     this.taxiOutReleaseIn = Math.max(0, this.taxiOutReleaseIn - delta);
     this.updateSandboxInjections();
@@ -2518,7 +2602,7 @@ export class AirportSimulation {
       const stopDistanceM = Math.min(crossingDistanceM, deicingDistanceM);
       if (Number.isFinite(stopDistanceM)) {
         const braking = aircraftProfile(flight.aircraft).taxiBrakingMps2
-          * (this.state.weather.condition === 'snow' ? 0.58 : this.state.weather.condition === 'rain' ? 0.76 : this.state.weather.condition === 'fog' ? 0.9 : 1);
+          * taxiBrakingFactor(this.state.weather);
         const maximumStoppingSpeedKts = Math.sqrt(Math.max(0, 2 * braking * stopDistanceM)) / KNOT_TO_MPS;
         targetSpeed = Math.min(targetSpeed, maximumStoppingSpeedKts);
       }
@@ -2600,6 +2684,20 @@ export class AirportSimulation {
         if (!waitingForTakeoff && flight.phase !== 'resting' && moved) flight.phaseElapsed += delta;
       }
       flight.progress = nextProgress;
+      if (
+        flight.goAround?.weatherEscape
+        && flight.goAround.weatherEscape.completedAtSeconds === undefined
+        && flight.progress >= flight.goAround.weatherEscape.straightAheadProgress
+      ) {
+        flight.goAround.weatherEscape.completedAtSeconds = this.state.elapsed;
+      }
+      if (
+        flight.weatherEscape?.status === 'active'
+        && flight.progress >= flight.weatherEscape.clearProgress
+      ) {
+        flight.weatherEscape.status = 'complete';
+        flight.weatherEscape.completedAtSeconds = this.state.elapsed;
+      }
       this.updatePushbackState(flight);
       const surfaceClock = flight.phase === 'taxi-in' || flight.phase === 'resting' || flight.phase === 'taxi-out';
       if (surfaceClock) this.updateSurfaceRouteState(flight);
@@ -2846,7 +2944,7 @@ export class AirportSimulation {
         const role = this.runwayRole(runway.id);
         return (role === 'departure' || role === 'mixed')
           && !runwayClosedByDisruption(this.state.surfaceDisruptions, runway.id)
-          && runwaySupportsAircraft(runway, flight.aircraft, 'takeoff');
+          && this.runwaySupportsCurrentCondition(runway, flight.aircraft, 'takeoff');
       })
       .sort((first, second) => this.headwindComponent(second.id) - this.headwindComponent(first.id));
     const candidates = requestedRunwayId === null
@@ -3128,6 +3226,19 @@ export class AirportSimulation {
   }
 
   private departureReleaseReady(flight: Flight): boolean {
+    const hazard = this.state.weather.activeHazard;
+    if (hazard?.status === 'active' && hazard.operation === 'departure' && hazard.runwayId === flight.runway) {
+      flight.automaticHold = true;
+      flight.automaticHoldReason = `${hazard.kind.replace('-', ' ')} advisory protects ${this.activeRunwayDesignation(flight.runway)} departure`;
+      return false;
+    }
+    const performance = this.assessTakeoffPerformance(flight);
+    flight.takeoffPerformance = performance;
+    if (!performance.safe) {
+      flight.automaticHold = true;
+      flight.automaticHoldReason = `RwyCC ${performance.runwayConditionCode} leaves ${Math.round(Math.abs(performance.marginM))} m takeoff shortfall on ${this.activeRunwayDesignation(flight.runway)}`;
+      return false;
+    }
     const flow = this.state.trafficFlow;
     const entry = registerDepartureDemand(
       flow,
@@ -3224,7 +3335,7 @@ export class AirportSimulation {
         syncFlightMotion(this.config, flight);
         continue;
       }
-      const compatible = departureRunways.filter((runway) => runwaySupportsAircraft(runway, aircraft, 'takeoff'));
+      const compatible = departureRunways.filter((runway) => this.runwaySupportsCurrentCondition(runway, aircraft, 'takeoff'));
       if (!flight || !compatible.length) {
         seeded += 1;
         continue;
@@ -3362,7 +3473,7 @@ export class AirportSimulation {
     const arrivalRunways = this.config.runways.filter((runway) => (
       (this.runwayRole(runway.id) === 'arrival' || this.runwayRole(runway.id) === 'mixed')
       && !runwayClosedByDisruption(this.state.surfaceDisruptions, runway.id)
-      && runwaySupportsAircraft(runway, aircraft, 'landing')
+      && this.runwaySupportsCurrentCondition(runway, aircraft, 'landing')
     ));
     const unblocked = options.stagingDeparture
       ? arrivalRunways
@@ -3407,7 +3518,7 @@ export class AirportSimulation {
     const departureRunways = this.config.runways.filter((item) => (
       (this.runwayRole(item.id) === 'departure' || this.runwayRole(item.id) === 'mixed')
       && !runwayClosedByDisruption(this.state.surfaceDisruptions, item.id)
-      && runwaySupportsAircraft(item, aircraft, 'takeoff')
+      && this.runwaySupportsCurrentCondition(item, aircraft, 'takeoff')
     ));
     if (departureRunways.length === 0) {
       this.lastArrivalAdmissionReason = `${aircraft} has no compatible onward departure runway`;
@@ -4562,7 +4673,7 @@ export class AirportSimulation {
       .filter((runway) => (
         (this.runwayRole(runway.id) === 'departure' || this.runwayRole(runway.id) === 'mixed')
         && !runwayClosedByDisruption(this.state.surfaceDisruptions, runway.id)
-        && runwaySupportsAircraft(runway, flight.aircraft, 'takeoff')
+        && this.runwaySupportsCurrentCondition(runway, flight.aircraft, 'takeoff')
       ))
       .sort((first, second) => this.headwindComponent(second.id) - this.headwindComponent(first.id));
     if (candidates.length === 0) return null;
@@ -4612,9 +4723,11 @@ export class AirportSimulation {
     if (this.state.scenario === 'emergency') return 1;
     if (this.state.scenario === 'training') return 1;
     if (this.state.scenario === 'storm') return Math.min(2, approachCapacity);
+    if (this.state.weather.condition === 'thunderstorm') return Math.min(1, approachCapacity);
     if (this.state.weather.condition === 'snow') return Math.min(2, approachCapacity);
     if (this.state.weather.condition === 'fog') return Math.min(2, approachCapacity);
     if (this.state.weather.condition === 'rain') return Math.min(3, approachCapacity);
+    if (this.state.weather.condition === 'haze') return Math.min(3, approachCapacity);
     return approachCapacity;
   }
 
@@ -4637,9 +4750,11 @@ export class AirportSimulation {
       base * scenarioMultiplier * wakeMultiplier * Math.max(0.58, Math.min(1.85, profileMultiplier)) / density.arrivalCapacityMultiplier,
       physicalRadarSeconds,
     );
+    if (this.state.weather.condition === 'thunderstorm') return scenarioBase * 1.8;
     if (this.state.weather.condition === 'fog') return scenarioBase * 1.55;
     if (this.state.weather.condition === 'snow') return scenarioBase * 1.42;
     if (this.state.weather.condition === 'rain') return scenarioBase * 1.2;
+    if (this.state.weather.condition === 'haze') return scenarioBase * 1.1;
     return scenarioBase;
   }
 
@@ -4662,12 +4777,12 @@ export class AirportSimulation {
     const hasArrival = this.config.runways.some((runway) => (
       (this.runwayRole(runway.id) === 'arrival' || this.runwayRole(runway.id) === 'mixed')
       && !runwayClosedByDisruption(this.state.surfaceDisruptions, runway.id)
-      && runwaySupportsAircraft(runway, aircraft, 'landing')
+      && this.runwaySupportsCurrentCondition(runway, aircraft, 'landing')
     ));
     const hasDeparture = this.config.runways.some((runway) => (
       (this.runwayRole(runway.id) === 'departure' || this.runwayRole(runway.id) === 'mixed')
       && !runwayClosedByDisruption(this.state.surfaceDisruptions, runway.id)
-      && runwaySupportsAircraft(runway, aircraft, 'takeoff')
+      && this.runwaySupportsCurrentCondition(runway, aircraft, 'takeoff')
     ));
     return hasArrival && hasDeparture;
   }
@@ -4800,7 +4915,7 @@ export class AirportSimulation {
     if (flight.phase === 'resting') return 0;
     const profile = aircraftProfile(flight.aircraft);
     const pace = Math.max(0.55, Math.min(flight.phase === 'taxi-in' || flight.phase === 'taxi-out' ? 1 : 1.28, flight.controlPace ?? 1));
-    const surfaceWeather = this.state.weather.condition === 'snow' ? 0.68 : this.state.weather.condition === 'fog' ? 0.78 : this.state.weather.condition === 'rain' ? 0.88 : 1;
+    const surfaceWeather = taxiSpeedFactor(this.state.weather);
     let target = profile.taxiKts;
     const surfaceMotion = flight.phase === 'taxi-in' || flight.phase === 'taxi-out'
       ? sampleAircraftSurfaceMotion(
@@ -4845,8 +4960,8 @@ export class AirportSimulation {
   private acceleratedSpeedKts(flight: Flight, targetSpeedKts: number, delta: number): number {
     const profile = aircraftProfile(flight.aircraft);
     const current = Math.max(0, flight.kinematics.groundSpeedKts);
-    const brakingWeather = this.state.weather.condition === 'snow' ? 0.58 : this.state.weather.condition === 'rain' ? 0.76 : this.state.weather.condition === 'fog' ? 0.9 : 1;
     const onTaxiway = flight.phase === 'taxi-in' || flight.phase === 'taxi-out';
+    const brakingWeather = onTaxiway ? taxiBrakingFactor(this.state.weather) : 1;
     const acceleration = targetSpeedKts >= current
       ? onTaxiway ? profile.taxiAccelerationMps2 : profile.accelerationMps2
       : (onTaxiway ? profile.taxiBrakingMps2 : profile.brakingMps2) * brakingWeather;
@@ -5344,7 +5459,7 @@ export class AirportSimulation {
           const role = this.runwayRole(runway.id);
           return role === 'arrival' || role === 'mixed';
         })
-        .filter((runway) => runwaySupportsAircraft(runway, flight.aircraft, 'landing'))
+        .filter((runway) => this.runwaySupportsCurrentCondition(runway, flight.aircraft, 'landing'))
         .sort((first, second) => this.headwindComponent(second.id) - this.headwindComponent(first.id));
       const alternate = alternatives.find((runway) => !this.arrivalBlocked(runway.id)) ?? alternatives[0];
       if (!alternate) {
@@ -6137,9 +6252,63 @@ export class AirportSimulation {
     return runwaysConflict(this.config, firstId, secondId);
   }
 
+  private currentRunwayCondition(runwayId: number) {
+    return runwayConditionReport(this.state.weather, runwayId);
+  }
+
+  private runwaySupportsCurrentCondition(
+    runway: AirportConfig['runways'][number],
+    aircraft: AircraftModel,
+    operation: 'landing' | 'takeoff',
+  ): boolean {
+    return runwaySupportsAircraft(
+      runway,
+      aircraft,
+      operation,
+      this.currentRunwayCondition(runway.id),
+    );
+  }
+
+  private assessTakeoffPerformance(flight: Flight) {
+    const runway = this.config.runways[flight.runway] ?? this.config.runways[0];
+    return assessRunwayPerformance(
+      runway,
+      flight.aircraft,
+      'takeoff',
+      this.currentRunwayCondition(runway.id),
+      this.state.elapsed,
+    );
+  }
+
+  private refreshRunwayConditionReports(force = false): void {
+    if (!force && this.state.elapsed - this.state.weather.reportsUpdatedAtSeconds < 30) return;
+    this.state.weather.runwayConditionReports = buildRunwayConditionReports(
+      this.config.runways,
+      this.state.weather,
+      this.state.elapsed,
+      this.config.seed,
+    );
+    this.state.weather.reportsUpdatedAtSeconds = this.state.elapsed;
+  }
+
+  private updateEnvironment(deltaSeconds: number): void {
+    const operation = airportOperationStateAt(this.config.operationProfile, this.state.elapsed);
+    updateEnvironmentState(
+      this.state.environment,
+      this.state.weather,
+      operation.localMinute,
+      operation.localTime,
+      deltaSeconds,
+    );
+    this.state.nightMode = this.state.environment.daylight < 0.42;
+  }
+
   private updateWeather(): void {
     const previousCondition = this.state.weather.condition;
     const previousSurfaceCondition = this.state.weather.surfaceCondition;
+    const previousRunwayCodes = this.state.weather.runwayConditionReports
+      .map((report) => `${report.runwayId}:${report.codes.join('/')}`)
+      .join('|');
     const overridden = this.state.elapsed < this.weatherOverrideUntil;
     if (!this.state.weather.weatherEnabled) {
       this.state.weather.condition = 'clear';
@@ -6147,10 +6316,16 @@ export class AirportSimulation {
       const pattern: WeatherCondition[] = deicingFacilities(this.config.surfaceGraph).length
         // A winter bank must last long enough for an ORD departure to reach
         // the remote pad, queue, receive treatment, and use its holdover time.
-        ? ['clear', 'rain', 'clear', 'fog', 'clear', 'snow', 'snow', 'snow', 'snow', 'snow', 'snow']
-        : ['clear', 'rain', 'clear', 'fog', 'clear', 'rain'];
+        ? ['clear', 'haze', 'rain', 'clear', 'fog', 'clear', 'thunderstorm', 'clear', 'snow', 'snow', 'snow', 'snow', 'snow', 'snow']
+        : ['clear', 'haze', 'rain', 'clear', 'fog', 'clear', 'thunderstorm', 'clear', 'rain'];
       this.state.weather.condition = pattern[Math.floor((this.state.elapsed + this.config.seed % 60) / 60) % pattern.length];
     }
+    applyWeatherCondition(
+      this.state.weather,
+      this.state.weather.condition,
+      this.state.elapsed,
+      this.config.seed,
+    );
     if (!this.state.weather.windEnabled) {
       this.state.weather.windSpeed = 0;
       this.state.weather.gustSpeed = 0;
@@ -6159,27 +6334,124 @@ export class AirportSimulation {
         this.state.weather.windDirection = this.normalizeAngle(this.baseWindDirection + Math.sin(this.state.elapsed * 0.006) * 0.48);
         this.state.weather.windSpeed = Math.max(2, this.baseWindSpeed + Math.sin(this.state.elapsed * 0.035 + this.config.seed) * 2.8);
       }
-      const condition = this.state.weather.condition;
-      this.state.weather.gustSpeed = this.state.weather.windSpeed + (condition === 'clear' ? 3 : 6 + Math.sin(this.state.elapsed * 0.11) * 2);
+      const profile = weatherConditionProfile(this.state.weather.condition);
+      this.state.weather.gustSpeed = this.state.weather.windSpeed
+        + profile.gustDeltaKts
+        + Math.sin(this.state.elapsed * 0.11) * Math.min(2.5, profile.gustDeltaKts * 0.24);
     }
-    const condition = this.state.weather.condition;
-    this.state.weather.visibility = condition === 'fog' ? 2.5 : condition === 'snow' ? 3 : condition === 'rain' ? 4.5 : 10;
-    this.state.weather.ceilingFt = condition === 'fog' ? 600 : condition === 'snow' ? 1_000 : condition === 'rain' ? 2_500 : 12_000;
-    this.state.weather.temperatureC = condition === 'snow'
-      ? -5 + Math.sin(this.state.elapsed * 0.015 + this.config.seed) * 1.5
-      : condition === 'rain'
-        ? 9
-        : condition === 'fog'
-          ? 7
-          : 18;
-    this.state.weather.surfaceCondition = condition === 'snow' ? 'contaminated' : condition === 'rain' || condition === 'fog' ? 'wet' : 'dry';
-    if (condition !== previousCondition) this.refreshDeicingPlansForWeather();
-    if (this.state.weather.surfaceCondition !== previousSurfaceCondition) {
+    this.refreshRunwayConditionReports(this.state.weather.condition !== previousCondition);
+    const runwayCodes = this.state.weather.runwayConditionReports
+      .map((report) => `${report.runwayId}:${report.codes.join('/')}`)
+      .join('|');
+    if (this.state.weather.condition !== previousCondition) this.refreshDeicingPlansForWeather();
+    if (this.state.weather.surfaceCondition !== previousSurfaceCondition || runwayCodes !== previousRunwayCodes) {
       for (const flight of this.state.flights) {
         if (flight.phase === 'approach' && !flight.goAround && !flight.diversion) this.planRunwayExit(flight, 'braking action changed');
       }
     }
+    this.updateWeatherHazards();
     this.updateActiveRunwayConfiguration();
+  }
+
+  private updateWeatherHazards(): void {
+    const weather = this.state.weather;
+    if (weather.activeHazard) {
+      weather.activeHazard.status = this.state.elapsed < weather.activeHazard.activeUntilSeconds
+        ? 'active'
+        : this.state.elapsed < weather.activeHazard.advisoryUntilSeconds
+          ? 'advisory'
+          : 'expired';
+      if (weather.activeHazard.status === 'expired') this.expireActiveWeatherHazard('advisory window complete');
+    }
+    const eligible = weather.hazardsEnabled
+      && weather.weatherEnabled
+      && weather.windEnabled
+      && weather.condition === 'thunderstorm';
+    if (!eligible) {
+      if (weather.activeHazard) this.expireActiveWeatherHazard('convective conditions cleared');
+      return;
+    }
+    if (!weather.activeHazard && this.state.elapsed + 1e-6 >= weather.nextHazardAtSeconds) {
+      weather.hazardSequence += 1;
+      const activeRunways = this.config.runways
+        .filter((runway) => this.runwayRole(runway.id) !== 'inactive')
+        .map((runway) => runway.id);
+      weather.activeHazard = createTerminalWeatherHazard(
+        this.config.seed,
+        weather.hazardSequence,
+        this.state.elapsed,
+        activeRunways,
+      );
+      weather.nextHazardAtSeconds = this.state.elapsed
+        + nextWeatherHazardDelaySeconds(this.config.seed, weather.hazardSequence);
+    }
+    const hazard = weather.activeHazard;
+    if (!hazard || hazard.status !== 'active') return;
+    for (const flight of this.state.flights) {
+      if (flight.runway !== hazard.runwayId || hazard.affectedFlightIds.includes(flight.id)) continue;
+      if (
+        hazard.operation === 'arrival'
+        && (flight.phase === 'approach' || flight.phase === 'landing')
+        && !flight.diversion
+        && !flight.goAround
+        && (flight.progress >= 0.55 || flight.kinematics.altitudeFt <= 1_200)
+      ) {
+        hazard.affectedFlightIds.push(flight.id);
+        this.goAround(
+          flight,
+          `${hazard.kind.replace('-', ' ')} escape · ${hazard.windChangeKts} kt loss at ${hazard.locationNm} NM`,
+          hazard,
+        );
+      }
+      if (
+        hazard.operation === 'departure'
+        && flight.phase === 'takeoff'
+        && !flight.motion.onGround
+        && flight.progress < 0.96
+        && !flight.weatherEscape
+      ) {
+        hazard.affectedFlightIds.push(flight.id);
+        this.startDepartureWeatherEscape(flight, hazard);
+      }
+    }
+  }
+
+  private expireActiveWeatherHazard(_reason: string): void {
+    const hazard = this.state.weather.activeHazard;
+    if (!hazard) return;
+    hazard.status = 'expired';
+    this.state.weather.hazardHistory.push({
+      ...hazard,
+      affectedFlightIds: [...hazard.affectedFlightIds],
+    });
+    if (this.state.weather.hazardHistory.length > 48) {
+      this.state.weather.hazardHistory.splice(0, this.state.weather.hazardHistory.length - 48);
+    }
+    this.state.weather.activeHazard = null;
+    this.state.weather.nextHazardAtSeconds = Math.max(
+      this.state.weather.nextHazardAtSeconds,
+      this.state.elapsed + nextWeatherHazardDelaySeconds(this.config.seed, this.state.weather.hazardSequence + 1),
+    );
+  }
+
+  private startDepartureWeatherEscape(flight: Flight, hazard: TerminalWeatherHazard): void {
+    flight.navigation.vector = undefined;
+    flight.weatherEscape = {
+      hazardId: hazard.id,
+      kind: hazard.kind,
+      operation: 'departure',
+      windChangeKts: hazard.windChangeKts,
+      startedAtSeconds: this.state.elapsed,
+      startProgress: flight.progress,
+      clearProgress: Math.min(0.96, Math.max(0.72, flight.progress + 0.18)),
+      status: 'active',
+    };
+    this.events.push({
+      type: 'weather-escape',
+      flight,
+      runway: flight.runway,
+      detail: `${hazard.kind.replace('-', ' ')} escape · full-power straight-ahead climb · ${hazard.windChangeKts} kt loss`,
+    });
   }
 
   private headwindComponent(runwayId: number): number {
@@ -6329,11 +6601,7 @@ export class AirportSimulation {
   }
 
   private weatherDurationMultiplier(phase: FlightPhase): number {
-    const condition = this.state.weather.condition;
-    if (condition === 'clear' || phase === 'resting') return 1;
-    if (condition === 'rain') return phase === 'taxi-in' || phase === 'taxi-out' ? 1.2 : phase === 'landing' || phase === 'takeoff' ? 1.12 : 1.08;
-    if (condition === 'snow') return phase === 'taxi-in' || phase === 'taxi-out' ? 1.5 : phase === 'landing' || phase === 'takeoff' ? 1.35 : 1.22;
-    return phase === 'taxi-in' || phase === 'taxi-out' ? 1.35 : phase === 'landing' || phase === 'approach' ? 1.25 : 1.12;
+    return modeledWeatherDurationMultiplier(this.state.weather.condition, phase);
   }
 
   private normalizeAngle(angle: number): number {

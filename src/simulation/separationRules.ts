@@ -110,7 +110,11 @@ export function separationRuleset(id: SeparationRulesetId): SeparationRuleset {
 }
 
 export function requiredRadarSeparationNm(rules: SeparationRuleset, weather: WeatherState): number {
-  const degraded = weather.visibility < 3 || weather.ceilingFt < 2_000 || weather.condition === 'fog' || weather.condition === 'snow';
+  const degraded = weather.visibility < 3
+    || weather.ceilingFt < 2_000
+    || weather.condition === 'fog'
+    || weather.condition === 'snow'
+    || weather.condition === 'thunderstorm';
   return degraded ? rules.degradedRadarHorizontalNm : rules.radarHorizontalNm;
 }
 
@@ -231,8 +235,10 @@ export function runwayReleaseReason(
 
 export function weatherCapacityMultiplier(rules: SeparationRuleset, weather: WeatherState): number {
   if (rules.id === 'forgiving') {
+    if (weather.condition === 'thunderstorm') return 0.52;
     if (weather.condition === 'fog' || weather.condition === 'snow') return 0.72;
     if (weather.condition === 'rain') return 0.88;
+    if (weather.condition === 'haze') return 0.94;
     return 1;
   }
   if (weather.visibility < 3 || weather.ceilingFt < 800 || weather.condition === 'fog') return 0.42;

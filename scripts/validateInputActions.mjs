@@ -5,6 +5,7 @@ import {
   INPUT_ACTIONS,
   INPUT_HELP_ROWS,
   STANDARD_GAMEPAD_DISCRETE_BUTTONS,
+  GAMEPAD_CAMERA_ACTIVATION_THRESHOLD,
   applyInputDeadzone,
   inputActionForKeyboardCode,
   standardGamepadAxes,
@@ -33,6 +34,12 @@ assert(INPUT_ACTIONS.find((action) => action.id === 'ui.focus')?.keyboardCodes.j
 assert(applyInputDeadzone(0.17) === 0, 'values inside the gamepad deadzone must be ignored');
 assert(applyInputDeadzone(Number.NaN) === 0, 'non-finite gamepad values must be ignored');
 assert(applyInputDeadzone(1) === 1 && applyInputDeadzone(-1) === -1, 'full stick travel must remain full scale');
+const drift = standardGamepadAxes({
+  axes: [0.22, -0.21, 0.2, -0.22],
+  buttons: Array.from({ length: 18 }, () => ({ value: 0, pressed: false })),
+});
+assert(Object.values(drift).every((value) => value === 0), 'post-deadzone controller drift must not become a camera gesture');
+assert(GAMEPAD_CAMERA_ACTIVATION_THRESHOLD > 0, 'gamepad camera activation threshold is missing');
 
 const buttons = Array.from({ length: 18 }, () => ({ value: 0, pressed: false }));
 const leftStick = standardGamepadAxes({ axes: [0.8, -0.7, 0, 0], buttons });

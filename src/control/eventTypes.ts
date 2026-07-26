@@ -67,6 +67,7 @@ export const AIRPORT_DOMAIN_EVENT_TYPES = [
   "handoff-complete",
   "contact",
   "go-around",
+  "weather-escape",
   "emergency",
 ] as const;
 

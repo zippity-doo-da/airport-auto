@@ -170,6 +170,9 @@ export function projectRemoteOperationsSnapshot(value: unknown): JsonRecord {
   if (!isRecord(value)) return { schemaVersion: 1, unavailable: true };
   const airport = isRecord(value.airport) ? value.airport : {};
   const weather = isRecord(value.weather) ? value.weather : {};
+  const environment = isRecord(value.environment) ? value.environment : {};
+  const presentation = isRecord(value.presentation) ? value.presentation : {};
+  const analytics = isRecord(value.analytics) ? value.analytics : {};
   const controllers = isRecord(value.controllers) ? value.controllers : {};
   const runwayConfiguration = isRecord(value.runwayConfiguration)
     ? value.runwayConfiguration
@@ -206,20 +209,59 @@ export function projectRemoteOperationsSnapshot(value: unknown): JsonRecord {
     scenario: value.scenario ?? null,
     trafficDensity: value.trafficDensity ?? null,
     speed: value.speed ?? 1,
+    environment: {
+      lightingMode: environment.lightingMode ?? null,
+      seasonMode: environment.seasonMode ?? null,
+      season: environment.season ?? null,
+      localTime: environment.localTime ?? null,
+      phase: environment.phase ?? null,
+      daylight: environment.daylight ?? null,
+      cloudCover: environment.cloudCover ?? null,
+      wetPavement: environment.wetPavement ?? null,
+      snowCover: environment.snowCover ?? null,
+      runwayLightIntensity: environment.runwayLightIntensity ?? null,
+    },
+    presentation: {
+      accessibilityPalette: presentation.accessibilityPalette ?? null,
+      cameraDirector: isRecord(presentation.cameraDirector)
+        ? {
+            enabled: presentation.cameraDirector.enabled === true,
+            status: presentation.cameraDirector.status ?? null,
+            targetFlightId: presentation.cameraDirector.targetFlightId ?? null,
+            reason: presentation.cameraDirector.reason ?? null,
+          }
+        : null,
+    },
     weather: {
       enabled: weather.enabled ?? null,
       windEnabled: weather.windEnabled ?? null,
       condition: weather.condition ?? null,
+      precipitation: weather.precipitation ?? null,
+      intensity: weather.intensity ?? null,
+      cloudCover: weather.cloudCover ?? null,
       windDirectionDegrees: weather.windDirectionDegrees ?? null,
       windSpeed: weather.windSpeed ?? null,
       gustSpeed: weather.gustSpeed ?? null,
       visibilityMiles: weather.visibilityMiles ?? null,
       ceilingFt: weather.ceilingFt ?? null,
       surfaceCondition: weather.surfaceCondition ?? null,
+      runwayConditionReports: Array.isArray(weather.runwayConditionReports)
+        ? weather.runwayConditionReports.slice(0, 12)
+        : [],
+      hazardsEnabled: weather.hazardsEnabled === true,
+      activeHazard: isRecord(weather.activeHazard) ? weather.activeHazard : null,
     },
     score: {
       landed: score.landed ?? 0,
       departed: score.departed ?? 0,
+    },
+    analytics: {
+      schemaVersion: analytics.schemaVersion ?? null,
+      generatedAtSeconds: analytics.generatedAtSeconds ?? null,
+      window: isRecord(analytics.window) ? analytics.window : null,
+      summary: isRecord(analytics.summary) ? analytics.summary : null,
+      observedFlights: analytics.observedFlights ?? null,
+      disclosure: isRecord(analytics.disclosure) ? analytics.disclosure : null,
     },
     runwayConfiguration: {
       id: runwayConfiguration.id ?? null,

@@ -101,6 +101,7 @@ const RADIO_EVENT_TYPES = new Set([
   "handoff-overdue",
   "contact",
   "go-around",
+  "weather-escape",
   "emergency",
 ]);
 
@@ -244,7 +245,19 @@ function radioDraft(event: AirportEvent): SoundEventDraft | null {
         flight,
         station: "tower",
         priority: "warning",
-        caption: `${flight.callsign}, go around. Fly the missed approach.`,
+        caption: flight.goAround?.weatherEscape
+          ? `${flight.callsign}, wind shear escape. Maximum thrust, fly straight ahead.`
+          : `${flight.callsign}, go around. Fly the missed approach.`,
+        sourceEventType: event.type,
+      };
+    case "weather-escape":
+      return {
+        kind: "radio-emergency",
+        channel: "radio",
+        flight,
+        station: "tower",
+        priority: "critical",
+        caption: `${flight.callsign}, wind shear escape. Maximum thrust, fly straight ahead.`,
         sourceEventType: event.type,
       };
     case "emergency":
@@ -528,8 +541,8 @@ export class SoundscapeEventScheduler {
     if (
       this.highStakesWeatherEnabled &&
       state.weather.weatherEnabled &&
-      state.weather.condition === "rain" &&
-      state.weather.windSpeed >= 18 &&
+      (state.weather.condition === "thunderstorm" ||
+        (state.weather.condition === "rain" && state.weather.windSpeed >= 18)) &&
       state.elapsed >= this.nextThunderEventSeconds
     ) {
       const event = this.emit(

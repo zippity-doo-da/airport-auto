@@ -1,7 +1,7 @@
 # Airport Auto — Forward Roadmap
 
 Last reconciled: July 26, 2026
-Baseline: Airport Auto 2.34.0
+Working baseline: Airport Auto 2.37.0 (local release candidate; deployment intentionally withheld)
 
 Airport Auto is an **ASMR-first web airport simulation with an optional serious ATC layer**. The simulation should remain enjoyable as a calm, hands-off miniature world while also supporting increasingly authentic controller work when the player asks for it.
 
@@ -150,24 +150,24 @@ Use the versioned local control protocol as the safety boundary for live human a
 
 Make Watch mode satisfying for a long session without repetitive alarms or synthetic fatigue.
 
-**Timing:** The deterministic procedural foundation shipped after the aircraft, traffic, motion, and information-display work in 2.34. Recorded source libraries, reusable pre-rendered voices, and deeper environmental simulation remain deferred; runtime voice generation is still out of scope.
+**Timing:** The deterministic procedural foundation shipped after the aircraft, traffic, motion, and information-display work in 2.34. Operational weather and runway-condition behavior shipped in 2.35. The local 2.36 release candidate adds continuous environment presentation, an optional camera director, and accessible palettes without triggering a hosted deployment. Recorded source libraries and reusable pre-rendered voices remain deferred; runtime voice generation is still out of scope.
 
-**2.34 foundation:** Project-original procedural beds and event cues now provide a license-clear baseline; per-aircraft spatial voices, five buses/presets, actual-weather mixing, fictional offline captions, replay sound decisions, deterministic cooldowns, and readable caption pacing are shipped. Recorded source libraries, pre-rendered fictional voices, deeper weather hazards, environment transitions, and accessibility palettes remain below.
+**2.36 working baseline:** The 2.34 project-original sound foundation remains in place. Version 2.35 added shared operational Clear/Haze/Rain/Fog/Snow/Thunderstorm state, modeled runway reports and performance, contaminated-surface movement, and default-off deterministic weather escapes. The local 2.36 candidate adds deterministic solar/season/surface presentation, a manual-input-safe camera director, and four presentation palettes. Recorded source libraries and pre-rendered fictional voices remain below.
 
 - [ ] Acquire or create license-cleared engine, APU, ramp, cabin-area, runway, rain, wind, terminal, and tower-room recordings.
 - [x] Give aircraft persistent spatial sound with model/engine variation, distance attenuation, Doppler restraint, occlusion, and smooth crossfades. (2.34: the nearest 14 model/power-ranked aircraft use persistent synthesized voices with camera-relative stereo, distance/height attenuation, restrained Doppler, simple ground/distance filtering, and smoothed parameters.)
 - [ ] Add taxi whine, power changes, reverse thrust, runway rumble, touchdown, flap/gear, pushback, tug, and service-vehicle layers. (2.34 foundation: persistent engine power plus seeded takeoff, touchdown, reverse, engine-start, gear, tug, ramp, service, and deicing cues ship now; distinct taxi-whine, runway-rumble, flap, and recorded detail layers remain.)
 - [ ] Add weather-specific rain, snow, thunder, gust, and low-visibility ambience that follows the actual weather switches. (2.34 foundation: rain/snow/wind beds obey both master weather and wind state; gust and transition events are deterministic; rare thunder is opt-in. Richer low-visibility and recorded-weather layers remain.)
-- [ ] Add deeper fog, haze, snow, thunderstorm, low-ceiling, and contaminated-runway simulation states—not merely visual filters.
-- [ ] Add runway braking-action reports and surface-condition effects to landing distance, exit choice, taxiing, and departure performance.
-- [ ] Add rare wind-shear and microburst alerts with safe go-around/escape behavior and an option to disable high-stakes events.
+- [x] Add deeper fog, haze, snow, thunderstorm, low-ceiling, and contaminated-runway simulation states—not merely visual filters. (2.35: one deterministic state drives capacity, motion, runway planning, presentation, audio, replay, and control telemetry.)
+- [x] Add runway braking-action reports and surface-condition effects to landing distance, exit choice, taxiing, and departure performance. (2.35: modeled three-segment RwyCC reports and explicitly schematic performance assessments are shared across every airport.)
+- [x] Add rare wind-shear and microburst alerts with safe go-around/escape behavior and an option to disable high-stakes events. (2.35: default-off thunderstorm hazards protect straight-ahead full-power escapes and reject contrary vectors.)
 - [ ] Build a reusable offline radio-chatter library from fictional, captioned ATC exchanges. Generate or record the clips during development—not at runtime—disclose synthetic voices, preserve a license/source manifest, vary controller and pilot voices, and sequence clips by airport, station, traffic state, cooldown, and repetition budget.
 - [x] Give radio chatter its own toggle and volume channel, with captions, calm/ASMR filtering, and a no-voice fallback; never require an API key or network connection from players. (2.34: independent cue/caption toggles, Radio bus, Calm preset, procedural cue, and fictional text fallback are entirely local.)
 - [x] Record sound events in replay so playback reproduces the same soundscape decisions. (2.34: replay schema 3 stores seeded event kind, variant, time, position, caption, station, and source event; replay presentation uses displayed rather than hidden live state.)
 - [ ] Add long-loop randomization, density-aware mixing, cooldowns, and calm alert policies to prevent repetitive event fatigue. (2.34 foundation: seeded variants, state-aware beds, scheduled ramp/gust/thunder events, per-kind cooldowns, bounded captions, and 4.2–8 second caption dwell extend the 2.33 visual-status policy. Recorded long-loop variation and measured multi-hour repetition budgets remain.)
-- [ ] Add dawn, day, dusk, night, cloud, seasonal, snow-cover, wet-pavement, and runway-light transitions.
-- [ ] Add a smooth optional camera director that follows interesting operations without camera snaps or stealing manual control.
-- [ ] Add high-contrast and color-vision-safe palettes while retaining reduced-motion and low-chrome presentation.
+- [x] Add dawn, day, dusk, night, cloud, seasonal, snow-cover, wet-pavement, and runway-light transitions. (2.36 local candidate: seeded solar phases and seasons continuously drive sky, fog, sun, exposure, terrain, cloud, wet/snow surfaces, and runway-light intensity through one fixed-step environment state.)
+- [x] Add a smooth optional camera director that follows interesting operations without camera snaps or stealing manual control. (2.36 local candidate: the opt-in presentation-only director uses long deterministic dwells, existing interpolated camera motion, reduced-motion protection, and immediate yield to pointer, touch, keyboard, gamepad, focus, or camera input.)
+- [x] Add high-contrast and color-vision-safe palettes while retaining reduced-motion and low-chrome presentation. (2.36 local candidate: Standard, High contrast, CVD safe, and Monochrome palettes drive semantic DOM and 3D colors, persist locally, remain API-visible, and fit the responsive controls.)
 
 ## Milestone 7 — Aircraft identity and airport life
 
@@ -191,12 +191,12 @@ Connect the simulation to the outside world without making it fragile or unsafe.
 - [ ] Add cached, optional METAR ingestion with unit validation, age display, provenance, and offline fallback.
 - [ ] Add cached, optional NOTAM and runway/taxiway-status ingestion with human review before changing active topology.
 - [ ] Add optional schedule/traffic feeds that seed plausible operations while preserving privacy, licensing, and deterministic replay.
-- [ ] Add JSON and CSV exports for flights, commands, events, queues, delays, runway utilization, and shift metrics.
-- [ ] Add a single-aircraft flight-data-recorder view, airport operations dashboard, conflict heatmap, and runway/taxiway utilization views.
+- [x] Add JSON and CSV exports for flights, commands, events, queues, delays, runway utilization, and shift metrics. (2.37 local candidate: one local JSON bundle and ten selectable CSV datasets cover the requested data plus named-taxiway use, flight-recorder samples, and conflict cells; nested data is serialized safely and nothing uploads.)
+- [x] Add a single-aircraft flight-data-recorder view, airport operations dashboard, conflict heatmap, and runway/taxiway utilization views. (2.37 local candidate: a responsive, keyboard-safe Data Lab presents authoritative one-second traces, shift pulse, utilization bars, runway-context forecast heat cells, and follow controls without reading positions from the renderer.)
 - [ ] Add exact-replay verification, event markers, state comparison, schema migrations, and shareable replay/seed links.
 - [ ] Add screenshot and short-clip capture plus a clean spectator presentation.
 - [ ] Add daily seeded challenges, classrooms, shared sessions, and server-validated leaderboards only if they support rather than undermine the ASMR-first direction.
-- [ ] Define telemetry redaction, retention, consent, and public-sharing rules before enabling cloud storage.
+- [x] Define telemetry redaction, retention, consent, and public-sharing rules before enabling cloud storage. (2.37 local candidate: the bounded page-memory recorder, in-product disclosure, remote-summary boundary, and [allowlist/redaction policy](docs/operations-data-lab.md) explicitly keep cloud upload off and raw control identities local.)
 
 ## Cross-cutting engineering and quality work
 
@@ -223,7 +223,7 @@ These tasks travel with the milestones above rather than waiting for a final cle
 - [x] Keep Forgiving ATC as the default ASMR/game ruleset and offer FAA-inspired terminal separation as an explicit opt-in.
 - [x] Use captions plus an optional reusable offline library of license-cleared recorded or generated fictional speech; do not generate chatter in real time.
 - [x] Choose the hosting and identity model for authenticated remote/multi-controller sessions. (2.32: separate self-hosted Node gateway with operator-owned pre-provisioned opaque tokens, exact Origin/TLS controls, provider-neutral container, and an explicit future OIDC migration boundary.)
-- [ ] Decide which telemetry may appear in shared replays and which must remain local.
+- [x] Decide which telemetry may appear in shared replays and which must remain local. (2.37: simulated state and pseudonymous operation outcomes are allowlisted only after explicit preview/consent; correlation IDs, controller/client identity, credentials, network/device data, user text, and restricted live-feed data remain local or are removed.)
 - [ ] Decide whether progression and leaderboards improve the project or conflict with its open-ended ASMR character.
 - [ ] Choose the second high-fidelity airport only after ORD v1 meets its acceptance gate.
 

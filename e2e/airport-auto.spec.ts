@@ -17,20 +17,23 @@ test("Assisted ORD shift exposes proposals, station workload, and structured con
   );
   await expect(page.locator("#airport-name")).toContainText("O’Hare");
   await expect(page.locator("#flight-strip-count")).toContainText("aircraft");
-  await page.waitForFunction(() => window.airportControl?.version === "2.34.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.37.0");
   await page.waitForFunction(
     () => window.airportControl.snapshot().renderer.context.status === "loaded",
   );
   await page.waitForFunction(
     () => window.airportControl.snapshot().renderer.aircraftAssets.active > 0,
   );
+  await expect(page.locator(".flight-chip__route").first()).toContainText(
+    / · .+, .+ → .+ · .+, .+/,
+  );
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
-  expect(initial.schemaVersion).toBe(36);
+  expect(initial.schemaVersion).toBe(39);
   expect(initial.controlProtocol).toMatchObject({
     protocolVersion: "1.2.0",
-    apiVersion: "2.34.0",
-    commandCount: 87,
+    apiVersion: "2.37.0",
+    commandCount: 92,
     channel: "airport-auto",
   });
   expect(initial.airportLifeVisible).toBeFalsy();
@@ -198,7 +201,7 @@ test("Assisted ORD shift exposes proposals, station workload, and structured con
       requestId: "e2e-authority-rejection",
       source: "test",
       authority: { station: "tower", actorId: "tower-test-agent" },
-      expects: { apiVersion: "2.34.0", snapshotSchemaVersion: 36 },
+      expects: { apiVersion: "2.37.0", snapshotSchemaVersion: 39 },
       command: { action: "pause" },
     });
     const paused = window.airportControl.dispatch({
@@ -207,7 +210,7 @@ test("Assisted ORD shift exposes proposals, station workload, and structured con
       clientId: "playwright",
       source: "test",
       authority: { station: "supervisor", actorId: "supervisor-test-agent" },
-      expects: { apiVersion: "2.34.0", snapshotSchemaVersion: 36 },
+      expects: { apiVersion: "2.37.0", snapshotSchemaVersion: 39 },
       command: { action: "pause" },
     });
     const resumed = window.airportControl.dispatch({
@@ -233,7 +236,7 @@ test("Assisted ORD shift exposes proposals, station workload, and structured con
   });
   expect(protocolProbe.protocol).toMatchObject({
     schemaVersion: 1,
-    commandCount: 87,
+    commandCount: 92,
     schemaNames: [
       "command",
       "requestEnvelope",
@@ -270,7 +273,7 @@ test("Assisted ORD shift exposes proposals, station workload, and structured con
   });
   expect(protocolProbe.paused).toMatchObject({
     protocolVersion: "1.2.0",
-    apiVersion: "2.34.0",
+    apiVersion: "2.37.0",
     requestId: "e2e-formal-pause",
     clientId: "playwright",
     source: "test",
@@ -317,7 +320,7 @@ test("Assisted ORD shift exposes proposals, station workload, and structured con
               clientId: "playwright-channel",
               source: "test",
               authority: { station: "supervisor" },
-              expects: { apiVersion: "2.34.0", snapshotSchemaVersion: 36 },
+              expects: { apiVersion: "2.37.0", snapshotSchemaVersion: 39 },
               command: { action: "setRadarVisible", enabled: false },
             },
           });
@@ -1322,7 +1325,7 @@ test("Assisted ORD shift exposes proposals, station workload, and structured con
   expect(recording).toMatchObject({
     schemaVersion: 3,
     protocolVersion: "1.2.0",
-    simulationVersion: "2.34.0",
+    simulationVersion: "2.37.0",
     sessionId: expect.stringMatching(/^session-/),
   });
   expect(recording.seed).toBe(10_004);
@@ -1529,7 +1532,7 @@ test("Manual ORD supports live procedure control, ownership handoffs, and physic
   await page.goto(
     "/?airport=ORD&mode=manual&station=approach&density=quiet&autostart=1&detail=low&renderFps=0.25",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.34.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.37.0");
   const pauseResult = await page.evaluate(() =>
     window.airportControl.request({ action: "pause" }),
   );
@@ -1708,7 +1711,7 @@ test("Manual ORD supports live procedure control, ownership handoffs, and physic
   );
   expect(causalVector).toMatchObject({
     protocolVersion: "1.2.0",
-    apiVersion: "2.34.0",
+    apiVersion: "2.37.0",
     causedByCommandId: heading.commandId,
   });
   expect(causalVector!.eventId).toBeGreaterThan(heading.eventId);
@@ -1988,7 +1991,7 @@ test("Group select exposes and applies only shared atomic commands", async ({
   await page.goto(
     "/?airport=ORD&mode=manual&station=supervisor&density=rush&autostart=1&detail=low&renderFps=0.25",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.34.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.37.0");
   await page.evaluate(() => window.airportControl.request({ action: "pause" }));
   const arrivals = await page.evaluate(() =>
     window.airportControl
@@ -2112,7 +2115,7 @@ test("ORD snow exposes the deicing route and holdover model in the normal UI", a
   await page.goto(
     "/?airport=ORD&mode=auto&autostart=1&detail=low&weather=snow&windDir=270&wind=12&renderFps=0.25",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.34.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.37.0");
   await page.waitForFunction(
     () => window.airportControl.snapshot().renderer.context.status === "loaded",
   );
@@ -2120,7 +2123,7 @@ test("ORD snow exposes the deicing route and holdover model in the normal UI", a
   await page.locator("#menu-toggle").click();
   await expect(page.locator("#weather-condition-select")).toBeVisible();
   await expect(page.locator("#weather-condition-select")).toHaveValue("snow");
-  await expect(page.locator("#weather-condition-select option")).toHaveCount(5);
+  await expect(page.locator("#weather-condition-select option")).toHaveCount(7);
   await page.locator("#wind-toggle").click();
   await expect(page.locator("#wind-toggle")).toHaveText("WIND OFF");
   await page.locator("#weather-toggle").click();
@@ -2135,8 +2138,21 @@ test("ORD snow exposes the deicing route and holdover model in the normal UI", a
     surfaceCondition: "contaminated",
   });
   expect(initial.weather.windEnabled).toBeFalsy();
-  expect(initial.weather.ceilingFt).toBe(1_000);
+  expect(initial.weather.ceilingFt).toBe(900);
   expect(initial.weather.temperatureC).toBeLessThan(0);
+  expect(initial.weather.runwayConditionReports).toHaveLength(
+    initial.runways.length,
+  );
+  expect(initial.weather.runwayConditionReports).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        codes: expect.arrayContaining([expect.any(Number)]),
+        contaminant: "wet-snow",
+        notForNavigation: true,
+        source: "modeled-rcam-schematic",
+      }),
+    ]),
+  );
   expect(initial.surfaceGraph.deicingFacilities).toHaveLength(1);
   const planned = initial.flights.find(
     (flight) =>
@@ -2186,6 +2202,71 @@ test("ORD snow exposes the deicing route and holdover model in the normal UI", a
   });
 });
 
+test("Thunderstorm hazards remain opt-in and expose modeled runway reports", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "desktop-chromium",
+    "Operational weather state is viewport-independent and covered once in Chromium.",
+  );
+  test.setTimeout(120_000);
+  await page.goto(
+    "/?airport=ORD&mode=auto&autostart=1&detail=low&weather=thunderstorm&windDir=240&wind=25&renderFps=0.25",
+  );
+  await page.waitForFunction(() => window.airportControl?.version === "2.37.0");
+  await page.waitForFunction(
+    () => window.airportControl.snapshot().renderer.context.status === "loaded",
+  );
+
+  const initial = await page.evaluate(() => window.airportControl.snapshot());
+  expect(initial.weather).toMatchObject({
+    condition: "thunderstorm",
+    precipitation: "rain",
+    surfaceCondition: "contaminated",
+    hazardsEnabled: false,
+    activeHazard: null,
+  });
+  expect(initial.weather.runwayConditionReports).toHaveLength(
+    initial.runways.length,
+  );
+  expect(initial.weather.runwayConditionReports.every(
+    (report) =>
+      report.notForNavigation === true &&
+      report.source === "modeled-rcam-schematic" &&
+      report.codes.length === 3,
+  )).toBeTruthy();
+
+  await page.locator("#menu-toggle").click();
+  await expect(page.locator("#weather-condition-select")).toHaveValue(
+    "thunderstorm",
+  );
+  await expect(page.locator("#weather-runway-condition")).toContainText(
+    "RwyCC",
+  );
+  const enabled = await page.evaluate(() =>
+    window.airportControl.request({
+      action: "setWeatherHazardsEnabled",
+      enabled: true,
+    }),
+  );
+  expect(enabled.accepted).toBeTruthy();
+  expect(enabled.resultingState.weather.hazardsEnabled).toBeTruthy();
+  await expect(page.locator("#high-stakes-weather-enabled")).toBeChecked();
+
+  const disabled = await page.evaluate(() =>
+    window.airportControl.request({
+      action: "setWeatherHazardsEnabled",
+      enabled: false,
+    }),
+  );
+  expect(disabled.accepted).toBeTruthy();
+  expect(disabled.resultingState.weather).toMatchObject({
+    hazardsEnabled: false,
+    activeHazard: null,
+  });
+  await expect(page.locator("#high-stakes-weather-enabled")).not.toBeChecked();
+});
+
 test("Go-around climbs from the live pose and flies a visible missed-approach path", async ({
   page,
 }, testInfo) => {
@@ -2197,7 +2278,7 @@ test("Go-around climbs from the live pose and flies a visible missed-approach pa
   await page.goto(
     "/?airport=ATL&mode=auto&autostart=1&detail=low&speed=3&renderFps=0.25",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.34.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.37.0");
   await page.waitForFunction(() => {
     const flight = window.airportControl
       .snapshot()
@@ -2305,7 +2386,7 @@ test("Canvas taps keep an uncleared arrival selected while a real drag starts it
   await page.goto(
     "/?airport=ATL&mode=manual&station=supervisor&autostart=1&detail=low&renderFps=30",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.34.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.37.0");
   await page.waitForFunction(
     () => window.airportControl.snapshot().renderer.aircraftAssets.active > 0,
   );
@@ -2371,8 +2452,8 @@ test("Canvas taps keep an uncleared arrival selected while a real drag starts it
     canvas.dispatchEvent(
       new PointerEvent("pointermove", {
         ...pointer,
-        clientX: x + 1.5,
-        clientY: y + 1.5,
+        clientX: x + 4.5,
+        clientY: y + 2.5,
         button: -1,
         buttons: 1,
       }),
@@ -2380,8 +2461,8 @@ test("Canvas taps keep an uncleared arrival selected while a real drag starts it
     canvas.dispatchEvent(
       new PointerEvent("pointerup", {
         ...pointer,
-        clientX: x + 1.5,
-        clientY: y + 1.5,
+        clientX: x + 4.5,
+        clientY: y + 2.5,
         button: 0,
         buttons: 0,
       }),
@@ -2405,6 +2486,18 @@ test("Canvas taps keep an uncleared arrival selected while a real drag starts it
   expect(tapped.target?.key).toBe(`flight:${arrivalId}`);
   expect(tapped.gesture).toBe("tap");
   expect(tapped.route).toBe("");
+
+  await page.locator("#scene").dispatchEvent("wheel", {
+    clientX: tapPoint.x,
+    clientY: tapPoint.y,
+    deltaY: 0.25,
+  });
+  await page.waitForTimeout(300);
+  expect(
+    await page.evaluate(
+      () => window.airportControl.snapshot().selection.focusedFlightId,
+    ),
+  ).toBe(arrivalId);
 
   const dragPoint = await centerFlight();
   const dragged = await page.evaluate(({ x, y }) => {
@@ -2463,7 +2556,7 @@ test("No-fail training teaches, explains rejection, and restores a live checkpoi
 }, testInfo) => {
   test.setTimeout(120_000);
   await page.goto("/?airport=ORD&autostart=1&detail=low&renderFps=0.25");
-  await page.waitForFunction(() => window.airportControl?.version === "2.34.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.37.0");
 
   const started = await page.evaluate(() =>
     window.airportControl.request({
@@ -2472,7 +2565,7 @@ test("No-fail training teaches, explains rejection, and restores a live checkpoi
     }),
   );
   expect(started.accepted).toBeTruthy();
-  expect(started.resultingState.schemaVersion).toBe(36);
+  expect(started.resultingState.schemaVersion).toBe(39);
   expect(started.resultingState.training).toMatchObject({
     status: "coach-paused",
     lessonId: "arrival-basics",
@@ -2646,7 +2739,7 @@ test("Challenge shifts lock conditions, grade operations, and fit responsive pla
   await page.goto(
     "/?airport=ORD&mode=auto&challenge=rush-hour&detail=low&renderFps=0.25",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.34.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.37.0");
   await page.waitForFunction(
     () => window.airportControl.snapshot().renderer.context.status === "loaded",
   );
@@ -2654,7 +2747,7 @@ test("Challenge shifts lock conditions, grade operations, and fit responsive pla
   await expect(page.locator("#intro")).toHaveClass(/modal--hidden/);
 
   const briefing = await page.evaluate(() => window.airportControl.snapshot());
-  expect(briefing.schemaVersion).toBe(36);
+  expect(briefing.schemaVersion).toBe(39);
   expect(briefing.mode).toBe("assisted");
   expect(briefing.paused).toBeTruthy();
   expect(briefing.challenge).toMatchObject({
@@ -2852,14 +2945,14 @@ test("Sandbox stages requested traffic without score pressure and fits responsiv
   await page.goto(
     "/?airport=ORD&mode=auto&sandbox=1&autostart=1&detail=low&renderFps=0.25",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.34.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.37.0");
   await page.waitForFunction(
     () => window.airportControl.snapshot().renderer.context.status === "loaded",
   );
   await expect(page.locator("#intro")).toHaveClass(/modal--hidden/);
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
-  expect(initial.schemaVersion).toBe(36);
+  expect(initial.schemaVersion).toBe(39);
   expect(initial.airport.code).toBe("ORD");
   expect(initial.sandbox).toMatchObject({
     active: true,
@@ -3024,7 +3117,7 @@ test("Unified input keeps held keys smooth and supports a standard gamepad witho
     });
   });
   await page.goto("/?airport=ATL&mode=auto&autostart=1&detail=low&renderFps=4");
-  await page.waitForFunction(() => window.airportControl?.version === "2.34.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.37.0");
   await page.waitForFunction(
     () => window.airportControl.snapshot().input.devices.gamepad.connected,
   );
@@ -3046,6 +3139,37 @@ test("Unified input keeps held keys smooth and supports a standard gamepad witho
     },
   });
   expect(initial.input.actions).toHaveLength(24);
+
+  const driftFocusId = initial.flights[0]?.id;
+  expect(driftFocusId).toBeDefined();
+  const driftFocus = await page.evaluate(
+    (flightId) =>
+      window.airportControl.request({ action: "focusFlight", flightId }),
+    driftFocusId!,
+  );
+  expect(driftFocus.accepted).toBeTruthy();
+  await page.evaluate(() => {
+    const pad = (
+      window as unknown as {
+        __airportTestGamepad: { axis(index: number, value: number): void };
+      }
+    ).__airportTestGamepad;
+    pad.axis(0, 0.22);
+  });
+  await page.waitForTimeout(350);
+  const afterDrift = await page.evaluate(() =>
+    window.airportControl.snapshot(),
+  );
+  expect(afterDrift.selection.focusedFlightId).toBe(driftFocusId);
+  expect(afterDrift.renderer.camera.target?.key).toBe(`flight:${driftFocusId}`);
+  expect(afterDrift.input.axes.panX).toBe(0);
+  await page.evaluate(() => {
+    (
+      window as unknown as {
+        __airportTestGamepad: { axis(index: number, value: number): void };
+      }
+    ).__airportTestGamepad.axis(0, 0);
+  });
 
   await page.locator("#scene").focus();
   const keyStart = initial.renderer.camera;
@@ -3226,12 +3350,241 @@ test("Unified input keeps held keys smooth and supports a standard gamepad witho
   expect(stillDisabled.renderer.camera.focusY).toBe(disabledCamera.focusY);
   expect(stillDisabled.input.devices.gamepad.enabled).toBeFalsy();
   await page.reload();
-  await page.waitForFunction(() => window.airportControl?.version === "2.34.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.37.0");
   const persisted = await page.evaluate(
     () => window.airportControl.snapshot().input.devices.gamepad,
   );
   expect(persisted.enabled).toBeFalsy();
   expect(persisted.sensitivity).toBe(1.4);
+});
+
+test("Environment controls, accessible palettes, and the camera director remain presentation-only", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "desktop-chromium",
+    "Desktop Chromium covers automatic scene presentation and manual camera yield.",
+  );
+  test.setTimeout(90_000);
+  await page.goto(
+    "/?airport=ORD&mode=watch&autostart=1&detail=low&renderFps=2&lighting=automatic&season=automatic",
+  );
+  await page.waitForFunction(() => window.airportControl?.version === "2.37.0");
+  const initial = await page.evaluate(() => window.airportControl.snapshot());
+  expect(initial.schemaVersion).toBe(39);
+  expect(initial.environment).toMatchObject({
+    schemaVersion: 1,
+    lightingMode: "automatic",
+    seasonMode: "automatic",
+    transitionModel: "fixed-step-continuous",
+  });
+  expect(initial.presentation).toMatchObject({
+    accessibilityPalette: "standard",
+    cameraDirector: { schemaVersion: 1, enabled: false, status: "off" },
+  });
+
+  await page.locator("#menu-toggle").click();
+  await page.locator(".advanced-tools > summary").click();
+  await expect(page.locator("#lighting-mode-select")).toBeVisible();
+  await page.selectOption("#lighting-mode-select", "night");
+  await page.waitForFunction(
+    () => window.airportControl.snapshot().environment.lightingMode === "night",
+  );
+  await expect(page.locator("body")).toHaveClass(/night-mode/);
+  await expect(page.locator("#environment-readout")).toContainText("forced night");
+  await page.selectOption("#season-mode-select", "winter");
+  await page.selectOption("#accessibility-palette-select", "cvd-safe");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-accessibility-palette",
+    "cvd-safe",
+  );
+  const selected = await page.evaluate(() => window.airportControl.snapshot());
+  expect(selected.environment).toMatchObject({
+    lightingMode: "night",
+    phase: "night",
+    daylight: 0,
+    seasonMode: "winter",
+    season: "winter",
+  });
+  expect(selected.presentation.accessibilityPalette).toBe("cvd-safe");
+  expect(selected.renderer.accessibilityPalette).toBe("cvd-safe");
+
+  const dayResult = await page.evaluate(() =>
+    window.airportControl.request({
+      action: "setEnvironmentLightingMode",
+      mode: "day",
+    }),
+  );
+  expect(dayResult.accepted).toBeTruthy();
+  expect(dayResult.resultingState.environment).toMatchObject({
+    lightingMode: "day",
+    phase: "day",
+    daylight: 1,
+  });
+  const paletteResult = await page.evaluate(() =>
+    window.airportControl.request({
+      action: "setAccessibilityPalette",
+      palette: "high-contrast",
+    }),
+  );
+  expect(paletteResult.accepted).toBeTruthy();
+
+  await page.locator("#menu-toggle").click();
+  const directorResult = await page.evaluate(() =>
+    window.airportControl.request({
+      action: "setCameraDirectorEnabled",
+      enabled: true,
+    }),
+  );
+  expect(directorResult.accepted).toBeTruthy();
+  await page.waitForFunction(() => {
+    const snapshot = window.airportControl.snapshot();
+    return snapshot.presentation.cameraDirector.status === "following"
+      && snapshot.selection.focusedFlightId !== null;
+  });
+  const directed = await page.evaluate(() => window.airportControl.snapshot());
+  expect(directed.presentation.cameraDirector.targetFlightId).toBe(
+    directed.selection.focusedFlightId,
+  );
+
+  await page.locator("#scene").focus();
+  await page.keyboard.down("d");
+  await page.waitForTimeout(180);
+  await page.keyboard.up("d");
+  await page.waitForFunction(() => {
+    const snapshot = window.airportControl.snapshot();
+    return !snapshot.presentation.cameraDirector.enabled
+      && snapshot.selection.focusedFlightId === null;
+  });
+  const yielded = await page.evaluate(() => window.airportControl.snapshot());
+  expect(yielded.presentation.cameraDirector).toMatchObject({
+    enabled: false,
+    status: "yielded",
+  });
+  expect(yielded.presentation.cameraDirector.reason).toContain("Manual camera");
+
+  await page.reload();
+  await page.waitForFunction(() => window.airportControl?.version === "2.37.0");
+  const persisted = await page.evaluate(() => window.airportControl.snapshot());
+  expect(persisted.presentation.accessibilityPalette).toBe("high-contrast");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-accessibility-palette",
+    "high-contrast",
+  );
+});
+
+test("Operations data lab records authoritative traces and exports local analysis", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "desktop-chromium",
+    "Desktop Chromium covers the local analytics recorder and responsive lab.",
+  );
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1024, height: 600 });
+  await page.goto(
+    "/?airport=ORD&mode=auto&autostart=1&detail=low&renderFps=4",
+  );
+  await page.waitForFunction(() => window.airportControl?.version === "2.37.0");
+  await page.waitForFunction(
+    () => window.airportControl.snapshot().analytics.window.retainedSamples >= 2,
+  );
+
+  const api = await page.evaluate(() => {
+    const overview = window.airportControl.snapshot().analytics;
+    const analytics = window.airportControl.analytics();
+    const json = JSON.parse(window.airportControl.exportData("json"));
+    const csv = window.airportControl.exportData("csv", "runways");
+    return {
+      overview,
+      analytics,
+      json: {
+        schemaVersion: json.schemaVersion,
+        flightRecorderSamples: json.flightRecorder.length,
+        localOnly: json.disclosure.localOnly,
+        cloudUpload: json.disclosure.cloudUpload,
+      },
+      csv,
+    };
+  });
+  expect(api.overview.schemaVersion).toBe(1);
+  expect(api.overview.exportDatasets).toHaveLength(10);
+  expect(api.analytics.flights.length).toBeGreaterThan(0);
+  expect(api.analytics.selectedFlightSamples.length).toBeGreaterThan(0);
+  expect(api.analytics.disclosure).toMatchObject({
+    localOnly: true,
+    cloudUpload: false,
+    shareableByDefault: false,
+  });
+  expect(api.json).toMatchObject({
+    schemaVersion: 1,
+    localOnly: true,
+    cloudUpload: false,
+  });
+  expect(api.json.flightRecorderSamples).toBeGreaterThan(0);
+  expect(api.csv).toContain("occupiedSeconds");
+
+  await page.locator("#menu-toggle").click();
+  await page.locator("#operations-lab-toggle").click();
+  const lab = page.locator("#operations-lab");
+  await expect(lab).toBeVisible();
+  await expect(page.locator("#control-panel")).not.toHaveClass(
+    /control-panel--open/,
+  );
+  await expect(lab.locator("[data-operations-summary]")).toContainText(
+    "Flow",
+  );
+  await expect(lab.locator("[data-operations-flight-state]")).not.toContainText(
+    "Select an observed",
+  );
+  expect(
+    await lab
+      .locator("[data-operations-altitude]")
+      .getAttribute("d"),
+  ).toMatch(/^M/);
+  expect(
+    await lab.locator("[data-operations-heatmap] line").count(),
+  ).toBe(8);
+
+  const downloadPromise = page.waitForEvent("download");
+  await lab.locator("[data-operations-dataset]").selectOption("shift-metrics");
+  await lab.locator("[data-operations-export-csv]").click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe("ord-operations-shift-metrics.csv");
+
+  const desktopBounds = await lab.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return { top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left };
+  });
+  expect(desktopBounds.top).toBeGreaterThanOrEqual(0);
+  expect(desktopBounds.left).toBeGreaterThanOrEqual(0);
+  expect(desktopBounds.right).toBeLessThanOrEqual(1024);
+  expect(desktopBounds.bottom).toBeLessThanOrEqual(600);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const mobileBounds = await lab.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const scroll = element.querySelector(".operations-lab__scroll");
+    return {
+      top: rect.top,
+      right: rect.right,
+      bottom: rect.bottom,
+      left: rect.left,
+      clientHeight: scroll?.clientHeight ?? 0,
+      scrollHeight: scroll?.scrollHeight ?? 0,
+    };
+  });
+  expect(mobileBounds.top).toBeGreaterThanOrEqual(0);
+  expect(mobileBounds.left).toBeGreaterThanOrEqual(0);
+  expect(mobileBounds.right).toBeLessThanOrEqual(390);
+  expect(mobileBounds.bottom).toBeLessThanOrEqual(844);
+  expect(mobileBounds.scrollHeight).toBeGreaterThan(mobileBounds.clientHeight);
+  await page.screenshot({
+    path: testInfo.outputPath("mobile-operations-data-lab.png"),
+  });
+
+  await lab.locator("[data-operations-close]").click();
+  await expect(lab).toBeHidden();
 });
 
 test("Controller policies expose capacity, preserve safety authority, and survive airport changes", async ({
@@ -3245,7 +3598,7 @@ test("Controller policies expose capacity, preserve safety authority, and surviv
   await page.goto(
     "/?airport=ORD&mode=watch&station=supervisor&autostart=1&detail=low&renderFps=1",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.34.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.37.0");
   await page.waitForFunction(
     () =>
       window.airportControl.snapshot().controllers.scripted.decisions.length >
@@ -3314,7 +3667,7 @@ test("Controller policies expose capacity, preserve safety authority, and surviv
       requestId: "policy-supervisor-change",
       source: "test",
       authority: { station: "supervisor", actorId: "supervisor-policy-test" },
-      expects: { apiVersion: "2.34.0", snapshotSchemaVersion: 36 },
+      expects: { apiVersion: "2.37.0", snapshotSchemaVersion: 39 },
       command: { action: "setControllerPolicyPreset", preset: "efficient" },
     });
   });
@@ -3357,7 +3710,7 @@ test("Observer focus follows live traffic, airport assets, queues, and conflicts
   await page.goto(
     "/?airport=ORD&mode=watch&density=busy&autostart=1&detail=low&renderFps=4",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.34.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.37.0");
   await page.waitForFunction(
     () =>
       window.airportControl.snapshot().controllers.scripted.decisions.length >
@@ -3372,7 +3725,7 @@ test("Observer focus follows live traffic, airport assets, queues, and conflicts
   );
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
-  expect(initial.schemaVersion).toBe(36);
+  expect(initial.schemaVersion).toBe(39);
   expect(
     Object.values(initial.controllers.scripted.stations).every(
       (station) => station.mode === "scripted" && station.evaluations > 0,
@@ -3390,7 +3743,7 @@ test("Observer focus follows live traffic, airport assets, queues, and conflicts
   );
   expect(scriptedEvent).toMatchObject({
     protocolVersion: "1.2.0",
-    apiVersion: "2.34.0",
+    apiVersion: "2.37.0",
     causedByControllerDecisionId: expect.stringMatching(/^controller-/),
     payload: {
       station: expect.any(String),
@@ -3648,7 +4001,7 @@ test("Mobile Watch mode keeps non-ORD and procedural maps navigable in low detai
   await page.goto(
     "/?airport=ATL&mode=watch&autostart=1&detail=low&renderFps=0.25",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.34.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.37.0");
   await expect(page.locator("body")).toHaveClass(/watch-mode/);
   await expect(page.locator("#menu-toggle")).toBeVisible();
   await expect(page.locator("#zoom-in")).toBeVisible();
@@ -3957,7 +4310,7 @@ test("Laptop viewports keep the complete controls menu reachable", async ({
   test.setTimeout(180_000);
   await page.setViewportSize({ width: 1024, height: 600 });
   await page.goto("/?airport=ORD&detail=low&renderFps=0.25");
-  await page.waitForFunction(() => window.airportControl?.version === "2.34.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.37.0");
   const introPanel = page.locator("#intro .intro__panel");
   const introBounds = await introPanel.evaluate((element) => {
     const rect = element.getBoundingClientRect();
@@ -3980,7 +4333,7 @@ test("Laptop viewports keep the complete controls menu reachable", async ({
   await page.goto(
     "/?airport=ORD&mode=auto&autostart=1&detail=low&renderFps=0.25",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.34.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.37.0");
   await page.waitForFunction(
     () => window.airportControl.snapshot().renderer.drawCalls > 100,
   );

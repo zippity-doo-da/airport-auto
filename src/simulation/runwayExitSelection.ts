@@ -10,7 +10,8 @@ import {
   type SurfaceRoutePlanning,
   type SurfaceRouteRequirements,
 } from './surfaceGraph';
-import type { FlightRunwayExitState, RunwayBrakingAction, WeatherState } from './types';
+import type { FlightRunwayExitState, RunwayBrakingAction, RunwayConditionReport, WeatherState } from './types';
+import { brakingActionForCode, runwayConditionReport, runwayPerformanceMultiplier } from './weatherOperations';
 
 export interface CompetingRunwayExitPlan {
   flightId: number;
@@ -27,7 +28,8 @@ export interface RunwayExitSelectionInput {
   operatingEnd: -1 | 1;
   aircraft: AircraftModel;
   gateSlot: number;
-  weather: Pick<WeatherState, 'surfaceCondition'>;
+  weather: Pick<WeatherState, 'surfaceCondition' | 'runwayConditionReports'>;
+  conditionReport?: RunwayConditionReport;
   selectedAtSeconds: number;
   planning?: SurfaceRoutePlanning;
   competingPlans?: CompetingRunwayExitPlan[];
@@ -241,8 +243,9 @@ function scoreCandidate(
   route: SurfaceRoute,
 ): ScoredCandidate {
   const profile = aircraftProfile(input.aircraft);
-  const brakingMultiplier = runwayExitBrakingMultiplier(input.weather.surfaceCondition);
-  const brakingAction: RunwayBrakingAction = brakingMultiplier >= 1.3 ? 'poor' : brakingMultiplier > 1.05 ? 'medium' : 'good';
+  const report = input.conditionReport ?? runwayConditionReport(input.weather, runway.id);
+  const brakingMultiplier = runwayPerformanceMultiplier(report.worstCode, 'landing');
+  const brakingAction: RunwayBrakingAction = brakingActionForCode(report.worstCode);
   const highSpeed = geometry.exitAngleDegrees <= 58;
   const targetExitSpeedKts = highSpeed
     ? Math.min(45, Math.max(profile.taxiKts + 10, profile.approachKts * 0.3))

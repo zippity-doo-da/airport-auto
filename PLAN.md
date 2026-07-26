@@ -2,7 +2,7 @@
 
 Airport Auto is an ASMR-first airport simulation with an optional serious ATC game layer. The fixed-step simulation owns motion and safety; Three.js presents that state; DOM controls and the versioned control API provide human and agent input.
 
-This file is the status ledger. A checked item is shipped and tested. Future ideas are kept in a separate, explicitly deferred section so implemented work is never duplicated as an unchecked task.
+This file is the status ledger. A checked item is implemented and tested; any release intentionally held locally is labeled as such. Future ideas are kept in a separate, explicitly deferred section so implemented work is never duplicated as an unchecked task.
 
 ## Airport Auto 2.1 — reliability, control, and long-session release
 
@@ -462,6 +462,42 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Upgrade portable replay to schema 3 with complete deterministic sound decisions and make both environment audio and replay scrubbing consume the displayed replay state rather than the hidden live simulation.
 - [x] Publish API 2.34 / snapshot schema 36 audio diagnostics, source/capability disclosure, a project-original source manifest, player and developer documentation, and explicit no-microphone/no-network/no-runtime-voice behavior.
 - [x] Validate seeded variants, cooldowns, actual weather switches, optional thunder, tracked flights, caption pacing/reset, Web Audio activation, bounded spatial voices, independent toggles, replay sound events, source-manifest serving, lint, types, production build, 57,644 fixed-step ticks, 919,530 trajectory samples, and 225,000 collision ticks; the final browser matrix completed with 20 applicable passes and 14 intentional project skips.
+
+## Airport Auto 2.35 — operational weather and runway conditions
+
+- [x] Expand the shared weather vocabulary to Clear, Haze, Rain, Fog, Snow, and Thunderstorm with condition-owned visibility, ceiling, temperature, precipitation, cloud, gust, surface, presentation, and sound state.
+- [x] Generate deterministic three-segment runway-condition reports for every runway with RwyCC, braking action, contaminant, depth, coverage, timestamps, source, and explicit `notForNavigation` disclosure.
+- [x] Apply runway condition to aircraft-specific landing and takeoff distance, runway eligibility, live runway-exit re-planning, taxi braking, taxi speed, stopping behavior, and snow/deicing operations without weakening the safety arbiter.
+- [x] Add separately opt-in, thunderstorm-only wind-shear and microburst advisories with safe arrival go-around and airborne-departure escape paths, full-power straight-ahead protection, contrary-vector rejection, and immediate airport-advisory cancellation when disabled.
+- [x] Make the authoritative arrival escape piecewise: wings-level straight climb first, then a smoothly blended missed-approach turn from the exact escape endpoint; keep renderer, collision checks, replay, and telemetry on that same path.
+- [x] Expose runway reports, performance assessments, hazard state/history, and aircraft escape state through API 2.35 / snapshot schema 37, replay, the bounded remote projection, normal weather controls, main-map readout, help examples, and `?hazards=1`.
+- [x] Publish FAA-concept source links and explicit operational limitations in [docs/weather-operations.md](docs/weather-operations.md); retain deterministic, offline, entertainment-only behavior with no live weather dependency.
+- [x] Validate all six profiles, runway reports, dry/wet/contaminated performance, taxi degradation, deep cloning, presentation fallback, default-off hazards, arrival/departure escapes, command blocking, opt-out, formal protocol shape, soundscape integration, runway exits, production types/build, and focused browser behavior.
+
+## Airport Auto 2.36 — continuous environment and calm presentation (local release candidate)
+
+Deployment is intentionally withheld to conserve GitHub Actions minutes. This candidate has only been built and tested locally.
+
+- [x] Add one deterministic fixed-step environment state with seeded day-of-year, airport-local solar phases, automatic or forced lighting, automatic or selected seasons, continuously changing clouds, wet-pavement drying, snow accumulation/melt, and runway-light intensity.
+- [x] Make sky, fog, sunlight, exposure, seasonal terrain, cloud cover, wet/snow surfaces, and runway lights interpolate from the authoritative environment state without creating a separate motion or weather timeline in the renderer.
+- [x] Add an optional presentation-only camera director that favors arrivals, landings, departures, and surface movement with long seeded dwells and the existing smooth camera interpolation; pointer, touch, keyboard, gamepad, camera, or focus input yields control immediately.
+- [x] Add Standard, High contrast, CVD safe, and Monochrome presentation palettes that share semantic arrival, departure, runway, caution, critical, and focus colors across the DOM and Three.js scene while preserving reduced-motion and responsive low-chrome layouts.
+- [x] Add normal Scene & accessibility controls, compact Auto/Day/Night cycling, local palette persistence, `?lighting=`, `?season=`, `?palette=`, and `?director=1` launch options, environment readout, and reduced-motion-safe director availability.
+- [x] Publish environment and presentation state plus four typed control commands through API 2.36 / snapshot schema 38 / the bounded remote projection; preserve environment modes in new sessions and full environment state in replay frames.
+- [x] Document the deterministic model, controls, legacy compatibility, API surface, replay behavior, accessibility semantics, and verification in [docs/environment-presentation.md](docs/environment-presentation.md).
+- [x] Validate deterministic solar/season/weather transitions, clone isolation, palette guards, director priorities/dwells/manual yield, protocol shape, TypeScript, lint, production build, and focused Chromium UI/API/manual-takeover behavior locally without invoking GitHub Actions.
+
+## Airport Auto 2.37 — local operations data lab (local release candidate)
+
+Deployment remains intentionally withheld to conserve GitHub Actions minutes. This candidate has only been built and tested locally.
+
+- [x] Add a bounded one-second recorder for authoritative aircraft pose and kinematics, identity and route history, hold/delay time, runway occupancy and movements, named-taxiway use, queue history, shift metrics, and spatial conflict forecasts without reading state back from Three.js.
+- [x] Add a responsive Data Lab with shift pulse, single-aircraft altitude/speed/fuel traces, exact latest values, follow control, runway/taxiway utilization, runway-context conflict heatmap, and keyboard/Escape behavior that does not fight the camera or other overlays.
+- [x] Add a complete local JSON bundle and CSV exports for flights, commands, events, queues, delays, runways, taxiways, shift metrics, flight-recorder samples, and conflict cells; nested fields serialize explicitly and downloads never upload.
+- [x] Expose a compact analytics overview in API 2.37 / snapshot schema 39 and the bounded remote projection, plus full read-only `airportControl.analytics(flightId?)` and text-returning `airportControl.exportData(...)` methods.
+- [x] Bound retention to 7,200 samples per aircraft, 512 observed aircraft, and 256 heat cells; reset analysis at new operational boards and keep the recorder out of persistent browser storage.
+- [x] Define the future shared-replay allowlist, local-only identity/correlation/network fields, explicit preview/consent requirement, and retention/deletion gate before any cloud storage in [docs/operations-data-lab.md](docs/operations-data-lab.md).
+- [x] Validate sample cadence, reset isolation, all ten CSV datasets, JSON completeness, disclosure, TypeScript, lint, production build, protocol/remote compatibility, real browser download, and 1024×600 plus 390×844 containment locally without invoking GitHub Actions.
 
 ## Airport fidelity policy
 

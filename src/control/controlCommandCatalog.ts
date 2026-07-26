@@ -1,4 +1,8 @@
 import type { FocusTargetRef } from "../presentation/focusTargets";
+import {
+  ACCESSIBILITY_PALETTES,
+  type AccessibilityPalette,
+} from "../presentation/accessibilityPalette";
 import type { AirspaceLayer } from "../render/airspaceOverlay";
 import type { SurfaceLayer } from "../render/createWorld";
 import type { SeparationRulesetId } from "../simulation/separationRules";
@@ -9,6 +13,8 @@ import type {
   ControllerPolicyPresetId,
   ControllerStation,
   EmergencyType,
+  EnvironmentLightingMode,
+  EnvironmentSeasonMode,
   FlightInstruction,
   GroupFlightInstruction,
   OperationalControllerStation,
@@ -19,12 +25,17 @@ import type {
   TrainingLessonId,
   WeatherCondition,
 } from "../simulation/types";
+import {
+  ENVIRONMENT_LIGHTING_MODES,
+  ENVIRONMENT_SEASON_MODES,
+} from "../simulation/environmentOperations";
+import { WEATHER_CONDITIONS } from "../simulation/weatherOperations";
 export { AIRPORT_DOMAIN_EVENT_TYPES } from "./eventTypes";
 export type { AirportDomainEventType } from "./eventTypes";
 
 export const CONTROL_PROTOCOL_VERSION = "1.2.0" as const;
-export const CONTROL_API_VERSION = "2.34.0" as const;
-export const CONTROL_SNAPSHOT_SCHEMA_VERSION = 36 as const;
+export const CONTROL_API_VERSION = "2.37.0" as const;
+export const CONTROL_SNAPSHOT_SCHEMA_VERSION = 39 as const;
 export const CONTROL_REPLAY_SCHEMA_VERSION = 3 as const;
 export const CONTROL_BROADCAST_CHANNEL = "airport-auto" as const;
 
@@ -41,6 +52,10 @@ export interface AirportControlCommandParameters {
   setSpeed: { value: number };
   setMode: { value: ControlMode };
   setNightMode: { enabled: boolean };
+  setEnvironmentLightingMode: { mode: EnvironmentLightingMode };
+  setEnvironmentSeasonMode: { mode: EnvironmentSeasonMode };
+  setAccessibilityPalette: { palette: AccessibilityPalette };
+  setCameraDirectorEnabled: { enabled: boolean };
   setRadarVisible: { enabled: boolean };
   setQueueInspectorVisible: { enabled: boolean };
   setRunwayLabelsVisible: { enabled: boolean };
@@ -113,6 +128,7 @@ export interface AirportControlCommandParameters {
     windSpeed: number;
   };
   setWeatherEnabled: { enabled: boolean };
+  setWeatherHazardsEnabled: { enabled: boolean };
   setWindEnabled: { enabled: boolean };
   setRunwayConfiguration: { configurationId: string | null };
   setSurfaceDisruption: {
@@ -643,6 +659,34 @@ const COMMAND_SPECS = {
     { value: "assisted" },
   ),
   setNightMode: visibility("Enable or disable night presentation."),
+  setEnvironmentLightingMode: command(
+    "presentation",
+    "Select automatic local-time lighting or force day/night presentation.",
+    AUTHORITY.public,
+    {
+      mode: stringSchema("Environment lighting mode.", ENVIRONMENT_LIGHTING_MODES),
+    },
+    { mode: "automatic" },
+  ),
+  setEnvironmentSeasonMode: command(
+    "presentation",
+    "Select deterministic automatic season or a forced seasonal presentation.",
+    AUTHORITY.public,
+    {
+      mode: stringSchema("Environment season mode.", ENVIRONMENT_SEASON_MODES),
+    },
+    { mode: "winter" },
+  ),
+  setAccessibilityPalette: command(
+    "presentation",
+    "Select the UI and map semantic-color palette.",
+    AUTHORITY.public,
+    {
+      palette: stringSchema("Accessibility palette.", ACCESSIBILITY_PALETTES),
+    },
+    { palette: "high-contrast" },
+  ),
+  setCameraDirectorEnabled: visibility("Enable or disable the optional observer camera director."),
   setRadarVisible: visibility("Show or hide the inset radar."),
   setQueueInspectorVisible: visibility(
     "Show or hide the operations queue inspector.",
@@ -1143,10 +1187,7 @@ const COMMAND_SPECS = {
     AUTHORITY.session,
     {
       condition: stringSchema("Weather condition.", [
-        "clear",
-        "rain",
-        "fog",
-        "snow",
+        ...WEATHER_CONDITIONS,
       ]),
       directionDegrees: numberSchema(
         "Meteorological wind-from direction in degrees.",
@@ -1163,6 +1204,17 @@ const COMMAND_SPECS = {
     AUTHORITY.session,
     {
       enabled: booleanSchema("Whether modeled weather is enabled."),
+    },
+    { enabled: false },
+  ),
+  setWeatherHazardsEnabled: command(
+    "operations",
+    "Enable or disable rare deterministic wind-shear and microburst events.",
+    AUTHORITY.session,
+    {
+      enabled: booleanSchema(
+        "Whether opt-in high-stakes terminal weather hazards are enabled.",
+      ),
     },
     { enabled: false },
   ),

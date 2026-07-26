@@ -25,6 +25,7 @@ export type FlightTrajectoryStage =
   | 'lineup'
   | 'takeoff-roll'
   | 'rotation'
+  | 'weather-escape'
   | 'climbout';
 
 export interface FlightTrajectorySample {
@@ -65,6 +66,14 @@ type Point3 = { x: number; y: number; z: number };
 type PathSample = { point: Point3; tangent: Point3; distanceAlong: number; totalDistance: number };
 type ArcLengthSample = { parameter: number; distance: number };
 type PreparedSmoothPath = { points: Point3[]; samples: ArcLengthSample[]; totalDistance: number };
+type PreparedGoAroundPath = {
+  smooth: PreparedSmoothPath;
+  escape?: {
+    end: Point3;
+    distance: number;
+    progress: number;
+  };
+};
 
 const KNOT_TO_MPS = 0.514444;
 const DEGREES_TO_RADIANS = Math.PI / 180;
@@ -79,7 +88,7 @@ const MINIMUM_CLIMB_PITCH = 10 * DEGREES_TO_RADIANS;
 const MAXIMUM_CLIMB_PITCH = 13.5 * DEGREES_TO_RADIANS;
 const ROTATION_LIFTOFF_HEIGHT = 0.12;
 const APPROACH_PATH_CACHE = new WeakMap<AirportConfig, Map<string, PreparedSmoothPath>>();
-const GO_AROUND_PATH_CACHE = new WeakMap<FlightGoAroundState, PreparedSmoothPath>();
+const GO_AROUND_PATH_CACHE = new WeakMap<FlightGoAroundState, PreparedGoAroundPath>();
 const DIVERSION_PATH_CACHE = new WeakMap<NonNullable<Flight['diversion']>, PreparedSmoothPath>();
 const VECTOR_PATH_CACHE = new WeakMap<NonNullable<Flight['navigation']['vector']>, PreparedSmoothPath>();
 const HOLD_PATH_CACHE = new WeakMap<NonNullable<Flight['navigation']['hold']>, PreparedSmoothPath>();
@@ -499,8 +508,8 @@ function sampleLanding(config: AirportConfig, flight: Flight, progress: number):
 
 function sampleGoAround(config: AirportConfig, flight: Flight, progress: number): FlightTrajectorySample {
   const state = flight.goAround!;
-  let path = GO_AROUND_PATH_CACHE.get(state);
-  if (!path) {
+  let prepared = GO_AROUND_PATH_CACHE.get(state);
+  if (!prepared) {
     const runway = config.runways[flight.runway] ?? config.runways[0];
     const travel = runwayTravelDirection(runway, flight.operatingEnd);
     const side = { x: -travel.y, y: travel.x };
@@ -545,66 +554,126 @@ function sampleGoAround(config: AirportConfig, flight: Flight, progress: number)
       y: entry.point.y - entryDirection.y * (config.scope === 'center' ? 42 : 28),
       z: entry.point.z + 3,
     };
-    path = prepareSmoothPath([
-      start,
-      {
-        x: start.x + initialHeading.x * (config.scope === 'center' ? 48 : 34),
-        y: start.y + initialHeading.y * (config.scope === 'center' ? 48 : 34),
-        z: Math.max(start.z + 8, 12),
-      },
-      ...(missedRoute.length >= 2
-        ? missedRoute
-        : [
-            farEnd,
-            {
-              x: farEnd.x + travel.x * 34 + side.x * circuitSide * circuitWidth,
-              y: farEnd.y + travel.y * 34 + side.y * circuitSide * circuitWidth,
-              z: climbHeight + 5,
-            },
-          ]),
-      downwind,
-      beforeEntry,
-      entry.point,
-    ]);
-    GO_AROUND_PATH_CACHE.set(state, path);
+    const straightAheadDistance = state.weatherEscape
+      ? (config.scope === 'center' ? 108 : 74)
+      : (config.scope === 'center' ? 48 : 34);
+    const missedPoints = missedRoute.length >= 2
+      ? missedRoute
+      : [
+          farEnd,
+          {
+            x: farEnd.x + travel.x * 34 + side.x * circuitSide * circuitWidth,
+            y: farEnd.y + travel.y * 34 + side.y * circuitSide * circuitWidth,
+            z: climbHeight + 5,
+          },
+        ];
+    if (state.weatherEscape) {
+      const escapeDistance = straightAheadDistance * 1.42;
+      const escapeEnd = {
+        x: start.x + initialHeading.x * escapeDistance,
+        y: start.y + initialHeading.y * escapeDistance,
+        z: Math.max(start.z + 29, 29),
+      };
+      prepared = {
+        smooth: prepareSmoothPath([
+          escapeEnd,
+          ...missedPoints,
+          downwind,
+          beforeEntry,
+          entry.point,
+        ]),
+        escape: {
+          end: escapeEnd,
+          distance: escapeDistance,
+          progress: state.weatherEscape.straightAheadProgress,
+        },
+      };
+    } else {
+      prepared = {
+        smooth: prepareSmoothPath([
+          start,
+          {
+            x: start.x + initialHeading.x * straightAheadDistance,
+            y: start.y + initialHeading.y * straightAheadDistance,
+            z: Math.max(start.z + 8, 12),
+          },
+          ...missedPoints,
+          downwind,
+          beforeEntry,
+          entry.point,
+        ]),
+      };
+    }
+    GO_AROUND_PATH_CACHE.set(state, prepared);
   }
-  const base = samplePreparedSmoothPath(path, progress);
-  const before = samplePreparedSmoothPath(path, clamp(progress - 0.004, 0, 1));
-  const after = samplePreparedSmoothPath(path, clamp(progress + 0.004, 0, 1));
+  const escape = prepared.escape;
+  const climbEnd = escape?.progress ?? 0.24;
+  const climbPitch = (escape ? 15 : 12) * DEGREES_TO_RADIANS;
+  if (escape && progress <= climbEnd) {
+    const stageProgress = clamp(progress / Math.max(0.001, climbEnd), 0, 1);
+    const verticalMix = smooth01(stageProgress);
+    return {
+      x: lerp(state.start.x, escape.end.x, stageProgress),
+      y: lerp(state.start.y, escape.end.y, stageProgress),
+      z: lerp(state.start.z, escape.end.z, verticalMix),
+      heading: state.start.heading,
+      pitch: lerp(state.start.pitch, climbPitch, smoothRange(progress, 0, 0.14)),
+      bank: lerp(state.start.bank, 0, smoothRange(progress, 0, 0.08)),
+      onGround: state.start.onGround && progress < 0.012,
+      groundBlend: state.start.groundBlend * (1 - smoothRange(progress, 0, 0.06)),
+      protectedRunway: state.start.protectedRunway && progress < 0.16,
+      stage: 'go-around-climb',
+      stageProgress,
+      distanceAlong: escape.distance * stageProgress,
+      totalDistance: escape.distance + prepared.smooth.totalDistance,
+    };
+  }
+  const smoothProgress = escape
+    ? clamp((progress - climbEnd) / Math.max(0.001, 1 - climbEnd), 0, 1)
+    : progress;
+  const base = samplePreparedSmoothPath(prepared.smooth, smoothProgress);
+  const before = samplePreparedSmoothPath(prepared.smooth, clamp(smoothProgress - 0.004, 0, 1));
+  const after = samplePreparedSmoothPath(prepared.smooth, clamp(smoothProgress + 0.004, 0, 1));
   const turn = shortestAngle(
     Math.atan2(before.tangent.y, before.tangent.x),
     Math.atan2(after.tangent.y, after.tangent.x),
   );
-  const stage: FlightTrajectoryStage = progress < 0.24
+  const turnEnd = escape ? 0.78 : 0.74;
+  const stage: FlightTrajectoryStage = progress < climbEnd
     ? 'go-around-climb'
-    : progress < 0.74
+    : progress < turnEnd
       ? 'go-around-turn'
       : 'go-around-reentry';
   const stageProgress = stage === 'go-around-climb'
-    ? progress / 0.24
+    ? progress / climbEnd
     : stage === 'go-around-turn'
-      ? (progress - 0.24) / 0.5
-      : (progress - 0.74) / 0.26;
-  const climbPitch = 12 * DEGREES_TO_RADIANS;
+      ? (progress - climbEnd) / (turnEnd - climbEnd)
+      : (progress - turnEnd) / (1 - turnEnd);
   const initialPitch = lerp(state.start.pitch, climbPitch, smoothRange(progress, 0, 0.14));
   const pitch = stage === 'go-around-reentry'
-    ? lerp(climbPitch, 0, smoothRange(progress, 0.74, 1))
+    ? lerp(climbPitch, 0, smoothRange(progress, turnEnd, 1))
     : initialPitch;
   const computedBank = clamp(turn * 2.7, -0.18, 0.18);
+  const baseHeading = Math.atan2(base.tangent.y, base.tangent.x);
+  const escapeTurnMix = escape ? smoothRange(progress, climbEnd, climbEnd + 0.08) : 1;
   return {
     x: base.point.x,
     y: base.point.y,
     z: progress <= 0 ? state.start.z : Math.max(2.05, base.point.z),
-    heading: Math.atan2(base.tangent.y, base.tangent.x),
+    heading: escape
+      ? state.start.heading + shortestAngle(state.start.heading, baseHeading) * escapeTurnMix
+      : baseHeading,
     pitch,
-    bank: lerp(state.start.bank, computedBank, smoothRange(progress, 0, 0.08)),
+    bank: escape
+      ? computedBank * escapeTurnMix
+      : lerp(state.start.bank, computedBank, smoothRange(progress, 0, 0.08)),
     onGround: state.start.onGround && progress < 0.012,
     groundBlend: state.start.groundBlend * (1 - smoothRange(progress, 0, 0.06)),
     protectedRunway: state.start.protectedRunway && progress < 0.16,
     stage,
     stageProgress: clamp(stageProgress, 0, 1),
-    distanceAlong: base.distanceAlong,
-    totalDistance: base.totalDistance,
+    distanceAlong: (escape?.distance ?? 0) + base.distanceAlong,
+    totalDistance: (escape?.distance ?? 0) + base.totalDistance,
   };
 }
 
@@ -683,7 +752,7 @@ function sampleDeparture(config: AirportConfig, flight: Flight, progress: number
     z: RUNWAY_TRACK_ALTITUDE,
   };
   const lineupDistance = Math.max(1, distance(holdPoint, lineupControl) + distance(lineupControl, threshold));
-  const rollDistance = takeoffRollDistance(runway, flight.aircraft);
+  const rollDistance = takeoffRollDistance(runway, flight);
   const rotationDistance = Math.min(runway.length * 0.08, 6.5);
   const liftoffDistance = Math.min(runway.length * 0.9, rollDistance + rotationDistance);
   const edgeBeyond = config.scope === 'center' ? 220 : 150;
@@ -744,7 +813,56 @@ function sampleDeparture(config: AirportConfig, flight: Flight, progress: number
     stage = 'climbout';
   }
 
-  if (stage === 'climbout' && flight.navigation?.departureHeadingDegrees !== undefined) {
+  const weatherEscape = stage === 'climbout' ? flight.weatherEscape : undefined;
+  const escapeActive = Boolean(weatherEscape && progress <= weatherEscape.clearProgress + 1e-6);
+  if (stage === 'climbout' && weatherEscape) {
+    const clearProgress = clamp(weatherEscape.clearProgress, 0, 0.995);
+    const clearElapsed = clearProgress * timing.totalSeconds;
+    const clearStageProgress = clamp(
+      (clearElapsed - timing.lineupSeconds - timing.rollSeconds - timing.rotationSeconds) / timing.climbSeconds,
+      0,
+      1,
+    );
+    const clearDistance = lerp(liftoffDistance, endDistance, clearStageProgress);
+    const clearClimb = clearStageProgress * (1.04 - 0.04 * clearStageProgress);
+    const climbHeight = config.scope === 'center' ? 39 : 31;
+    const clearPoint = {
+      x: threshold.x + travel.x * clearDistance,
+      y: threshold.y + travel.y * clearDistance,
+      z: RUNWAY_TRACK_ALTITUDE + ROTATION_LIFTOFF_HEIGHT + climbHeight * clearClimb + 8,
+    };
+    const escapeMix = smoothRange(progress, weatherEscape.startProgress, weatherEscape.clearProgress);
+    z += 8 * escapeMix;
+    if (escapeActive) {
+      x = threshold.x + travel.x * distanceAlong;
+      y = threshold.y + travel.y * distanceAlong;
+      heading = Math.atan2(travel.y, travel.x);
+      pitch = Math.max(pitch, 15 * DEGREES_TO_RADIANS);
+      bank = 0;
+      stage = 'weather-escape';
+      stageProgress = escapeMix;
+    } else if (flight.navigation?.departureHeadingDegrees !== undefined) {
+      const targetHeading = aviationDegreesToMathAngle(flight.navigation.departureHeadingDegrees);
+      const remaining = Math.max(1, endDistance - clearDistance);
+      const target = {
+        x: clearPoint.x + Math.cos(targetHeading) * remaining,
+        y: clearPoint.y + Math.sin(targetHeading) * remaining,
+        z,
+      };
+      const control = {
+        x: clearPoint.x + travel.x * remaining * 0.52,
+        y: clearPoint.y + travel.y * remaining * 0.52,
+        z: lerp(clearPoint.z, z, 0.52),
+      };
+      const amount = smooth01(clamp((progress - weatherEscape.clearProgress) / Math.max(0.001, 1 - weatherEscape.clearProgress), 0, 1));
+      const point = quadraticPoint(clearPoint, control, target, amount);
+      const tangent = quadraticTangent(clearPoint, control, target, amount);
+      x = point.x;
+      y = point.y;
+      heading = Math.atan2(tangent.y, tangent.x);
+      pitch = lerp(15 * DEGREES_TO_RADIANS, pitch, smoothRange(progress, weatherEscape.clearProgress, weatherEscape.clearProgress + 0.12));
+    }
+  } else if (stage === 'climbout' && flight.navigation?.departureHeadingDegrees !== undefined) {
     const start = {
       x: threshold.x + travel.x * liftoffDistance,
       y: threshold.y + travel.y * liftoffDistance,
@@ -772,7 +890,7 @@ function sampleDeparture(config: AirportConfig, flight: Flight, progress: number
     heading = Math.atan2(travel.y, travel.x);
   }
   const vector = flight.navigation?.vector;
-  if (stage === 'climbout' && vector && progress >= vector.startProgress && progress < vector.endProgress) {
+  if (stage === 'climbout' && !weatherEscape && vector && progress >= vector.startProgress && progress < vector.endProgress) {
     const rejoin = sampleDeparture(config, { ...flight, navigation: { ...flight.navigation, vector: undefined } }, vector.endProgress);
     const amount = clamp((progress - vector.startProgress) / Math.max(0.001, vector.endProgress - vector.startProgress), 0, 1);
     const targetHeading = aviationDegreesToMathAngle(vector.headingDegrees);
@@ -820,8 +938,8 @@ function landingRollDistance(
   return clamp(desired, runway.length * 0.34, runway.length * 0.66);
 }
 
-function takeoffRollDistance(runway: RunwayConfig, aircraft: AircraftModel): number {
-  const desired = aircraftProfile(aircraft).takeoffRollM / WORLD_METERS_PER_UNIT;
+function takeoffRollDistance(runway: RunwayConfig, flight: Flight): number {
+  const desired = (flight.takeoffPerformance?.rollDistanceM ?? aircraftProfile(flight.aircraft).takeoffRollM) / WORLD_METERS_PER_UNIT;
   return clamp(desired, runway.length * 0.46, runway.length * 0.8);
 }
 

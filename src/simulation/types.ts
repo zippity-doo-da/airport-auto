@@ -15,7 +15,17 @@ import type { SeparationRulesetId } from "./separationRules";
 import type { RouteDistanceSource } from "./routeDistances";
 
 export type ControlMode = "auto" | "assisted" | "manual" | "watch";
-export type WeatherCondition = "clear" | "rain" | "fog" | "snow";
+export type WeatherCondition =
+  | "clear"
+  | "haze"
+  | "rain"
+  | "fog"
+  | "snow"
+  | "thunderstorm";
+export type EnvironmentLightingMode = "automatic" | "day" | "night";
+export type EnvironmentSeason = "spring" | "summer" | "autumn" | "winter";
+export type EnvironmentSeasonMode = "automatic" | EnvironmentSeason;
+export type EnvironmentDayPhase = "dawn" | "day" | "dusk" | "night";
 export type TrafficScenario =
   "normal" | "rush" | "storm" | "closure" | "training" | "emergency";
 export type OperationalControllerStation =
@@ -526,7 +536,80 @@ export interface FlightGateAssignment {
   previousStandId?: string;
 }
 
-export type RunwayBrakingAction = "good" | "medium" | "poor";
+export type RunwayBrakingAction =
+  | "good"
+  | "good-to-medium"
+  | "medium"
+  | "medium-to-poor"
+  | "poor"
+  | "nil";
+
+export type RunwayConditionCode = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+export type RunwayContaminant =
+  | "none"
+  | "damp"
+  | "water"
+  | "standing-water"
+  | "dry-snow"
+  | "wet-snow"
+  | "compacted-snow"
+  | "ice";
+
+/**
+ * Schematic FAA-RCAM-inspired field report. It is deterministic game state,
+ * never current airport information or navigation data.
+ */
+export interface RunwayConditionReport {
+  schemaVersion: 1;
+  runwayId: number;
+  codes: [RunwayConditionCode, RunwayConditionCode, RunwayConditionCode];
+  worstCode: RunwayConditionCode;
+  brakingAction: RunwayBrakingAction;
+  contaminant: RunwayContaminant;
+  depthMm: number;
+  coveragePercent: number;
+  reportedAtSeconds: number;
+  source: "modeled-rcam-schematic";
+  notForNavigation: true;
+}
+
+export interface RunwayPerformanceAssessment {
+  schemaVersion: 1;
+  operation: "landing" | "takeoff";
+  runwayId: number;
+  aircraft: string;
+  runwayConditionCode: RunwayConditionCode;
+  brakingAction: RunwayBrakingAction;
+  performanceMultiplier: number;
+  requiredRunwayM: number;
+  availableRunwayM: number;
+  marginM: number;
+  rollDistanceM: number;
+  safe: boolean;
+  assessedAtSeconds: number;
+  source: "schematic-aircraft-and-rcam-model";
+  notForNavigation: true;
+}
+
+export type TerminalWeatherHazardKind = "wind-shear" | "microburst";
+export type TerminalWeatherHazardOperation = "arrival" | "departure";
+
+export interface TerminalWeatherHazard {
+  schemaVersion: 1;
+  id: string;
+  kind: TerminalWeatherHazardKind;
+  operation: TerminalWeatherHazardOperation;
+  runwayId: number;
+  windChangeKts: number;
+  locationNm: number;
+  startedAtSeconds: number;
+  activeUntilSeconds: number;
+  advisoryUntilSeconds: number;
+  status: "active" | "advisory" | "expired";
+  affectedFlightIds: number[];
+  source: "deterministic-terminal-weather";
+  notForNavigation: true;
+}
 
 /**
  * Authoritative arrival-exit decision. The landing trajectory terminates at
@@ -566,6 +649,9 @@ export interface WeatherState {
   weatherEnabled: boolean;
   windEnabled: boolean;
   condition: WeatherCondition;
+  precipitation: "none" | "rain" | "snow";
+  intensity: number;
+  cloudCover: number;
   windDirection: number;
   windSpeed: number;
   gustSpeed: number;
@@ -574,6 +660,32 @@ export interface WeatherState {
   ceilingFt: number;
   temperatureC: number;
   surfaceCondition: "dry" | "wet" | "contaminated";
+  runwayConditionReports: RunwayConditionReport[];
+  reportsUpdatedAtSeconds: number;
+  hazardsEnabled: boolean;
+  hazardSequence: number;
+  nextHazardAtSeconds: number;
+  activeHazard: TerminalWeatherHazard | null;
+  hazardHistory: TerminalWeatherHazard[];
+}
+
+export interface EnvironmentState {
+  schemaVersion: 1;
+  lightingMode: EnvironmentLightingMode;
+  seasonMode: EnvironmentSeasonMode;
+  season: EnvironmentSeason;
+  dayOfYear: number;
+  localMinute: number;
+  localTime: string;
+  phase: EnvironmentDayPhase;
+  daylight: number;
+  sunAzimuthRadians: number;
+  sunElevationRadians: number;
+  cloudCover: number;
+  snowCover: number;
+  wetPavement: number;
+  runwayLightIntensity: number;
+  transitionModel: "fixed-step-continuous";
 }
 
 export interface FlightKinematics {
@@ -644,6 +756,13 @@ export interface FlightGoAroundState {
   startedAt: number;
   detail: string;
   cycle: number;
+  weatherEscape?: {
+    hazardId: string;
+    kind: TerminalWeatherHazardKind;
+    windChangeKts: number;
+    straightAheadProgress: number;
+    completedAtSeconds?: number;
+  };
   start: {
     x: number;
     y: number;
@@ -655,6 +774,18 @@ export interface FlightGoAroundState {
     groundBlend: number;
     protectedRunway: boolean;
   };
+}
+
+export interface FlightWeatherEscapeState {
+  hazardId: string;
+  kind: TerminalWeatherHazardKind;
+  operation: "departure";
+  windChangeKts: number;
+  startedAtSeconds: number;
+  startProgress: number;
+  clearProgress: number;
+  status: "active" | "complete";
+  completedAtSeconds?: number;
 }
 
 /** A controller-issued, continuous climb-and-exit path to an alternate airport. */
@@ -1024,6 +1155,7 @@ export interface Flight {
   tugAttached: boolean;
   engineState: EngineState;
   runwayExit?: FlightRunwayExitState;
+  takeoffPerformance?: RunwayPerformanceAssessment;
   surfaceReroute?: FlightSurfaceRerouteState;
   surfaceRoute?: string[];
   surfaceRouteEdges?: string[];
@@ -1078,6 +1210,7 @@ export interface Flight {
   squawk: string;
   emergency?: EmergencyType;
   goAround?: FlightGoAroundState;
+  weatherEscape?: FlightWeatherEscapeState;
   diversion?: FlightDiversionState;
   kinematics: FlightKinematics;
   motion: FlightMotionState;
@@ -1172,6 +1305,7 @@ export interface AirportState {
   gameOver: boolean;
   paused: boolean;
   mode: ControlMode;
+  environment: EnvironmentState;
   nightMode: boolean;
   station: ControllerStation;
   stationAutomation: StationAutomationState;
