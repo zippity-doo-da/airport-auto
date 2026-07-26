@@ -162,7 +162,7 @@ Make Watch mode satisfying for a long session without repetitive alarms or synth
 - [ ] Build a reusable offline radio-chatter library from fictional, captioned ATC exchanges. Generate or record the clips during development—not at runtime—disclose synthetic voices, preserve a license/source manifest, vary controller and pilot voices, and sequence clips by airport, station, traffic state, cooldown, and repetition budget.
 - [ ] Give radio chatter its own toggle and volume channel, with captions, calm/ASMR filtering, and a no-voice fallback; never require an API key or network connection from players.
 - [ ] Record sound events in replay so playback reproduces the same soundscape decisions.
-- [ ] Add long-loop randomization, density-aware mixing, cooldowns, and calm alert policies to prevent repetitive event fatigue.
+- [ ] Add long-loop randomization, density-aware mixing, cooldowns, and calm alert policies to prevent repetitive event fatigue. (The visual status surface already has wall-clock dwell, priority queuing, duplicate suppression, and bounded backlog in 2.33; audio event selection and repetition budgets remain.)
 - [ ] Add dawn, day, dusk, night, cloud, seasonal, snow-cover, wet-pavement, and runway-light transitions.
 - [ ] Add a smooth optional camera director that follows interesting operations without camera snaps or stealing manual control.
 - [ ] Add high-contrast and color-vision-safe palettes while retaining reduced-motion and low-chrome presentation.

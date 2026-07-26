@@ -233,6 +233,8 @@ body.center-scope .brand__mark { font-size: 11px; letter-spacing: -0.04em; }
 .status { top: 68px; right: clamp(22px, 4vw, 54px); display: flex; max-width: min(360px, 44vw); align-items: center; gap: 12px; padding: 9px 14px 9px 11px; border: 1px solid rgba(244, 232, 206, 0.18); background: rgba(16, 47, 49, 0.54); box-shadow: 0 16px 48px rgba(9, 29, 30, 0.14); backdrop-filter: blur(16px); clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px); }
 .status--flash { animation: status-flash 600ms ease-out; }
 .status__pulse { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--amber); box-shadow: 0 0 0 5px rgba(239, 199, 117, 0.14); animation: breathe 2.8s ease-in-out infinite; }
+.status[data-priority="warning"] .status__pulse { background: #efb36f; box-shadow: 0 0 0 5px rgba(239, 179, 111, 0.16); }
+.status[data-priority="critical"] .status__pulse { background: #ef937f; box-shadow: 0 0 0 5px rgba(239, 147, 127, 0.2); }
 .status b, .status small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .status b { font-family: Georgia, serif; font-size: 13px; font-weight: 400; }
 .status small { margin-top: 3px; color: rgba(244, 232, 206, 0.58); font-size: 8px; font-weight: 800; letter-spacing: 0.13em; text-transform: uppercase; }

@@ -47,6 +47,11 @@ import {
   type FocusTargetDescriptor,
   type FocusTargetRef,
 } from './presentation/focusTargets';
+import {
+  StatusMessageCoordinator,
+  type StatusMessagePriority,
+  type StatusMessageView,
+} from './presentation/statusMessages';
 import { createFocusNavigator, type FocusNavigator } from './ui/focusNavigator';
 import {
   isOperationQueueFilter,
@@ -406,6 +411,8 @@ const inputBindings = $<HTMLElement>('#input-bindings');
 const status = $<HTMLElement>('.status');
 const statusLabel = $<HTMLElement>('#status-label');
 const statusDetail = $<HTMLElement>('#status-detail');
+let statusTransition: Animation | null = null;
+const statusMessages = new StatusMessageCoordinator(presentStatusMessage);
 const landedCount = $<HTMLElement>('#landed-count');
 const departedCount = $<HTMLElement>('#departed-count');
 const shiftTime = $<HTMLElement>('#shift-time');
@@ -1378,6 +1385,8 @@ function clearRoute(): void {
 function frame(now: number): void {
   const delta = Math.min(0.1, (now - lastTime) / 1000);
   lastTime = now;
+  const statusSnapshot = statusMessages.advance(now);
+  status.dataset.queueDepth = String(statusSnapshot.queued.length);
   inputLayer.update(delta);
   worldDeltaAccumulator = Math.min(0.25, worldDeltaAccumulator + delta);
   const renderWorld = minimumRenderInterval === 0 || now - lastWorldRender >= minimumRenderInterval;
@@ -3428,15 +3437,25 @@ function updateReplayUi(): void {
   }
 }
 
-function setStatus(label: string, detail: string): void {
+function presentStatusMessage(message: StatusMessageView): void {
+  statusTransition?.cancel();
+  statusLabel.textContent = message.label;
+  statusDetail.textContent = message.detail;
+  status.dataset.priority = message.priority;
+  status.dataset.messageId = String(message.id);
+  status.dataset.shownAt = String(message.shownAtMs);
+  status.dataset.minimumVisibleUntil = String(message.minimumVisibleUntilMs);
   if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    status.animate(
+    statusTransition = status.animate(
       [{ transform: 'translateY(-5px)', opacity: 0.35 }, { transform: 'translateY(0)', opacity: 1 }],
       { duration: 420, easing: 'ease-out' },
     );
   }
-  statusLabel.textContent = label;
-  statusDetail.textContent = detail;
+}
+
+function setStatus(label: string, detail: string, priority?: StatusMessagePriority): void {
+  const snapshot = statusMessages.enqueue({ label, detail, priority });
+  status.dataset.queueDepth = String(snapshot.queued.length);
 }
 
 function setAirportLifeVisible(visible: boolean): void {

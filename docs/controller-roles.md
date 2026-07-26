@@ -28,6 +28,8 @@ Assisted and Manual modes place a compact station briefing at the top of the fli
 
 Auto and Watch keep the briefing hidden to protect the low-chrome ASMR view. All five scorecards remain available through telemetry in every mode. Urgent alerts also use the existing transient status surface, so the complete briefing is not repeatedly announced by assistive technology every simulation second.
 
+Transient notices are presentation-paced rather than simulation-paced. Routine and operational messages receive at least 2.6–3.2 seconds of wall-clock reading time, warnings receive five seconds, and critical safety alerts receive seven seconds. Repeated copy is collapsed, the waiting list is bounded and expires stale routine news, and only a newly critical alert can interrupt a lower-priority notice. This remains true at 3× simulation speed.
+
 ## Status and scoring
 
 Each objective is `met`, `attention`, `critical`, or `informational`. The overall desk status is:
