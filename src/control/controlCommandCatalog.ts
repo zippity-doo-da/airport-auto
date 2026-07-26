@@ -23,9 +23,9 @@ export { AIRPORT_DOMAIN_EVENT_TYPES } from "./eventTypes";
 export type { AirportDomainEventType } from "./eventTypes";
 
 export const CONTROL_PROTOCOL_VERSION = "1.2.0" as const;
-export const CONTROL_API_VERSION = "2.33.0" as const;
-export const CONTROL_SNAPSHOT_SCHEMA_VERSION = 35 as const;
-export const CONTROL_REPLAY_SCHEMA_VERSION = 2 as const;
+export const CONTROL_API_VERSION = "2.34.0" as const;
+export const CONTROL_SNAPSHOT_SCHEMA_VERSION = 36 as const;
+export const CONTROL_REPLAY_SCHEMA_VERSION = 3 as const;
 export const CONTROL_BROADCAST_CHANNEL = "airport-auto" as const;
 
 export interface AirportControlCommandParameters {

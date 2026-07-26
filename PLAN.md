@@ -452,6 +452,17 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Broker transient status notices through a bounded priority queue with wall-clock 2.6–7 second minimum dwell, duplicate suppression, stale-message expiry, critical-only interruption, reduced-motion-safe transitions, and a live 3× ORD Rush browser regression so busy simulation bursts remain readable.
 - [x] Delay approach-route capture until an uncleared arrival is deliberately dragged at least three screen pixels, preserving ordinary aircraft selection through mouse/touch jitter; retain true route drawing and cover both gestures in Chromium.
 
+## Airport Auto 2.34 — deterministic spatial soundscape foundation
+
+- [x] Replace the single averaged engine bed with up to 14 persistent model/power-aware aircraft voices using camera-relative stereo, distance/height attenuation, restrained Doppler, simple ground/distance occlusion, smooth parameter targets, and one deterministic pooled noise source.
+- [x] Add independently mixed Ambience, Aircraft, Weather, Radio, and UI buses plus Full field, Calm, Radio focus, Engines only, and Silent presets; keep master sound opt-in behind a user gesture.
+- [x] Crossfade project-original field, tower-room, ramp, APU, wind, rain, and snow beds from the displayed live or replay traffic/weather state; switching weather or wind off also silences its actual layer.
+- [x] Convert authoritative traffic, surface, turnaround, and weather events into seeded touchdown, reverse-thrust, takeoff-power, engine-start, gear, tug, service, ramp, deicing, gust, transition, and separately opt-in rare-thunder cues with bounded cooldowns.
+- [x] Add fictional offline ATC captions with independent cue/caption switches, station labels, bounded priority backlog, duplicate protection, critical interruption, and 4.2–8 second wall-clock dwell so busy traffic remains readable.
+- [x] Upgrade portable replay to schema 3 with complete deterministic sound decisions and make both environment audio and replay scrubbing consume the displayed replay state rather than the hidden live simulation.
+- [x] Publish API 2.34 / snapshot schema 36 audio diagnostics, source/capability disclosure, a project-original source manifest, player and developer documentation, and explicit no-microphone/no-network/no-runtime-voice behavior.
+- [x] Validate seeded variants, cooldowns, actual weather switches, optional thunder, tracked flights, caption pacing/reset, Web Audio activation, bounded spatial voices, independent toggles, replay sound events, source-manifest serving, lint, types, production build, 57,644 fixed-step ticks, 919,530 trajectory samples, and 225,000 collision ticks; the final browser matrix completed with 20 applicable passes and 14 intentional project skips.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.

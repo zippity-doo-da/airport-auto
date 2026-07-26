@@ -239,6 +239,12 @@ body.center-scope .brand__mark { font-size: 11px; letter-spacing: -0.04em; }
 .status b { font-family: Georgia, serif; font-size: 13px; font-weight: 400; }
 .status small { margin-top: 3px; color: rgba(244, 232, 206, 0.58); font-size: 8px; font-weight: 800; letter-spacing: 0.13em; text-transform: uppercase; }
 
+.radio-caption { position: absolute; bottom: max(34px, env(safe-area-inset-bottom)); left: 50%; z-index: 6; display: grid; width: min(560px, calc(100vw - 580px)); min-width: 320px; gap: 4px; border: 1px solid rgba(121, 200, 232, 0.28); padding: 9px 14px 10px; color: var(--ivory); background: rgba(6, 27, 29, 0.76); box-shadow: 0 14px 38px rgba(3, 16, 18, 0.24); text-align: center; pointer-events: none; transform: translateX(-50%); backdrop-filter: blur(14px); clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px); }
+.radio-caption span { color: var(--blue); font-size: 7px; font-weight: 900; letter-spacing: 0.12em; text-transform: uppercase; }
+.radio-caption b { overflow: hidden; font: 400 13px/1.35 Georgia, serif; text-overflow: ellipsis; white-space: nowrap; }
+.radio-caption[data-priority="warning"], .radio-caption[data-priority="critical"] { border-color: rgba(239, 199, 117, 0.5); }
+.radio-caption[data-priority="critical"] span { color: var(--rose); }
+
 .instruction { left: clamp(22px, 4vw, 54px); bottom: clamp(24px, 4vw, 48px); display: flex; align-items: center; gap: 15px; margin: 0; color: rgba(244, 232, 206, 0.9); font-size: 13px; letter-spacing: 0.025em; text-shadow: 0 2px 12px rgba(9, 28, 29, 0.5); }
 .instruction b { color: var(--amber); font-weight: 700; }
 .instruction__menu-icon { display: grid; width: 22px; gap: 5px; }
@@ -564,8 +570,13 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
 
 .audio-mixer { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 12px; margin: 10px 0; border: 1px solid rgba(244, 232, 206, 0.18); padding: 10px; }
 .audio-mixer legend { padding: 0 5px; color: rgba(244, 232, 206, 0.66); font-size: 9px; font-weight: 900; letter-spacing: 0.1em; text-transform: uppercase; }
-.audio-mixer label { display: grid; grid-template-columns: 1fr 58px; align-items: center; gap: 6px; color: rgba(244, 232, 206, 0.72); font-size: 9px; }
-.audio-mixer input { width: 100%; min-height: 28px; accent-color: var(--amber); }
+.audio-mixer > label { display: grid; grid-template-columns: 1fr 58px; align-items: center; gap: 6px; color: rgba(244, 232, 206, 0.72); font-size: 9px; }
+.audio-mixer input { accent-color: var(--amber); }
+.audio-mixer > label input { width: 100%; min-height: 28px; }
+.audio-mixer__switches { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; border-top: 1px solid rgba(244, 232, 206, 0.1); padding-top: 8px; }
+.audio-mixer__switches label { display: flex; min-height: 32px; align-items: center; gap: 6px; color: rgba(244, 232, 206, 0.7); font-size: 8px; cursor: pointer; }
+.audio-mixer__switches input { width: 15px; height: 15px; margin: 0; }
+.audio-mixer > small { grid-column: 1 / -1; color: rgba(244, 232, 206, 0.45); font-size: 8px; line-height: 1.4; }
 
 .map-layers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin: 10px 0; border: 1px solid rgba(244, 232, 206, 0.18); padding: 10px; }
 .map-layers legend { padding: 0 5px; color: rgba(244, 232, 206, 0.66); font-size: 9px; font-weight: 900; letter-spacing: 0.1em; text-transform: uppercase; }
@@ -691,6 +702,7 @@ body.watch-mode .flight-strip:not(:focus-within) { opacity: 0.72; }
 body.watch-mode .brand { opacity: 0.75; }
 
 @media (max-width: 760px) {
+  .radio-caption { right: 70px; bottom: 26px; left: 18px; width: auto; min-width: 0; transform: none; }
   .training-coach { top: 100px; right: 70px; left: auto; width: min(330px, calc(100vw - 88px)); min-width: 0; transform: none; }
   .training-coach > small { white-space: normal; }
   .training-coach footer button { min-height: 44px; }
@@ -717,6 +729,7 @@ body.watch-mode .brand { opacity: 0.75; }
   .scoreboard strong { font-size: 14px; }
   .scoreboard span { font-size: 7px; }
   .audio-mixer { grid-template-columns: 1fr; }
+  .audio-mixer__switches { grid-template-columns: 1fr; }
   .input-settings { grid-template-columns: 1fr; }
   .remote-control-host { grid-template-columns: 1fr; }
   .remote-control-host__token, .remote-control-host__actions, .remote-control-host > small, .remote-control-host__status { grid-column: 1; }

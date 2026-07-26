@@ -37,6 +37,7 @@ import type {
 } from './simulation/types';
 import { isTrainingOperationalAction } from './simulation/trainingProgram';
 import { AmbientAudio, type AudioChannel, type AudioPreset } from './audio/ambientAudio';
+import { SoundscapeEventScheduler, type SoundscapeEvent } from './audio/soundscapeEvents';
 import { createWorld, type AirspaceLayer, type SurfaceLayer } from './render/createWorld';
 import { drawRadarInset } from './render/radarInset';
 import {
@@ -52,6 +53,7 @@ import {
   type StatusMessagePriority,
   type StatusMessageView,
 } from './presentation/statusMessages';
+import { RadioCaptionCoordinator } from './presentation/radioCaptions';
 import { createFocusNavigator, type FocusNavigator } from './ui/focusNavigator';
 import {
   isOperationQueueFilter,
@@ -166,6 +168,7 @@ type ReplayRecording = {
   initialState: ReturnType<typeof cloneAirportState>;
   commands: RecordedCommand[];
   weatherHistory: TelemetryEvent[];
+  soundEvents: SoundscapeEvent[];
   events: TelemetryEvent[];
   frames: ReplayFrame[];
 };
@@ -249,6 +252,7 @@ const menuButton = $<HTMLButtonElement>('#menu-toggle');
 const controlPanel = $<HTMLElement>('#control-panel');
 const audio = new AmbientAudio();
 let config = generateAirportConfig();
+const soundscape = new SoundscapeEventScheduler(config.seed);
 let simulation = new AirportSimulation(config);
 let world = createWorld(canvas, config);
 let focusTargetRegistry = createFocusTargetRegistry(config);
@@ -402,6 +406,9 @@ const weatherToggle = $<HTMLButtonElement>('#weather-toggle');
 const windToggle = $<HTMLButtonElement>('#wind-toggle');
 const weatherConditionSelect = $<HTMLSelectElement>('#weather-condition-select');
 const audioPreset = $<HTMLSelectElement>('#audio-preset');
+const radioChatterEnabledControl = $<HTMLInputElement>('#radio-chatter-enabled');
+const radioCaptionsEnabledControl = $<HTMLInputElement>('#radio-captions-enabled');
+const highStakesWeatherControl = $<HTMLInputElement>('#high-stakes-weather-enabled');
 const gamepadEnabledControl = $<HTMLInputElement>('#gamepad-enabled');
 const gamepadSensitivityControl = $<HTMLInputElement>('#gamepad-sensitivity');
 const gamepadSensitivityOutput = $<HTMLOutputElement>('#gamepad-sensitivity-output');
@@ -413,6 +420,17 @@ const statusLabel = $<HTMLElement>('#status-label');
 const statusDetail = $<HTMLElement>('#status-detail');
 let statusTransition: Animation | null = null;
 const statusMessages = new StatusMessageCoordinator(presentStatusMessage);
+const radioCaption = $<HTMLElement>('#radio-caption');
+const radioCaptionStation = $<HTMLElement>('#radio-caption-station');
+const radioCaptionCopy = $<HTMLElement>('#radio-caption-copy');
+const radioCaptions = new RadioCaptionCoordinator((caption) => {
+  radioCaption.hidden = caption === null;
+  if (!caption) return;
+  radioCaptionStation.textContent = caption.station;
+  radioCaptionCopy.textContent = caption.copy;
+  radioCaption.dataset.priority = caption.priority;
+  radioCaption.dataset.captionId = caption.id;
+});
 const landedCount = $<HTMLElement>('#landed-count');
 const departedCount = $<HTMLElement>('#departed-count');
 const shiftTime = $<HTMLElement>('#shift-time');
@@ -586,6 +604,10 @@ let lastPredictionKey = '';
 let replayIndex = -1;
 let replayMode = false;
 let pausedBeforeReplay = false;
+let lastReplaySoundIndex = -1;
+let radioChatterEnabled = true;
+let radioCaptionsEnabled = true;
+let highStakesWeatherEnabled = false;
 let focusedFlightId: number | null = null;
 let activeFocusRef: FocusTargetRef | null = null;
 let activeFocusTarget: FocusTargetDescriptor | null = null;
@@ -637,6 +659,7 @@ let measuredFps = 0;
 let modalReturnFocus: HTMLElement | null = null;
 let lastDebugSecond = -1;
 const replayFrames: ReplayFrame[] = [];
+const soundscapeEvents: SoundscapeEvent[] = [];
 const telemetryEvents: TelemetryEvent[] = [];
 const commandHistory: RecordedCommand[] = [];
 let initialReplayState = cloneAirportState(simulation.state);
@@ -1143,6 +1166,19 @@ runwayConfigurationSelect.addEventListener('change', () => {
   setStatus(accepted ? 'Runway plan accepted' : 'Runway plan rejected', reason);
 });
 audioPreset.addEventListener('change', () => audio.setPreset(audioPreset.value as AudioPreset));
+radioChatterEnabledControl.addEventListener('change', () => {
+  radioChatterEnabled = radioChatterEnabledControl.checked;
+  audio.setRadioEnabled(radioChatterEnabled);
+});
+radioCaptionsEnabledControl.addEventListener('change', () => {
+  radioCaptionsEnabled = radioCaptionsEnabledControl.checked;
+  audio.setCaptionsEnabled(radioCaptionsEnabled);
+  if (!radioCaptionsEnabled) radioCaptions.reset();
+});
+highStakesWeatherControl.addEventListener('change', () => {
+  highStakesWeatherEnabled = highStakesWeatherControl.checked;
+  soundscape.setHighStakesWeatherEnabled(highStakesWeatherEnabled);
+});
 for (const control of audioLevelControls) {
   control.addEventListener('input', () => audio.setLevel(control.dataset.audioLevel as AudioChannel, Number(control.value)));
 }
@@ -1181,11 +1217,15 @@ replayToggle.addEventListener('click', () => {
   replaySlider.disabled = !replayMode || replayFrames.length === 0;
   if (!replayMode) {
     replayIndex = -1;
+    lastReplaySoundIndex = -1;
+    radioCaptions.reset();
     simulation.setPaused(pausedBeforeReplay);
   } else {
     pausedBeforeReplay = simulation.state.paused;
     simulation.setPaused(true);
     replayIndex = Math.max(0, replayFrames.length - 1);
+    lastReplaySoundIndex = -1;
+    playReplaySoundFrame();
   }
   updateReplayUi();
   renderFlightStrip();
@@ -1193,6 +1233,7 @@ replayToggle.addEventListener('click', () => {
 });
 replaySlider.addEventListener('input', () => {
   replayIndex = Number(replaySlider.value);
+  playReplaySoundFrame();
   updateReplayUi();
   renderFlightStrip();
   renderFlightActions();
@@ -1387,6 +1428,7 @@ function frame(now: number): void {
   lastTime = now;
   const statusSnapshot = statusMessages.advance(now);
   status.dataset.queueDepth = String(statusSnapshot.queued.length);
+  radioCaptions.advance(now);
   inputLayer.update(delta);
   worldDeltaAccumulator = Math.min(0.25, worldDeltaAccumulator + delta);
   const renderWorld = minimumRenderInterval === 0 || now - lastWorldRender >= minimumRenderInterval;
@@ -1409,9 +1451,17 @@ function frame(now: number): void {
       ticks += 1;
     }
   }
+  const displayedState = displayState();
   audioUpdateIn -= delta;
   if (audioUpdateIn <= 0) {
-    audio.setEnvironment(simulation.state);
+    if (!replayMode) handleSoundscapeEvents(soundscape.advance(simulation.state), simulation.state, true);
+    const camera = world.diagnostics().camera;
+    audio.setEnvironment(displayedState, {
+      x: camera.focusX,
+      y: camera.focusY,
+      orbitRadians: camera.orbitDegrees * Math.PI / 180,
+      zoom: camera.zoom,
+    });
     audioUpdateIn = 0.25;
   }
   if (now - lastFlightStripRender >= 400) {
@@ -1422,7 +1472,6 @@ function frame(now: number): void {
     lastFlightStripRender = now;
   }
 
-  const displayedState = displayState();
   const hudSecond = Math.floor(displayedState.elapsed);
   if (hudSecond !== lastHudSecond) {
     shiftTime.textContent = formatTime(displayedState.elapsed);
@@ -1524,12 +1573,10 @@ function frame(now: number): void {
         actualReadySeconds: event.flight.turnaround.actualReadySeconds ?? null,
       } : undefined,
     });
-    if (event.type === 'spawn') audio.traffic(event.flight.category, 'spawn');
+    handleSoundscapeEvents(soundscape.observe(event, simulation.state), simulation.state, true);
     if (event.type === 'chime') {
       audio.chime();
-      audio.traffic(event.flight.category, 'land');
     }
-    if (event.type === 'depart') audio.traffic(event.flight.category, 'depart');
     if (event.type === 'spawn') setStatus(
       event.flight.phase === 'approach' ? `${event.flight.callsign} entering the scope` : `${event.flight.callsign} ready at the terminal`,
       simulation.state.mode === 'auto' || simulation.state.mode === 'watch' ? 'tower building the next safe movement' : simulation.state.mode === 'assisted' ? 'advisor preparing the next clearance' : 'select the flight strip for clearances',
@@ -1539,15 +1586,12 @@ function frame(now: number): void {
     if (event.type === 'gate-release') setStatus(`${event.flight.callsign} clear of stand`, event.detail ?? 'gate available');
     if (event.type === 'turnaround-ready') setStatus(`${event.flight.callsign} ready for push`, event.detail ?? 'all required services complete');
     if (event.type === 'clear') {
-      audio.radio();
       setStatus(`${event.flight.callsign} cleared to land`, 'route accepted · runway lights are yours');
     }
     if (event.type === 'auto-clear') {
-      audio.radio();
       setStatus(`${event.flight.callsign} cleared by the tower`, 'automatic approach is established');
     }
     if (event.type === 'pushback-clearance') {
-      audio.radio();
       setStatus(`${event.flight.callsign} pushback approved`, event.detail ?? `push ${event.flight.pushbackDirection}`);
     }
     if (event.type === 'pushback-start') setStatus(`${event.flight.callsign} tug connected`, event.detail ?? 'pushback beginning');
@@ -1562,7 +1606,6 @@ function frame(now: number): void {
     if (event.type === 'deicing-return') setStatus(`${event.flight.callsign} returning to deicing`, event.detail ?? 'new treatment cycle required');
     if (event.type === 'land') setStatus(`${event.flight.callsign} touched down`, `${simulation.state.arrivals} safe arrival${simulation.state.arrivals === 1 ? '' : 's'}`);
     if (event.type === 'hold-short') {
-      audio.radio();
       setStatus(`${event.flight.callsign} holding short`, `${event.taxiway} · runway ${runwayDesignation(event.runway ?? event.flight.runway)}`);
     }
     if (event.type === 'runway-entry') setStatus(`${event.flight.callsign} cleared onto runway`, `${event.taxiway} · runway ${runwayDesignation(event.runway ?? event.flight.runway)}`);
@@ -1627,6 +1670,53 @@ function frame(now: number): void {
 
 function displayState() {
   return replayMode && replayFrames[replayIndex]?.state ? replayFrames[replayIndex].state : simulation.state;
+}
+
+function cloneSoundscapeEvent(event: SoundscapeEvent): SoundscapeEvent {
+  return { ...event, position: event.position ? { ...event.position } : undefined };
+}
+
+function handleSoundscapeEvents(
+  events: SoundscapeEvent[],
+  sourceState: typeof simulation.state,
+  record: boolean,
+): void {
+  for (const event of events) {
+    if (record) {
+      soundscapeEvents.push(cloneSoundscapeEvent(event));
+      if (soundscapeEvents.length > 5_000) soundscapeEvents.splice(0, soundscapeEvents.length - 5_000);
+      const flight = event.flightId === undefined
+        ? undefined
+        : sourceState.flights.find((candidate) => candidate.id === event.flightId);
+      recordTelemetry(`sound:${event.kind}`, flight, flight?.runway, flight?.taxiway, {
+        detail: event.caption ?? event.sourceEventType ?? event.kind,
+        payload: cloneSoundscapeEvent(event),
+      });
+    }
+    const delay = record
+      ? Math.max(0, event.elapsed - sourceState.elapsed) / Math.max(0.25, simulationSpeed)
+      : 0;
+    audio.play(event, delay);
+    if (event.caption && radioCaptionsEnabled) {
+      radioCaptions.enqueue({
+        id: event.id,
+        station: `${event.station ?? 'radio'} · fictional offline transmission`,
+        copy: event.caption,
+        priority: event.priority,
+      });
+    }
+  }
+}
+
+function playReplaySoundFrame(): void {
+  if (!replayMode || replayIndex < 0 || replayIndex === lastReplaySoundIndex || !replayFrames[replayIndex]) return;
+  lastReplaySoundIndex = replayIndex;
+  radioCaptions.reset();
+  const clock = replayFrames[replayIndex].clock;
+  const events = soundscapeEvents
+    .filter((event) => Math.abs(event.elapsed - clock) <= 0.55)
+    .slice(-4);
+  handleSoundscapeEvents(events, replayFrames[replayIndex].state, false);
 }
 
 function capturePresentation(state: typeof simulation.state) {
@@ -1825,6 +1915,7 @@ function replayRecording(): ReplayRecording {
     initialState: cloneAirportState(initialReplayState),
     commands: commandHistory.map((entry) => ({ ...entry, command: { ...entry.command } as AirportControlCommand })),
     weatherHistory: telemetryEvents.filter((event) => event.type.startsWith('weather') || event.type.startsWith('command:setWeather')),
+    soundEvents: soundscapeEvents.map(cloneSoundscapeEvent),
     events: telemetryEvents.map((event) => ({ ...event })),
     frames: replayFrames.map((frame) => ({ ...frame, state: cloneAirportState(frame.state) })),
   };
@@ -3625,6 +3716,10 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   setControlPanelOpen(false);
   world.dispose();
   config = nextConfig;
+  soundscape.reset(config.seed);
+  soundscape.setHighStakesWeatherEnabled(highStakesWeatherEnabled);
+  soundscapeEvents.length = 0;
+  radioCaptions.reset();
   weatherSelection = 'auto';
   simulation = new AirportSimulation(config, density);
   focusTargetRegistry = createFocusTargetRegistry(config);
@@ -3678,6 +3773,7 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   lastPredictionKey = '';
   replayMode = false;
   replayIndex = -1;
+  lastReplaySoundIndex = -1;
   replayToggle.setAttribute('aria-pressed', 'false');
   replayToggle.textContent = 'Replay';
   updateReplayUi();
@@ -4304,6 +4400,14 @@ function airportSnapshot() {
       temperatureC: Number(simulation.state.weather.temperatureC.toFixed(1)),
       surfaceCondition: simulation.state.weather.surfaceCondition,
     },
+    audio: {
+      ...audio.snapshot(),
+      scheduler: soundscape.snapshot(),
+      captions: radioCaptions.snapshot(),
+      recordedEvents: soundscapeEvents.length,
+      sourceManifest: 'audio/soundscape-manifest.json',
+      fictionalOfflineRadio: true,
+    },
     operations,
     runwayConfiguration: {
       ...cloneRunwayConfiguration(config.runwayConfigurations.find(
@@ -4324,6 +4428,7 @@ function airportSnapshot() {
     replay: {
       frames: replayFrames.length,
       durationSeconds: replayFrames.length ? replayFrames[replayFrames.length - 1].clock - replayFrames[0].clock : 0,
+      soundEvents: soundscapeEvents.length,
     },
     traffic: diagnostics,
     trafficManagement: diagnostics.trafficManagement,
@@ -5555,7 +5660,7 @@ window.airportControl = {
       events: 'airportControl.events(100)',
       protocol: 'airportControl.protocol() // command/event JSON Schemas, authority, compatibility, examples',
       validate: "airportControl.validate({ action: 'pause' }) // structural validation without execution",
-      formalDispatch: "airportControl.dispatch({ protocolVersion: '1.2.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.33.0', snapshotSchemaVersion: 35 }, command: { action: 'pause' } })",
+      formalDispatch: "airportControl.dispatch({ protocolVersion: '1.2.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.34.0', snapshotSchemaVersion: 36 }, command: { action: 'pause' } })",
       structuredCommand: "airportControl.request({ action: 'pause' }) // legacy-compatible bare command; result includes requestId, commandId, eventId, authority, and compatibility",
       pause: "airportControl.command({ action: 'pause' })",
       speed: "airportControl.command({ action: 'setSpeed', value: 2 })",

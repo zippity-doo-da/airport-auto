@@ -184,6 +184,12 @@
             <label><span>Weather</span><input data-audio-level="weather" type="range" min="0" max="1" step="0.05" value="1" /></label>
             <label><span>Radio</span><input data-audio-level="radio" type="range" min="0" max="1" step="0.05" value="1" /></label>
             <label><span>UI</span><input data-audio-level="ui" type="range" min="0" max="1" step="0.05" value="0.7" /></label>
+            <div class="audio-mixer__switches">
+              <label><input id="radio-chatter-enabled" type="checkbox" checked /><span>Radio cues</span></label>
+              <label><input id="radio-captions-enabled" type="checkbox" checked /><span>Radio captions</span></label>
+              <label><input id="high-stakes-weather-enabled" type="checkbox" /><span>Rare thunder</span></label>
+            </div>
+            <small>Project-original procedural soundscape with fictional offline ATC captions. No live radio, voice generation, microphone, or network audio.</small>
           </fieldset>
           <fieldset class="map-layers" aria-label="Optional airport map layers">
             <legend>Map layers</legend>
@@ -344,6 +350,11 @@
         <span class="status__pulse" aria-hidden="true"></span>
         <div><b id="status-label">Airspace is clear</b><small id="status-detail">awaiting first arrival</small></div>
       </section>
+
+      <aside id="radio-caption" class="radio-caption" aria-live="polite" aria-atomic="true" hidden>
+        <span id="radio-caption-station">Approach · fictional offline transmission</span>
+        <b id="radio-caption-copy">Radar contact. Continue the arrival.</b>
+      </aside>
 
       <p class="instruction"><span class="instruction__menu-icon" aria-hidden="true"><i></i><i></i><i></i></span><span id="instruction-copy">The tower routes automatically · <b>open Controls to adjust</b></span></p>
 

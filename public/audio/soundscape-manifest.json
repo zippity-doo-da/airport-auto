@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "name": "Airport Auto procedural soundscape",
+  "updated": "2026-07-26",
+  "license": "Project source license",
+  "networkAudio": false,
+  "runtimeVoiceGeneration": false,
+  "microphoneAccess": false,
+  "sources": [
+    {
+      "id": "environment-beds",
+      "kind": "procedural",
+      "channels": ["ambience", "weather"],
+      "description": "Deterministically synthesized field, tower-room, ramp, APU, wind, rain, and snow beds."
+    },
+    {
+      "id": "spatial-aircraft",
+      "kind": "procedural",
+      "channels": ["aircraft"],
+      "description": "Per-aircraft engine voices synthesized from model, power, distance, camera bearing, ground occlusion, and restrained Doppler."
+    },
+    {
+      "id": "operational-events",
+      "kind": "procedural",
+      "channels": ["aircraft", "ambience", "weather", "ui"],
+      "description": "Deterministic touchdown, reverse-thrust, takeoff-power, tug, service, deicing, gear, ramp, gust, and optional thunder cues."
+    },
+    {
+      "id": "fictional-atc-captions",
+      "kind": "offline-text",
+      "channels": ["radio"],
+      "description": "Reusable fictional controller captions generated from simulation events. They are not live, recorded, streamed, or suitable for navigation."
+    }
+  ]
+}

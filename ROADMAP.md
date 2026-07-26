@@ -1,7 +1,7 @@
 # Airport Auto — Forward Roadmap
 
 Last reconciled: July 26, 2026
-Baseline: Airport Auto 2.33.0
+Baseline: Airport Auto 2.34.0
 
 Airport Auto is an **ASMR-first web airport simulation with an optional serious ATC layer**. The simulation should remain enjoyable as a calm, hands-off miniature world while also supporting increasingly authentic controller work when the player asks for it.
 
@@ -150,19 +150,21 @@ Use the versioned local control protocol as the safety boundary for live human a
 
 Make Watch mode satisfying for a long session without repetitive alarms or synthetic fatigue.
 
-**Timing: deferred.** All new sound work—including reusable, pre-rendered airport chatter—comes after the current aircraft, traffic, motion, and information-display improvements; no runtime voice generation or new audio integration is required in that earlier work.
+**Timing:** The deterministic procedural foundation shipped after the aircraft, traffic, motion, and information-display work in 2.34. Recorded source libraries, reusable pre-rendered voices, and deeper environmental simulation remain deferred; runtime voice generation is still out of scope.
+
+**2.34 foundation:** Project-original procedural beds and event cues now provide a license-clear baseline; per-aircraft spatial voices, five buses/presets, actual-weather mixing, fictional offline captions, replay sound decisions, deterministic cooldowns, and readable caption pacing are shipped. Recorded source libraries, pre-rendered fictional voices, deeper weather hazards, environment transitions, and accessibility palettes remain below.
 
 - [ ] Acquire or create license-cleared engine, APU, ramp, cabin-area, runway, rain, wind, terminal, and tower-room recordings.
-- [ ] Give aircraft persistent spatial sound with model/engine variation, distance attenuation, Doppler restraint, occlusion, and smooth crossfades.
-- [ ] Add taxi whine, power changes, reverse thrust, runway rumble, touchdown, flap/gear, pushback, tug, and service-vehicle layers.
-- [ ] Add weather-specific rain, snow, thunder, gust, and low-visibility ambience that follows the actual weather switches.
+- [x] Give aircraft persistent spatial sound with model/engine variation, distance attenuation, Doppler restraint, occlusion, and smooth crossfades. (2.34: the nearest 14 model/power-ranked aircraft use persistent synthesized voices with camera-relative stereo, distance/height attenuation, restrained Doppler, simple ground/distance filtering, and smoothed parameters.)
+- [ ] Add taxi whine, power changes, reverse thrust, runway rumble, touchdown, flap/gear, pushback, tug, and service-vehicle layers. (2.34 foundation: persistent engine power plus seeded takeoff, touchdown, reverse, engine-start, gear, tug, ramp, service, and deicing cues ship now; distinct taxi-whine, runway-rumble, flap, and recorded detail layers remain.)
+- [ ] Add weather-specific rain, snow, thunder, gust, and low-visibility ambience that follows the actual weather switches. (2.34 foundation: rain/snow/wind beds obey both master weather and wind state; gust and transition events are deterministic; rare thunder is opt-in. Richer low-visibility and recorded-weather layers remain.)
 - [ ] Add deeper fog, haze, snow, thunderstorm, low-ceiling, and contaminated-runway simulation states—not merely visual filters.
 - [ ] Add runway braking-action reports and surface-condition effects to landing distance, exit choice, taxiing, and departure performance.
 - [ ] Add rare wind-shear and microburst alerts with safe go-around/escape behavior and an option to disable high-stakes events.
 - [ ] Build a reusable offline radio-chatter library from fictional, captioned ATC exchanges. Generate or record the clips during development—not at runtime—disclose synthetic voices, preserve a license/source manifest, vary controller and pilot voices, and sequence clips by airport, station, traffic state, cooldown, and repetition budget.
-- [ ] Give radio chatter its own toggle and volume channel, with captions, calm/ASMR filtering, and a no-voice fallback; never require an API key or network connection from players.
-- [ ] Record sound events in replay so playback reproduces the same soundscape decisions.
-- [ ] Add long-loop randomization, density-aware mixing, cooldowns, and calm alert policies to prevent repetitive event fatigue. (The visual status surface already has wall-clock dwell, priority queuing, duplicate suppression, and bounded backlog in 2.33; audio event selection and repetition budgets remain.)
+- [x] Give radio chatter its own toggle and volume channel, with captions, calm/ASMR filtering, and a no-voice fallback; never require an API key or network connection from players. (2.34: independent cue/caption toggles, Radio bus, Calm preset, procedural cue, and fictional text fallback are entirely local.)
+- [x] Record sound events in replay so playback reproduces the same soundscape decisions. (2.34: replay schema 3 stores seeded event kind, variant, time, position, caption, station, and source event; replay presentation uses displayed rather than hidden live state.)
+- [ ] Add long-loop randomization, density-aware mixing, cooldowns, and calm alert policies to prevent repetitive event fatigue. (2.34 foundation: seeded variants, state-aware beds, scheduled ramp/gust/thunder events, per-kind cooldowns, bounded captions, and 4.2–8 second caption dwell extend the 2.33 visual-status policy. Recorded long-loop variation and measured multi-hour repetition budgets remain.)
 - [ ] Add dawn, day, dusk, night, cloud, seasonal, snow-cover, wet-pavement, and runway-light transitions.
 - [ ] Add a smooth optional camera director that follows interesting operations without camera snaps or stealing manual control.
 - [ ] Add high-contrast and color-vision-safe palettes while retaining reduced-motion and low-chrome presentation.

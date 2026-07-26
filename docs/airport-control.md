@@ -4,7 +4,7 @@ Airport Auto exposes a local, versioned interface for playtests, scripted contro
 
 ## Browser API
 
-The current API version is `2.33.0`; the formal control protocol is `1.2.0`, snapshots use schema version `35`, and portable recordings use schema version `2`.
+The current API version is `2.34.0`; the formal control protocol is `1.2.0`, snapshots use schema version `36`, and portable recordings use schema version `3`.
 
 ```js
 airportControl.version;
@@ -28,7 +28,7 @@ const result = airportControl.request({
 
 // {
 //   protocolVersion: '1.2.0',
-//   apiVersion: '2.33.0',
+//   apiVersion: '2.34.0',
 //   sessionId: 'session-…',
 //   requestId: 'req-…',
 //   commandId: 'cmd-…',
@@ -65,8 +65,8 @@ const result = airportControl.dispatch({
     actorId: "tower-agent-a",
   },
   expects: {
-    apiVersion: "2.33.0",
-    snapshotSchemaVersion: 35,
+    apiVersion: "2.34.0",
+    snapshotSchemaVersion: 36,
   },
   command: {
     action: "clearTakeoff",
@@ -444,7 +444,9 @@ Routing interpretation: `surfaceRoutePlanning` reports the congestion penalty an
 
 Events carry `protocolVersion`, `apiVersion`, `sessionId`, a monotonic numeric `eventId`/`sequence`, and a globally unambiguous `eventKey`. A command attempt has a unique `commandId`; every synchronous simulation or lifecycle event it creates carries `causedByCommandId`, including accepted and rejected operational events. A scripted action has a unique `controller-*` decision ID; its resulting domain events and the typed `controller-decision` audit event carry `causedByControllerDecisionId`, while the audit payload contains the complete decision record. Scheduler-only traffic keeps both cause fields absent, so consumers can distinguish human/API commands, deterministic controllers, and background lifecycle behavior. Events also include command payloads and acceptance, flight/runway/taxiway context, and safety-hold or go-around details. Handoff coordination emits `handoff-offer`, `handoff-accept`, `handoff-reject`, `handoff-overdue`, `handoff-cancel`, `handoff-complete`, and compatibility `contact` events. Each atomic group issue emits one `group-instruction` event per member with the common instruction, authority, and callsign set in its detail. Route editing emits `route-preview`, `route-clearance-issued`, `route-readback-accepted`, `route-readback-rejected`, `route-clearance-cancelled`, and final `route-amendment` events with a deep-cloned clearance/warning payload. Other controller-authored movement adds `taxi-route-clearance`, `hold-position`, `taxi-resume`, `diversion`, and terminal-scope `divert` events. Gate planning adds structured `gate-assignment`, `gate-reassignment`, and `gate-release` payloads. Arrival planning emits `runway-exit-plan` with the complete resulting exit state whenever the stand, braking action, traffic, or final-approach refresh changes the decision. Surface changes emit `surface-reroute`, `recovery-start`, and `recovery-complete` with the resulting route/restriction context. Turnarounds add `turnaround-start`, per-task `service-start` / `service-complete`, and `turnaround-ready` events with service, progress, and readiness timing. Ramp equipment adds dispatch, arrival, hold/release, return, and stand-clear events with vehicle ID/type/status. Pushback adds `pushback-clearance`, `pushback-start`, `engine-start`, and `tug-release` events. Winter operations add `deicing-planned`, `deicing-queue`, `deicing-pad-entry`, `deicing-start`, `deicing-complete`, `deicing-expired`, and `deicing-return`, including the resulting pad, lane, cycle, queue, treatment, and holdover state. The in-page log retains the latest 500 events.
 
-`recording()` returns replay schema 2 with protocol/API/session versions, the airport seed, initial state, accepted and rejected commands with request/command/event IDs, source, effective station, client, and optional actor identity, weather events, complete causal event log, and immutable full-state frames. The visible replay scrubber is read-only and drives the 3D world from those recorded frames.
+`recording()` returns replay schema 3 with protocol/API/session versions, the airport seed, initial state, accepted and rejected commands with request/command/event IDs, source, effective station, client, and optional actor identity, weather events, deterministic sound events, complete causal event log, and immutable full-state frames. The visible replay scrubber is read-only and drives the 3D world, spatial environment mix, and nearby recorded sound/caption decisions from those frames.
+
+`snapshot().audio` exposes the five-channel preset/levels, master and Web Audio context state, independent fictional-radio/caption settings, current weather/field/ramp/APU mix targets, bounded spatial-aircraft voices and audible flight IDs, deterministic scheduler/cooldown state, optional high-stakes-weather setting, readable caption queue, source manifest, and recorded sound-event count. The system is local and procedural: it uses no microphone, live radio, runtime voice generation, API key, or network audio. See [soundscape.md](soundscape.md).
 
 ## BroadcastChannel bridge
 
@@ -468,7 +470,7 @@ channel.postMessage({
     clientId: "local-observer",
     source: "agent",
     authority: { station: "supervisor" },
-    expects: { apiVersion: "2.33.0", snapshotSchemaVersion: 35 },
+    expects: { apiVersion: "2.34.0", snapshotSchemaVersion: 36 },
     command: { action: "focusFlight", flightId: 12 },
   },
 });

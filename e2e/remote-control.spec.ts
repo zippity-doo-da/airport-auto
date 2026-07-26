@@ -112,7 +112,7 @@ test("opt-in browser host and external controller share the formal safety arbite
       "/?airport=ORD&mode=manual&station=supervisor&autostart=1&detail=low&renderFps=0.25",
     );
     await page.waitForFunction(
-      () => window.airportControl?.version === "2.33.0",
+      () => window.airportControl?.version === "2.34.0",
     );
     const connected = await page.evaluate(
       ({ endpoint, session, token }) =>
@@ -163,7 +163,7 @@ test("opt-in browser host and external controller share the formal safety arbite
     const compactSnapshot = state.snapshot as Record<string, unknown>;
     expect(compactSnapshot).toMatchObject({
       schemaVersion: 1,
-      sourceSnapshotSchemaVersion: 35,
+      sourceSnapshotSchemaVersion: 36,
       airport: { code: "ORD", navigationUse: false },
       mode: "manual",
     });
