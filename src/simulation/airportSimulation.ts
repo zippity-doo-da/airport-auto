@@ -2584,6 +2584,17 @@ export class AirportSimulation {
     return result;
   }
 
+  eventCursor(): number {
+    return this.events.length;
+  }
+
+  tagEventsSince(cursor: number, commandId: string): void {
+    const start = Math.max(0, Math.min(this.events.length, Math.trunc(cursor)));
+    for (let index = start; index < this.events.length; index += 1) {
+      this.events[index].causedByCommandId ??= commandId;
+    }
+  }
+
   queueSnapshot(state: AirportState = this.state): OperationQueueSnapshot {
     return buildOperationQueueSnapshot(this.config, state, {
       stationarySeconds: state === this.state ? this.stationarySeconds : undefined,

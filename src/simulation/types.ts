@@ -6,6 +6,7 @@ import type { AirlineCode } from './airlineProfiles';
 import type { OperationTrafficClass } from './airportOperationProfiles';
 import type { TrafficDensity } from './trafficDensity';
 import type { ProcedureConstraint, TerminalProcedureKind } from './airspaceProcedures';
+import type { AirportDomainEventType } from '../control/eventTypes';
 import type { SeparationRulesetId } from './separationRules';
 import type { RouteDistanceSource } from './routeDistances';
 
@@ -869,7 +870,7 @@ export interface ReplayFrame {
 }
 
 export interface AirportEvent {
-  type: 'spawn' | 'sandbox-injection' | 'gate-assignment' | 'gate-reassignment' | 'gate-release' | 'runway-exit-plan' | 'surface-reroute' | 'taxi-route-clearance' | 'hold-position' | 'taxi-resume' | 'group-instruction' | 'recovery-start' | 'recovery-complete' | 'turnaround-start' | 'service-start' | 'service-complete' | 'turnaround-ready' | 'service-vehicle-dispatch' | 'service-vehicle-arrive' | 'service-vehicle-hold' | 'service-vehicle-release' | 'service-vehicle-return' | 'service-vehicle-clear' | 'deicing-planned' | 'deicing-queue' | 'deicing-pad-entry' | 'deicing-start' | 'deicing-complete' | 'deicing-expired' | 'deicing-return' | 'land' | 'chime' | 'depart' | 'diversion' | 'divert' | 'clear' | 'auto-clear' | 'pushback-clearance' | 'pushback-start' | 'engine-start' | 'tug-release' | 'reject' | 'conflict' | 'safety-hold' | 'hold-short' | 'runway-entry' | 'runway-crossing' | 'takeoff-clearance' | 'vector' | 'route-preview' | 'route-clearance-issued' | 'route-readback-accepted' | 'route-readback-rejected' | 'route-clearance-cancelled' | 'route-amendment' | 'airborne-hold' | 'hold-release' | 'approach-clearance' | 'handoff' | 'handoff-offer' | 'handoff-accept' | 'handoff-reject' | 'handoff-overdue' | 'handoff-cancel' | 'handoff-complete' | 'contact' | 'go-around' | 'emergency';
+  type: AirportDomainEventType;
   flight: Flight;
   runway?: number;
   taxiway?: string;
@@ -878,6 +879,10 @@ export interface AirportEvent {
   serviceVehicleId?: string;
   serviceVehicleType?: ServiceVehicleType;
   serviceVehicleStatus?: ServiceVehicleStatus;
+  /** Command that synchronously produced this domain event, when applicable. */
+  causedByCommandId?: string;
+  /** Reserved for explicit event-to-event causal chains in asynchronous workflows. */
+  causedByEventId?: number;
 }
 
 export interface RunwayConfigurationTransition {

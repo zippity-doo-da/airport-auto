@@ -10,11 +10,128 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await page.goto('/?airport=ORD&mode=assisted&station=supervisor&autostart=1&detail=low&renderFps=0.25');
   await expect(page.locator('#airport-name')).toContainText('O’Hare');
   await expect(page.locator('#flight-strip-count')).toContainText('aircraft');
-  await page.waitForFunction(() => window.airportControl?.version === '2.27.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.28.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
-  expect(initial.schemaVersion).toBe(29);
+  expect(initial.schemaVersion).toBe(30);
+  expect(initial.controlProtocol).toMatchObject({
+    protocolVersion: '1.0.0',
+    apiVersion: '2.28.0',
+    commandCount: 85,
+    channel: 'airport-auto',
+  });
+  const protocolProbe = await page.evaluate(() => {
+    const protocol = window.airportControl.protocol();
+    const invalid = window.airportControl.validate({ action: 'pause', unknown: true });
+    const circularCommand: Record<string, unknown> = { action: 'pause' };
+    circularCommand.unknown = circularCommand;
+    const circularRejected = (window.airportControl.request as unknown as (command: unknown) => ReturnType<typeof window.airportControl.request>)(circularCommand);
+    const authorityRejected = window.airportControl.dispatch({
+      protocolVersion: '1.0.0',
+      requestId: 'e2e-authority-rejection',
+      source: 'test',
+      authority: { station: 'tower', actorId: 'tower-test-agent' },
+      expects: { apiVersion: '2.28.0', snapshotSchemaVersion: 30 },
+      command: { action: 'pause' },
+    });
+    const paused = window.airportControl.dispatch({
+      protocolVersion: '1.0.0',
+      requestId: 'e2e-formal-pause',
+      clientId: 'playwright',
+      source: 'test',
+      authority: { station: 'supervisor', actorId: 'supervisor-test-agent' },
+      expects: { apiVersion: '2.28.0', snapshotSchemaVersion: 30 },
+      command: { action: 'pause' },
+    });
+    const resumed = window.airportControl.dispatch({
+      protocolVersion: '1.0.0',
+      requestId: 'e2e-formal-resume',
+      source: 'test',
+      authority: { station: 'supervisor' },
+      command: { action: 'resume' },
+    });
+    return {
+      protocol: {
+        schemaVersion: protocol.schemaVersion,
+        commandCount: protocol.commandCount,
+        schemaNames: Object.keys(protocol.schemas),
+        firstCommand: protocol.commands[0],
+      },
+      invalid,
+      circularRejected,
+      authorityRejected,
+      paused,
+      resumed,
+    };
+  });
+  expect(protocolProbe.protocol).toMatchObject({
+    schemaVersion: 1,
+    commandCount: 85,
+    schemaNames: ['command', 'requestEnvelope', 'result', 'event', 'broadcastMessage'],
+    firstCommand: { action: 'pause', authority: { rule: 'session', safetyArbiter: true } },
+  });
+  expect(protocolProbe.invalid).toMatchObject({ valid: false, action: 'pause' });
+  expect(protocolProbe.circularRejected).toMatchObject({
+    accepted: false,
+    action: 'pause',
+    validation: { valid: false, issues: [{ keyword: 'additionalProperties' }] },
+  });
+  expect(protocolProbe.authorityRejected).toMatchObject({
+    accepted: false,
+    requestId: 'e2e-authority-rejection',
+    reason: expect.stringContaining('does not match selected supervisor'),
+    authority: { assertedStation: 'tower', effectiveStation: 'supervisor', enforced: true },
+  });
+  expect(protocolProbe.paused).toMatchObject({
+    protocolVersion: '1.0.0',
+    apiVersion: '2.28.0',
+    requestId: 'e2e-formal-pause',
+    clientId: 'playwright',
+    source: 'test',
+    action: 'pause',
+    accepted: true,
+    authority: { assertedStation: 'supervisor', effectiveStation: 'supervisor', safetyArbiter: true },
+    compatibility: { compatible: true },
+    validation: { valid: true, issues: [] },
+  });
+  expect(protocolProbe.paused.commandId).toMatch(/^cmd-/);
+  expect(protocolProbe.paused.eventKey).toContain(`:${protocolProbe.paused.eventId}`);
+  expect(protocolProbe.resumed.accepted).toBeTruthy();
+
+  const broadcastResult = await page.evaluate(() => new Promise<ReturnType<typeof window.airportControl.request>>((resolve, reject) => {
+    const channel = new BroadcastChannel('airport-auto');
+    const timer = window.setTimeout(() => {
+      channel.close();
+      reject(new Error('formal BroadcastChannel request timed out'));
+    }, 5_000);
+    channel.addEventListener('message', (event) => {
+      if (event.data?.type !== 'response' || event.data?.requestId !== 'e2e-broadcast-request') return;
+      window.clearTimeout(timer);
+      channel.close();
+      resolve(event.data.result);
+    });
+    channel.postMessage({
+      type: 'request',
+      envelope: {
+        protocolVersion: '1.0.0',
+        requestId: 'e2e-broadcast-request',
+        clientId: 'playwright-channel',
+        source: 'test',
+        authority: { station: 'supervisor' },
+        expects: { apiVersion: '2.28.0', snapshotSchemaVersion: 30 },
+        command: { action: 'setRadarVisible', enabled: false },
+      },
+    });
+  }));
+  expect(broadcastResult).toMatchObject({
+    accepted: true,
+    requestId: 'e2e-broadcast-request',
+    clientId: 'playwright-channel',
+    source: 'test',
+    action: 'setRadarVisible',
+    compatibility: { compatible: true },
+  });
   expect(initial.mode).toBe('assisted');
   expect(initial.airport.code).toBe('ORD');
   expect(initial.controllers.automation).toEqual({
@@ -324,10 +441,11 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   const beforeKeyboardRotate = await page.evaluate(() => window.airportControl.snapshot().renderer.camera.orbitDegrees);
   await page.keyboard.press('q');
   await page.waitForFunction((orbit) => window.airportControl.snapshot().renderer.camera.orbitDegrees !== orbit, beforeKeyboardRotate);
-  expect(await page.evaluate(() => window.airportControl.snapshot().renderer.camera.orbitDegrees)).toBeGreaterThan(0);
+  const afterLeftRotate = await page.evaluate(() => window.airportControl.snapshot().renderer.camera.orbitDegrees);
+  expect(afterLeftRotate).toBeGreaterThan(beforeKeyboardRotate);
   await page.keyboard.press('e');
-  await page.waitForFunction((orbit) => window.airportControl.snapshot().renderer.camera.orbitDegrees === orbit, beforeKeyboardRotate);
-  expect(await page.evaluate(() => window.airportControl.snapshot().renderer.camera.orbitDegrees)).toBe(beforeKeyboardRotate);
+  await page.waitForFunction((orbit) => window.airportControl.snapshot().renderer.camera.orbitDegrees < orbit, afterLeftRotate);
+  expect(await page.evaluate(() => window.airportControl.snapshot().renderer.camera.orbitDegrees)).toBeLessThan(afterLeftRotate);
   const densityResult = await page.evaluate(() => window.airportControl.request({ action: 'setTrafficDensity', density: 'busy' }));
   expect(densityResult.accepted).toBeTruthy();
   expect(densityResult.resultingState.trafficDensity).toBe('busy');
@@ -454,8 +572,23 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   expect(pauseResult.eventId).toBeGreaterThan(0);
   expect(pauseResult.resultingState.paused).toBeTruthy();
   const recording = await page.evaluate(() => window.airportControl.recording());
+  expect(recording).toMatchObject({
+    schemaVersion: 2,
+    protocolVersion: '1.0.0',
+    simulationVersion: '2.28.0',
+    sessionId: expect.stringMatching(/^session-/),
+  });
   expect(recording.seed).toBe(10_004);
   expect(recording.commands.length).toBeGreaterThan(0);
+  expect(recording.commands.at(-1)).toMatchObject({
+    requestId: pauseResult.requestId,
+    commandId: pauseResult.commandId,
+    eventId: pauseResult.eventId,
+    eventKey: pauseResult.eventKey,
+    command: { action: 'pause' },
+    accepted: true,
+  });
+  expect(recording.events.every((event) => event.eventKey === `${event.sessionId}:${event.eventId}`)).toBeTruthy();
   const resumeResult = await page.evaluate(() => window.airportControl.request({ action: 'resume' }));
   expect(resumeResult.accepted).toBeTruthy();
   await page.evaluate(() => window.airportControl.request({ action: 'pause' }));
@@ -558,7 +691,7 @@ test('Manual ORD supports live procedure control, ownership handoffs, and physic
   test.skip(testInfo.project.name !== 'desktop-chromium', 'The live ATC protocol is covered once in desktop Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=manual&station=approach&density=quiet&autostart=1&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.27.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.28.0');
   const pauseResult = await page.evaluate(() => window.airportControl.request({ action: 'pause' }));
   expect(pauseResult.accepted).toBe(true);
   await expect(page.locator('#station-briefing')).toContainText('Approach objectives');
@@ -613,6 +746,18 @@ test('Manual ORD supports live procedure control, ownership handoffs, and physic
   const { headingDegrees, result: heading } = headingCommand;
   expect(heading).toMatchObject({ accepted: true, reason: expect.stringContaining('heading'), eventId: expect.any(Number) });
   expect(heading.resultingState.flights.find((flight) => flight.id === arrival!.id)?.navigation.vector).toBeTruthy();
+  await page.waitForFunction(({ flightId, commandId }) => window.airportControl.events(30).some((event) => (
+    event.type === 'vector'
+    && event.flightId === flightId
+    && event.causedByCommandId === commandId
+  )), { flightId: arrival!.id, commandId: heading.commandId });
+  const causalVector = await page.evaluate(({ flightId, commandId }) => window.airportControl.events(30).find((event) => (
+    event.type === 'vector'
+    && event.flightId === flightId
+    && event.causedByCommandId === commandId
+  )), { flightId: arrival!.id, commandId: heading.commandId });
+  expect(causalVector).toMatchObject({ protocolVersion: '1.0.0', apiVersion: '2.28.0', causedByCommandId: heading.commandId });
+  expect(causalVector!.eventId).toBeGreaterThan(heading.eventId);
   const altitude = await page.evaluate((flightId) => window.airportControl.request({ action: 'assignAltitude', flightId, altitudeFt: 3_000 }), arrival!.id);
   expect(altitude.accepted).toBeTruthy();
   const speed = Math.ceil((arrival!.aircraft.approachKts + 5) / 5) * 5;
@@ -672,7 +817,7 @@ test('Group select exposes and applies only shared atomic commands', async ({ pa
   test.skip(testInfo.project.name !== 'desktop-chromium', 'Grouped ATC commands are covered once in desktop Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=manual&station=supervisor&density=rush&autostart=1&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.27.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.28.0');
   await page.evaluate(() => window.airportControl.request({ action: 'pause' }));
   const arrivals = await page.evaluate(() => window.airportControl.snapshot().flights
     .filter((flight) => flight.phase === 'approach'
@@ -744,7 +889,7 @@ test('ORD snow exposes the deicing route and holdover model in the normal UI', a
   test.skip(testInfo.project.name !== 'desktop-chromium', 'Winter operations are viewport-independent and covered once in Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=auto&autostart=1&detail=low&weather=snow&windDir=270&wind=12&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.27.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.28.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
   await page.locator('#menu-toggle').click();
@@ -796,7 +941,7 @@ test('Go-around climbs from the live pose and flies a visible missed-approach pa
   test.skip(testInfo.project.name !== 'desktop-chromium', 'The authoritative go-around is viewport-independent and covered once in Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ATL&mode=auto&autostart=1&detail=low&speed=3&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.27.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.28.0');
   await page.waitForFunction(() => {
     const flight = window.airportControl.snapshot().flights.find((candidate) => candidate.phase === 'approach');
     return Boolean(flight && flight.progress > 0.18);
@@ -829,7 +974,7 @@ test('Go-around climbs from the live pose and flies a visible missed-approach pa
 test('No-fail training teaches, explains rejection, and restores a live checkpoint', async ({ page }, testInfo) => {
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&autostart=1&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.27.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.28.0');
 
   const started = await page.evaluate(() =>
     window.airportControl.request({
@@ -838,7 +983,7 @@ test('No-fail training teaches, explains rejection, and restores a live checkpoi
     }),
   );
   expect(started.accepted).toBeTruthy();
-  expect(started.resultingState.schemaVersion).toBe(29);
+  expect(started.resultingState.schemaVersion).toBe(30);
   expect(started.resultingState.training).toMatchObject({
     status: 'coach-paused',
     lessonId: 'arrival-basics',
@@ -958,13 +1103,13 @@ test('No-fail training teaches, explains rejection, and restores a live checkpoi
 test('Challenge shifts lock conditions, grade operations, and fit responsive play', async ({ page }, testInfo) => {
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=auto&challenge=rush-hour&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.27.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.28.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
   await page.locator('#enter').click();
   await expect(page.locator('#intro')).toHaveClass(/modal--hidden/);
 
   const briefing = await page.evaluate(() => window.airportControl.snapshot());
-  expect(briefing.schemaVersion).toBe(29);
+  expect(briefing.schemaVersion).toBe(30);
   expect(briefing.mode).toBe('assisted');
   expect(briefing.paused).toBeTruthy();
   expect(briefing.challenge).toMatchObject({
@@ -1076,12 +1221,12 @@ test('Challenge shifts lock conditions, grade operations, and fit responsive pla
 test('Sandbox stages requested traffic without score pressure and fits responsive play', async ({ page }, testInfo) => {
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=auto&sandbox=1&autostart=1&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.27.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.28.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
   await expect(page.locator('#intro')).toHaveClass(/modal--hidden/);
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
-  expect(initial.schemaVersion).toBe(29);
+  expect(initial.schemaVersion).toBe(30);
   expect(initial.airport.code).toBe('ORD');
   expect(initial.sandbox).toMatchObject({
     active: true,
@@ -1197,7 +1342,7 @@ test('Unified input keeps held keys smooth and supports a standard gamepad witho
     });
   });
   await page.goto('/?airport=ATL&mode=auto&autostart=1&detail=low&renderFps=4');
-  await page.waitForFunction(() => window.airportControl?.version === '2.27.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.28.0');
   await page.waitForFunction(() => window.airportControl.snapshot().input.devices.gamepad.connected);
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
@@ -1293,7 +1438,7 @@ test('Unified input keeps held keys smooth and supports a standard gamepad witho
   expect(stillDisabled.renderer.camera.focusY).toBe(disabledCamera.focusY);
   expect(stillDisabled.input.devices.gamepad.enabled).toBeFalsy();
   await page.reload();
-  await page.waitForFunction(() => window.airportControl?.version === '2.27.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.28.0');
   const persisted = await page.evaluate(() => window.airportControl.snapshot().input.devices.gamepad);
   expect(persisted.enabled).toBeFalsy();
   expect(persisted.sensitivity).toBe(1.4);
@@ -1303,11 +1448,11 @@ test('Observer focus follows live traffic, airport assets, queues, and conflicts
   test.skip(testInfo.project.name !== 'desktop-chromium', 'Desktop Chromium covers the complete focus catalog and moving follow behavior.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=watch&density=busy&autostart=1&detail=low&renderFps=4');
-  await page.waitForFunction(() => window.airportControl?.version === '2.27.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.28.0');
   await page.waitForFunction(() => window.airportControl.snapshot().focus.catalog.categories.every((category) => category.kind === 'conflict' || category.count > 0));
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
-  expect(initial.schemaVersion).toBe(29);
+  expect(initial.schemaVersion).toBe(30);
   expect(initial.focus).toMatchObject({ schemaVersion: 1, current: null, catalog: { schemaVersion: 1 } });
   expect(initial.focus.catalog.categories.map((category) => category.kind)).toEqual([
     'flight', 'runway', 'taxiway', 'gate', 'queue', 'conflict',
@@ -1433,7 +1578,7 @@ test('Mobile Watch mode keeps non-ORD and procedural maps navigable in low detai
   test.skip(testInfo.project.name !== 'mobile-chromium', 'This test is the dedicated responsive/mobile browser gate.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ATL&mode=watch&autostart=1&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.27.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.28.0');
   await expect(page.locator('body')).toHaveClass(/watch-mode/);
   await expect(page.locator('#menu-toggle')).toBeVisible();
   await expect(page.locator('#zoom-in')).toBeVisible();
@@ -1555,7 +1700,7 @@ test('Laptop viewports keep the complete controls menu reachable', async ({ page
   test.setTimeout(180_000);
   await page.setViewportSize({ width: 1024, height: 600 });
   await page.goto('/?airport=ORD&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.27.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.28.0');
   const introPanel = page.locator('#intro .intro__panel');
   const introBounds = await introPanel.evaluate((element) => {
     const rect = element.getBoundingClientRect();
@@ -1569,7 +1714,7 @@ test('Laptop viewports keep the complete controls menu reachable', async ({ page
   await expect(page.locator('#enter')).toBeVisible();
 
   await page.goto('/?airport=ORD&mode=auto&autostart=1&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.27.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.28.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.drawCalls > 100);
   const renderBudget = await page.evaluate(() => window.airportControl.snapshot().renderer);
   expect(renderBudget.detail).toBe('low');

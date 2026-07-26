@@ -386,6 +386,17 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Expose focus catalog schema 1, current target/reference, follow strategy, related entities, suggested framing, and resolved renderer target through API 2.27 / snapshot schema 29.
 - [x] Validate all 11 airport configurations, 391 static targets, ORD's eight runways/125 named taxiways/40 stands, dynamic queue and conflict resolution, stable conflict identity, keyboard/manual release, responsive containment, and desktop/mobile screenshot presentation.
 
+## Airport Auto 2.28 — formal live-control protocol
+
+- [x] Move the complete 85-command union out of the application coordinator into a focused control-protocol package, separating command/catalog types, event vocabulary, schema/validation runtime, and the public barrel while retaining compile-time action coverage.
+- [x] Publish machine-readable command summaries, parameters, examples, mutation behavior, API/mode/transport compatibility, legacy aliases, and explicit public/session/Approach/Tower/Ground/Ramp/Supervisor/handoff/training/challenge/sandbox authority rules.
+- [x] Add protocol-1.0 request envelopes and structured API-2.28 results containing session, request, client, command, event, and globally unique event-key correlation; retain API-2.x bare `request()`, snapshot-only `command()`, and legacy BroadcastChannel messages.
+- [x] Enforce formal asserted-station identity against the already-selected simulator station before execution, while leaving ownership, phase, runway protection, separation, reservations, collision prevention, challenge locks, and every other operational decision in the shared safety arbiter.
+- [x] Add causal command IDs to synchronous simulation and lifecycle events without mislabeling autonomous traffic; retain monotonic numeric event IDs for compatibility and expose protocol/API/session metadata on every telemetry event.
+- [x] Upgrade portable recordings to schema 2 with protocol/session metadata and command request/source/event causality; add snapshot schema 30 protocol discovery metadata and deep-cloned `protocol()` plus non-mutating `validate()` and formal `dispatch()` methods.
+- [x] Publish formal `ready`, `event`, `request`, and `response` envelopes once per message on the already-namespaced `airport-auto` channel, retain legacy command input/result notifications, and document same-origin/non-authenticated limits before future remote control.
+- [x] Validate all command examples, 68 domain event types, compatibility rules, envelope/schema rejection, immutable protocol discovery, causal simulation tagging, asserted-authority rejection, formal page dispatch, and formal BroadcastChannel request/response behavior.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.

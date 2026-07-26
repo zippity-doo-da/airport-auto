@@ -18,9 +18,7 @@ import type {
   ControllerPerformanceSnapshot,
   ControllerStation,
   ConflictPrediction,
-  EmergencyType,
   Flight,
-  FlightInstruction,
   FlightPhase,
   GroupFlightInstruction,
   GroupInstructionIssueResult,
@@ -65,144 +63,80 @@ import { createSandboxPanel } from './ui/sandboxPanel';
 import { createInputSettingsPanel, type InputSettingsPanel } from './ui/inputSettingsPanel';
 import { createUnifiedInput, type CanvasPointerIntent, type ScreenPoint } from './input/unifiedInput';
 import type { InputActionContext, InputActionId, InputAxes } from './input/actionMap';
-
-type AirportControlCommand =
-  | {
-      action: 'pause' | 'resume' | 'nextView' | 'zoomIn' | 'zoomOut' | 'rotateLeft' | 'rotateRight' | 'resetCamera' | 'restart';
-    }
-  | { action: 'setSpeed'; value: number }
-  | { action: 'setMode'; value: ControlMode }
-  | { action: 'setNightMode'; enabled: boolean }
-  | { action: 'setRadarVisible'; enabled: boolean }
-  | { action: 'setQueueInspectorVisible'; enabled: boolean }
-  | { action: 'setRunwayLabelsVisible'; enabled: boolean }
-  | { action: 'setSurfaceLayerVisible'; layer: SurfaceLayer; enabled: boolean }
-  | {
-      action: 'setAirspaceLayerVisible';
-      layer: AirspaceLayer;
-      enabled: boolean;
-    }
-  | { action: 'setMapOrientationVisible'; enabled: boolean }
-  | { action: 'setWindOverlayVisible'; enabled: boolean }
-  | { action: 'setServiceVehiclesVisible'; enabled: boolean }
-  | { action: 'setContrailsVisible'; enabled: boolean }
-  | { action: 'setGamepadEnabled'; enabled: boolean }
-  | { action: 'setGamepadSensitivity'; sensitivity: number }
-  | { action: 'selectAirport'; code: string }
-  | { action: 'clearFlight'; flightId: number; runway: number }
-  | { action: 'clearPushback'; flightId: number }
-  | { action: 'clearRunwayEntry'; flightId: number }
-  | { action: 'clearTakeoff'; flightId: number }
-  | { action: 'clearRunwayCrossing'; flightId: number; runway: number }
-  | {
-      action: 'controlFlights';
-      flightIds: number[];
-      instruction: FlightInstruction;
-    }
-  | {
-      action: 'previewGroupInstruction';
-      flightIds: number[];
-      instruction: GroupFlightInstruction;
-    }
-  | {
-      action: 'issueGroupInstruction';
-      flightIds: number[];
-      instruction: GroupFlightInstruction;
-    }
-  | { action: 'assignHeading'; flightId: number; headingDegrees: number }
-  | { action: 'assignAltitude'; flightId: number; altitudeFt: number }
-  | { action: 'assignAirspeed'; flightId: number; speedKts: number }
-  | { action: 'directTo'; flightId: number; fixId: string }
-  | { action: 'amendRoute'; flightId: number; fixIds: string[] }
-  | { action: 'previewRoute'; flightId: number; fixIds: string[] }
-  | { action: 'issueRouteAmendment'; flightId: number; fixIds?: string[] }
-  | { action: 'acceptRouteReadback'; flightId: number }
-  | { action: 'cancelRouteAmendment'; flightId: number }
-  | { action: 'clearApproach'; flightId: number }
-  | {
-      action: 'holdFlight';
-      flightId: number;
-      patternId?: string;
-      efcMinutes?: number;
-    }
-  | { action: 'releaseHold'; flightId: number }
-  | { action: 'handoffFlight'; flightId: number; station: ControllerStation }
-  | { action: 'offerHandoff'; flightId: number; station: ControllerStation }
-  | { action: 'acceptHandoff'; flightId: number }
-  | { action: 'rejectHandoff'; flightId: number }
-  | { action: 'cancelHandoff'; flightId: number }
-  | { action: 'contactStation'; flightId: number; station: ControllerStation }
-  | { action: 'assignTaxiRoute'; flightId: number; viaNodeIds?: string[] }
-  | { action: 'holdPosition'; flightId: number }
-  | { action: 'resumeTaxi'; flightId: number }
-  | {
-      action: 'divertFlight';
-      flightId: number;
-      airportCode: string;
-      exitFixId?: string;
-      reason?: string;
-    }
-  | { action: 'focusFlight'; flightId: number | null }
-  | { action: 'focusTarget'; target: FocusTargetRef | null }
-  | { action: 'setScenario'; scenario: TrafficScenario }
-  | { action: 'setTrafficDensity'; density: TrafficDensity }
-  | { action: 'setSeparationRuleset'; ruleset: SeparationRulesetId }
-  | { action: 'setStation'; station: ControllerStation }
-  | {
-      action: 'setStationAutomation';
-      station: OperationalControllerStation;
-      enabled: boolean;
-    }
-  | { action: 'triggerEmergency'; flightId: number; type: EmergencyType }
-  | {
-      action: 'setWeather';
-      condition: WeatherCondition;
-      directionDegrees: number;
-      windSpeed: number;
-    }
-  | { action: 'setWeatherEnabled'; enabled: boolean }
-  | { action: 'setWindEnabled'; enabled: boolean }
-  | { action: 'setRunwayConfiguration'; configurationId: string | null }
-  | {
-      action: 'setSurfaceDisruption';
-      kind: Exclude<SurfaceDisruptionKind, 'disabled-aircraft'>;
-      targetId: string;
-      enabled: boolean;
-      durationSeconds?: number;
-    }
-  | { action: 'clearSurfaceDisruption'; disruptionId: string }
-  | { action: 'recoverDisabledAircraft'; flightId: number }
-  | { action: 'startTrainingLesson'; lessonId: TrainingLessonId }
-  | {
-      action: 'stopTrainingLesson' | 'continueTraining' | 'trainingHint' | 'retryTrainingStep' | 'skipTrainingStep';
-    }
-  | { action: 'startChallenge'; challengeId: ChallengeId }
-  | { action: 'beginChallenge' | 'endChallenge' | 'continueAfterChallenge' }
-  | { action: 'startSandbox'; backgroundTraffic?: boolean }
-  | { action: 'stopSandbox' | 'cancelSandboxInjections' | 'clearSandboxTraffic' }
-  | { action: 'setSandboxBackgroundTraffic'; enabled: boolean }
-  | {
-      action: 'injectSandboxTraffic';
-      direction: SandboxTrafficDirection;
-      trafficClass?: SandboxTrafficClass;
-      runwayId?: number | null;
-      count?: number;
-    };
+import {
+  AIRPORT_CONTROL_COMMAND_DEFINITIONS,
+  CONTROL_API_VERSION,
+  CONTROL_BROADCAST_CHANNEL,
+  CONTROL_PROTOCOL_VERSION,
+  CONTROL_REPLAY_SCHEMA_VERSION,
+  CONTROL_SNAPSHOT_SCHEMA_VERSION,
+  assessProtocolCompatibility,
+  getAirportControlProtocol,
+  validateAirportControlCommand,
+  validateAirportControlEnvelope,
+  type AirportControlAction,
+  type AirportControlCommand,
+  type AirportControlRequestEnvelope,
+  type CommandValidationResult,
+  type ControlAuthorityAssertion,
+  type ControlCommandSource,
+  type ControlProtocolExpectations,
+  type ProtocolCompatibilityAssessment,
+  type ProtocolValidationIssue,
+} from './control/controlProtocol';
 
 type AirportControlResult = {
+  protocolVersion: typeof CONTROL_PROTOCOL_VERSION;
+  apiVersion: typeof CONTROL_API_VERSION;
+  sessionId: string;
+  requestId: string;
+  clientId: string | null;
+  commandId: string;
+  source: ControlCommandSource;
+  action: AirportControlAction | null;
   accepted: boolean;
   reason: string;
   sequence: number;
   eventId: number;
+  eventKey: string;
+  authority: {
+    rule: string;
+    assertedStation: ControllerStation | null;
+    effectiveStation: ControllerStation;
+    resultingStation: ControllerStation;
+    requiredStations: ControllerStation[];
+    flightOwnership: boolean;
+    safetyArbiter: boolean;
+    enforced: true;
+    actorId: string | null;
+  };
+  compatibility: ProtocolCompatibilityAssessment;
+  validation: {
+    valid: boolean;
+    issues: ProtocolValidationIssue[];
+  };
   snapshot: ReturnType<typeof airportSnapshot>;
   resultingState: ReturnType<typeof airportSnapshot>;
   data?: GroupInstructionPreview | GroupInstructionIssueResult;
 };
 
-type RecordedCommand = { sequence: number; elapsed: number; command: AirportControlCommand; accepted: boolean; reason: string };
+type RecordedCommand = {
+  sequence: number;
+  eventId: number;
+  eventKey: string;
+  elapsed: number;
+  requestId: string;
+  commandId: string;
+  source: ControlCommandSource;
+  command: AirportControlCommand;
+  accepted: boolean;
+  reason: string;
+};
 type ReplayRecording = {
-  schemaVersion: 1;
+  schemaVersion: typeof CONTROL_REPLAY_SCHEMA_VERSION;
+  protocolVersion: typeof CONTROL_PROTOCOL_VERSION;
   simulationVersion: string;
+  sessionId: string;
   recordedAt: string;
   seed: number;
   airport: { code: string; name: string; scope: string };
@@ -217,10 +151,14 @@ declare global {
   interface Window {
     airportControl: {
       version: string;
+      protocolVersion: string;
       snapshot(): ReturnType<typeof airportSnapshot>;
       events(limit?: number): TelemetryEvent[];
       command(command: AirportControlCommand): ReturnType<typeof airportSnapshot>;
       request(command: AirportControlCommand): AirportControlResult;
+      validate(command: unknown): CommandValidationResult;
+      dispatch(envelope: AirportControlRequestEnvelope): AirportControlResult;
+      protocol(): ReturnType<typeof getAirportControlProtocol>;
       help(): Record<string, string>;
       replay(): ReplayFrame[];
       recording(): ReplayRecording;
@@ -229,6 +167,11 @@ declare global {
 }
 
 type TelemetryEvent = {
+  protocolVersion: typeof CONTROL_PROTOCOL_VERSION;
+  apiVersion: typeof CONTROL_API_VERSION;
+  sessionId: string;
+  eventId: number;
+  eventKey: string;
   sequence: number;
   airport: string;
   elapsed: number;
@@ -241,6 +184,8 @@ type TelemetryEvent = {
   accepted?: boolean;
   detail?: string;
   payload?: unknown;
+  causedByCommandId?: string;
+  causedByEventId?: number;
 };
 
 const FLIGHT_PHASE_ORDER: Record<FlightPhase, number> = {
@@ -257,6 +202,18 @@ const $ = <T extends Element>(selector: string): T => {
   if (!element) throw new Error(`Missing element: ${selector}`);
   return element;
 };
+
+const controlSessionId = typeof crypto.randomUUID === 'function'
+  ? `session-${crypto.randomUUID()}`
+  : `session-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+let controlRequestSequence = 0;
+let controlCommandSequence = 0;
+let activeControlCommandId: string | null = null;
+
+function generatedControlId(kind: 'request' | 'command'): string {
+  const sequence = kind === 'request' ? ++controlRequestSequence : ++controlCommandSequence;
+  return `${kind === 'request' ? 'req' : 'cmd'}-${controlSessionId.slice(8)}-${sequence.toString(36)}`;
+}
 
 const canvas = $<HTMLCanvasElement>('#scene');
 const menuButton = $<HTMLButtonElement>('#menu-toggle');
@@ -638,7 +595,7 @@ const replayFrames: ReplayFrame[] = [];
 const telemetryEvents: TelemetryEvent[] = [];
 const commandHistory: RecordedCommand[] = [];
 let initialReplayState = cloneAirportState(simulation.state);
-const airportChannel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('airport-auto');
+const airportChannel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(CONTROL_BROADCAST_CHANNEL);
 const launchOptions = new URLSearchParams(window.location.search);
 const telemetryEnabled = launchOptions.get('telemetry') === '1';
 const debugEnabled = launchOptions.get('debug') === '1';
@@ -1435,6 +1392,8 @@ function frame(now: number): void {
       || event.type === 'route-amendment';
     recordTelemetry(event.type, event.flight, event.runway, event.taxiway, {
       detail: event.detail ?? (event.type === 'safety-hold' ? event.flight.safetyHoldReason : undefined),
+      causedByCommandId: event.causedByCommandId,
+      causedByEventId: event.causedByEventId,
       payload: routeClearanceEvent && event.flight.navigation.routeClearance ? {
         ...event.flight.navigation.routeClearance,
         routeFixIds: [...event.flight.navigation.routeClearance.routeFixIds],
@@ -1768,8 +1727,10 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
 
 function replayRecording(): ReplayRecording {
   return {
-    schemaVersion: 1,
-    simulationVersion: window.airportControl?.version ?? '2.27.0',
+    schemaVersion: CONTROL_REPLAY_SCHEMA_VERSION,
+    protocolVersion: CONTROL_PROTOCOL_VERSION,
+    simulationVersion: window.airportControl?.version ?? CONTROL_API_VERSION,
+    sessionId: controlSessionId,
     recordedAt: new Date().toISOString(),
     seed: config.seed,
     airport: { code: config.code, name: config.name, scope: config.scope },
@@ -3931,10 +3892,22 @@ function recordTelemetry(
   flight?: { id: number; callsign: string; runway: number; phase: string },
   runway?: number,
   taxiway?: string,
-  details?: { accepted?: boolean; detail?: string; payload?: unknown },
-): void {
+  details?: {
+    accepted?: boolean;
+    detail?: string;
+    payload?: unknown;
+    causedByCommandId?: string;
+    causedByEventId?: number;
+  },
+): TelemetryEvent {
+  const sequence = ++telemetrySequence;
   const event: TelemetryEvent = {
-    sequence: ++telemetrySequence,
+    protocolVersion: CONTROL_PROTOCOL_VERSION,
+    apiVersion: CONTROL_API_VERSION,
+    sessionId: controlSessionId,
+    eventId: sequence,
+    eventKey: `${controlSessionId}:${sequence}`,
+    sequence,
     airport: config.code,
     elapsed: Number(simulation.state.elapsed.toFixed(2)),
     type,
@@ -3944,11 +3917,14 @@ function recordTelemetry(
     phase: flight?.phase,
     taxiway,
     ...details,
+    causedByCommandId: details?.causedByCommandId ?? activeControlCommandId ?? undefined,
+    causedByEventId: details?.causedByEventId,
   };
   telemetryEvents.push(event);
   if (telemetryEvents.length > 500) telemetryEvents.splice(0, telemetryEvents.length - 500);
   window.dispatchEvent(new CustomEvent('airport-auto:event', { detail: event }));
   airportChannel?.postMessage({ type: 'event', event });
+  return event;
 }
 
 function cloneRunwayConfiguration(configuration: (typeof config.runwayConfigurations)[number]) {
@@ -3988,7 +3964,15 @@ function airportSnapshot() {
   const operations = simulation.operationProfileSnapshot();
   const movingPhases = new Set(['approach', 'landing', 'taxi-in', 'taxi-out', 'takeoff']);
   return {
-    schemaVersion: 29,
+    schemaVersion: CONTROL_SNAPSHOT_SCHEMA_VERSION,
+    controlProtocol: {
+      protocolVersion: CONTROL_PROTOCOL_VERSION,
+      apiVersion: CONTROL_API_VERSION,
+      sessionId: controlSessionId,
+      commandCount: Object.keys(AIRPORT_CONTROL_COMMAND_DEFINITIONS).length,
+      channel: CONTROL_BROADCAST_CHANNEL,
+      schemas: 'airportControl.protocol().schemas',
+    },
     training: simulation.trainingSnapshot(),
     challenge: simulation.challengeSnapshot(),
     sandbox: simulation.sandboxSnapshot(),
@@ -4637,7 +4621,177 @@ function executeAirportCommand(command: AirportControlCommand): ReturnType<typeo
   return executeAirportRequest(command).snapshot;
 }
 
-function executeAirportRequest(command: AirportControlCommand): AirportControlResult {
+type AirportRequestContext = {
+  requestId?: string;
+  clientId?: string;
+  source?: ControlCommandSource;
+  protocolVersion?: string;
+  expects?: ControlProtocolExpectations;
+  authority?: ControlAuthorityAssertion;
+  envelopeIssues?: ProtocolValidationIssue[];
+  compatibility?: ProtocolCompatibilityAssessment;
+};
+
+type NormalizedAirportRequestContext = {
+  requestId: string;
+  clientId: string | null;
+  commandId: string;
+  source: ControlCommandSource;
+  authority: ControlAuthorityAssertion | null;
+  compatibility: ProtocolCompatibilityAssessment;
+};
+
+function normalizedAirportRequestContext(context: AirportRequestContext): NormalizedAirportRequestContext {
+  const source = context.source ?? 'page';
+  return {
+    requestId: context.requestId?.trim() || generatedControlId('request'),
+    clientId: context.clientId?.trim() || null,
+    commandId: generatedControlId('command'),
+    source,
+    authority: context.authority ?? null,
+    compatibility: context.compatibility ?? assessProtocolCompatibility(
+      context.protocolVersion ?? CONTROL_PROTOCOL_VERSION,
+      context.expects,
+    ),
+  };
+}
+
+function uniqueProtocolIssues(issues: readonly ProtocolValidationIssue[]): ProtocolValidationIssue[] {
+  const seen = new Set<string>();
+  return issues.filter((issue) => {
+    const key = `${issue.path}|${issue.keyword}|${issue.message}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function controlAuditValue(value: unknown, depth = 0, seen = new WeakSet<object>()): unknown {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : `[${String(value)}]`;
+  if (typeof value === 'bigint') return `${value.toString()}n`;
+  if (typeof value === 'undefined') return '[undefined]';
+  if (typeof value === 'function') return `[function ${value.name || 'anonymous'}]`;
+  if (typeof value === 'symbol') return `[${String(value)}]`;
+  if (depth >= 8) return '[depth limit]';
+  if (typeof value !== 'object') return String(value);
+  if (seen.has(value)) return '[circular]';
+  seen.add(value);
+  if (Array.isArray(value)) return value.slice(0, 100).map((entry) => controlAuditValue(entry, depth + 1, seen));
+  const entries = Object.entries(value as Record<string, unknown>).slice(0, 100);
+  return Object.fromEntries(entries.map(([key, entry]) => [key, controlAuditValue(entry, depth + 1, seen)]));
+}
+
+function finalizeAirportRequest(
+  candidate: unknown,
+  command: AirportControlCommand | undefined,
+  validation: { valid: boolean; issues: ProtocolValidationIssue[] },
+  context: NormalizedAirportRequestContext,
+  effectiveStation: ControllerStation,
+  originatingSimulation: AirportSimulation,
+  eventCursor: number,
+  accepted: boolean,
+  reason: string,
+  data?: GroupInstructionPreview | GroupInstructionIssueResult,
+): AirportControlResult {
+  if (simulation === originatingSimulation) simulation.tagEventsSince(eventCursor, context.commandId);
+  else simulation.tagEventsSince(0, context.commandId);
+  const candidateAction = typeof candidate === 'object'
+    && candidate !== null
+    && !Array.isArray(candidate)
+    && typeof (candidate as { action?: unknown }).action === 'string'
+    && (candidate as { action: string }).action in AIRPORT_CONTROL_COMMAND_DEFINITIONS
+    ? (candidate as { action: AirportControlAction }).action
+    : null;
+  const action = command?.action ?? candidateAction;
+  const definition = action ? AIRPORT_CONTROL_COMMAND_DEFINITIONS[action] : null;
+  const auditCandidate = controlAuditValue(candidate);
+  const commandEvent = recordTelemetry(`command:${action ?? 'invalid'}`, undefined, undefined, undefined, {
+    accepted,
+    detail: reason,
+    causedByCommandId: context.commandId,
+    payload: {
+      requestId: context.requestId,
+      clientId: context.clientId,
+      commandId: context.commandId,
+      source: context.source,
+      command: auditCandidate,
+      validation,
+    },
+  });
+  const snapshot = airportSnapshot();
+  const result: AirportControlResult = {
+    protocolVersion: CONTROL_PROTOCOL_VERSION,
+    apiVersion: CONTROL_API_VERSION,
+    sessionId: controlSessionId,
+    requestId: context.requestId,
+    clientId: context.clientId,
+    commandId: context.commandId,
+    source: context.source,
+    action,
+    accepted,
+    reason,
+    sequence: commandEvent.sequence,
+    eventId: commandEvent.eventId,
+    eventKey: commandEvent.eventKey,
+    authority: {
+      rule: definition?.authority.rule ?? 'public',
+      assertedStation: context.authority?.station ?? null,
+      effectiveStation,
+      resultingStation: simulation.state.station,
+      requiredStations: [...(definition?.authority.stations ?? [])],
+      flightOwnership: definition?.authority.flightOwnership ?? false,
+      safetyArbiter: definition?.authority.safetyArbiter ?? false,
+      enforced: true,
+      actorId: context.authority?.actorId ?? null,
+    },
+    compatibility: context.compatibility,
+    validation,
+    snapshot,
+    resultingState: snapshot,
+    ...(data ? { data } : {}),
+  };
+  if (command) {
+    commandHistory.push({
+      sequence: commandEvent.sequence,
+      eventId: commandEvent.eventId,
+      eventKey: commandEvent.eventKey,
+      elapsed: Number(simulation.state.elapsed.toFixed(3)),
+      requestId: context.requestId,
+      commandId: context.commandId,
+      source: context.source,
+      command: { ...command } as AirportControlCommand,
+      accepted,
+      reason,
+    });
+    if (commandHistory.length > 2_000) commandHistory.splice(0, commandHistory.length - 2_000);
+  }
+  airportChannel?.postMessage({ type: 'command-result', command: auditCandidate, result });
+  if (activeControlCommandId === context.commandId) activeControlCommandId = null;
+  return result;
+}
+
+function executeAirportRequest(candidate: unknown, requestContext: AirportRequestContext = {}): AirportControlResult {
+  const context = normalizedAirportRequestContext(requestContext);
+  const effectiveStation = simulation.state.station;
+  const originatingSimulation = simulation;
+  const eventCursor = originatingSimulation.eventCursor();
+  const commandValidation = validateAirportControlCommand(candidate);
+  const issues = uniqueProtocolIssues([...(requestContext.envelopeIssues ?? []), ...commandValidation.issues]);
+  const validation = { valid: commandValidation.valid && issues.length === 0, issues };
+  const command = commandValidation.command;
+  if (!command || !validation.valid) {
+    const reason = issues[0]?.message ?? 'command failed protocol validation';
+    return finalizeAirportRequest(candidate, command, validation, context, effectiveStation, originatingSimulation, eventCursor, false, reason);
+  }
+  if (!context.compatibility.compatible) {
+    return finalizeAirportRequest(candidate, command, validation, context, effectiveStation, originatingSimulation, eventCursor, false, context.compatibility.reason);
+  }
+  if (context.authority && context.authority.station !== effectiveStation) {
+    const reason = `asserted ${context.authority.station} authority does not match selected ${effectiveStation} station`;
+    return finalizeAirportRequest(candidate, command, validation, context, effectiveStation, originatingSimulation, eventCursor, false, reason);
+  }
+  activeControlCommandId = context.commandId;
   let accepted = true;
   let reason = 'accepted';
   let data: GroupInstructionPreview | GroupInstructionIssueResult | undefined;
@@ -5133,28 +5287,58 @@ function executeAirportRequest(command: AirportControlCommand): AirportControlRe
   renderChallengeExperience();
   renderSandboxExperience();
   updatePauseControl();
-  recordTelemetry(`command:${command.action}`, undefined, undefined, undefined, { accepted, detail: reason, payload: command });
-  const snapshot = airportSnapshot();
-  const result = { accepted, reason, sequence: telemetrySequence, eventId: telemetrySequence, snapshot, resultingState: snapshot, ...(data ? { data } : {}) };
-  commandHistory.push({ sequence: telemetrySequence, elapsed: Number(simulation.state.elapsed.toFixed(3)), command: { ...command } as AirportControlCommand, accepted, reason });
-  if (commandHistory.length > 2_000) commandHistory.splice(0, commandHistory.length - 2_000);
-  airportChannel?.postMessage({ type: 'command-result', command, result });
-  return result;
+  return finalizeAirportRequest(
+    candidate,
+    command,
+    validation,
+    context,
+    effectiveStation,
+    originatingSimulation,
+    eventCursor,
+    accepted,
+    reason,
+    data,
+  );
+}
+
+function dispatchAirportControl(envelope: unknown): AirportControlResult {
+  const envelopeValidation = validateAirportControlEnvelope(envelope);
+  const record = typeof envelope === 'object' && envelope !== null && !Array.isArray(envelope)
+    ? envelope as Record<string, unknown>
+    : {};
+  const validEnvelope = envelopeValidation.envelope;
+  return executeAirportRequest(record.command, {
+    requestId: validEnvelope?.requestId ?? (typeof record.requestId === 'string' ? record.requestId : undefined),
+    clientId: validEnvelope?.clientId ?? (typeof record.clientId === 'string' ? record.clientId : undefined),
+    source: validEnvelope?.source ?? 'agent',
+    protocolVersion: typeof record.protocolVersion === 'string' ? record.protocolVersion : '0.0.0',
+    expects: validEnvelope?.expects,
+    authority: validEnvelope?.authority,
+    envelopeIssues: envelopeValidation.issues,
+    compatibility: envelopeValidation.compatibility,
+  });
 }
 
 window.airportControl = {
-  version: '2.27.0',
+  version: CONTROL_API_VERSION,
+  protocolVersion: CONTROL_PROTOCOL_VERSION,
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
   replay() { return replayFrames.slice(); },
   recording: replayRecording,
   command: executeAirportCommand,
   request: executeAirportRequest,
+  validate: validateAirportControlCommand,
+  dispatch: dispatchAirportControl,
+  protocol: getAirportControlProtocol,
   help() {
     return {
       snapshot: 'airportControl.snapshot()',
       events: 'airportControl.events(100)',
-      structuredCommand: "airportControl.request({ action: 'pause' }) // { accepted, reason, sequence, snapshot, optional data }",
+      protocol: 'airportControl.protocol() // command/event JSON Schemas, authority, compatibility, examples',
+      validate: "airportControl.validate({ action: 'pause' }) // structural validation without execution",
+      formalDispatch: "airportControl.dispatch({ protocolVersion: '1.0.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.28.0', snapshotSchemaVersion: 30 }, command: { action: 'pause' } })",
+      structuredCommand: "airportControl.request({ action: 'pause' }) // legacy-compatible bare command; result includes requestId, commandId, eventId, authority, and compatibility",
       pause: "airportControl.command({ action: 'pause' })",
       speed: "airportControl.command({ action: 'setSpeed', value: 2 })",
       airport: "airportControl.command({ action: 'selectAirport', code: 'ORD' })",
@@ -5241,18 +5425,43 @@ window.airportControl = {
       construction: "airportControl.request({ action: 'setSurfaceDisruption', kind: 'construction', targetId: 'edge-id', enabled: true }) // supervisor",
       reopenSurface: "airportControl.request({ action: 'clearSurfaceDisruption', disruptionId: 'SD-1' }) // supervisor",
       recoverAircraft: "airportControl.request({ action: 'recoverDisabledAircraft', flightId: 3 }) // ground or supervisor",
-      broadcast: "new BroadcastChannel('airport-auto') // send { type: 'command', requestId, command }",
+      broadcast: "new BroadcastChannel('airport-auto') // send { type: 'request', envelope: { protocolVersion: '1.0.0', requestId, source: 'agent', command } }; legacy { type: 'command', requestId, command } remains supported",
     };
   },
 };
 
 airportChannel?.addEventListener('message', (event: MessageEvent) => {
-  const message = event.data as { type?: string; requestId?: string; command?: AirportControlCommand } | null;
-  if (!message || message.type !== 'command' || !message.command) return;
-  const result = executeAirportRequest(message.command);
-  airportChannel.postMessage({ type: 'response', requestId: message.requestId ?? null, result });
+  const message = event.data as {
+    type?: string;
+    requestId?: string;
+    clientId?: string;
+    command?: unknown;
+    envelope?: unknown;
+  } | null;
+  if (!message) return;
+  if (message.type === 'request') {
+    const result = dispatchAirportControl(message.envelope);
+    airportChannel.postMessage({ type: 'response', requestId: result.requestId, result });
+    return;
+  }
+  if (message.type !== 'command' || !message.command) return;
+  const result = executeAirportRequest(message.command, {
+    requestId: message.requestId,
+    clientId: message.clientId,
+    source: 'broadcast',
+    protocolVersion: CONTROL_PROTOCOL_VERSION,
+  });
+  airportChannel.postMessage({ type: 'response', requestId: message.requestId ?? result.requestId, result });
 });
-airportChannel?.postMessage({ type: 'ready', version: window.airportControl.version, snapshot: airportSnapshot() });
+const readySnapshot = airportSnapshot();
+airportChannel?.postMessage({
+  type: 'ready',
+  version: CONTROL_API_VERSION,
+  protocolVersion: CONTROL_PROTOCOL_VERSION,
+  apiVersion: CONTROL_API_VERSION,
+  sessionId: controlSessionId,
+  snapshot: readySnapshot,
+});
 
 function flightTrajectorySnapshot(flight: Flight) {
   const trajectory = flight.motion;
