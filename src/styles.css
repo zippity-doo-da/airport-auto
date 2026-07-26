@@ -103,6 +103,17 @@ body.night-mode #app::after {
 .station-briefing__alerts p[data-severity="urgent"] { border-left-color: var(--rose); }
 .station-briefing__alerts b, .station-briefing__alerts span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .station-briefing__alerts b { color: var(--ivory); font-size: 8px; }
+.controller-evaluation { border-top: 1px solid rgba(121, 200, 232, 0.18); color: rgba(244, 232, 206, 0.62); }
+.controller-evaluation summary { display: flex; min-height: 30px; align-items: center; justify-content: space-between; gap: 8px; color: var(--blue); font-size: 8px; font-weight: 900; letter-spacing: 0.06em; cursor: pointer; text-transform: uppercase; }
+.controller-evaluation summary b { color: var(--ivory); font-size: 9px; }
+.controller-evaluation[data-rating="review"] summary b { color: var(--amber); }
+.controller-evaluation[data-rating="critical"] summary b { color: var(--rose); }
+.controller-evaluation__metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding-bottom: 5px; }
+.controller-evaluation__metrics > span { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 5px; border-left: 2px solid rgba(121, 200, 232, 0.5); padding: 5px 6px; background: rgba(244, 232, 206, 0.03); }
+.controller-evaluation__metrics small, .controller-evaluation__metrics i { overflow: hidden; color: rgba(244, 232, 206, 0.5); font-size: 8px; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
+.controller-evaluation__metrics b { color: var(--ivory); font-size: 11px; }
+.controller-evaluation__metrics i { grid-column: 1 / -1; }
+.controller-evaluation > p { margin: 0 0 4px; color: rgba(244, 232, 206, 0.52); font-size: 8px; line-height: 1.35; }
 .coordination-inbox { display: grid; gap: 6px; margin-top: 5px; border: 1px solid rgba(239, 199, 117, 0.35); padding: 8px; background: rgba(8, 29, 31, 0.88); backdrop-filter: blur(18px); }
 .coordination-inbox > header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .coordination-inbox > header b { font: 400 12px/1.2 Georgia, serif; }
@@ -666,7 +677,7 @@ body.watch-mode .brand { opacity: 0.75; }
   .training-coach { top: 100px; right: 70px; left: auto; width: min(330px, calc(100vw - 88px)); min-width: 0; transform: none; }
   .training-coach > small { white-space: normal; }
   .training-coach footer button { min-height: 44px; }
-  .station-briefing__role summary { min-height: 44px; }
+  .station-briefing__role summary, .controller-evaluation summary { min-height: 44px; }
   .clearance-advisor header { grid-template-columns: 1fr; }
   .clearance-advisor button { width: 100%; }
   .operations-health > div { grid-template-columns: repeat(3, minmax(0, 1fr)); }

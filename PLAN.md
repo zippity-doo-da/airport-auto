@@ -415,6 +415,16 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Add a responsive Supervisor-only policy selector, capacity-aware station chips, `setControllerPolicyPreset`, `controllers.policy`, protocol 1.2, API 2.30, snapshot schema 32, fixed-step harness schema 11, replay persistence, airport-change persistence, documentation, and help examples.
 - [x] Validate all six catalogs and station policies, action budgets, capacity deferral, overdue and safety bypass, authority rejection, reset persistence, deterministic repeatability, bounded histories, takeover continuity, sustained ORD safety, formal protocol shape, and desktop browser operation.
 
+## Airport Auto 2.31 — controller and agent evaluation
+
+- [x] Add a deterministic, read-only evaluation layer outside the safety arbiter that combines human/local/agent operational commands with cumulative scripted-controller outcomes without changing authority, motion, clearances, or controller policies.
+- [x] Report active conflict forecasts and warnings, prevented conflicts, collision alerts, runway incursions, unexplained pauses, completed movements, throughput, delay, total and holding fuel burn, accepted/rejected/deferred instructions, and command acceptance through one versioned snapshot.
+- [x] Detect explainable stale-hold review candidates only after a surface review window or airborne EFC grace has elapsed and every visible safety, crossing, emergency, disruption, deicing, coordination, conflict, and blocking-aircraft reason has cleared.
+- [x] Score command quality with non-compensatory rejection, hazard, safety, handoff, and avoidable-hold penalties; leave no-command desks explicitly unrated and never let throughput, delay, or fuel offset a safety penalty.
+- [x] Expose Supervisor/Approach/Tower/Ground/Ramp and page/BroadcastChannel/agent/replay/test/scripted actor outcomes through `controllers.evaluation`; enrich replay command audit with effective station, client, and optional actor identity.
+- [x] Add a compact, collapsed Decision evaluation disclosure to Assisted and Manual role briefings with stable DOM, eight outcome cells, rating color, and a clear read-only/safety-priority explanation.
+- [x] Publish API 2.31 / snapshot schema 33, help and control documentation, a dedicated methodology document, deterministic validation, protocol assertions, and desktop browser coverage.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.

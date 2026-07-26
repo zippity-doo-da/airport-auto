@@ -10,14 +10,14 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await page.goto('/?airport=ORD&mode=assisted&station=supervisor&autostart=1&detail=low&renderFps=0.25');
   await expect(page.locator('#airport-name')).toContainText('O’Hare');
   await expect(page.locator('#flight-strip-count')).toContainText('aircraft');
-  await page.waitForFunction(() => window.airportControl?.version === '2.30.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.31.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
-  expect(initial.schemaVersion).toBe(32);
+  expect(initial.schemaVersion).toBe(33);
   expect(initial.controlProtocol).toMatchObject({
     protocolVersion: '1.2.0',
-    apiVersion: '2.30.0',
+    apiVersion: '2.31.0',
     commandCount: 86,
     channel: 'airport-auto',
   });
@@ -32,7 +32,7 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
       requestId: 'e2e-authority-rejection',
       source: 'test',
       authority: { station: 'tower', actorId: 'tower-test-agent' },
-      expects: { apiVersion: '2.30.0', snapshotSchemaVersion: 32 },
+      expects: { apiVersion: '2.31.0', snapshotSchemaVersion: 33 },
       command: { action: 'pause' },
     });
     const paused = window.airportControl.dispatch({
@@ -41,7 +41,7 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
       clientId: 'playwright',
       source: 'test',
       authority: { station: 'supervisor', actorId: 'supervisor-test-agent' },
-      expects: { apiVersion: '2.30.0', snapshotSchemaVersion: 32 },
+      expects: { apiVersion: '2.31.0', snapshotSchemaVersion: 33 },
       command: { action: 'pause' },
     });
     const resumed = window.airportControl.dispatch({
@@ -85,7 +85,7 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   });
   expect(protocolProbe.paused).toMatchObject({
     protocolVersion: '1.2.0',
-    apiVersion: '2.30.0',
+    apiVersion: '2.31.0',
     requestId: 'e2e-formal-pause',
     clientId: 'playwright',
     source: 'test',
@@ -119,7 +119,7 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
         clientId: 'playwright-channel',
         source: 'test',
         authority: { station: 'supervisor' },
-        expects: { apiVersion: '2.30.0', snapshotSchemaVersion: 32 },
+        expects: { apiVersion: '2.31.0', snapshotSchemaVersion: 33 },
         command: { action: 'setRadarVisible', enabled: false },
       },
     });
@@ -162,6 +162,15 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
     && performance.authoritySummary.length > 20
   ))).toBeTruthy();
   expect(new Set(initial.controllers.performance.map((performance) => performance.trafficScope)).size).toBe(5);
+  expect(initial.controllers.evaluation).toMatchObject({
+    schemaVersion: 1,
+    methodVersion: '1.0.0',
+    safetyBoundary: 'read-only',
+    commands: { commandQualityScore: null, commandQualityRating: 'not-rated' },
+    holds: { unnecessary: 0 },
+  });
+  expect(initial.controllers.evaluation.stations.map((evaluation) => evaluation.station)).toEqual(['supervisor', 'approach', 'tower', 'ground', 'ramp']);
+  expect(initial.controllers.evaluation.methodology.safetyPriority).toContain('never');
   await expect(page.locator('#station-briefing')).toBeVisible();
   await expect(page.locator('#station-briefing')).toContainText('Supervisor objectives');
   await expect(page.locator('.station-briefing__objectives > span')).toHaveCount(4);
@@ -174,6 +183,14 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await expect(roleSummary).toBeFocused();
   await page.screenshot({ path: testInfo.outputPath('controller-supervisor-briefing.png') });
   await roleSummary.click();
+  const evaluationDisclosure = page.locator('.controller-evaluation');
+  await expect(evaluationDisclosure.locator('summary')).toContainText('not rated');
+  await evaluationDisclosure.locator('summary').click();
+  await expect(evaluationDisclosure).toContainText('Throughput');
+  await expect(evaluationDisclosure).toContainText('Hold review');
+  await expect(evaluationDisclosure.locator('.controller-evaluation__metrics > span')).toHaveCount(8);
+  await page.screenshot({ path: testInfo.outputPath('controller-decision-evaluation.png') });
+  await evaluationDisclosure.locator('summary').click();
   expect(initial.airport.airspaceProgram).toMatchObject({
     schemaVersion: 1,
     dataVersion: 'airport-auto-schematic-ord-2026.07',
@@ -455,8 +472,9 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   await page.waitForFunction((orbit) => window.airportControl.snapshot().renderer.camera.orbitDegrees !== orbit, beforeKeyboardRotate);
   const afterLeftRotate = await page.evaluate(() => window.airportControl.snapshot().renderer.camera.orbitDegrees);
   expect(afterLeftRotate).toBeGreaterThan(beforeKeyboardRotate);
-  await page.keyboard.press('e');
+  await page.keyboard.down('e');
   await page.waitForFunction((orbit) => window.airportControl.snapshot().renderer.camera.orbitDegrees < orbit, afterLeftRotate);
+  await page.keyboard.up('e');
   expect(await page.evaluate(() => window.airportControl.snapshot().renderer.camera.orbitDegrees)).toBeLessThan(afterLeftRotate);
   const densityResult = await page.evaluate(() => window.airportControl.request({ action: 'setTrafficDensity', density: 'busy' }));
   expect(densityResult.accepted).toBeTruthy();
@@ -587,7 +605,7 @@ test('Assisted ORD shift exposes proposals, station workload, and structured con
   expect(recording).toMatchObject({
     schemaVersion: 2,
     protocolVersion: '1.2.0',
-    simulationVersion: '2.30.0',
+    simulationVersion: '2.31.0',
     sessionId: expect.stringMatching(/^session-/),
   });
   expect(recording.seed).toBe(10_004);
@@ -703,7 +721,7 @@ test('Manual ORD supports live procedure control, ownership handoffs, and physic
   test.skip(testInfo.project.name !== 'desktop-chromium', 'The live ATC protocol is covered once in desktop Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=manual&station=approach&density=quiet&autostart=1&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.30.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.31.0');
   const pauseResult = await page.evaluate(() => window.airportControl.request({ action: 'pause' }));
   expect(pauseResult.accepted).toBe(true);
   await expect(page.locator('#station-briefing')).toContainText('Approach objectives');
@@ -768,7 +786,7 @@ test('Manual ORD supports live procedure control, ownership handoffs, and physic
     && event.flightId === flightId
     && event.causedByCommandId === commandId
   )), { flightId: arrival!.id, commandId: heading.commandId });
-  expect(causalVector).toMatchObject({ protocolVersion: '1.2.0', apiVersion: '2.30.0', causedByCommandId: heading.commandId });
+  expect(causalVector).toMatchObject({ protocolVersion: '1.2.0', apiVersion: '2.31.0', causedByCommandId: heading.commandId });
   expect(causalVector!.eventId).toBeGreaterThan(heading.eventId);
   const altitude = await page.evaluate((flightId) => window.airportControl.request({ action: 'assignAltitude', flightId, altitudeFt: 3_000 }), arrival!.id);
   expect(altitude.accepted).toBeTruthy();
@@ -829,7 +847,7 @@ test('Group select exposes and applies only shared atomic commands', async ({ pa
   test.skip(testInfo.project.name !== 'desktop-chromium', 'Grouped ATC commands are covered once in desktop Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=manual&station=supervisor&density=rush&autostart=1&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.30.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.31.0');
   await page.evaluate(() => window.airportControl.request({ action: 'pause' }));
   const arrivals = await page.evaluate(() => window.airportControl.snapshot().flights
     .filter((flight) => flight.phase === 'approach'
@@ -901,7 +919,7 @@ test('ORD snow exposes the deicing route and holdover model in the normal UI', a
   test.skip(testInfo.project.name !== 'desktop-chromium', 'Winter operations are viewport-independent and covered once in Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=auto&autostart=1&detail=low&weather=snow&windDir=270&wind=12&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.30.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.31.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
 
   await page.locator('#menu-toggle').click();
@@ -953,7 +971,7 @@ test('Go-around climbs from the live pose and flies a visible missed-approach pa
   test.skip(testInfo.project.name !== 'desktop-chromium', 'The authoritative go-around is viewport-independent and covered once in Chromium.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ATL&mode=auto&autostart=1&detail=low&speed=3&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.30.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.31.0');
   await page.waitForFunction(() => {
     const flight = window.airportControl.snapshot().flights.find((candidate) => candidate.phase === 'approach');
     return Boolean(flight && flight.progress > 0.18);
@@ -986,7 +1004,7 @@ test('Go-around climbs from the live pose and flies a visible missed-approach pa
 test('No-fail training teaches, explains rejection, and restores a live checkpoint', async ({ page }, testInfo) => {
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&autostart=1&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.30.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.31.0');
 
   const started = await page.evaluate(() =>
     window.airportControl.request({
@@ -995,7 +1013,7 @@ test('No-fail training teaches, explains rejection, and restores a live checkpoi
     }),
   );
   expect(started.accepted).toBeTruthy();
-  expect(started.resultingState.schemaVersion).toBe(32);
+  expect(started.resultingState.schemaVersion).toBe(33);
   expect(started.resultingState.training).toMatchObject({
     status: 'coach-paused',
     lessonId: 'arrival-basics',
@@ -1115,13 +1133,13 @@ test('No-fail training teaches, explains rejection, and restores a live checkpoi
 test('Challenge shifts lock conditions, grade operations, and fit responsive play', async ({ page }, testInfo) => {
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=auto&challenge=rush-hour&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.30.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.31.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
   await page.locator('#enter').click();
   await expect(page.locator('#intro')).toHaveClass(/modal--hidden/);
 
   const briefing = await page.evaluate(() => window.airportControl.snapshot());
-  expect(briefing.schemaVersion).toBe(32);
+  expect(briefing.schemaVersion).toBe(33);
   expect(briefing.mode).toBe('assisted');
   expect(briefing.paused).toBeTruthy();
   expect(briefing.challenge).toMatchObject({
@@ -1233,12 +1251,12 @@ test('Challenge shifts lock conditions, grade operations, and fit responsive pla
 test('Sandbox stages requested traffic without score pressure and fits responsive play', async ({ page }, testInfo) => {
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=auto&sandbox=1&autostart=1&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.30.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.31.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.context.status === 'loaded');
   await expect(page.locator('#intro')).toHaveClass(/modal--hidden/);
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
-  expect(initial.schemaVersion).toBe(32);
+  expect(initial.schemaVersion).toBe(33);
   expect(initial.airport.code).toBe('ORD');
   expect(initial.sandbox).toMatchObject({
     active: true,
@@ -1354,7 +1372,7 @@ test('Unified input keeps held keys smooth and supports a standard gamepad witho
     });
   });
   await page.goto('/?airport=ATL&mode=auto&autostart=1&detail=low&renderFps=4');
-  await page.waitForFunction(() => window.airportControl?.version === '2.30.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.31.0');
   await page.waitForFunction(() => window.airportControl.snapshot().input.devices.gamepad.connected);
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
@@ -1450,7 +1468,7 @@ test('Unified input keeps held keys smooth and supports a standard gamepad witho
   expect(stillDisabled.renderer.camera.focusY).toBe(disabledCamera.focusY);
   expect(stillDisabled.input.devices.gamepad.enabled).toBeFalsy();
   await page.reload();
-  await page.waitForFunction(() => window.airportControl?.version === '2.30.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.31.0');
   const persisted = await page.evaluate(() => window.airportControl.snapshot().input.devices.gamepad);
   expect(persisted.enabled).toBeFalsy();
   expect(persisted.sensitivity).toBe(1.4);
@@ -1460,7 +1478,7 @@ test('Controller policies expose capacity, preserve safety authority, and surviv
   test.skip(testInfo.project.name !== 'desktop-chromium', 'Desktop Chromium covers the controller-policy controls and protocol.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ORD&mode=watch&station=supervisor&autostart=1&detail=low&renderFps=1');
-  await page.waitForFunction(() => window.airportControl?.version === '2.30.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.31.0');
   await page.waitForFunction(() => window.airportControl.snapshot().controllers.scripted.decisions.length > 0);
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
@@ -1503,7 +1521,7 @@ test('Controller policies expose capacity, preserve safety authority, and surviv
       requestId: 'policy-supervisor-change',
       source: 'test',
       authority: { station: 'supervisor', actorId: 'supervisor-policy-test' },
-      expects: { apiVersion: '2.30.0', snapshotSchemaVersion: 32 },
+      expects: { apiVersion: '2.31.0', snapshotSchemaVersion: 33 },
       command: { action: 'setControllerPolicyPreset', preset: 'efficient' },
     });
   });
@@ -1524,18 +1542,18 @@ test('Observer focus follows live traffic, airport assets, queues, and conflicts
   test.skip(testInfo.project.name !== 'desktop-chromium', 'Desktop Chromium covers the complete focus catalog and moving follow behavior.');
   test.setTimeout(180_000);
   await page.goto('/?airport=ORD&mode=watch&density=busy&autostart=1&detail=low&renderFps=4');
-  await page.waitForFunction(() => window.airportControl?.version === '2.30.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.31.0');
   await page.waitForFunction(() => window.airportControl.snapshot().controllers.scripted.decisions.length > 0);
   await page.waitForFunction(() => window.airportControl.snapshot().focus.catalog.categories.every((category) => category.kind === 'conflict' || category.count > 0));
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
-  expect(initial.schemaVersion).toBe(32);
+  expect(initial.schemaVersion).toBe(33);
   expect(Object.values(initial.controllers.scripted.stations).every((station) => station.mode === 'scripted' && station.evaluations > 0)).toBeTruthy();
   expect(initial.controllers.scripted.decisions.some((decision) => decision.accepted && decision.producedEventTypes.length > 0)).toBeTruthy();
   const scriptedEvent = await page.evaluate(() => window.airportControl.events(100).find((event) => event.type === 'controller-decision'));
   expect(scriptedEvent).toMatchObject({
     protocolVersion: '1.2.0',
-    apiVersion: '2.30.0',
+    apiVersion: '2.31.0',
     causedByControllerDecisionId: expect.stringMatching(/^controller-/),
     payload: { station: expect.any(String), ruleId: expect.any(String), accepted: expect.any(Boolean) },
   });
@@ -1668,7 +1686,7 @@ test('Mobile Watch mode keeps non-ORD and procedural maps navigable in low detai
   test.skip(testInfo.project.name !== 'mobile-chromium', 'This test is the dedicated responsive/mobile browser gate.');
   test.setTimeout(120_000);
   await page.goto('/?airport=ATL&mode=watch&autostart=1&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.30.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.31.0');
   await expect(page.locator('body')).toHaveClass(/watch-mode/);
   await expect(page.locator('#menu-toggle')).toBeVisible();
   await expect(page.locator('#zoom-in')).toBeVisible();
@@ -1790,7 +1808,7 @@ test('Laptop viewports keep the complete controls menu reachable', async ({ page
   test.setTimeout(180_000);
   await page.setViewportSize({ width: 1024, height: 600 });
   await page.goto('/?airport=ORD&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.30.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.31.0');
   const introPanel = page.locator('#intro .intro__panel');
   const introBounds = await introPanel.evaluate((element) => {
     const rect = element.getBoundingClientRect();
@@ -1804,7 +1822,7 @@ test('Laptop viewports keep the complete controls menu reachable', async ({ page
   await expect(page.locator('#enter')).toBeVisible();
 
   await page.goto('/?airport=ORD&mode=auto&autostart=1&detail=low&renderFps=0.25');
-  await page.waitForFunction(() => window.airportControl?.version === '2.30.0');
+  await page.waitForFunction(() => window.airportControl?.version === '2.31.0');
   await page.waitForFunction(() => window.airportControl.snapshot().renderer.drawCalls > 100);
   const renderBudget = await page.evaluate(() => window.airportControl.snapshot().renderer);
   expect(renderBudget.detail).toBe('low');

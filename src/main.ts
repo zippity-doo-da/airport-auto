@@ -62,8 +62,16 @@ import { coordinationInboxKey, renderCoordinationInbox } from './ui/coordination
 import { createChallengePanel, type ChallengeSnapshot } from './ui/challengePanel';
 import { createSandboxPanel } from './ui/sandboxPanel';
 import { createInputSettingsPanel, type InputSettingsPanel } from './ui/inputSettingsPanel';
+import {
+  createControllerEvaluationPanel,
+  type ControllerEvaluationPanel,
+} from './ui/controllerEvaluationPanel';
 import { createUnifiedInput, type CanvasPointerIntent, type ScreenPoint } from './input/unifiedInput';
 import type { InputActionContext, InputActionId, InputAxes } from './input/actionMap';
+import {
+  controllerEvaluationSnapshot,
+  type ControllerEvaluationSnapshot,
+} from './telemetry/controllerEvaluation';
 import {
   AIRPORT_CONTROL_COMMAND_DEFINITIONS,
   CONTROL_API_VERSION,
@@ -128,7 +136,10 @@ type RecordedCommand = {
   elapsed: number;
   requestId: string;
   commandId: string;
+  clientId: string | null;
   source: ControlCommandSource;
+  station: ControllerStation;
+  actorId: string | null;
   command: AirportControlCommand;
   accepted: boolean;
   reason: string;
@@ -559,6 +570,8 @@ let coordinationInboxRenderKey = '';
 let stationBriefingRenderKey = '';
 let controllerPerformanceCacheKey = '';
 let controllerPerformanceCache: ControllerPerformanceSnapshot[] = [];
+let controllerEvaluationCacheKey = '';
+let controllerEvaluationCache: ControllerEvaluationSnapshot | null = null;
 let lastControllerAlertKey = '';
 let stationBriefingNodes: {
   station: ControllerStation;
@@ -568,6 +581,7 @@ let stationBriefingNodes: {
   trafficScope: HTMLElement;
   authority: HTMLElement;
   objectives: Map<string, { item: HTMLElement; label: HTMLElement; value: HTMLElement; target: HTMLElement }>;
+  evaluation: ControllerEvaluationPanel;
   alerts: HTMLElement;
 } | null = null;
 const groupedFlightIds = new Set<number>();
@@ -2024,6 +2038,40 @@ function currentControllerPerformance(): ControllerPerformanceSnapshot[] {
   return controllerPerformanceCache;
 }
 
+function buildControllerEvaluation(
+  diagnostics: ReturnType<AirportSimulation['diagnostics']> = simulation.diagnostics(),
+): ControllerEvaluationSnapshot {
+  return controllerEvaluationSnapshot({
+    state: simulation.state,
+    metrics: diagnostics.metrics,
+    queues: diagnostics.queues,
+    predictions: diagnostics.predictions,
+    workloads: simulation.controllerWorkloads(),
+    commands: commandHistory.map((entry) => ({
+      id: entry.commandId,
+      elapsedSeconds: entry.elapsed,
+      station: entry.station,
+      source: entry.source,
+      actorId: entry.actorId,
+      clientId: entry.clientId,
+      command: entry.command,
+      accepted: entry.accepted,
+      reason: entry.reason,
+    })),
+  });
+}
+
+function currentControllerEvaluation(): ControllerEvaluationSnapshot {
+  const state = simulation.state;
+  const runtime = state.scriptedControllers;
+  const key = `${config.seed}|${Math.floor(state.elapsed)}|${telemetrySequence}|${commandHistory.length}|${runtime.nextDecisionSequence}|${state.flights.length}`;
+  if (key !== controllerEvaluationCacheKey || !controllerEvaluationCache) {
+    controllerEvaluationCacheKey = key;
+    controllerEvaluationCache = buildControllerEvaluation();
+  }
+  return controllerEvaluationCache;
+}
+
 function renderStationBriefing(): void {
   const state = displayState();
   const enabled = !replayMode && !state.sandbox.active && (state.mode === 'manual' || state.mode === 'assisted');
@@ -2035,6 +2083,8 @@ function renderStationBriefing(): void {
   }
   const performance = currentControllerPerformance().find((snapshot) => snapshot.station === state.station);
   if (!performance) return;
+  const evaluation = currentControllerEvaluation();
+  const stationEvaluation = evaluation.stations.find((snapshot) => snapshot.station === state.station);
   const visibleAlerts = performance.alerts.slice(0, 2);
   const key = JSON.stringify([
     performance.station,
@@ -2043,6 +2093,10 @@ function renderStationBriefing(): void {
     performance.summary,
     performance.objectives.map((objective) => [objective.id, objective.displayValue, objective.target, objective.status, objective.detail]),
     visibleAlerts.map((item) => [item.id, item.severity, item.label, item.detail]),
+    stationEvaluation,
+    evaluation.operations,
+    evaluation.safety,
+    evaluation.fuel,
   ]);
   if (key === stationBriefingRenderKey) return;
   stationBriefingRenderKey = key;
@@ -2068,6 +2122,7 @@ function renderStationBriefing(): void {
     objectiveNodes.value.textContent = objective.displayValue;
     objectiveNodes.target.textContent = objective.target;
   }
+  nodes.evaluation.update(evaluation, performance.station);
 
   if (!visibleAlerts.length) {
     const nominal = document.createElement('small');
@@ -2133,8 +2188,9 @@ function createStationBriefingNodes(performance: ControllerPerformanceSnapshot) 
 
   const alertList = document.createElement('div');
   alertList.className = 'station-briefing__alerts';
-  stationBriefing.replaceChildren(header, scope, role, objectives, alertList);
-  return { station: performance.station, status, score: scoreValue, scope, trafficScope, authority, objectives: objectiveNodes, alerts: alertList };
+  const evaluation = createControllerEvaluationPanel();
+  stationBriefing.replaceChildren(header, scope, role, objectives, evaluation.element, alertList);
+  return { station: performance.station, status, score: scoreValue, scope, trafficScope, authority, objectives: objectiveNodes, evaluation, alerts: alertList };
 }
 
 function renderControllerCoordination(flights: readonly Flight[]): void {
@@ -3989,6 +4045,7 @@ function cloneFocusTargetCatalog(catalog: FocusTargetCatalog): FocusTargetCatalo
 function airportSnapshot() {
   const diagnostics = simulation.diagnostics();
   const operations = simulation.operationProfileSnapshot();
+  const controllerEvaluation = buildControllerEvaluation(diagnostics);
   const movingPhases = new Set(['approach', 'landing', 'taxi-in', 'taxi-out', 'takeoff']);
   return {
     schemaVersion: CONTROL_SNAPSHOT_SCHEMA_VERSION,
@@ -4121,6 +4178,7 @@ function airportSnapshot() {
       scripted: structuredClone(simulation.state.scriptedControllers),
       workloads: simulation.controllerWorkloads(),
       performance: simulation.controllerPerformance(),
+      evaluation: controllerEvaluation,
       coordination: simulation.state.flights.flatMap((flight) => {
         const handoff = flight.navigation.handoff;
         return handoff && (handoff.status === 'offered' || handoff.status === 'accepted' || handoff.status === 'overdue')
@@ -4748,6 +4806,24 @@ function finalizeAirportRequest(
       validation,
     },
   });
+  if (command) {
+    commandHistory.push({
+      sequence: commandEvent.sequence,
+      eventId: commandEvent.eventId,
+      eventKey: commandEvent.eventKey,
+      elapsed: Number(simulation.state.elapsed.toFixed(3)),
+      requestId: context.requestId,
+      commandId: context.commandId,
+      clientId: context.clientId,
+      source: context.source,
+      station: effectiveStation,
+      actorId: context.authority?.actorId ?? null,
+      command: { ...command } as AirportControlCommand,
+      accepted,
+      reason,
+    });
+    if (commandHistory.length > 2_000) commandHistory.splice(0, commandHistory.length - 2_000);
+  }
   const snapshot = airportSnapshot();
   const result: AirportControlResult = {
     protocolVersion: CONTROL_PROTOCOL_VERSION,
@@ -4780,21 +4856,6 @@ function finalizeAirportRequest(
     resultingState: snapshot,
     ...(data ? { data } : {}),
   };
-  if (command) {
-    commandHistory.push({
-      sequence: commandEvent.sequence,
-      eventId: commandEvent.eventId,
-      eventKey: commandEvent.eventKey,
-      elapsed: Number(simulation.state.elapsed.toFixed(3)),
-      requestId: context.requestId,
-      commandId: context.commandId,
-      source: context.source,
-      command: { ...command } as AirportControlCommand,
-      accepted,
-      reason,
-    });
-    if (commandHistory.length > 2_000) commandHistory.splice(0, commandHistory.length - 2_000);
-  }
   airportChannel?.postMessage({ type: 'command-result', command: auditCandidate, result });
   if (activeControlCommandId === context.commandId) activeControlCommandId = null;
   return result;
@@ -5371,7 +5432,7 @@ window.airportControl = {
       events: 'airportControl.events(100)',
       protocol: 'airportControl.protocol() // command/event JSON Schemas, authority, compatibility, examples',
       validate: "airportControl.validate({ action: 'pause' }) // structural validation without execution",
-      formalDispatch: "airportControl.dispatch({ protocolVersion: '1.2.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.30.0', snapshotSchemaVersion: 32 }, command: { action: 'pause' } })",
+      formalDispatch: "airportControl.dispatch({ protocolVersion: '1.2.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.31.0', snapshotSchemaVersion: 33 }, command: { action: 'pause' } })",
       structuredCommand: "airportControl.request({ action: 'pause' }) // legacy-compatible bare command; result includes requestId, commandId, eventId, authority, and compatibility",
       pause: "airportControl.command({ action: 'pause' })",
       speed: "airportControl.command({ action: 'setSpeed', value: 2 })",
@@ -5428,6 +5489,7 @@ window.airportControl = {
       station: "airportControl.command({ action: 'setStation', station: 'ground' })",
       stationAutomation: "airportControl.request({ action: 'setStationAutomation', station: 'tower', enabled: true }) // Supervisor",
       controllerPolicy: "airportControl.request({ action: 'setControllerPolicyPreset', preset: 'calm' }) // Supervisor; balanced | conservative | efficient | calm | teaching | realistic",
+      controllerEvaluation: 'airportControl.snapshot().controllers.evaluation // read-only safety, flow, fuel, hold, command-quality, station, and actor metrics',
       trainingCatalog: 'airportControl.snapshot().training.availableLessons',
       trainingStart: "airportControl.request({ action: 'startTrainingLesson', lessonId: 'arrival-basics' }) // opens an exact no-fail checkpoint",
       trainingHint: "airportControl.request({ action: 'trainingHint' })",
