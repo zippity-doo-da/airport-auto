@@ -1,22 +1,30 @@
-export type FlightPhase = 'approach' | 'landing' | 'taxi-in' | 'resting' | 'taxi-out' | 'takeoff';
+export type FlightPhase =
+  "approach" | "landing" | "taxi-in" | "resting" | "taxi-out" | "takeoff";
 
-import type { FlightColor, RunwayOperationalRole } from './airportConfig';
-import type { AircraftModel } from './aircraftProfiles';
-import type { AirlineCode } from './airlineProfiles';
-import type { OperationTrafficClass } from './airportOperationProfiles';
-import type { TrafficDensity } from './trafficDensity';
-import type { ProcedureConstraint, TerminalProcedureKind } from './airspaceProcedures';
-import type { AirportDomainEventType } from '../control/eventTypes';
-import type { SeparationRulesetId } from './separationRules';
-import type { RouteDistanceSource } from './routeDistances';
+import type { FlightColor, RunwayOperationalRole } from "./airportConfig";
+import type { AircraftModel } from "./aircraftProfiles";
+import type { AirlineCode } from "./airlineProfiles";
+import type { OperationTrafficClass } from "./airportOperationProfiles";
+import type { TrafficDensity } from "./trafficDensity";
+import type {
+  ProcedureConstraint,
+  TerminalProcedureKind,
+} from "./airspaceProcedures";
+import type { AirportDomainEventType } from "../control/eventTypes";
+import type { SeparationRulesetId } from "./separationRules";
+import type { RouteDistanceSource } from "./routeDistances";
 
-export type ControlMode = 'auto' | 'assisted' | 'manual' | 'watch';
-export type WeatherCondition = 'clear' | 'rain' | 'fog' | 'snow';
-export type TrafficScenario = 'normal' | 'rush' | 'storm' | 'closure' | 'training' | 'emergency';
-export type OperationalControllerStation = 'approach' | 'tower' | 'ground' | 'ramp';
-export type ControllerStation = OperationalControllerStation | 'supervisor';
-export type TrainingLessonId = 'arrival-basics' | 'tower-landing' | 'surface-flow' | 'handoff-workflow';
-export type TrainingStatus = 'inactive' | 'active' | 'coach-paused' | 'complete';
+export type ControlMode = "auto" | "assisted" | "manual" | "watch";
+export type WeatherCondition = "clear" | "rain" | "fog" | "snow";
+export type TrafficScenario =
+  "normal" | "rush" | "storm" | "closure" | "training" | "emergency";
+export type OperationalControllerStation =
+  "approach" | "tower" | "ground" | "ramp";
+export type ControllerStation = OperationalControllerStation | "supervisor";
+export type TrainingLessonId =
+  "arrival-basics" | "tower-landing" | "surface-flow" | "handoff-workflow";
+export type TrainingStatus =
+  "inactive" | "active" | "coach-paused" | "complete";
 
 export interface TrainingState {
   status: TrainingStatus;
@@ -34,10 +42,13 @@ export interface TrainingState {
   noFail: true;
 }
 
-export type ChallengeId = 'rush-hour' | 'storm-operations' | 'runway-closure' | 'emergency-priority';
-export type ChallengeStatus = 'inactive' | 'briefing' | 'active' | 'complete' | 'failed' | 'abandoned';
-export type ChallengeGrade = 'A+' | 'A' | 'B' | 'C' | 'D' | 'F';
-export type ChallengeObjectiveStatus = 'pending' | 'on-track' | 'met' | 'attention' | 'failed';
+export type ChallengeId =
+  "rush-hour" | "storm-operations" | "runway-closure" | "emergency-priority";
+export type ChallengeStatus =
+  "inactive" | "briefing" | "active" | "complete" | "failed" | "abandoned";
+export type ChallengeGrade = "A+" | "A" | "B" | "C" | "D" | "F";
+export type ChallengeObjectiveStatus =
+  "pending" | "on-track" | "met" | "attention" | "failed";
 
 export interface ChallengeObjectiveSnapshot {
   id: string;
@@ -89,9 +100,10 @@ export interface ChallengeState {
   summary: ChallengeOperationalSummary;
 }
 
-export type SandboxTrafficDirection = 'arrival' | 'departure';
-export type SandboxTrafficClass = OperationTrafficClass | 'auto';
-export type SandboxInjectionStatus = 'queued' | 'releasing' | 'complete' | 'cancelled';
+export type SandboxTrafficDirection = "arrival" | "departure";
+export type SandboxTrafficClass = OperationTrafficClass | "auto";
+export type SandboxInjectionStatus =
+  "queued" | "releasing" | "complete" | "cancelled";
 
 export interface SandboxInjectionRequest {
   id: number;
@@ -123,25 +135,31 @@ export interface SandboxState {
   };
   lastMessage: string;
 }
-export type StationAutomationState = Record<OperationalControllerStation, boolean>;
-export type ScriptedControllerMode = 'scripted' | 'human' | 'inactive';
-export type ScriptedControllerPriority = 'safety' | 'urgent' | 'sequence' | 'routine';
-export type ControllerPolicyPresetId = 'balanced' | 'conservative' | 'efficient' | 'calm' | 'teaching' | 'realistic';
-export type ScriptedControllerDecisionDisposition = 'accepted' | 'rejected' | 'deferred';
+export type StationAutomationState = Record<
+  OperationalControllerStation,
+  boolean
+>;
+export type ScriptedControllerMode = "scripted" | "human" | "inactive";
+export type ScriptedControllerPriority =
+  "safety" | "urgent" | "sequence" | "routine";
+export type ControllerPolicyPresetId =
+  "balanced" | "conservative" | "efficient" | "calm" | "teaching" | "realistic";
+export type ScriptedControllerDecisionDisposition =
+  "accepted" | "rejected" | "deferred";
 export type ScriptedControllerAction =
-  | 'clear-approach'
-  | 'clear-landing'
-  | 'clear-pushback'
-  | 'clear-runway-crossing'
-  | 'clear-runway-entry'
-  | 'clear-takeoff'
-  | 'offer-handoff'
-  | 'accept-handoff'
-  | 'defer-handoff'
-  | 'contact-handoff'
-  | 'release-hold'
-  | 'recover-disabled'
-  | 'go-around';
+  | "clear-approach"
+  | "clear-landing"
+  | "clear-pushback"
+  | "clear-runway-crossing"
+  | "clear-runway-entry"
+  | "clear-takeoff"
+  | "offer-handoff"
+  | "accept-handoff"
+  | "defer-handoff"
+  | "contact-handoff"
+  | "release-hold"
+  | "recover-disabled"
+  | "go-around";
 
 export interface ControllerStationPolicy {
   station: ControllerStation;
@@ -226,7 +244,7 @@ export interface ScriptedControllerStationRuntime {
 
 export interface ScriptedControllerRuntime {
   schemaVersion: 2;
-  programVersion: '2.0.0';
+  programVersion: "2.0.0";
   presetId: ControllerPolicyPresetId;
   cadenceSeconds: number;
   cycle: number;
@@ -238,9 +256,13 @@ export interface ScriptedControllerRuntime {
   decisions: ScriptedControllerDecision[];
   transitions: ScriptedControllerModeTransition[];
 }
-export type FlightInstruction = 'slow' | 'normal' | 'expedite' | 'hold' | 'resume' | 'zigzag';
-export type GroupFlightInstruction = Extract<FlightInstruction, 'slow' | 'normal' | 'hold' | 'resume'>;
-export type GroupInstructionDomain = 'airborne' | 'surface';
+export type FlightInstruction =
+  "slow" | "normal" | "expedite" | "hold" | "resume" | "zigzag";
+export type GroupFlightInstruction = Extract<
+  FlightInstruction,
+  "slow" | "normal" | "hold" | "resume"
+>;
+export type GroupInstructionDomain = "airborne" | "surface";
 
 export interface GroupInstructionPreview {
   instruction: FlightInstruction;
@@ -257,19 +279,47 @@ export interface GroupInstructionPreview {
 export interface GroupInstructionIssueResult extends GroupInstructionPreview {
   issued: boolean;
 }
-export type AircraftCategory = 'regional' | 'narrowbody' | 'widebody' | 'cargo';
-export type WakeClass = 'light' | 'medium' | 'heavy';
-export type EmergencyType = 'medical' | 'disabled' | 'birdstrike' | 'go-around';
-export type EngineState = 'off' | 'starting' | 'running';
-export type FlightService = 'passenger' | 'cargo';
-export type TurnaroundServiceType = 'fueling' | 'baggage' | 'cargo' | 'catering' | 'cleaning' | 'boarding' | 'maintenance';
-export type TurnaroundTaskStatus = 'not-required' | 'waiting' | 'active' | 'complete';
-export type TurnaroundStatus = 'planned' | 'servicing' | 'ready' | 'released';
-export type DeicingStatus = 'not-required' | 'planned' | 'enroute' | 'queued' | 'positioning' | 'treating' | 'protected' | 'expired' | 'unavailable';
-export type DeicingFluid = 'Type I' | 'Type I + Type IV';
-export type SurfaceDisruptionKind = 'runway-closure' | 'taxiway-closure' | 'construction' | 'disabled-aircraft';
-export type SurfaceDisruptionStatus = 'pending' | 'active' | 'recovering';
-export type SurfaceDisruptionSource = 'scenario' | 'controller' | 'incident';
+export type AircraftCategory = "regional" | "narrowbody" | "widebody" | "cargo";
+export type WakeClass = "light" | "medium" | "heavy";
+export type EmergencyType = "medical" | "disabled" | "birdstrike" | "go-around";
+export type EngineState = "off" | "starting" | "running";
+export type FlightService = "passenger" | "cargo";
+export type AircraftOperationKind =
+  | "scheduled-passenger"
+  | "scheduled-cargo"
+  | "charter"
+  | "ferry"
+  | "special-operation";
+export type AircraftMaintenanceClass =
+  "none" | "transit-inspection" | "out-of-service-repair";
+export type AircraftAirworthinessStatus =
+  "serviceable" | "maintenance-due" | "out-of-service";
+export type TurnaroundServiceType =
+  | "fueling"
+  | "baggage"
+  | "cargo"
+  | "catering"
+  | "cleaning"
+  | "boarding"
+  | "maintenance";
+export type TurnaroundTaskStatus =
+  "not-required" | "waiting" | "active" | "complete";
+export type TurnaroundStatus = "planned" | "servicing" | "ready" | "released";
+export type DeicingStatus =
+  | "not-required"
+  | "planned"
+  | "enroute"
+  | "queued"
+  | "positioning"
+  | "treating"
+  | "protected"
+  | "expired"
+  | "unavailable";
+export type DeicingFluid = "Type I" | "Type I + Type IV";
+export type SurfaceDisruptionKind =
+  "runway-closure" | "taxiway-closure" | "construction" | "disabled-aircraft";
+export type SurfaceDisruptionStatus = "pending" | "active" | "recovering";
+export type SurfaceDisruptionSource = "scenario" | "controller" | "incident";
 
 /**
  * A topology-changing surface restriction. edgeIds are the authoritative
@@ -299,7 +349,7 @@ export interface SurfaceDisruptionState {
 
 export interface FlightSurfaceRerouteState {
   revision: number;
-  status: 'rerouted' | 'holding';
+  status: "rerouted" | "holding";
   selectedAtSeconds: number;
   disruptionIds: string[];
   previousEdgeIds: string[];
@@ -337,8 +387,23 @@ export interface FlightDeicingState {
   holdoverExpiresSeconds?: number;
 }
 
-export type ServiceVehicleType = 'fuel-truck' | 'baggage-cart' | 'cargo-loader' | 'catering-truck' | 'cleaning-van' | 'maintenance-van' | 'passenger-bus';
-export type ServiceVehicleStatus = 'scheduled' | 'dispatching' | 'staged' | 'approaching' | 'servicing' | 'clearing' | 'returning' | 'complete';
+export type ServiceVehicleType =
+  | "fuel-truck"
+  | "baggage-cart"
+  | "cargo-loader"
+  | "catering-truck"
+  | "cleaning-van"
+  | "maintenance-van"
+  | "passenger-bus";
+export type ServiceVehicleStatus =
+  | "scheduled"
+  | "dispatching"
+  | "staged"
+  | "approaching"
+  | "servicing"
+  | "clearing"
+  | "returning"
+  | "complete";
 
 /**
  * Authoritative fixed-step state for one turnaround vehicle. Graph routes and
@@ -356,7 +421,7 @@ export interface ServiceVehicleState {
   standId: string;
   zoneId: string;
   bayId: string;
-  standSide: 'left' | 'right';
+  standSide: "left" | "right";
   depotNodeId: string;
   outboundRoute: string[];
   outboundRouteEdges: string[];
@@ -410,7 +475,29 @@ export interface FlightTurnaroundState {
   tasks: TurnaroundTaskState[];
 }
 
-export type GateServiceArea = 'passenger-terminal' | 'cargo-ramp' | 'remote-ramp' | 'maintenance' | 'general-aviation' | 'other';
+/** Optional airport-life detail that never bypasses movement or safety rules. */
+export interface FlightOperationalDetail {
+  schemaVersion: 1;
+  kind: AircraftOperationKind;
+  label: string;
+  reason: string;
+  cargoLoadType?:
+    "express" | "general-freight" | "perishable" | "priority-parts";
+  specialOperation?:
+    "air-ambulance" | "flight-check" | "humanitarian" | "government-charter";
+  maintenanceClass: AircraftMaintenanceClass;
+  airworthinessStatus: AircraftAirworthinessStatus;
+  maintenanceReason?: string;
+  returnToServiceAtSeconds?: number;
+}
+
+export type GateServiceArea =
+  | "passenger-terminal"
+  | "cargo-ramp"
+  | "remote-ramp"
+  | "maintenance"
+  | "general-aviation"
+  | "other";
 
 export interface FlightGateAssignment {
   standId: string;
@@ -429,8 +516,8 @@ export interface FlightGateAssignment {
   actualGateOutSeconds?: number;
   nextDestination: string;
   departureRunway: number;
-  airlineFit: 'preferred' | 'compatible' | 'fallback';
-  serviceFit: 'preferred' | 'compatible' | 'fallback';
+  airlineFit: "preferred" | "compatible" | "fallback";
+  serviceFit: "preferred" | "compatible" | "fallback";
   arrivalRouteDistance: number;
   departureRouteDistance: number;
   score: number;
@@ -439,7 +526,7 @@ export interface FlightGateAssignment {
   previousStandId?: string;
 }
 
-export type RunwayBrakingAction = 'good' | 'medium' | 'poor';
+export type RunwayBrakingAction = "good" | "medium" | "poor";
 
 /**
  * Authoritative arrival-exit decision. The landing trajectory terminates at
@@ -452,7 +539,7 @@ export interface FlightRunwayExitState {
   nodeId: string;
   taxiwayId: string;
   taxiwayName: string;
-  source: 'surface-graph' | 'runway-end';
+  source: "surface-graph" | "runway-end";
   selectedAtSeconds: number;
   candidateCount: number;
   distanceFromThresholdM: number;
@@ -473,7 +560,7 @@ export interface FlightRunwayExitState {
   taxiRouteEdgeIds: string[];
   rationale: string[];
 }
-export type PushbackDirection = 'left' | 'right' | 'straight';
+export type PushbackDirection = "left" | "right" | "straight";
 
 export interface WeatherState {
   weatherEnabled: boolean;
@@ -486,7 +573,7 @@ export interface WeatherState {
   /** Modeled cloud ceiling above ground level, in feet. */
   ceilingFt: number;
   temperatureC: number;
-  surfaceCondition: 'dry' | 'wet' | 'contaminated';
+  surfaceCondition: "dry" | "wet" | "contaminated";
 }
 
 export interface FlightKinematics {
@@ -576,21 +663,40 @@ export interface FlightDiversionState {
   exitFixId: string;
   issuedAtSeconds: number;
   reason: string;
-  start: Pick<FlightMotionState, 'x' | 'y' | 'z' | 'heading' | 'pitch' | 'bank' | 'onGround' | 'groundBlend' | 'protectedRunway'>;
+  start: Pick<
+    FlightMotionState,
+    | "x"
+    | "y"
+    | "z"
+    | "heading"
+    | "pitch"
+    | "bank"
+    | "onGround"
+    | "groundBlend"
+    | "protectedRunway"
+  >;
 }
 
 /** The traffic stream and local operating period that generated this leg. */
 export interface FlightOperationPlan {
   trafficClass: OperationTrafficClass;
-  direction: 'arrival' | 'departure';
+  direction: "arrival" | "departure";
   periodId: string;
   periodLabel: string;
   scheduledLocalMinute: number;
   demandMultiplier: number;
 }
 
-export type FlightPlanStatus = 'scheduled' | 'active' | 'completed' | 'diverted' | 'cancelled';
-export type FlightPlanAmendmentKind = 'gate-swap' | 'runway-change' | 'route-change' | 'slot-change' | 'clearance' | 'diversion' | 'cancellation';
+export type FlightPlanStatus =
+  "scheduled" | "active" | "completed" | "diverted" | "cancelled";
+export type FlightPlanAmendmentKind =
+  | "gate-swap"
+  | "runway-change"
+  | "route-change"
+  | "slot-change"
+  | "clearance"
+  | "diversion"
+  | "cancellation";
 
 export interface FlightPlanAmendment {
   revision: number;
@@ -609,11 +715,11 @@ export interface FlightPlan {
   id: string;
   revision: number;
   status: FlightPlanStatus;
-  direction: 'arrival' | 'departure';
+  direction: "arrival" | "departure";
   origin: string;
   destination: string;
   route: string[];
-  routeKind: 'schematic-procedure';
+  routeKind: "schematic-procedure";
   procedure: string;
   procedureProfile: {
     dataVersion: string;
@@ -652,7 +758,18 @@ export interface FlightVectorClearance {
   endProgress: number;
   headingDegrees: number;
   rejoinFixId?: string;
-  start: Pick<FlightMotionState, 'x' | 'y' | 'z' | 'heading' | 'pitch' | 'bank' | 'onGround' | 'groundBlend' | 'protectedRunway'>;
+  start: Pick<
+    FlightMotionState,
+    | "x"
+    | "y"
+    | "z"
+    | "heading"
+    | "pitch"
+    | "bank"
+    | "onGround"
+    | "groundBlend"
+    | "protectedRunway"
+  >;
 }
 
 export interface FlightHoldingClearance {
@@ -663,17 +780,29 @@ export interface FlightHoldingClearance {
   expectFurtherClearanceAtSeconds: number;
   cycle: number;
   inboundCourseDegrees: number;
-  turns: 'left' | 'right';
+  turns: "left" | "right";
   legSeconds: number;
   altitudeFt: number;
-  start: Pick<FlightMotionState, 'x' | 'y' | 'z' | 'heading' | 'pitch' | 'bank' | 'onGround' | 'groundBlend' | 'protectedRunway'>;
+  start: Pick<
+    FlightMotionState,
+    | "x"
+    | "y"
+    | "z"
+    | "heading"
+    | "pitch"
+    | "bank"
+    | "onGround"
+    | "groundBlend"
+    | "protectedRunway"
+  >;
 }
 
-export type FlightRouteClearanceStatus = 'preview' | 'pending-readback' | 'accepted' | 'rejected' | 'cancelled';
-export type FlightRouteWarningSeverity = 'advisory' | 'warning' | 'blocking';
+export type FlightRouteClearanceStatus =
+  "preview" | "pending-readback" | "accepted" | "rejected" | "cancelled";
+export type FlightRouteWarningSeverity = "advisory" | "warning" | "blocking";
 
 export interface FlightRouteConflictWarning {
-  code: 'excessive-initial-turn' | 'predicted-loss-of-separation';
+  code: "excessive-initial-turn" | "predicted-loss-of-separation";
   severity: FlightRouteWarningSeverity;
   detail: string;
   conflictingFlightId?: number;
@@ -724,16 +853,17 @@ export interface FlightNavigationState {
   handoffFixId?: string;
   frequencyOwner: ControllerStation;
   /** Compact compatibility state; `handoff` carries the complete coordination record. */
-  handoffStatus: 'owned' | 'offered' | 'accepted' | 'rejected' | 'overdue';
+  handoffStatus: "owned" | "offered" | "accepted" | "rejected" | "overdue";
   handoff?: FlightHandoffState;
-  readbackStatus: 'not-required' | 'pending' | 'accepted' | 'rejected';
+  readbackStatus: "not-required" | "pending" | "accepted" | "rejected";
   routeClearance?: FlightRouteClearanceState;
   vector?: FlightVectorClearance;
   hold?: FlightHoldingClearance;
   missedApproachId?: string;
 }
 
-export type FlightHandoffStatus = 'offered' | 'accepted' | 'rejected' | 'overdue' | 'completed' | 'cancelled';
+export type FlightHandoffStatus =
+  "offered" | "accepted" | "rejected" | "overdue" | "completed" | "cancelled";
 
 /**
  * Versioned controller-to-controller coordination. Ownership remains with
@@ -768,12 +898,13 @@ export interface ControllerWorkloadSnapshot {
   atCapacity: boolean;
   overloaded: boolean;
   queuedActions: number;
-  workload: 'idle' | 'light' | 'moderate' | 'heavy' | 'overload';
+  workload: "idle" | "light" | "moderate" | "heavy" | "overload";
   responsibilities: string[];
 }
 
-export type ControllerPerformanceStatus = 'nominal' | 'attention' | 'critical';
-export type ControllerObjectiveStatus = 'met' | 'attention' | 'critical' | 'informational';
+export type ControllerPerformanceStatus = "nominal" | "attention" | "critical";
+export type ControllerObjectiveStatus =
+  "met" | "attention" | "critical" | "informational";
 
 export interface ControllerObjectiveSnapshot {
   id: string;
@@ -788,7 +919,7 @@ export interface ControllerObjectiveSnapshot {
 export interface ControllerAlertSnapshot {
   id: string;
   station: ControllerStation;
-  severity: 'attention' | 'urgent';
+  severity: "attention" | "urgent";
   label: string;
   detail: string;
   flightIds: number[];
@@ -809,11 +940,12 @@ export interface ControllerPerformanceSnapshot {
   alerts: ControllerAlertSnapshot[];
 }
 
-export type TrafficFlowStatus = 'scheduled' | 'metered' | 'holding' | 'released' | 'diverted' | 'cancelled';
+export type TrafficFlowStatus =
+  "scheduled" | "metered" | "holding" | "released" | "diverted" | "cancelled";
 
 export interface TrafficFlowEntry {
   id: string;
-  direction: 'arrival' | 'departure';
+  direction: "arrival" | "departure";
   status: TrafficFlowStatus;
   createdAtSeconds: number;
   scheduledAtSeconds: number;
@@ -850,7 +982,14 @@ export interface TrafficFlowState {
   };
 }
 
-export type ClearanceProposalAction = 'land' | 'go-around' | 'pushback' | 'cross' | 'line-up' | 'takeoff' | 'resume';
+export type ClearanceProposalAction =
+  | "land"
+  | "go-around"
+  | "pushback"
+  | "cross"
+  | "line-up"
+  | "takeoff"
+  | "resume";
 
 export interface ClearanceProposal {
   id: string;
@@ -860,7 +999,7 @@ export interface ClearanceProposal {
   station: ControllerStation;
   label: string;
   reason: string;
-  priority: 'routine' | 'attention' | 'urgent';
+  priority: "routine" | "attention" | "urgent";
 }
 
 export interface Flight {
@@ -897,8 +1036,8 @@ export interface Flight {
   rampControlZoneName?: string;
   rampControlZoneCapacity?: number;
   surfaceAlleyId?: string;
-  surfaceFlowDirection?: 'inbound' | 'outbound';
-  standPath?: 'lead-in' | 'lead-out';
+  surfaceFlowDirection?: "inbound" | "outbound";
+  standPath?: "lead-in" | "lead-out";
   holdShortRunway?: number;
   holdNotified?: boolean;
   runwayEntryCleared?: boolean;
@@ -914,7 +1053,7 @@ export interface Flight {
   automaticHoldReason?: string;
   safetyHold?: boolean;
   safetyHoldReason?: string;
-  controlPattern?: 'zigzag';
+  controlPattern?: "zigzag";
   controlPatternStart?: number;
   gateSlot: number;
   gateAssignment?: FlightGateAssignment;
@@ -929,6 +1068,7 @@ export interface Flight {
   navigation: FlightNavigationState;
   fuelPlan: FlightFuelPlan;
   turnaround: FlightTurnaroundState;
+  operationalDetail: FlightOperationalDetail;
   deicing: FlightDeicingState;
   category: AircraftCategory;
   wakeClass: WakeClass;
@@ -944,8 +1084,8 @@ export interface Flight {
 }
 
 export interface ConflictPrediction {
-  severity: 'caution' | 'warning';
-  type: 'runway' | 'crossing' | 'separation';
+  severity: "caution" | "warning";
+  type: "runway" | "crossing" | "separation";
   flights: number[];
   runway?: number;
   etaSeconds: number;
@@ -983,7 +1123,13 @@ export interface ShiftMetrics {
 export interface ReplayFrame {
   clock: number;
   score: { landed: number; departed: number };
-  flights: Array<{ id: number; callsign: string; phase: FlightPhase; runway: number; progress: number }>;
+  flights: Array<{
+    id: number;
+    callsign: string;
+    phase: FlightPhase;
+    runway: number;
+    progress: number;
+  }>;
   predictions: ConflictPrediction[];
   /** Complete immutable render state so the replay scrubber drives the world, not only the label. */
   state: AirportState;
@@ -1035,7 +1181,7 @@ export interface AirportState {
   trafficFlow: TrafficFlowState;
   separationRuleset: SeparationRulesetId;
   runwayConfigurationId: string;
-  runwayConfigurationMode: 'automatic' | 'manual';
+  runwayConfigurationMode: "automatic" | "manual";
   runwayConfigurationTransition: RunwayConfigurationTransition | null;
   activeRunwayEnds: Record<number, -1 | 1>;
   activeRunwayRoles: Record<number, RunwayOperationalRole>;

@@ -1,4 +1,4 @@
-import { build } from 'esbuild';
+import { build } from "esbuild";
 
 const validationSource = `
 import { createHubSimulationHarness } from './src/simulation/fixedStepHarness.ts';
@@ -109,7 +109,14 @@ assert(harness.simulation.state.serviceVehicles.some((vehicle) => vehicle.flight
 assert(!harness.simulation.clearPushback(arrival.id), 'manual pushback bypassed incomplete services');
 assert(harness.simulation.lastCommandReason().includes('incomplete'), 'rejected pushback did not name blocking service state');
 assert(harness.runUntil((snapshot) => snapshot.flights.some((flight) => flight.id === arrival.id && flight.turnaround.tasks.some((task) => task.status === 'active')), 180), 'vehicle-gated turnaround never started active service');
-assert(harness.runUntil((snapshot) => snapshot.flights.some((flight) => flight.id === arrival.id && flight.turnaround.status === 'ready'), 360), 'turnaround never reached ready state');
+const reachedReady = harness.runUntil((snapshot) => snapshot.flights.some((flight) => flight.id === arrival.id && flight.turnaround.status === 'ready'), 360);
+assert(reachedReady, 'turnaround never reached ready state: ' + JSON.stringify({
+  flight: harness.snapshot().flights.find((flight) => flight.id === arrival.id),
+  vehicles: harness.simulation.state.serviceVehicles.filter((vehicle) => vehicle.flightId === arrival.id),
+  sameStandVehicles: harness.simulation.state.serviceVehicles.filter((vehicle) => vehicle.standId === harness.simulation.state.flights.find((flight) => flight.id === arrival.id)?.standId),
+  otherVehicles: harness.simulation.state.serviceVehicles.filter((vehicle) => vehicle.flightId !== arrival.id && vehicle.status !== 'complete'),
+  recentEvents: harness.snapshot().events.filter((event) => event.flightId === arrival.id).slice(-30),
+}));
 live = harness.simulation.state.flights.find((flight) => flight.id === arrival.id);
 assert(live && live.turnaround.tasks.every((task) => !task.required || task.status === 'complete'), 'ready aircraft retains incomplete required service');
 assert(Math.abs(live.kinematics.fuelPercent - live.turnaround.targetFuelPercent) < 0.01, 'integrated aircraft fuel differs from completed fueling state');
@@ -145,20 +152,20 @@ const result = await build({
   absWorkingDir: process.cwd(),
   stdin: {
     contents: validationSource,
-    loader: 'ts',
+    loader: "ts",
     resolveDir: process.cwd(),
-    sourcefile: 'turnaround-operations-validation.ts',
+    sourcefile: "turnaround-operations-validation.ts",
   },
   bundle: true,
-  platform: 'node',
-  format: 'esm',
+  platform: "node",
+  format: "esm",
   write: false,
-  logLevel: 'silent',
+  logLevel: "silent",
 });
 
-const source = Buffer.from(result.outputFiles[0].contents).toString('base64');
+const source = Buffer.from(result.outputFiles[0].contents).toString("base64");
 try {
-  await import('data:text/javascript;base64,' + source);
+  await import("data:text/javascript;base64," + source);
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;

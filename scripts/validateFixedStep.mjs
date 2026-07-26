@@ -222,15 +222,43 @@ totals.concurrentSurfaceMovers = concurrentMovers;
 
 const pushback = createHubSimulationHarness('ORD', { stepSeconds: 0.05 });
 pushback.simulation.setMode('manual');
-const pushReady = pushback.simulation.state.flights.find((flight) => flight.phase === 'resting' && flight.progress >= 0.999);
-assert(pushReady, 'ORD pushback: startup has no push-ready departure');
+const liveTurn = pushback.simulation.state.flights.find((flight) => flight.phase === 'resting');
+assert(liveTurn, 'ORD pushback: startup has no live gate turn');
+pushback.simulation.state.flights = [liveTurn];
+pushback.simulation.state.serviceVehicles = pushback.simulation.state.serviceVehicles.filter((vehicle) => vehicle.flightId === liveTurn.id);
+assert(
+  pushback.runUntil(
+    () => pushback.simulation.state.flights.some((flight) => (
+      flight.phase === 'resting'
+      && flight.turnaround.status === 'ready'
+      && !pushback.simulation.state.serviceVehicles.some((vehicle) => (
+        vehicle.flightId === flight.id
+        && ['approaching', 'servicing', 'clearing'].includes(vehicle.status)
+      ))
+    )),
+    600,
+  ),
+  'ORD pushback: live startup turn never became ready',
+);
+const pushReady = pushback.simulation.state.flights.find((flight) => (
+  flight.phase === 'resting'
+  && flight.turnaround.status === 'ready'
+  && !pushback.simulation.state.serviceVehicles.some((vehicle) => (
+    vehicle.flightId === flight.id
+    && ['approaching', 'servicing', 'clearing'].includes(vehicle.status)
+  ))
+));
+assert(pushReady, 'ORD pushback: completed startup turn disappeared');
+pushback.simulation.state.flights = [pushReady];
+pushback.simulation.state.serviceVehicles = pushback.simulation.state.serviceVehicles.filter((vehicle) => vehicle.flightId === pushReady.id);
+pushback.simulation.drainEvents();
 assert(pushReady.engineState === 'off' && !pushReady.tugAttached && !pushReady.pushbackCleared, 'ORD pushback: gate state was not cold and uncleared');
 assert(['left', 'right', 'straight'].includes(pushReady.pushbackDirection), 'ORD pushback: route has no declared push direction');
 pushback.simulation.setStation('tower');
 assert(!pushback.simulation.clearPushback(pushReady.id), 'ORD pushback: Tower issued a Ramp pushback clearance');
 assert(pushback.simulation.lastCommandReason().includes('no ramp pushback authority'), 'ORD pushback: rejected authority had no structured reason');
 pushback.simulation.setStation('ramp');
-assert(pushback.simulation.clearPushback(pushReady.id), 'ORD pushback: Ramp clearance was rejected');
+assert(pushback.simulation.clearPushback(pushReady.id), 'ORD pushback: Ramp clearance was rejected: ' + pushback.simulation.lastCommandReason());
 pushback.advanceTicks(1);
 let pushing = pushback.simulation.state.flights.find((flight) => flight.id === pushReady.id);
 assert(pushing?.phase === 'taxi-out', 'ORD pushback: cleared departure did not leave the stand lifecycle');
@@ -255,6 +283,24 @@ totals.pushbackLifecycleVerified = true;
 
 const assistedPushback = createHubSimulationHarness('ORD', { stepSeconds: 0.05, mode: 'assisted' });
 assistedPushback.simulation.setStation('ramp');
+const assistedLiveTurn = assistedPushback.simulation.state.flights.find((flight) => flight.phase === 'resting');
+assert(assistedLiveTurn, 'ORD pushback: Assisted startup has no live gate turn');
+assistedPushback.simulation.state.flights = [assistedLiveTurn];
+assistedPushback.simulation.state.serviceVehicles = assistedPushback.simulation.state.serviceVehicles.filter((vehicle) => vehicle.flightId === assistedLiveTurn.id);
+assert(
+  assistedPushback.runUntil(
+    () => assistedPushback.simulation.state.flights.some((flight) => (
+      flight.phase === 'resting'
+      && flight.turnaround.status === 'ready'
+      && !assistedPushback.simulation.state.serviceVehicles.some((vehicle) => (
+        vehicle.flightId === flight.id
+        && ['approaching', 'servicing', 'clearing'].includes(vehicle.status)
+      ))
+    )),
+    600,
+  ),
+  'ORD pushback: Assisted startup turn never became ready',
+);
 assert(assistedPushback.simulation.clearanceProposals().some((proposal) => proposal.action === 'pushback'), 'ORD pushback: Assisted mode did not propose the ready push');
 totals.assistedPushbackProposalVerified = true;
 

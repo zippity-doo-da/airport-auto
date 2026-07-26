@@ -1,7 +1,7 @@
 # Airport Auto — Forward Roadmap
 
 Last reconciled: July 26, 2026
-Baseline: Airport Auto 2.32.0
+Baseline: Airport Auto 2.33.0
 
 Airport Auto is an **ASMR-first web airport simulation with an optional serious ATC layer**. The simulation should remain enjoyable as a calm, hands-off miniature world while also supporting increasingly authentic controller work when the player asks for it.
 
@@ -171,16 +171,16 @@ Make Watch mode satisfying for a long session without repetitive alarms or synth
 
 Make model differences visible on the field rather than only in flight strips.
 
-**2.21 foundation:** The roster now contains 13 regional, utility, business, narrowbody, widebody, and cargo models; traffic-program schema 2 adds representative ORD carriers and route-aware fleet selection; flights use model-specific route fuel plans; the normal strip exposes fuel, IAS/ground speed, altitude, and heading; and optional contrails follow engine count and atmospheric conditions. Adjacent stands whose largest compatible aircraft envelopes overlap are mutually exclusive. The broader model-data audit, distinct aircraft assets, animation/light suite, maintenance depth, and formal asset budgets below remain open.
+**Status: complete in 2.33.** The audited roster now contains 17 general-aviation, utility, business, regional, turboprop, narrowbody, widebody, jumbo, passenger, and cargo models across 11 original visual families. Model-specific performance, fuel, runway, ground-handling, wake, and service data now drive operations; procedural assets expose animated flight/ground systems and conditional effects; airline traffic programs choose credible fleets and restrained original livery styles; and optional airport-life detail adds passenger, cargo, charter, ferry, special, maintenance, and out-of-service context. High/low LOD budgets are formalized and enforced by deterministic and browser release gates.
 
-- [ ] Expand and audit the regional, narrowbody, widebody, cargo, business, and general-aviation roster.
-- [ ] Store validated dimensions, weights, engine type, approach/rotation/taxi speeds, climb/descent profiles, turn radius, braking, wake group, runway requirement, and service time.
-- [ ] Replace the shared jet silhouette with distinct original aircraft families or optimized licensed assets.
-- [ ] Add convincing landing gear, flap/slat, spoiler, reverser, beacon, navigation, strobe, landing, taxi, and recognition-light states.
-- [ ] Add airline/fleet assignment rules and original liveries with readable but uncluttered identification.
-- [ ] Add plausible exhaust, condensation, contrails, tire smoke, spray, and shadow behavior only when conditions warrant them.
-- [ ] Add maintenance, out-of-service, ferry, cargo, and special-operation events as optional detail layers.
-- [ ] Establish asset LOD, texture, material, draw-call, and memory budgets before adding high-detail models broadly.
+- [x] Expand and audit the regional, narrowbody, widebody, cargo, business, and general-aviation roster.
+- [x] Store validated dimensions, weights, engine type, approach/rotation/taxi speeds, climb/descent profiles, turn radius, braking, wake group, runway requirement, and service time.
+- [x] Replace the shared jet silhouette with distinct original aircraft families or optimized licensed assets.
+- [x] Add convincing landing gear, flap/slat, spoiler, reverser, beacon, navigation, strobe, landing, taxi, and recognition-light states.
+- [x] Add airline/fleet assignment rules and original liveries with readable but uncluttered identification.
+- [x] Add plausible exhaust, condensation, contrails, tire smoke, spray, and shadow behavior only when conditions warrant them.
+- [x] Add maintenance, out-of-service, ferry, cargo, and special-operation events as optional detail layers.
+- [x] Establish asset LOD, texture, material, draw-call, and memory budgets before adding high-detail models broadly.
 
 ## Milestone 8 — Live data, analysis, sharing, and community
 

@@ -12,6 +12,9 @@ export type AirlineCode = | "UA" | "AA" | "DL" | "WN" | "B6" | "F9" | "AS" | "EK
   | "FDX"
   | "LOCAL";
 
+/** Original, logo-free paint grammar used by the procedural aircraft assets. */
+export type AirlineLiveryStyle = "ribbon" | "tail-band" | "belly-sweep" | "minimal";
+
 export interface AirlineProfile {
   code: AirlineCode;
   name: string;
@@ -179,4 +182,11 @@ export const AIRPORT_AIRLINES: Record<string, AirlineCode[]> = {
 
 export function airlineProfile(code: AirlineCode): AirlineProfile {
   return AIRLINE_PROFILES[code];
+}
+
+export function airlineLiveryStyle(code: AirlineCode): AirlineLiveryStyle {
+  if (AIRLINE_PROFILES[code].cargo) return "belly-sweep";
+  const styles: AirlineLiveryStyle[] = ["ribbon", "tail-band", "belly-sweep", "minimal"];
+  const variant = [...code].reduce((value, character, index) => value + character.charCodeAt(0) * (index + 3), 0);
+  return styles[variant % styles.length];
 }

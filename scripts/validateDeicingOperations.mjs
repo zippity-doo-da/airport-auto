@@ -1,4 +1,4 @@
-import { build } from 'esbuild';
+import { build } from "esbuild";
 
 const validationSource = `
 import { createHubSimulationHarness } from './src/simulation/fixedStepHarness.ts';
@@ -55,6 +55,8 @@ assert(reachedTreatment, 'departure never reached deicing treatment: ' + JSON.st
   phase: treatmentFailure.phase,
   progress: treatmentFailure.progress,
   deicing: treatmentFailure.deicing,
+  turnaround: treatmentFailure.turnaround,
+  gateAssignment: treatmentFailure.gateAssignment,
   automaticHold: treatmentFailure.automaticHold,
   automaticHoldReason: treatmentFailure.automaticHoldReason,
   safetyHold: treatmentFailure.safetyHold,
@@ -63,6 +65,19 @@ assert(reachedTreatment, 'departure never reached deicing treatment: ' + JSON.st
   surfaceNode: treatmentFailure.surfaceNode,
   surfaceEdge: treatmentFailure.surfaceEdge,
   routeNodes: treatmentFailure.surfaceRoute?.length,
+  standVehicles: simulation.state.serviceVehicles
+    .filter((vehicle) => vehicle.standId === treatmentFailure.standId)
+    .map((vehicle) => ({
+      id: vehicle.id,
+      status: vehicle.status,
+      progress: vehicle.progress,
+      held: vehicle.held,
+      holdReason: vehicle.holdReason,
+      currentNode: vehicle.currentNode,
+      currentEdge: vehicle.currentEdge,
+      x: vehicle.x,
+      y: vehicle.y,
+    })),
   nearbyTraffic: simulation.state.flights.map((flight) => ({
     id: flight.id,
     phase: flight.phase,
@@ -72,6 +87,10 @@ assert(reachedTreatment, 'departure never reached deicing treatment: ' + JSON.st
     safetyHold: flight.safetyHoldReason,
     surfaceNode: flight.surfaceNode,
     surfaceEdge: flight.surfaceEdge,
+    rampControlZoneId: flight.rampControlZoneId,
+    surfaceAlleyId: flight.surfaceAlleyId,
+    standId: flight.standId,
+    gateZoneId: flight.gateAssignment?.zoneId,
     routeWindow: (() => {
       const edgeIndex = flight.surfaceRouteEdges?.indexOf(flight.surfaceEdge);
       return edgeIndex === undefined || edgeIndex < 0 ? undefined : {
@@ -148,20 +167,20 @@ const result = await build({
   absWorkingDir: process.cwd(),
   stdin: {
     contents: validationSource,
-    loader: 'ts',
+    loader: "ts",
     resolveDir: process.cwd(),
-    sourcefile: 'deicing-validation.ts',
+    sourcefile: "deicing-validation.ts",
   },
   bundle: true,
-  platform: 'node',
-  format: 'esm',
+  platform: "node",
+  format: "esm",
   write: false,
-  logLevel: 'silent',
+  logLevel: "silent",
 });
 
-const source = Buffer.from(result.outputFiles[0].contents).toString('base64');
+const source = Buffer.from(result.outputFiles[0].contents).toString("base64");
 try {
-  await import('data:text/javascript;base64,' + source);
+  await import("data:text/javascript;base64," + source);
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;

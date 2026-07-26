@@ -1,4 +1,4 @@
-import { build } from 'esbuild';
+import { build } from "esbuild";
 
 const validationSource = `
 import { createHubSimulationHarness } from './src/simulation/fixedStepHarness.ts';
@@ -115,12 +115,18 @@ assert(violations === 0, 'service vehicle route diagnostics reported ' + violati
 const readyVehicles = harness.simulation.state.serviceVehicles.filter((vehicle) => vehicle.flightId === arrival.id);
 const liveBlocker = readyVehicles.find((vehicle) => ['approaching', 'servicing', 'clearing'].includes(vehicle.status));
 if (liveBlocker) {
+  harness.simulation.setMode('assisted');
+  assert(!harness.simulation.clearanceProposals().some((proposal) => proposal.flightId === arrival.id && proposal.action === 'pushback'), 'Assisted mode proposed pushback through live stand equipment');
+  harness.simulation.setMode('manual');
   assert(!harness.simulation.clearPushback(arrival.id), 'pushback was accepted before stand equipment cleared');
 } else {
   const probe = readyVehicles[0];
   assert(probe, 'ready turnaround lost its service fleet');
   const priorStatus = probe.status;
   probe.status = 'clearing';
+  harness.simulation.setMode('assisted');
+  assert(!harness.simulation.clearanceProposals().some((proposal) => proposal.flightId === arrival.id && proposal.action === 'pushback'), 'Assisted mode proposed pushback through a synthetic stand blocker');
+  harness.simulation.setMode('manual');
   assert(!harness.simulation.clearPushback(arrival.id), 'pushback gate ignored a vehicle in the stand lane');
   probe.status = priorStatus;
 }
@@ -128,6 +134,9 @@ assert(harness.runUntil(() => {
   const blockers = harness.simulation.state.serviceVehicles.filter((vehicle) => vehicle.flightId === arrival.id && ['approaching', 'servicing', 'clearing'].includes(vehicle.status));
   return blockers.length === 0;
 }, 180), 'service vehicles never cleared the stand lane');
+harness.simulation.setMode('assisted');
+assert(harness.simulation.clearanceProposals().some((proposal) => proposal.flightId === arrival.id && proposal.action === 'pushback'), 'Assisted mode did not propose pushback after the stand cleared');
+harness.simulation.setMode('manual');
 assert(harness.simulation.clearPushback(arrival.id), 'Ramp could not clear pushback after the stand was physically clear');
 
 const snapshot = harness.snapshot();
@@ -148,6 +157,7 @@ console.log(JSON.stringify({
   lifecycleEventCounts,
   sharedLedgerConflict: true,
   pushbackStandClearance: true,
+  pushbackProposalStandClearance: true,
 }));
 `;
 
@@ -155,20 +165,20 @@ const result = await build({
   absWorkingDir: process.cwd(),
   stdin: {
     contents: validationSource,
-    loader: 'ts',
+    loader: "ts",
     resolveDir: process.cwd(),
-    sourcefile: 'service-vehicle-validation.ts',
+    sourcefile: "service-vehicle-validation.ts",
   },
   bundle: true,
-  platform: 'node',
-  format: 'esm',
+  platform: "node",
+  format: "esm",
   write: false,
-  logLevel: 'silent',
+  logLevel: "silent",
 });
 
-const source = Buffer.from(result.outputFiles[0].contents).toString('base64');
+const source = Buffer.from(result.outputFiles[0].contents).toString("base64");
 try {
-  await import('data:text/javascript;base64,' + source);
+  await import("data:text/javascript;base64," + source);
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;

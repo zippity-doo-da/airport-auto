@@ -23,12 +23,12 @@ function assert(condition, message) {
 }
 
 assert(CONTROL_PROTOCOL_VERSION === '1.2.0', 'control protocol version changed unexpectedly');
-assert(CONTROL_API_VERSION === '2.32.0', 'control API version changed unexpectedly');
-assert(CONTROL_SNAPSHOT_SCHEMA_VERSION === 34, 'snapshot schema version changed unexpectedly');
+assert(CONTROL_API_VERSION === '2.33.0', 'control API version changed unexpectedly');
+assert(CONTROL_SNAPSHOT_SCHEMA_VERSION === 35, 'snapshot schema version changed unexpectedly');
 assert(CONTROL_REPLAY_SCHEMA_VERSION === 2, 'replay schema version changed unexpectedly');
 
 const definitions = Object.values(AIRPORT_CONTROL_COMMAND_DEFINITIONS);
-assert(definitions.length === 86, 'formal command catalog count changed unexpectedly');
+assert(definitions.length === 87, 'formal command catalog count changed unexpectedly');
 assert(new Set(definitions.map((definition) => definition.action)).size === definitions.length, 'command actions are not unique');
 assert(definitions.every((definition) => definition.schema.additionalProperties === false), 'a command schema permits unknown parameters');
 assert(definitions.every((definition) => definition.compatibility.protocolMajor === 1), 'a command has the wrong protocol major');
@@ -48,6 +48,7 @@ assert(!validateAirportControlCommand({ action: 'pause', surprise: true }).valid
 assert(!validateAirportControlCommand({ action: 'setSpeed', value: Number.NaN }).valid, 'non-finite command number was accepted');
 assert(validateAirportControlCommand({ action: 'issueRouteAmendment', flightId: 1 }).valid, 'optional route fix list became required');
 assert(validateAirportControlCommand({ action: 'setControllerPolicyPreset', preset: 'realistic' }).valid, 'controller policy command was rejected');
+assert(validateAirportControlCommand({ action: 'setAirportLifeVisible', enabled: true }).valid, 'airport-life presentation command was rejected');
 assert(!validateAirportControlCommand({ action: 'setControllerPolicyPreset', preset: 'reckless' }).valid, 'unknown controller policy was accepted');
 
 const envelope = {

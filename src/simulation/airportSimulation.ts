@@ -36,6 +36,7 @@ import type {
   WeatherCondition,
 } from './types';
 import { aircraftProfile, type AircraftModel } from './aircraftProfiles';
+import { createAircraftOperationalDetail } from './aircraftOperations';
 import { airlineProfile, type AirlineCode } from './airlineProfiles';
 import { aircraftCollisionEnvelope, detectCommittedRunwaySweepConflict, detectFlightConflict, findFlightConflicts, findObstacleConflicts, findProposedConflict } from './collisionDetection';
 import { findSurfaceRoute, sampleSurfaceRouteWithEdges, surfacePushbackPlan, surfaceRouteCrossingWindows, surfaceRouteForFlight, surfaceRouteRunwayCrossings, validateAirportSurfaceGraph, type SurfaceGraphValidation, type SurfaceRoute, type SurfaceRouteCrossingWindow, type SurfaceRoutePlanning } from './surfaceGraph';
@@ -151,9 +152,11 @@ function serviceVehicleSurfacePriority(vehicle: ServiceVehicleState): number {
   // connector clears toward staging, while outbound equipment already on the
   // graph clears away from it. A follower waits at the preceding resource.
   if (vehicle.status === 'dispatching' && vehicle.currentEdge === undefined && vehicle.progress > 1e-6) return 0;
-  if (vehicle.status === 'returning' && vehicle.currentEdge !== undefined) return 0;
+  // Once a returner leaves staging, retain ownership through the graph merge.
+  // Sorting by raw progress here allowed a later inbound dispatcher to take
+  // the connector on the next tick and stop both vehicles nose-to-nose.
+  if (vehicle.status === 'returning' && vehicle.progress > 1e-6) return 0;
   if (vehicle.currentEdge !== undefined) return 1;
-  if (vehicle.status === 'returning' && vehicle.progress > 1e-6) return 1;
   // A returner waiting exactly at staging gets the next release so following
   // equipment cannot clear through its parked position.
   if (vehicle.status === 'returning' && vehicle.progress <= 1e-6) return 2;
@@ -1173,7 +1176,14 @@ export class AirportSimulation {
           label: 'Issue go-around', reason: flight.safetyHoldReason ?? 'Protected approach spacing cannot be maintained.', priority: 'urgent',
         });
       }
-      if (flight.phase === 'resting' && flight.turnaround.status === 'ready' && !flight.pushbackCleared) {
+      if (
+        flight.phase === 'resting'
+        && flight.turnaround.status === 'ready'
+        && !flight.pushbackCleared
+        && !serviceVehiclesBlockingPushback(this.state.serviceVehicles, flight.id).length
+        && flight.deicing.status !== 'unavailable'
+        && !this.state.runwayConfigurationTransition
+      ) {
         proposals.push({
           id: `${flight.id}:pushback`, flightId: flight.id, action: 'pushback', station: 'ramp',
           label: `Push ${flight.pushbackDirection}`,
@@ -1363,6 +1373,13 @@ export class AirportSimulation {
     if (flight.pushbackCleared) return this.rejectDecision('pushback is already cleared', flight);
     if (this.state.runwayConfigurationTransition) return this.rejectDecision('pushback held while the runway plan changes', flight);
     if (this.selectDepartureRunway(flight) === null) return this.rejectDecision('no compatible departure runway is available', flight);
+    const surfaceTraffic = this.pushbackSurfaceBlocker(flight);
+    if (surfaceTraffic) {
+      return this.rejectDecision(
+        `pushback held: ${surfaceTraffic.callsign} occupies the protected pushback corridor`,
+        flight,
+      );
+    }
     if (winterDeicingRequired(this.state.weather) && flight.deicing.status === 'unavailable') {
       return this.rejectDecision('pushback held: no compatible winter route to a deicing pad', flight);
     }
@@ -2462,7 +2479,7 @@ export class AirportSimulation {
     this.updateRouteReadbacks();
     this.metrics.maxConcurrent = Math.max(this.metrics.maxConcurrent, this.state.flights.length);
     this.updateDeicingOperations(delta);
-    this.coordinateAutomaticSurfaceTraffic();
+    this.coordinateAutomaticSurfaceTraffic(delta);
     this.updateServiceVehicles(delta);
 
     for (const flight of this.state.flights) {
@@ -3055,6 +3072,7 @@ export class AirportSimulation {
           targetFuelPercent: flight.fuelPlan.departure.dispatchFuelPercent,
           scope: this.config.scope,
           scheduledGateInSeconds,
+          operationalDetail: flight.operationalDetail,
         });
         scheduleTurnaround(flight.turnaround, scheduledGateInSeconds);
       }
@@ -3166,23 +3184,57 @@ export class AirportSimulation {
     if (!departureRunways.length) return;
     const operationState = airportOperationStateAt(this.config.operationProfile, this.state.elapsed);
     const requestedDepartures = Math.max(1, Math.round(target * operationState.mix.departureShare));
-    const departureTarget = Math.min(target, departureRunways.length, requestedDepartures);
+    // A hub opens with both sides of the operation visible. Reserving one
+    // initial entity slot for an approach also prevents a departure-only bank
+    // from filling the active-traffic cap before the first arrival demand can
+    // enter terminal airspace.
+    const maximumOpeningDepartures = target >= 2 ? target - 1 : target;
+    // Two moving departures are enough to establish simultaneous hub flow.
+    // Capping the generic bank also leaves the third successfully admitted
+    // aircraft as an arrival when later candidates fail stand compatibility.
+    // ORD alone keeps the requested live gate turn when at least four slots
+    // are available, matching its denser imported surface and stand graph.
+    const openingDepartureLimit = this.config.code === 'ORD' && target >= 4 ? 3 : 2;
+    const departureTarget = Math.min(
+      maximumOpeningDepartures,
+      openingDepartureLimit,
+      departureRunways.length,
+      requestedDepartures,
+    );
     const liveTurnAtStartup = this.config.code === 'ORD' && departureTarget >= 3;
-    for (let index = 0; index < target; index += 1) {
+    let seeded = 0;
+    let attempts = 0;
+    const maximumAttempts = target * 4;
+    while (seeded < target && attempts < maximumAttempts) {
+      const index = seeded;
+      const candidateId = this.nextId;
+      attempts += 1;
       const aircraft = this.spawnFlight();
-      if (!aircraft) break;
+      if (!aircraft) {
+        // Performance and stand planning can reject a particular deterministic
+        // traffic-program candidate while advancing to the next one. Preserve
+        // the initial bank in that case; stop only when retrying would repeat
+        // the same admission decision against unchanged airport state.
+        if (this.nextId === candidateId) break;
+        continue;
+      }
       const flight = this.state.flights[this.state.flights.length - 1];
       if (index >= departureTarget) {
+        seeded += 1;
         syncFlightMotion(this.config, flight);
         continue;
       }
       const compatible = departureRunways.filter((runway) => runwaySupportsAircraft(runway, aircraft, 'takeoff'));
-      if (!flight || !compatible.length) continue;
+      if (!flight || !compatible.length) {
+        seeded += 1;
+        continue;
+      }
       const runway = compatible[index % compatible.length];
-      // Start one departure taxiing and one push-ready. ORD also receives one
-      // live turn, preserving immediate ramp-service activity without making
-      // smaller hub schematics reuse an occupied stand.
-      const taxiing = index === 0;
+      // A center-scale hub opens with two departures already moving on
+      // independently reserved taxi routes; the next departure remains a
+      // live turn so the ramp is active too. Smaller schematics keep a single
+      // taxiing departure to avoid reusing their limited stand geometry.
+      const taxiing = index < (this.config.scope === 'center' ? Math.min(2, departureTarget) : 1);
       const servicing = liveTurnAtStartup && index === 2;
       flight.runway = runway.id;
       flight.departureRunway = runway.id;
@@ -3276,6 +3328,7 @@ export class AirportSimulation {
       }
       syncFlightMotion(this.config, flight);
       this.events = this.events.filter((event) => !(event.flight.id === flight.id && event.type === 'auto-clear'));
+      seeded += 1;
     }
   }
 
@@ -3328,7 +3381,14 @@ export class AirportSimulation {
       ? unblocked
       : unblocked.filter((runway) => !releaseReasons.get(runway.id));
     const usable = released.filter((runway) => this.headwindComponent(runway.id) >= -5);
-    let candidates = (usable.length ? usable : released).sort((first, second) => this.headwindComponent(second.id) - this.headwindComponent(first.id));
+    let candidates = (usable.length ? usable : released).sort((first, second) => (
+      this.headwindComponent(second.id) - this.headwindComponent(first.id)
+      // Parallel runway ends commonly have the same wind component. Prefer
+      // the longer pavement in that tie so heavy arrivals retain enough room
+      // to reach a graph-connected, performance-safe exit.
+      || second.length - first.length
+      || first.id - second.id
+    ));
     if (options.requestedArrivalRunwayId !== undefined) {
       candidates = candidates.filter((runway) => runway.id === options.requestedArrivalRunwayId);
       if (!candidates.length) {
@@ -3371,6 +3431,15 @@ export class AirportSimulation {
     });
     const origin = trafficSelection.market;
     const nextDestination = departureSelection.market;
+    const operationalDetail = createAircraftOperationalDetail({
+      flightId: id,
+      airportSeed: this.config.seed,
+      aircraft,
+      service,
+      trafficClass,
+      origin,
+      destination: nextDestination,
+    });
     const fuelPlan = createFlightFuelPlan({
       aircraft,
       arrivalOrigin: origin,
@@ -3390,6 +3459,7 @@ export class AirportSimulation {
       targetFuelPercent: fuelPlan.departure.dispatchFuelPercent,
       scope: this.config.scope,
       scheduledGateInSeconds: 0,
+      operationalDetail,
     });
     const gateAssignment = planGateAssignment({
       config: this.config,
@@ -3471,6 +3541,7 @@ export class AirportSimulation {
       navigation: this.navigationFor(selectedProcedure, 'arrival'),
       fuelPlan,
       turnaround,
+      operationalDetail,
       deicing: createDeicingState(),
       category: profile.category,
       wakeClass: profile.wakeClass,
@@ -3912,7 +3983,7 @@ export class AirportSimulation {
    * authority while the safety layer still stops an aircraft from entering an
    * edge physically occupied by slower service equipment.
    */
-  private coordinateAutomaticSurfaceTraffic(): void {
+  private coordinateAutomaticSurfaceTraffic(deltaSeconds: number): void {
     const surfaceFlights = this.state.flights.filter((flight): flight is Flight & { phase: 'taxi-in' | 'taxi-out' } => (
       flight.phase === 'taxi-in' || flight.phase === 'taxi-out'
     ));
@@ -3952,21 +4023,39 @@ export class AirportSimulation {
       reservations.reserve(serviceVehicleOwnerId(vehicle), serviceVehicleReservationClaims(this.config.surfaceGraph, vehicle, 0));
     }
     for (const flight of candidates) {
+      const coordinationHold = this.surfaceHandoffHoldReason(flight);
+      const pushbackBlocker = this.activePushbackCorridorBlocker(flight);
+      if (pushbackBlocker) {
+        flight.automaticHold = true;
+        flight.automaticHoldReason = `pushback corridor protected for ${pushbackBlocker.callsign}`;
+        continue;
+      }
+      // Collision arbitration runs after the reservation pass, so safetyHold
+      // describes a mover that was unable to advance on the preceding fixed
+      // tick. Its current edge/node occupancy was seeded above and remains
+      // protected, but extending twelve edges of lookahead from a stationary
+      // aircraft can starve the traffic that must clear its conflict. Rejoin
+      // normal lookahead arbitration as soon as the safety hold releases.
+      if (flight.safetyHold) {
+        flight.automaticHold = Boolean(coordinationHold);
+        flight.automaticHoldReason = coordinationHold ?? undefined;
+        continue;
+      }
       const claims = surfaceRouteReservationClaims(
         this.config.surfaceGraph,
         flight.surfaceRoute,
         flight.surfaceRouteEdges,
         flight.progress,
         flight.phase,
-        // Imported OSM centerlines often split one physical junction into
-        // several short edges. Six local edges is still a compact reservation
-        // but reaches the shared node early enough to avoid nose-to-nose
-        // gridlock before the collision envelope becomes the final stop.
-        6,
+        // Imported OSM centerlines can alternate between very short geometry
+        // fragments and long taxiway sections. Twelve local edges gives a
+        // transport-category aircraft enough pavement to decelerate before a
+        // shared node, instead of discovering opposing flow only after both
+        // noses are committed to the same junction.
+        12,
       );
       const conflict = reservations.firstConflictDetail(claims, flight.id);
       const vehicleConflict = typeof conflict?.ownerId === 'string' && conflict.ownerId.startsWith('vehicle:');
-      const coordinationHold = this.surfaceHandoffHoldReason(flight);
       const reservationHold = vehicleConflict || (this.stationRunsAutomatically('ground') && Boolean(conflict));
       const shouldHold = Boolean(coordinationHold) || reservationHold;
       if (reservationHold && !flight.automaticHold) this.metrics.preventedConflicts += 1;
@@ -3987,9 +4076,12 @@ export class AirportSimulation {
       const wasHeld = vehicle.held;
       const claims = serviceVehicleReservationClaims(this.config.surfaceGraph, vehicle, 1);
       const conflict = reservations.firstConflictDetail(claims, serviceVehicleOwnerId(vehicle));
-      vehicle.held = Boolean(conflict);
-      vehicle.holdReason = conflict ? this.surfaceReservationConflictReason(conflict.claim) : undefined;
-      if (!conflict) reservations.reserve(serviceVehicleOwnerId(vehicle), claims);
+      const physicalHoldReason = conflict ? undefined : this.serviceVehiclePhysicalHoldReason(vehicle, deltaSeconds);
+      vehicle.held = Boolean(conflict || physicalHoldReason);
+      vehicle.holdReason = conflict
+        ? this.surfaceReservationConflictReason(conflict.claim)
+        : physicalHoldReason;
+      if (!vehicle.held) reservations.reserve(serviceVehicleOwnerId(vehicle), claims);
       const flight = this.state.flights.find((candidate) => candidate.id === vehicle.flightId);
       if (!flight || wasHeld === vehicle.held) continue;
       this.events.push({
@@ -4003,6 +4095,59 @@ export class AirportSimulation {
         serviceVehicleStatus: vehicle.status,
       });
     }
+  }
+
+  /**
+   * Resource claims protect graph segments and named stand lanes. A one-step
+   * pose preview closes the remaining geometric gap where two differently
+   * named stand-side paths can still pass through the same physical space.
+   */
+  private serviceVehiclePhysicalHoldReason(vehicle: ServiceVehicleState, deltaSeconds: number): string | undefined {
+    if (!['dispatching', 'approaching', 'clearing', 'returning'].includes(vehicle.status)) return undefined;
+    const preview: ServiceVehicleState = {
+      ...vehicle,
+      outboundRoute: [...vehicle.outboundRoute],
+      outboundRouteEdges: [...vehicle.outboundRouteEdges],
+      returnRoute: [...vehicle.returnRoute],
+      returnRouteEdges: [...vehicle.returnRouteEdges],
+      standPath: vehicle.standPath.map((point) => [...point]),
+      held: false,
+      holdReason: undefined,
+    };
+    // Look far enough ahead to stop before the rendered envelopes touch even
+    // when this vehicle is already at ramp speed. The authoritative vehicle
+    // remains at its current pose until the corridor becomes clear.
+    advanceServiceVehicleMotion(this.config.surfaceGraph, preview, Math.max(deltaSeconds, 0.45));
+    // The graph ledger already arbitrates vehicles travelling between stands,
+    // including shared depot routes, taxiway fragments, and intersections.
+    // Restrict this extra geometric preview to the stand whose independently
+    // named left/right paths can overlap in world space. Applying it across
+    // the whole airport makes two graph-protected vehicles yield to each
+    // other's stationary pose and can deadlock otherwise valid service flow.
+    const others = this.state.serviceVehicles.filter((candidate) => (
+      candidate.id !== vehicle.id
+      && candidate.standId === vehicle.standId
+      // A vehicle already clearing the aircraft has right-of-way over idle
+      // equipment staged on the opposite service side. Their fanned staging
+      // envelopes can touch at center scale, but the graph junction and exact
+      // route claims still sequence the actual merge. Holding the returner
+      // here creates a cycle: the staged vehicle cannot approach until the
+      // returner's same-side follower has vacated its lane.
+      && !(
+        (vehicle.status === 'clearing' || vehicle.status === 'returning')
+        && candidate.status === 'staged'
+        && candidate.standSide !== vehicle.standSide
+      )
+    ));
+    const conflict = findServiceVehicleConflicts(this.config, [preview, ...others], this.state.flights)
+      .find((candidate) => candidate.vehicle === preview.id || candidate.otherVehicle === preview.id);
+    if (!conflict) return undefined;
+    if (conflict.otherVehicle) {
+      const other = this.state.serviceVehicles.find((candidate) => candidate.id === conflict.otherVehicle);
+      return `${other?.label ?? conflict.otherVehicle} occupies the service-vehicle safety envelope`;
+    }
+    const flight = this.state.flights.find((candidate) => candidate.id === conflict.flight);
+    return `${flight?.callsign ?? 'aircraft'} occupies the service-vehicle safety envelope`;
   }
 
   private surfaceReservationConflictReason(claim: SurfaceReservationClaim): string {
@@ -5635,6 +5780,22 @@ export class AirportSimulation {
   }
 
   private tryPrepositionServiceVehicle(flight: Flight, vehicle: ServiceVehicleState): boolean {
+    const standInUseByAnotherFlight = this.state.flights.some((candidate) => (
+      candidate.id !== flight.id
+      && candidate.standId === vehicle.standId
+      && (candidate.phase === 'taxi-in' || candidate.phase === 'resting')
+    ));
+    const incumbentEquipmentStillActive = this.state.serviceVehicles.some((candidate) => (
+      candidate.id !== vehicle.id
+      && candidate.flightId !== flight.id
+      && candidate.standId === vehicle.standId
+      && candidate.status !== 'scheduled'
+      && candidate.status !== 'complete'
+    ));
+    // A future gate reservation does not authorize early equipment access.
+    // Keep the next turn at ramp staging until the incumbent aircraft and its
+    // service convoy have both released the physical stand envelope.
+    if (standInUseByAnotherFlight || incumbentEquipmentStillActive) return false;
     const preview: ServiceVehicleState = {
       ...vehicle,
       outboundRoute: [...vehicle.outboundRoute],
@@ -5691,6 +5852,12 @@ export class AirportSimulation {
       const detail = transition.type === 'turnaround-ready'
         ? 'all required services complete · pushback eligible'
         : `${task?.label ?? transition.service} ${transition.type === 'service-start' ? 'started' : 'complete'}`;
+      if (transition.service === 'maintenance' && transition.type === 'service-start') {
+        flight.operationalDetail.airworthinessStatus = 'out-of-service';
+      } else if (transition.service === 'maintenance' && transition.type === 'service-complete') {
+        flight.operationalDetail.airworthinessStatus = 'serviceable';
+        flight.operationalDetail.returnToServiceAtSeconds = this.state.elapsed;
+      }
       this.events.push({
         type: transition.type,
         flight,
@@ -5786,6 +5953,143 @@ export class AirportSimulation {
       taxiway: flight.taxiway,
       detail: `${automatic ? 'automatic' : 'ground'} · push ${flight.pushbackDirection}`,
     });
+  }
+
+  /** Protect the complete tug-release corridor before the aircraft moves. */
+  private pushbackSurfaceBlocker(flight: Flight): Flight | undefined {
+    const runway = this.selectDepartureRunway(flight);
+    if (runway === null) return undefined;
+    const preview: Flight = {
+      ...flight,
+      phase: 'taxi-out',
+      progress: 0,
+      phaseElapsed: 0,
+      runway,
+      departureRunway: runway,
+      operatingEnd: this.preferredOperatingEnd(runway),
+      deicing: { ...flight.deicing },
+      kinematics: { ...flight.kinematics },
+      motion: { ...flight.motion },
+      requiredCrossings: [...(flight.requiredCrossings ?? [])],
+      crossingClearances: [...(flight.crossingClearances ?? [])],
+      crossingClearanceIds: [...(flight.crossingClearanceIds ?? [])],
+      surfaceRoute: flight.surfaceRoute ? [...flight.surfaceRoute] : undefined,
+      surfaceRouteEdges: flight.surfaceRouteEdges ? [...flight.surfaceRouteEdges] : undefined,
+      surfaceCongestedEdgeIds: flight.surfaceCongestedEdgeIds ? [...flight.surfaceCongestedEdgeIds] : undefined,
+      surfaceReroute: flight.surfaceReroute
+        ? {
+            ...flight.surfaceReroute,
+            disruptionIds: [...flight.surfaceReroute.disruptionIds],
+            previousEdgeIds: [...flight.surfaceReroute.previousEdgeIds],
+            routeEdgeIds: [...flight.surfaceReroute.routeEdgeIds],
+          }
+        : undefined,
+    };
+    this.assignSurfaceRoute(preview, 'taxi-out');
+    if (!preview.surfaceRouteEdges?.length) return undefined;
+    syncFlightMotion(this.config, preview);
+    const corridorEnd = Math.min(0.12, Math.max(0.055, preview.pushbackReleaseProgress + 0.035));
+    const previewWake = aircraftProfile(preview.aircraft).wakeClass;
+    const previewProxies = Array.from({ length: 21 }, (_, sampleIndex) => (
+      aircraftCollisionEnvelope(this.config, preview, corridorEnd * sampleIndex / 20)
+    ));
+    const gateZoneId = flight.gateAssignment?.zoneId;
+    const candidates = this.state.flights
+      .filter((candidate) => (
+        candidate.id !== flight.id
+        && (candidate.phase === 'taxi-in' || candidate.phase === 'taxi-out')
+        && !(
+          candidate.safetyHold
+          && candidate.safetyHoldReason?.includes(`flight ${flight.id}`)
+        )
+      ))
+      .sort((first, second) => (
+        (first.phase === 'taxi-in' ? 0 : 1) - (second.phase === 'taxi-in' ? 0 : 1)
+        || second.progress - first.progress
+        || first.id - second.id
+      ));
+    for (const candidate of candidates) {
+      const candidateWake = aircraftProfile(candidate.aircraft).wakeClass;
+      const sameInboundRamp = candidate.phase === 'taxi-in'
+        && gateZoneId !== undefined
+        && candidate.gateAssignment?.zoneId === gateZoneId;
+      const corridorSeconds = preview.duration * corridorEnd + 24;
+      const candidateHorizon = Math.min(
+        1,
+        candidate.progress + corridorSeconds / Math.max(1, candidate.duration),
+      );
+      const candidateProxies = sameInboundRamp
+        ? Array.from({ length: 41 }, (_, sampleIndex) => (
+            aircraftCollisionEnvelope(
+              this.config,
+              candidate,
+              candidate.progress + (candidateHorizon - candidate.progress) * sampleIndex / 40,
+            )
+          ))
+        : [aircraftCollisionEnvelope(this.config, candidate)];
+      for (const previewProxy of previewProxies) {
+        for (const candidateProxy of candidateProxies) {
+          const conflict = detectFlightConflict(
+            previewProxy,
+            candidateProxy,
+            previewWake,
+            candidateWake,
+            this.runwaysConflict(preview.runway, candidate.runway),
+            false,
+          );
+          if (conflict?.type === 'surface') return candidate;
+        }
+      }
+    }
+    return undefined;
+  }
+
+  /** A cleared push owns its geometric corridor even when OSM alleys differ. */
+  private activePushbackCorridorBlocker(flight: Flight): Flight | undefined {
+    if (flight.phase !== 'taxi-in') return undefined;
+    const flightWake = aircraftProfile(flight.aircraft).wakeClass;
+    for (const departure of this.state.flights
+      .filter((candidate) => (
+        candidate.id !== flight.id
+        && candidate.phase === 'taxi-out'
+        && candidate.gateAssignment?.zoneId === flight.gateAssignment?.zoneId
+      ))
+      .sort((first, second) => first.id - second.id)) {
+      const corridorEnd = Math.min(
+        0.12,
+        Math.max(0.055, departure.pushbackReleaseProgress + 0.035),
+      );
+      if (departure.progress >= corridorEnd - 1e-6) continue;
+      const departureWake = aircraftProfile(departure.aircraft).wakeClass;
+      const departureProxies = Array.from({ length: 21 }, (_, sampleIndex) => (
+        aircraftCollisionEnvelope(
+          this.config,
+          departure,
+          departure.progress + (corridorEnd - departure.progress) * sampleIndex / 20,
+        )
+      ));
+      const inboundProxies = Array.from({ length: 41 }, (_, sampleIndex) => (
+        aircraftCollisionEnvelope(
+          this.config,
+          flight,
+          flight.progress + (1 - flight.progress) * sampleIndex / 40,
+        )
+      ));
+      for (const departureProxy of departureProxies) {
+        for (const inboundProxy of inboundProxies) {
+          const conflict = detectFlightConflict(
+            departureProxy,
+            inboundProxy,
+            departureWake,
+            flightWake,
+            this.runwaysConflict(departure.runway, flight.runway),
+            false,
+          );
+          if (conflict?.type === 'surface') return departure;
+        }
+      }
+    }
+    return undefined;
   }
 
   private updatePushbackState(flight: Flight): void {

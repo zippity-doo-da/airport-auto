@@ -1,21 +1,23 @@
-import type { RunwayConfig } from './airportConfig';
-import { aircraftProfile, type AircraftModel } from './aircraftProfiles';
+import type { RunwayConfig } from "./airportConfig";
+import { aircraftProfile, type AircraftModel } from "./aircraftProfiles";
 
-export type RunwayOperation = 'landing' | 'takeoff';
+export type RunwayOperation = "landing" | "takeoff";
 
 export const WORLD_METERS_PER_UNIT = 38;
 
 /**
- * Conservative dispatch lengths for the simplified aircraft model. The
- * profile values describe the nominal ground roll; the extra margin accounts
- * for lineup, rotation, touchdown dispersion, braking variability, and runway
- * remaining at the end of the maneuver.
+ * Conservative planning lengths from the audited aircraft catalog. Physical
+ * roll remains separate so animation distance is not mistaken for the full
+ * runway requirement.
  */
-export function requiredRunwayLengthM(aircraft: AircraftModel, operation: RunwayOperation): number {
+export function requiredRunwayLengthM(
+  aircraft: AircraftModel,
+  operation: RunwayOperation,
+): number {
   const profile = aircraftProfile(aircraft);
-  return operation === 'takeoff'
-    ? profile.takeoffRollM * 1.08 + 100
-    : profile.landingRollM * 1.12 + 180;
+  return operation === "takeoff"
+    ? profile.takeoffRunwayRequiredM
+    : profile.landingRunwayRequiredM;
 }
 
 export function runwayLengthM(runway: RunwayConfig): number {

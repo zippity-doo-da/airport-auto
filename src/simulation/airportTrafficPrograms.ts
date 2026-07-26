@@ -72,9 +72,10 @@ interface SelectionInput {
 }
 
 const DOMESTIC_FLEET: WeightedAircraft[] = [
-  { model: "A320", weight: 0.34 },
-  { model: "B738", weight: 0.34 },
-  { model: "A21N", weight: 0.2 },
+  { model: "A223", weight: 0.13 },
+  { model: "A320", weight: 0.27 },
+  { model: "B738", weight: 0.29 },
+  { model: "A21N", weight: 0.19 },
   { model: "B789", weight: 0.07 },
   { model: "A359", weight: 0.05 },
 ];
@@ -86,16 +87,18 @@ const INTERNATIONAL_FLEET: WeightedAircraft[] = [
   { model: "A21N", weight: 0.06 },
 ];
 const REGIONAL_FLEET: WeightedAircraft[] = [
-  { model: "E175", weight: 0.68 },
-  { model: "Q400", weight: 0.32 },
+  { model: "E175", weight: 0.56 },
+  { model: "AT76", weight: 0.2 },
+  { model: "Q400", weight: 0.24 },
 ];
 const CARGO_FLEET: WeightedAircraft[] = [
-  { model: "B77F", weight: 0.88 },
-  { model: "B738", weight: 0.12 },
+  { model: "B77F", weight: 0.6 },
+  { model: "B76F", weight: 0.4 },
 ];
 const GENERAL_AVIATION_FLEET: WeightedAircraft[] = [
-  { model: "PC12", weight: 0.58 },
-  { model: "C680", weight: 0.42 },
+  { model: "C172", weight: 0.34 },
+  { model: "PC12", weight: 0.38 },
+  { model: "C680", weight: 0.28 },
 ];
 
 const HUB_BANKS = {
@@ -1259,9 +1262,11 @@ const LOCAL_PROGRAM = program(
       0.56,
       { standSector: [0, 1], label: "local passenger stands" },
       [
-        { model: "PC12", weight: 0.48 },
-        { model: "Q400", weight: 0.32 },
-        { model: "E175", weight: 0.2 },
+        { model: "C172", weight: 0.2 },
+        { model: "PC12", weight: 0.25 },
+        { model: "AT76", weight: 0.2 },
+        { model: "Q400", weight: 0.2 },
+        { model: "E175", weight: 0.15 },
       ],
       true,
       1,

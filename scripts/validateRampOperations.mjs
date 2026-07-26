@@ -1,4 +1,4 @@
-import { build } from 'esbuild';
+import { build } from "esbuild";
 
 const validationSource = `
 import { generateHubConfig } from './src/simulation/airportConfig.ts';
@@ -137,6 +137,8 @@ simulation.setTrafficDensity('rush');
 let maximumSurfaceMovers = 0;
 let operationalFlights = 0;
 let congestionPlannedFlights = 0;
+let liveCongestionPlanningSamples = 0;
+let maximumOccupiedEdgesConsidered = 0;
 let alleyHoldSamples = 0;
 let rampCapacityHoldSamples = 0;
 let standHoldSamples = 0;
@@ -146,6 +148,17 @@ for (let tick = 0; tick < 6_000; tick += 1) {
   maximumSurfaceMovers = Math.max(maximumSurfaceMovers, surfaceFlights.filter((flight) => !flight.automaticHold && flight.kinematics.groundSpeedKts > 0.5).length);
   operationalFlights += surfaceFlights.filter((flight) => flight.surfaceFlowDirection && flight.rampControlZoneId).length;
   congestionPlannedFlights += surfaceFlights.filter((flight) => (flight.surfaceCongestedEdgeIds?.length ?? 0) > 0).length;
+  const livePlanning = surfaceCongestionPlanning(ord.surfaceGraph, surfaceFlights
+    .filter((flight) => flight.surfaceRoute?.length && flight.surfaceRouteEdges?.length)
+    .map((flight) => ({
+      flightId: flight.id,
+      phase: flight.phase,
+      nodeIds: flight.surfaceRoute,
+      edgeIds: flight.surfaceRouteEdges,
+      progress: flight.progress,
+    })));
+  if (livePlanning.occupiedEdgeIds.length > 0) liveCongestionPlanningSamples += 1;
+  maximumOccupiedEdgesConsidered = Math.max(maximumOccupiedEdgesConsidered, livePlanning.occupiedEdgeIds.length);
   alleyHoldSamples += surfaceFlights.filter((flight) => flight.automaticHoldReason?.includes('one-way control')).length;
   rampCapacityHoldSamples += surfaceFlights.filter((flight) => flight.automaticHoldReason?.includes('ramp-control zone')).length;
   standHoldSamples += surfaceFlights.filter((flight) => flight.automaticHoldReason?.includes('stand path')).length;
@@ -155,7 +168,19 @@ for (let tick = 0; tick < 6_000; tick += 1) {
 }
 assert(maximumSurfaceMovers >= 2, 'ramp coordinator regressed to a single global mover');
 assert(operationalFlights > 0, 'ORD flights never reported ramp-control state');
-assert(congestionPlannedFlights > 0, 'ORD routes never incorporated live congestion');
+assert(
+  liveCongestionPlanningSamples > 0 && maximumOccupiedEdgesConsidered > 0,
+  'ORD routes never considered live congestion: ' + JSON.stringify({
+    maximumSurfaceMovers,
+    operationalFlights,
+    congestionPlannedFlights,
+    liveCongestionPlanningSamples,
+    maximumOccupiedEdgesConsidered,
+    alleyHoldSamples,
+    rampCapacityHoldSamples,
+    standHoldSamples,
+  }),
+);
 
 console.log(JSON.stringify({
   syntheticClaims: outboundClaims.length + inboundClaims.length,
@@ -163,7 +188,9 @@ console.log(JSON.stringify({
   standRoutes,
   maximumSurfaceMovers,
   operationalFlightSamples: operationalFlights,
-  congestionPlannedFlightSamples: congestionPlannedFlights,
+  selectedCongestedRouteSamples: congestionPlannedFlights,
+  liveCongestionPlanningSamples,
+  maximumOccupiedEdgesConsidered,
   alleyHoldSamples,
   rampCapacityHoldSamples,
   standHoldSamples,
@@ -175,16 +202,16 @@ const result = await build({
   absWorkingDir: process.cwd(),
   stdin: {
     contents: validationSource,
-    loader: 'ts',
+    loader: "ts",
     resolveDir: process.cwd(),
-    sourcefile: 'ramp-operations-validation.ts',
+    sourcefile: "ramp-operations-validation.ts",
   },
   bundle: true,
-  platform: 'node',
-  format: 'esm',
+  platform: "node",
+  format: "esm",
   write: false,
-  logLevel: 'silent',
+  logLevel: "silent",
 });
 
-const source = Buffer.from(result.outputFiles[0].contents).toString('base64');
-await import('data:text/javascript;base64,' + source);
+const source = Buffer.from(result.outputFiles[0].contents).toString("base64");
+await import("data:text/javascript;base64," + source);

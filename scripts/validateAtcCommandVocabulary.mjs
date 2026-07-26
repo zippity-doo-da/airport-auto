@@ -16,9 +16,29 @@ function isolatedSimulation() {
   const config = generateHubConfig(0);
   const simulation = new AirportSimulation(config, 'busy');
   simulation.setMode('auto');
+  const initialFlights = simulation.state.flights.map((candidate) => ({
+    id: candidate.id,
+    phase: candidate.phase,
+    standId: candidate.standId,
+    aircraft: candidate.aircraft,
+  }));
   for (let tick = 0; tick < 3_000 && !simulation.state.flights.some((candidate) => candidate.phase === 'approach'); tick += 1) simulation.update(0.1);
   const flight = simulation.state.flights.find((candidate) => candidate.phase === 'approach');
-  assert(flight, 'ATC command validation requires an initial arrival');
+  assert(flight, 'ATC command validation requires an initial arrival: ' + JSON.stringify({
+    code: config.code,
+    scope: config.scope,
+    trafficCap: config.trafficCap,
+    initialFlights,
+    elapsed: simulation.state.elapsed,
+    flights: simulation.state.flights.map((candidate) => ({
+      id: candidate.id,
+      phase: candidate.phase,
+      progress: candidate.progress,
+      automaticHoldReason: candidate.automaticHoldReason,
+      safetyHoldReason: candidate.safetyHoldReason,
+    })),
+    flow: simulation.state.trafficFlow,
+  }));
   simulation.state.flights = [flight];
   simulation.setMode('manual');
   simulation.setStation('supervisor');

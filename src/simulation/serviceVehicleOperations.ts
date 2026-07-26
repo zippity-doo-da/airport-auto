@@ -248,10 +248,16 @@ export function serviceVehicleReservationClaims(graph: AirportSurfaceGraph, vehi
       vehicle.status === 'dispatching' ? 'taxi-in' : 'taxi-out',
       lookaheadEdges,
     )
-      // A short ramp vehicle owns its physical edge, node, and stand lane; it
-      // must not acquire airport-wide directional control of a named aircraft
-      // taxiway merely while using a service-road segment beside it.
-      .filter((claim) => claim.kind !== 'taxiway-flow')
+      // A short ramp vehicle owns its physical edge, node, and stand lane. It
+      // must not consume aircraft-scale ramp capacity or acquire directional
+      // control of a complete taxiway/alley merely while using a service-road
+      // segment beside it. Exact edge and junction claims still arbitrate
+      // every aircraft/vehicle and vehicle/vehicle encounter.
+      .filter((claim) => (
+        claim.kind !== 'taxiway-flow'
+        && claim.kind !== 'alley'
+        && claim.kind !== 'ramp-zone'
+      ))
       .map((claim) => (claim.kind === 'edge' || claim.kind === 'alley' ? { ...claim, direction: serviceVehicleOwnerId(vehicle) } : claim));
   }
   if (vehicle.status === 'staged')

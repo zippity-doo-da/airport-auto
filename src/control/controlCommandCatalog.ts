@@ -23,8 +23,8 @@ export { AIRPORT_DOMAIN_EVENT_TYPES } from "./eventTypes";
 export type { AirportDomainEventType } from "./eventTypes";
 
 export const CONTROL_PROTOCOL_VERSION = "1.2.0" as const;
-export const CONTROL_API_VERSION = "2.32.0" as const;
-export const CONTROL_SNAPSHOT_SCHEMA_VERSION = 34 as const;
+export const CONTROL_API_VERSION = "2.33.0" as const;
+export const CONTROL_SNAPSHOT_SCHEMA_VERSION = 35 as const;
 export const CONTROL_REPLAY_SCHEMA_VERSION = 2 as const;
 export const CONTROL_BROADCAST_CHANNEL = "airport-auto" as const;
 
@@ -50,6 +50,7 @@ export interface AirportControlCommandParameters {
   setWindOverlayVisible: { enabled: boolean };
   setServiceVehiclesVisible: { enabled: boolean };
   setContrailsVisible: { enabled: boolean };
+  setAirportLifeVisible: { enabled: boolean };
   setGamepadEnabled: { enabled: boolean };
   setGamepadSensitivity: { sensitivity: number };
   selectAirport: { code: string };
@@ -686,6 +687,7 @@ const COMMAND_SPECS = {
   ),
   setServiceVehiclesVisible: visibility("Show or hide service vehicles."),
   setContrailsVisible: visibility("Show or hide high-altitude contrails."),
+  setAirportLifeVisible: visibility("Show or hide optional airport-life details."),
   setGamepadEnabled: visibility("Enable or disable gamepad input."),
   setGamepadSensitivity: command(
     "presentation",

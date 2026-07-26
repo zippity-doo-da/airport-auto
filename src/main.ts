@@ -2,6 +2,7 @@ import './styles.css';
 import { AirportSimulation } from './simulation/airportSimulation';
 import { generateAirportConfig, generateHubConfig, HUB_AIRPORTS } from './simulation/airportConfig';
 import { aircraftProfile } from './simulation/aircraftProfiles';
+import { aircraftSystemsState } from './simulation/aircraftSystems';
 import { airlineProfile } from './simulation/airlineProfiles';
 import { sampleAircraftSurfaceMotion, surfaceStoppingDistanceM } from './simulation/surfaceMotion';
 import { surfaceRampControlZones, surfaceStandFlow } from './simulation/surfaceOperations';
@@ -463,6 +464,7 @@ const windOverlayArrow = $<HTMLElement>('#wind-overlay-arrow');
 const windOverlayHeading = $<HTMLElement>('#wind-overlay-heading');
 const windOverlaySpeed = $<HTMLElement>('#wind-overlay-speed');
 const serviceVehiclesToggle = $<HTMLInputElement>('#service-vehicles-toggle');
+const airportLifeToggle = $<HTMLInputElement>('#airport-life-toggle');
 const contrailsToggle = $<HTMLInputElement>('#contrails-toggle');
 const surfaceDisruptionKind = $<HTMLSelectElement>('#surface-disruption-kind');
 const surfaceDisruptionTarget = $<HTMLSelectElement>('#surface-disruption-target');
@@ -566,6 +568,7 @@ let queueInspectorFilter: OperationQueueFilter = 'all';
 let queueInspectorUiKey = '';
 let windOverlayVisible = false;
 let serviceVehiclesVisible = true;
+let airportLifeVisible = false;
 let contrailsVisible = false;
 let telemetrySequence = 0;
 let lastWeatherCondition: WeatherCondition | null = null;
@@ -848,6 +851,7 @@ for (const control of airspaceLayerControls) {
 mapOrientationToggle.addEventListener('change', () => setMapOrientationVisible(mapOrientationToggle.checked));
 windOverlayToggle.addEventListener('change', () => setWindOverlayVisible(windOverlayToggle.checked));
 serviceVehiclesToggle.addEventListener('change', () => setServiceVehiclesVisible(serviceVehiclesToggle.checked));
+airportLifeToggle.addEventListener('change', () => setAirportLifeVisible(airportLifeToggle.checked));
 contrailsToggle.addEventListener('change', () => setContrailsVisible(contrailsToggle.checked));
 menuButton.addEventListener('click', (event) => {
   event.stopPropagation();
@@ -2277,6 +2281,7 @@ function updateFlightChip(item: HTMLElement, flight: Flight): void {
   const headingDisplay = heading === 0 ? 360 : heading;
   const headingCardinal = cardinalDirection(heading);
   const operation = flightOperationLabel(flight);
+  const airportLife = airportLifeVisible ? flight.operationalDetail : null;
   const routeDisplay = `${flight.flightPlan.origin}→${flight.flightPlan.destination}`;
   const phase = held ? 'Hold' : operation;
   const assignment = flight.gateAssignment;
@@ -2320,7 +2325,7 @@ function updateFlightChip(item: HTMLElement, flight: Flight): void {
   const fuelPlan = flight.phase === 'approach' || flight.phase === 'landing' || flight.phase === 'taxi-in'
     ? `modeled arrival reserve ${flight.fuelPlan.modeledArrivalFuelPercent.toFixed(1)}% · ${flight.fuelPlan.arrival.estimatedDistanceNm.toLocaleString()} NM inbound`
     : `dispatch plan ${flight.fuelPlan.departure.dispatchFuelPercent.toFixed(1)}% · ${flight.fuelPlan.departure.estimatedDistanceNm.toLocaleString()} NM outbound`;
-  button.title = [`${routeDisplay} · ${flight.flightPlan.route.join(' · ')} · ${flight.flightPlan.procedure}`, fuelPlan, assignment?.rationale.join(' · '), flight.phase === 'resting' ? turnaroundLongSummary(flight) : ''].filter(Boolean).join(' · ');
+  button.title = [`${routeDisplay} · ${flight.flightPlan.route.join(' · ')} · ${flight.flightPlan.procedure}`, fuelPlan, airportLife?.reason, airportLife?.maintenanceReason, assignment?.rationale.join(' · '), flight.phase === 'resting' ? turnaroundLongSummary(flight) : ''].filter(Boolean).join(' · ');
   const identity = button.querySelector('.flight-chip__identity')!;
   identity.querySelector('strong')!.textContent = flight.callsign;
   identity.querySelector('span')!.textContent = phase;
@@ -2331,7 +2336,7 @@ function updateFlightChip(item: HTMLElement, flight: Flight): void {
   metrics[2].querySelector('b')!.innerHTML = `${altitude.toLocaleString()}<em>FT</em>`;
   metrics[3].querySelector('b')!.innerHTML = `${String(headingDisplay).padStart(3, '0')}<em>° ${headingCardinal}</em>`;
   const detail = button.querySelector('.flight-chip__detail')!;
-  detail.children[0].textContent = `${routeDisplay} · ${flight.aircraft} · ${trafficClass} · ${operation} · ${runwayExitDisplay ?? gateDisplay ?? `RWY ${runwayDesignation(flight.runway)}`}${runwayExitDisplay && gateDisplay ? ` · ${gateDisplay}` : ''}${gateTime ? ` · ${gateTime}` : ''}`;
+  detail.children[0].textContent = `${routeDisplay} · ${flight.aircraft} · ${trafficClass}${airportLife ? ` · ${airportLife.label}` : ''} · ${operation} · ${runwayExitDisplay ?? gateDisplay ?? `RWY ${runwayDesignation(flight.runway)}`}${runwayExitDisplay && gateDisplay ? ` · ${gateDisplay}` : ''}${gateTime ? ` · ${gateTime}` : ''}`;
   detail.children[1].textContent = held && holdDetail
     ? `HOLD · ${holdDetail.toUpperCase()}`
     : deicingChipSummary(flight)
@@ -2353,6 +2358,7 @@ function flightOperationLabel(flight: Flight): string {
   if (flight.diversion) return `Divert ${flight.diversion.airportCode}`;
   if (flight.goAround) return flight.motion.stage === 'go-around-reentry' ? 'Rejoining arrival' : 'Go around';
   if (flight.phase === 'resting') {
+    if (flight.operationalDetail.airworthinessStatus === 'out-of-service') return 'Maintenance hold';
     if (flight.turnaround.status !== 'ready') return `Turnaround ${Math.round(flight.turnaround.progress * 100)}%`;
     if (flight.deicing.status === 'unavailable') return 'Winter route unavailable';
     return flight.pushbackCleared ? 'Push cleared' : flight.deicing.status === 'planned' ? 'Ready · deice planned' : 'Ready push';
@@ -3433,6 +3439,13 @@ function setStatus(label: string, detail: string): void {
   statusDetail.textContent = detail;
 }
 
+function setAirportLifeVisible(visible: boolean): void {
+  airportLifeVisible = visible;
+  airportLifeToggle.checked = visible;
+  lastFlightStripRender = -Infinity;
+  renderFlightStrip();
+}
+
 function updateRemoteControlHostUi(state: RemoteControlHostState = remoteControlHost.state()): void {
   if (state.connected) remoteHostToken.value = '';
   remoteHostState.dataset.state = state.status;
@@ -3751,6 +3764,7 @@ function updateAirportUi(): void {
   windOverlay.hidden = !windOverlayVisible;
   serviceVehiclesToggle.checked = serviceVehiclesVisible;
   world.setServiceVehiclesVisible(serviceVehiclesVisible);
+  airportLifeToggle.checked = airportLifeVisible;
   contrailsToggle.checked = contrailsVisible;
   world.setContrailsVisible(contrailsVisible);
   radarAirport.textContent = config.code;
@@ -4226,6 +4240,7 @@ function airportSnapshot() {
     queueInspectorVisible,
     windOverlayVisible,
     serviceVehiclesVisible,
+    airportLifeVisible,
     contrailsVisible,
     station: simulation.state.station,
     selection: {
@@ -4493,6 +4508,7 @@ function airportSnapshot() {
       flightNumber: flight.flightNumber,
       registration: flight.registration,
       service: flight.service,
+      operationalDetail: { ...flight.operationalDetail },
       operationPlan: { ...flight.operationPlan },
       flightPlan: cloneFlightPlan(flight.flightPlan),
       flightPlanHistory: flight.flightPlanHistory.map(cloneFlightPlan),
@@ -4515,15 +4531,20 @@ function airportSnapshot() {
         name: aircraftProfile(flight.aircraft).name,
         manufacturer: aircraftProfile(flight.aircraft).manufacturer,
         category: flight.category,
+        fleetRole: aircraftProfile(flight.aircraft).fleetRole,
         wakeClass: flight.wakeClass,
         lengthM: aircraftProfile(flight.aircraft).lengthM,
         wingspanM: aircraftProfile(flight.aircraft).wingspanM,
+        heightM: aircraftProfile(flight.aircraft).heightM,
+        operatingEmptyWeightT: aircraftProfile(flight.aircraft).operatingEmptyWeightT,
         maxTakeoffWeightT: aircraftProfile(flight.aircraft).maxTakeoffWeightT,
+        maxLandingWeightT: aircraftProfile(flight.aircraft).maxLandingWeightT,
         usableFuelKg: aircraftProfile(flight.aircraft).usableFuelKg,
         nominalCruiseFuelBurnKgPerHour: aircraftProfile(flight.aircraft).nominalCruiseFuelBurnKgPerHour,
         maximumRangeNm: aircraftProfile(flight.aircraft).maximumRangeNm,
         cruiseKts: aircraftProfile(flight.aircraft).cruiseKts,
         approachKts: aircraftProfile(flight.aircraft).approachKts,
+        rotationKts: aircraftProfile(flight.aircraft).rotationKts,
         taxiKts: aircraftProfile(flight.aircraft).taxiKts,
         taxiTurnKts: aircraftProfile(flight.aircraft).taxiTurnKts,
         taxiAccelerationMps2: aircraftProfile(flight.aircraft).taxiAccelerationMps2,
@@ -4532,12 +4553,20 @@ function airportSnapshot() {
         minimumWingtipClearanceM: aircraftProfile(flight.aircraft).minimumWingtipClearanceM,
         takeoffRollM: aircraftProfile(flight.aircraft).takeoffRollM,
         landingRollM: aircraftProfile(flight.aircraft).landingRollM,
+        takeoffRunwayRequiredM: aircraftProfile(flight.aircraft).takeoffRunwayRequiredM,
+        landingRunwayRequiredM: aircraftProfile(flight.aircraft).landingRunwayRequiredM,
         climbFpm: aircraftProfile(flight.aircraft).climbFpm,
         descentFpm: aircraftProfile(flight.aircraft).descentFpm,
         accelerationMps2: aircraftProfile(flight.aircraft).accelerationMps2,
         brakingMps2: aircraftProfile(flight.aircraft).brakingMps2,
         turnRadiusM: aircraftProfile(flight.aircraft).turnRadiusM,
         wakeSeparationSeconds: aircraftProfile(flight.aircraft).wakeSeparationSeconds,
+        serviceMinutes: aircraftProfile(flight.aircraft).serviceMinutes,
+        engines: aircraftProfile(flight.aircraft).engines,
+        engineType: aircraftProfile(flight.aircraft).engineType,
+        visualFamily: aircraftProfile(flight.aircraft).visual.family,
+        dataReferenceIds: [...aircraftProfile(flight.aircraft).dataReferenceIds],
+        auditedOn: aircraftProfile(flight.aircraft).auditedOn,
       },
       category: flight.category,
       wakeClass: flight.wakeClass,
@@ -4602,6 +4631,7 @@ function airportSnapshot() {
         headingDegrees: Math.round(mathAngleToAviationDegrees(flight.motion.heading)) % 360 || 360,
         cardinalDirection: cardinalDirection(mathAngleToAviationDegrees(flight.motion.heading)),
       },
+      systems: aircraftSystemsState(flight, simulation.state.weather, simulation.state.elapsed),
       turnaround: {
         status: flight.turnaround.status,
         progress: Number(flight.turnaround.progress.toFixed(3)),
@@ -5020,6 +5050,7 @@ function executeAirportRequest(candidate: unknown, requestContext: AirportReques
   if (command.action === 'setWindOverlayVisible') setWindOverlayVisible(command.enabled);
   if (command.action === 'setServiceVehiclesVisible') setServiceVehiclesVisible(command.enabled);
   if (command.action === 'setContrailsVisible') setContrailsVisible(command.enabled);
+  if (command.action === 'setAirportLifeVisible') setAirportLifeVisible(command.enabled);
   if (command.action === 'setGamepadEnabled') {
     accepted = typeof command.enabled === 'boolean';
     if (accepted) {
@@ -5505,7 +5536,7 @@ window.airportControl = {
       events: 'airportControl.events(100)',
       protocol: 'airportControl.protocol() // command/event JSON Schemas, authority, compatibility, examples',
       validate: "airportControl.validate({ action: 'pause' }) // structural validation without execution",
-      formalDispatch: "airportControl.dispatch({ protocolVersion: '1.2.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.32.0', snapshotSchemaVersion: 34 }, command: { action: 'pause' } })",
+      formalDispatch: "airportControl.dispatch({ protocolVersion: '1.2.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.33.0', snapshotSchemaVersion: 35 }, command: { action: 'pause' } })",
       structuredCommand: "airportControl.request({ action: 'pause' }) // legacy-compatible bare command; result includes requestId, commandId, eventId, authority, and compatibility",
       pause: "airportControl.command({ action: 'pause' })",
       speed: "airportControl.command({ action: 'setSpeed', value: 2 })",
@@ -5523,6 +5554,7 @@ window.airportControl = {
       windOverlay: "airportControl.command({ action: 'setWindOverlayVisible', enabled: true })",
       serviceVehicles: "airportControl.command({ action: 'setServiceVehiclesVisible', enabled: false })",
       contrails: "airportControl.command({ action: 'setContrailsVisible', enabled: true })",
+      airportLife: "airportControl.command({ action: 'setAirportLifeVisible', enabled: true })",
       gamepad: "airportControl.request({ action: 'setGamepadEnabled', enabled: true })",
       gamepadSensitivity: "airportControl.request({ action: 'setGamepadSensitivity', sensitivity: 1.2 }) // 0.5–2.0",
       clearance: "airportControl.command({ action: 'clearFlight', flightId: 1, runway: 0 })",
@@ -5696,6 +5728,7 @@ if (launchOptions.get('queues') === '1') {
   renderQueueInspector();
 }
 if (launchOptions.get('contrails') === '1') setContrailsVisible(true);
+if (launchOptions.get('airport-life') === '1') setAirportLifeVisible(true);
 const launchScenario = (launchOptions.get('scenario') ?? (soakEnabled ? 'rush' : null)) as TrafficScenario | null;
 if (launchScenario && ['normal', 'rush', 'storm', 'closure', 'training', 'emergency'].includes(launchScenario)) setScenario(launchScenario);
 const launchDensity = launchOptions.get('density');
