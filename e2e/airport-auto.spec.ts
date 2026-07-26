@@ -1535,6 +1535,15 @@ test('Observer focus follows live traffic, airport assets, queues, and conflicts
   expect(missing.accepted).toBeFalsy();
   expect(missing.reason).toContain('not currently available');
 
+  await page.evaluate(() => window.airportControl.request({ action: 'setQueueInspectorVisible', enabled: true }));
+  await expect(page.locator('#queue-panel')).toBeVisible();
+  const queueRows = page.locator('[data-queue-focus]');
+  await expect(queueRows.first()).toBeVisible();
+  await queueRows.first().click();
+  await page.waitForFunction(() => window.airportControl.snapshot().focus.current?.kind === 'queue');
+  expect((await page.evaluate(() => window.airportControl.snapshot().renderer.camera.target?.kind))).toBe('queue');
+  await page.evaluate(() => window.airportControl.request({ action: 'setQueueInspectorVisible', enabled: false }));
+
   expect((await page.evaluate(() => window.airportControl.request({ action: 'resume' }))).accepted).toBeTruthy();
   const flightResponse = await page.evaluate((target) => window.airportControl.request({
     action: 'focusTarget',
@@ -1551,6 +1560,9 @@ test('Observer focus follows live traffic, airport assets, queues, and conflicts
     movingFlightFocus.renderer.camera.target.resolvedX - firstFlightFocus.resolvedX,
     movingFlightFocus.renderer.camera.target.resolvedY - firstFlightFocus.resolvedY,
   )).toBeGreaterThan(0.02);
+  await page.locator('#scene').focus();
+  await page.keyboard.press('f');
+  await expect(page.locator('#focus-panel')).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('observer-focus-desktop.png') });
 
   await page.keyboard.press('Escape');
@@ -1564,14 +1576,6 @@ test('Observer focus follows live traffic, airport assets, queues, and conflicts
   const released = await page.evaluate(() => window.airportControl.snapshot());
   expect(released.renderer.camera.target).toBeNull();
   await expect(page.locator('#focus-status')).toBeHidden();
-
-  await page.evaluate(() => window.airportControl.request({ action: 'setQueueInspectorVisible', enabled: true }));
-  await expect(page.locator('#queue-panel')).toBeVisible();
-  const queueRows = page.locator('[data-queue-focus]');
-  await expect(queueRows.first()).toBeVisible();
-  await queueRows.first().click();
-  await page.waitForFunction(() => window.airportControl.snapshot().focus.current?.kind === 'queue');
-  expect((await page.evaluate(() => window.airportControl.snapshot().renderer.camera.target?.kind))).toBe('queue');
 });
 
 test('Mobile Watch mode keeps non-ORD and procedural maps navigable in low detail', async ({ page }, testInfo) => {
