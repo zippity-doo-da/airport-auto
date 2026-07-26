@@ -16,6 +16,7 @@ import type {
   ChallengeId,
   ControlMode,
   ControllerPerformanceSnapshot,
+  ControllerPolicyPresetId,
   ControllerStation,
   ConflictPrediction,
   Flight,
@@ -295,6 +296,8 @@ const scenarioSelect = $<HTMLSelectElement>('#scenario-select');
 const densitySelect = $<HTMLSelectElement>('#density-select');
 const separationRulesSelect = $<HTMLSelectElement>('#separation-rules-select');
 const stationSelect = $<HTMLSelectElement>('#station-select');
+const controllerPolicySelect = $<HTMLSelectElement>('#controller-policy-select');
+const controllerPolicyDetail = $<HTMLElement>('#controller-policy-detail');
 const stationAutomationControls = [...document.querySelectorAll<HTMLInputElement>('[data-station-automation]')];
 const stationWorkloadControls = [...document.querySelectorAll<HTMLButtonElement>('[data-station-workload]')];
 const trainingLessonSelect = $<HTMLSelectElement>('#training-lesson-select');
@@ -945,6 +948,14 @@ stationSelect.addEventListener('change', () =>
     station: stationSelect.value as ControllerStation,
   }),
 );
+controllerPolicySelect.addEventListener('change', () => {
+  const result = executeAirportRequest({
+    action: 'setControllerPolicyPreset',
+    preset: controllerPolicySelect.value as ControllerPolicyPresetId,
+  });
+  updateStationAutomationUi();
+  setStatus(result.accepted ? 'Controller policy updated' : 'Controller policy unchanged', result.reason);
+});
 trainingStart.addEventListener('click', () => {
   const result = executeAirportRequest({
     action: 'startTrainingLesson',
@@ -3456,6 +3467,7 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   const nightMode = simulation.state.nightMode;
   const density = simulation.state.trafficFlow.density;
   const ruleset = simulation.state.separationRuleset;
+  const controllerPolicyPresetId = simulation.state.scriptedControllers.presetId;
   setControlPanelOpen(false);
   world.dispose();
   config = nextConfig;
@@ -3468,6 +3480,7 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
     simulation.conflictPredictions(),
   );
   simulation.setSeparationRuleset(ruleset);
+  simulation.setControllerPolicyPreset(controllerPolicyPresetId);
   simulation.setMode(mode);
   simulation.setNightMode(nightMode);
   simulation.setScenario(scenarioSelect.value as TrafficScenario);
@@ -3801,6 +3814,10 @@ function setStation(station: ControllerStation): void {
 function updateStationAutomationUi(): void {
   const supervisor = simulation.state.station === 'supervisor';
   const globallyAutomated = simulation.state.mode === 'auto' || simulation.state.mode === 'watch';
+  const policy = simulation.controllerPolicySnapshot();
+  controllerPolicySelect.value = policy.selected;
+  controllerPolicySelect.disabled = !supervisor;
+  controllerPolicyDetail.textContent = `${policy.active.summary} ${policy.active.intent}`;
   for (const control of stationAutomationControls) {
     const station = control.dataset.stationAutomation as OperationalControllerStation;
     const automated = globallyAutomated || simulation.state.stationAutomation[station];
@@ -3820,8 +3837,8 @@ function updateStationAutomationUi(): void {
     control.dataset.performance = scorecard?.status ?? 'nominal';
     control.title = scorecard ? `${scorecard.label}: ${scorecard.score}/100 · ${scorecard.summary}` : workload.label;
     control.setAttribute('aria-pressed', String(simulation.state.station === station));
-    control.querySelector('span')!.textContent = `${workload.phaseRelevantFlights} track${workload.phaseRelevantFlights === 1 ? '' : 's'}${workload.pendingHandoffs ? ` · ${workload.pendingHandoffs} inbound` : ''}`;
-    control.querySelector('i')!.textContent = `${workload.automated ? 'Auto' : 'Manual'} · ${workload.workload}${scorecard ? ` · ${scorecard.score}` : ''}`;
+    control.querySelector('span')!.textContent = `${workload.activeTracks}/${workload.trackLimit} tracks${workload.pendingHandoffs ? ` · ${workload.pendingHandoffs} inbound` : ''}`;
+    control.querySelector('i')!.textContent = `${workload.automated ? 'Auto' : 'Manual'} · ${workload.workload}${workload.queuedActions ? ` · ${workload.queuedActions} queued` : scorecard ? ` · ${scorecard.score}` : ''}`;
   }
 }
 
@@ -4100,6 +4117,7 @@ function airportSnapshot() {
     input: inputLayer.snapshot(),
     controllers: {
       automation: { ...simulation.state.stationAutomation },
+      policy: simulation.controllerPolicySnapshot(),
       scripted: structuredClone(simulation.state.scriptedControllers),
       workloads: simulation.controllerWorkloads(),
       performance: simulation.controllerPerformance(),
@@ -5131,6 +5149,11 @@ function executeAirportRequest(candidate: unknown, requestContext: AirportReques
       : 'automation station must be approach, tower, ground, or ramp';
     updateStationAutomationUi();
   }
+  if (command.action === 'setControllerPolicyPreset') {
+    accepted = simulation.setControllerPolicyPreset(command.preset);
+    reason = simulation.lastCommandReason();
+    updateStationAutomationUi();
+  }
   if (command.action === 'triggerEmergency') {
     accepted = simulation.triggerEmergency(command.flightId, command.type);
     reason = simulation.lastCommandReason();
@@ -5348,7 +5371,7 @@ window.airportControl = {
       events: 'airportControl.events(100)',
       protocol: 'airportControl.protocol() // command/event JSON Schemas, authority, compatibility, examples',
       validate: "airportControl.validate({ action: 'pause' }) // structural validation without execution",
-      formalDispatch: "airportControl.dispatch({ protocolVersion: '1.1.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.29.0', snapshotSchemaVersion: 31 }, command: { action: 'pause' } })",
+      formalDispatch: "airportControl.dispatch({ protocolVersion: '1.2.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.30.0', snapshotSchemaVersion: 32 }, command: { action: 'pause' } })",
       structuredCommand: "airportControl.request({ action: 'pause' }) // legacy-compatible bare command; result includes requestId, commandId, eventId, authority, and compatibility",
       pause: "airportControl.command({ action: 'pause' })",
       speed: "airportControl.command({ action: 'setSpeed', value: 2 })",
@@ -5404,6 +5427,7 @@ window.airportControl = {
       separationRules: "airportControl.command({ action: 'setSeparationRuleset', ruleset: 'realistic' })",
       station: "airportControl.command({ action: 'setStation', station: 'ground' })",
       stationAutomation: "airportControl.request({ action: 'setStationAutomation', station: 'tower', enabled: true }) // Supervisor",
+      controllerPolicy: "airportControl.request({ action: 'setControllerPolicyPreset', preset: 'calm' }) // Supervisor; balanced | conservative | efficient | calm | teaching | realistic",
       trainingCatalog: 'airportControl.snapshot().training.availableLessons',
       trainingStart: "airportControl.request({ action: 'startTrainingLesson', lessonId: 'arrival-basics' }) // opens an exact no-fail checkpoint",
       trainingHint: "airportControl.request({ action: 'trainingHint' })",
@@ -5436,7 +5460,7 @@ window.airportControl = {
       construction: "airportControl.request({ action: 'setSurfaceDisruption', kind: 'construction', targetId: 'edge-id', enabled: true }) // supervisor",
       reopenSurface: "airportControl.request({ action: 'clearSurfaceDisruption', disruptionId: 'SD-1' }) // supervisor",
       recoverAircraft: "airportControl.request({ action: 'recoverDisabledAircraft', flightId: 3 }) // ground or supervisor",
-      broadcast: "new BroadcastChannel('airport-auto') // send { type: 'request', envelope: { protocolVersion: '1.1.0', requestId, source: 'agent', command } }; legacy { type: 'command', requestId, command } remains supported",
+      broadcast: "new BroadcastChannel('airport-auto') // send { type: 'request', envelope: { protocolVersion: '1.2.0', requestId, source: 'agent', command } }; legacy { type: 'command', requestId, command } remains supported",
     };
   },
 };

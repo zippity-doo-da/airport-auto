@@ -4,7 +4,7 @@ Airport Auto exposes a local, versioned interface for playtests, scripted contro
 
 ## Browser API
 
-The current API version is `2.29.0`; the formal control protocol is `1.1.0`, snapshots use schema version `31`, and portable recordings use schema version `2`.
+The current API version is `2.30.0`; the formal control protocol is `1.2.0`, snapshots use schema version `32`, and portable recordings use schema version `2`.
 
 ```js
 airportControl.version;
@@ -27,8 +27,8 @@ const result = airportControl.request({
 });
 
 // {
-//   protocolVersion: '1.1.0',
-//   apiVersion: '2.29.0',
+//   protocolVersion: '1.2.0',
+//   apiVersion: '2.30.0',
 //   sessionId: 'session-…',
 //   requestId: 'req-…',
 //   commandId: 'cmd-…',
@@ -50,13 +50,13 @@ const result = airportControl.request({
 
 ## Formal protocol
 
-`airportControl.protocol()` returns a deep-cloned, machine-readable contract rather than a second hand-maintained command list. It contains all 85 command definitions, parameter and root command JSON Schemas, examples, mutation flags, authority rules, availability notes, deprecation aliases, 69 domain event types, and schemas for request, result, event, and BroadcastChannel messages. Unknown actions, missing parameters, non-JSON numbers, and additional command properties are rejected before game code runs.
+`airportControl.protocol()` returns a deep-cloned, machine-readable contract rather than a second hand-maintained command list. It contains all 86 command definitions, parameter and root command JSON Schemas, examples, mutation flags, authority rules, availability notes, deprecation aliases, 69 domain event types, and schemas for request, result, event, and BroadcastChannel messages. Unknown actions, missing parameters, non-JSON numbers, and additional command properties are rejected before game code runs.
 
 Use `validate()` for structural checks without execution. Use `dispatch()` when a controller needs explicit identity, authority, and compatibility assertions:
 
 ```js
 const result = airportControl.dispatch({
-  protocolVersion: "1.1.0",
+  protocolVersion: "1.2.0",
   requestId: crypto.randomUUID(),
   clientId: "tower-agent-a",
   source: "agent",
@@ -65,8 +65,8 @@ const result = airportControl.dispatch({
     actorId: "tower-agent-a",
   },
   expects: {
-    apiVersion: "2.29.0",
-    snapshotSchemaVersion: 31,
+    apiVersion: "2.30.0",
+    snapshotSchemaVersion: 32,
   },
   command: {
     action: "clearTakeoff",
@@ -85,7 +85,9 @@ Auto, Watch, and automated unstaffed desks use five offline scripted programs: S
 
 The current action vocabulary covers approach and landing clearances, pushback, individual route-derived runway crossings, line-up/runway entry, takeoff, EFC hold release, disabled-aircraft recovery, safety go-arounds, and all three handoff stages. Missed-handoff deadlines and surface reservations remain simulation invariants rather than discretionary controller shortcuts. Ground/Ramp ownership follows the aircraft's current graph edge and operational zone, not the ramp zone of its future stand, so a flight remains with Ground through movement-area crossings before transferring to Ramp. Selecting an operational desk marks that desk `human` immediately and leaves configured unstaffed positions `scripted`; selecting Supervisor exposes the four desk automation switches.
 
-`snapshot().controllers.scripted` is replay-safe, JSON-stable state with runtime schema/program versions, cadence and cycle counters, the next deterministic decision sequence, and one entry for each station. Station entries report `scripted`, `human`, or `inactive` mode plus evaluation, planned, accepted, and rejected counts. The bounded decision history records station, action, flight, runway/target station, stable rule ID, priority, rationale, timestamps, arbiter acceptance/result, and the event types produced. This is the deterministic baseline for later policy and LLM work; shipped gameplay never requires a model, API key, network connection, or remote service.
+Supervisor can select Balanced, Conservative, Efficient, Calm, Teaching, or Realistic Tempo policy from the normal UI or `setControllerPolicyPreset`. Each preset resolves per-station track capacity, routine action budget, minimum decision spacing, handoff accept/contact timing, urgency window, deferral review, and automation-resume grace. Track capacity is a soft intake boundary: an offered non-urgent handoff can be recorded as `deferred` without changing ownership, while an overdue handoff and every urgent or safety action bypass capacity and pacing. “Realistic Tempo” is an FAA-inspired game profile, not a regulatory staffing model. Policies only choose and time candidates; every operational action still calls the common authority and safety arbiter.
+
+`snapshot().controllers.policy` contains the selected profile, resolved active profile, and six-entry catalog. `controllers.scripted` is replay-safe, JSON-stable state with runtime schema/program versions, selected preset, cadence and cycle counters, the next deterministic decision/transition sequences, and one entry for each station. Station entries report `scripted`, `human`, or `inactive` mode; evaluation, planned, accepted, rejected, and deferred counts; resolved policy; capacity/utilization/queue workload; decision pacing; and transition timing. The bounded decision history records station, action, flight, runway/target station, stable rule ID, priority, rationale, timestamps, accepted/rejected/deferred disposition, arbiter result, and event types produced. Bounded mode transitions record prior/next mode, reason, time, and coordinated flight IDs retained across takeover. Shipped gameplay never requires a model, API key, network connection, or remote service.
 
 ## Commands
 
@@ -109,6 +111,10 @@ airportControl.request({
   station: "ramp",
   enabled: true,
 });
+airportControl.request({
+  action: "setControllerPolicyPreset",
+  preset: "calm",
+}); // Supervisor; balanced | conservative | efficient | calm | teaching | realistic
 airportControl.request({ action: "nextView" });
 airportControl.request({ action: "zoomIn" });
 airportControl.request({ action: "zoomOut" });
@@ -417,7 +423,7 @@ Available IDs are `rush-hour`, `storm-operations`, `runway-closure`, and `emerge
 
 ## Snapshot and events
 
-Snapshot schema 31 adds the deterministic `controllers.scripted` runtime and decision history while retaining schema 30 control-protocol discovery, schema 29 observer focus, schema 28 unified-input diagnostics, schema 27 sandbox state, schema 26 deterministic challenge definitions, and earlier controller/training state. Focus, scorecards, challenge grading, coaching, and decision history are read-only presentation or feedback; operational instructions still pass through the normal typed command and safety path.
+Snapshot schema 32 adds `controllers.policy`, station policy/capacity state, decision disposition, and takeover transitions while retaining schema 31 deterministic controller history, schema 30 control-protocol discovery, schema 29 observer focus, schema 28 unified-input diagnostics, schema 27 sandbox state, schema 26 deterministic challenge definitions, and earlier controller/training state. Focus, scorecards, challenge grading, coaching, policy state, and decision history are presentation or feedback; operational instructions still pass through the normal typed command and safety path.
 
 Top-level `selection` reports the selected flight, compact focused-target reference, whether Group select is active, and the selected grouped flight IDs. Top-level `focus` reports catalog schema 1, the current descriptor, and categorized targets for `flight`, `runway`, `taxiway`, `gate`, `queue`, and `conflict`. A descriptor carries stable key/reference, label, explanation, world bounds, suggested zoom, static/flight/group/vehicle follow strategy, related flight IDs, optional vehicle/selected-flight identity, and presentation tone. `renderer.camera.target` reports the currently resolved tracking point; the renderer derives moving points from the same interpolated visuals it already displays and never invents a separate route.
 
@@ -446,12 +452,12 @@ channel.addEventListener("message", ({ data }) => {
 channel.postMessage({
   type: "request",
   envelope: {
-    protocolVersion: "1.1.0",
+    protocolVersion: "1.2.0",
     requestId,
     clientId: "local-observer",
     source: "agent",
     authority: { station: "supervisor" },
-    expects: { apiVersion: "2.29.0", snapshotSchemaVersion: 31 },
+    expects: { apiVersion: "2.30.0", snapshotSchemaVersion: 32 },
     command: { action: "focusFlight", flightId: 12 },
   },
 });

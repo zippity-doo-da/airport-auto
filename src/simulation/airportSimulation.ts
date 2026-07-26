@@ -7,6 +7,8 @@ import type {
   ConflictPrediction,
   ControlMode,
   ControllerPerformanceSnapshot,
+  ControllerPolicyPreset,
+  ControllerPolicyPresetId,
   ControllerStation,
   ControllerWorkloadSnapshot,
   EmergencyType,
@@ -80,6 +82,12 @@ import {
   type ScriptedControllerPlannedAction,
 } from './scriptedControllers';
 import { controllerPerformanceSnapshots } from './controllerPerformance';
+import {
+  applyControllerPolicyPreset,
+  controllerPolicyPreset,
+  controllerPolicyPresetCatalog,
+  isControllerPolicyPresetId,
+} from './controllerPolicies';
 import { cloneTrainingState, createInactiveTrainingState, currentTrainingStep, trainingContext, trainingLesson, trainingLessons, trainingObservationCompletesStep, type TrainingCommandObservation } from './trainingProgram';
 import { challengeDefinition, challengeDefinitions, cloneChallengeState, createInactiveChallengeState, evaluateChallenge } from './challengeProgram';
 import { cloneSandboxState, createInactiveSandboxState, SANDBOX_TRAFFIC_CLASSES } from './sandboxProgram';
@@ -275,7 +283,7 @@ export class AirportSimulation {
     this.applyRunwayConfiguration(initialConfiguration);
     this.updateWeather();
     this.seedInitialTraffic();
-    refreshScriptedControllerModes(this.state, this.state.scriptedControllers);
+    refreshScriptedControllerModes(this.state, this.state.scriptedControllers, 'initial controller staffing');
   }
 
   setPace(speed: number): void {
@@ -602,7 +610,7 @@ export class AirportSimulation {
     this.setSeparationRuleset(definition.separationRuleset);
     this.reset(definition.scenario);
     this.state.stationAutomation = createStationAutomation(true);
-    refreshScriptedControllerModes(this.state, this.state.scriptedControllers);
+    refreshScriptedControllerModes(this.state, this.state.scriptedControllers, `${definition.shortTitle} challenge staffing`);
     this.setScenario(definition.scenario);
     this.setWeather(definition.weather.condition, this.baseWindDirection, definition.weather.windSpeedKts);
     this.weatherOverrideUntil = Number.MAX_SAFE_INTEGER;
@@ -886,7 +894,7 @@ export class AirportSimulation {
         }
       }
     }
-    refreshScriptedControllerModes(this.state, this.state.scriptedControllers);
+    refreshScriptedControllerModes(this.state, this.state.scriptedControllers, `${mode} mode selected`);
     this.decisionReason = `${mode} control active`;
     return true;
   }
@@ -926,7 +934,7 @@ export class AirportSimulation {
     } else if (this.state.training.status !== 'inactive') {
       for (const candidate of OPERATIONAL_CONTROLLER_STATIONS) this.state.stationAutomation[candidate] = false;
     }
-    refreshScriptedControllerModes(this.state, this.state.scriptedControllers);
+    refreshScriptedControllerModes(this.state, this.state.scriptedControllers, `${station} workstation selected`);
   }
 
   setStationAutomation(station: OperationalControllerStation, enabled: boolean): boolean {
@@ -935,14 +943,49 @@ export class AirportSimulation {
     }
     this.state.stationAutomation[station] = enabled;
     this.decisionReason = `${station} automation ${enabled ? 'enabled' : 'disabled'}`;
-    refreshScriptedControllerModes(this.state, this.state.scriptedControllers);
+    refreshScriptedControllerModes(
+      this.state,
+      this.state.scriptedControllers,
+      `${station} automation ${enabled ? 'enabled' : 'disabled'}`,
+    );
     return true;
+  }
+
+  setControllerPolicyPreset(presetId: string): boolean {
+    if (this.state.station !== 'supervisor') {
+      return this.rejectDecision(`${this.state.station} station cannot configure airport-wide controller policy`);
+    }
+    if (!isControllerPolicyPresetId(presetId)) {
+      return this.rejectDecision('unknown controller policy preset');
+    }
+    applyControllerPolicyPreset(this.state.scriptedControllers, presetId, this.state.elapsed);
+    refreshScriptedControllerModes(
+      this.state,
+      this.state.scriptedControllers,
+      `${controllerPolicyPreset(presetId).label} controller policy selected`,
+    );
+    this.decisionReason = `${controllerPolicyPreset(presetId).label} controller policy active`;
+    return true;
+  }
+
+  controllerPolicySnapshot(): {
+    selected: ControllerPolicyPresetId;
+    active: ControllerPolicyPreset;
+    catalog: ControllerPolicyPreset[];
+  } {
+    const selected = this.state.scriptedControllers.presetId;
+    return {
+      selected,
+      active: controllerPolicyPreset(selected),
+      catalog: controllerPolicyPresetCatalog(),
+    };
   }
 
   controllerWorkloads(): ControllerWorkloadSnapshot[] {
     return controllerWorkloadSnapshots(
       this.state.flights,
       this.isAutomaticMode() ? createStationAutomation(true) : this.state.stationAutomation,
+      this.state.scriptedControllers,
     );
   }
 
@@ -2348,6 +2391,7 @@ export class AirportSimulation {
 
   reset(scenario: TrafficScenario = 'normal'): void {
     const density = this.state.trafficFlow.density;
+    const controllerPolicyPresetId = this.state.scriptedControllers.presetId;
     this.state.elapsed = 0;
     this.state.flights = [];
     this.state.serviceVehicles = [];
@@ -2374,7 +2418,7 @@ export class AirportSimulation {
     this.state.scenario = scenario;
     this.state.station = 'supervisor';
     this.state.stationAutomation = createStationAutomation();
-    this.state.scriptedControllers = createScriptedControllerRuntime();
+    this.state.scriptedControllers = createScriptedControllerRuntime(controllerPolicyPresetId);
     this.runwayConfigurationOverrideId = null;
     this.state.runwayConfigurationMode = 'automatic';
     this.state.runwayConfigurationTransition = null;
@@ -2386,7 +2430,7 @@ export class AirportSimulation {
     Object.assign(this.metrics, createShiftMetrics());
     this.updateWeather();
     this.seedInitialTraffic();
-    refreshScriptedControllerModes(this.state, this.state.scriptedControllers);
+    refreshScriptedControllerModes(this.state, this.state.scriptedControllers, 'session reset');
   }
 
   private updateRouteReadbacks(): void {
@@ -3775,6 +3819,7 @@ export class AirportSimulation {
     const previousReason = this.decisionReason;
     const eventCursor = this.events.length;
     let accepted = false;
+    let deferred = false;
 
     this.state.station = action.station;
     try {
@@ -3790,6 +3835,10 @@ export class AirportSimulation {
         accepted = action.targetStation !== undefined && this.offerHandoff(action.flightId, action.targetStation);
       }
       if (action.action === 'accept-handoff') accepted = this.acceptHandoff(action.flightId);
+      if (action.action === 'defer-handoff') {
+        deferred = true;
+        this.decisionReason = action.rationale;
+      }
       if (action.action === 'contact-handoff') {
         accepted = action.targetStation !== undefined && this.contactFlight(action.flightId, action.targetStation);
       }
@@ -3802,6 +3851,7 @@ export class AirportSimulation {
     }
 
     const result = this.decisionReason;
+    const disposition = deferred ? 'deferred' : accepted ? 'accepted' : 'rejected';
     const producedEventTypes = this.events.slice(eventCursor).map((event) => event.type);
     this.tagControllerDecisionEventsSince(eventCursor, decisionId);
     const decision: ScriptedControllerDecision = {
@@ -3819,6 +3869,7 @@ export class AirportSimulation {
       plannedAtSeconds: this.state.elapsed,
       resolvedAtSeconds: this.state.elapsed,
       accepted,
+      disposition,
       result,
       producedEventTypes,
     };
@@ -3828,14 +3879,21 @@ export class AirportSimulation {
     }
     stationRuntime.planned += 1;
     stationRuntime.accepted += accepted ? 1 : 0;
-    stationRuntime.rejected += accepted ? 0 : 1;
+    stationRuntime.rejected += disposition === 'rejected' ? 1 : 0;
+    stationRuntime.deferred += disposition === 'deferred' ? 1 : 0;
     stationRuntime.lastDecisionId = decisionId;
+    if (action.priority === 'sequence' || action.priority === 'routine') {
+      stationRuntime.nextRoutineDecisionAtSeconds = Math.max(
+        stationRuntime.nextRoutineDecisionAtSeconds,
+        this.state.elapsed + stationRuntime.policy.minimumDecisionIntervalSeconds,
+      );
+    }
     this.events.push({
       type: 'controller-decision',
       flight,
       runway: action.runway,
       taxiway: flight.taxiway,
-      detail: `${action.station} ${action.action} ${accepted ? 'accepted' : 'rejected'} · ${result}`,
+      detail: `${action.station} ${action.action} ${disposition} · ${result}`,
       causedByControllerDecisionId: decisionId,
     });
     this.decisionReason = previousReason;

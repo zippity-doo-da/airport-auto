@@ -406,6 +406,15 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Add `causedByControllerDecisionId`, typed `controller-decision` events, decision payloads, and `controllers.scripted` snapshot state through protocol 1.1, API 2.29, and snapshot schema 31 without counting scripted work as manual commands.
 - [x] Validate all five positions, deterministic repeatability, staged handoffs, human takeover, EFC release, Supervisor intervention, shared-arbiter rejection, causal events, bounded JSON state, sustained ORD arrival/departure flow, and zero collision/incursion alerts; retain browser coverage for Watch-mode decisions.
 
+## Airport Auto 2.30 — controller policies and takeover continuity
+
+- [x] Add six serializable airport-wide controller profiles—Balanced, Conservative, Efficient, Calm, Teaching, and Realistic Tempo—with per-station track limits, routine action budgets, decision cadence, handoff timing, urgency windows, deferral review, and takeover grace.
+- [x] Treat station capacity as a soft coordination intake limit: a non-urgent offered handoff can be explicitly deferred without changing ownership, while overdue handoffs and every urgent or safety action bypass routine pacing and capacity limits.
+- [x] Extend deterministic decision records with accepted/rejected/deferred disposition, queued work, capacity utilization, and deferral counters; retain the existing shared authority, runway-protection, separation, reservation, and collision arbiter for every operational action.
+- [x] Add bounded controller-mode transition history with reason, timestamp, prior/next mode, and the coordinated flight IDs that must survive human takeover; apply profile-specific grace when a desk returns to automation without delaying urgent protection.
+- [x] Add a responsive Supervisor-only policy selector, capacity-aware station chips, `setControllerPolicyPreset`, `controllers.policy`, protocol 1.2, API 2.30, snapshot schema 32, fixed-step harness schema 11, replay persistence, airport-change persistence, documentation, and help examples.
+- [x] Validate all six catalogs and station policies, action budgets, capacity deferral, overdue and safety bypass, authority rejection, reset persistence, deterministic repeatability, bounded histories, takeover continuity, sustained ORD safety, formal protocol shape, and desktop browser operation.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.

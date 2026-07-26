@@ -76,6 +76,14 @@
           <label><input type="checkbox" data-station-automation="ramp" /> Ramp</label>
           <small>Supervisor can automate any desk. Your selected desk remains under your control.</small>
         </fieldset>
+        <label class="controller-policy"><span>Controller policy</span><select id="controller-policy-select" aria-describedby="controller-policy-detail">
+          <option value="balanced" selected>Balanced</option>
+          <option value="conservative">Conservative</option>
+          <option value="efficient">Efficient</option>
+          <option value="calm">Calm</option>
+          <option value="teaching">Teaching</option>
+          <option value="realistic">Realistic tempo</option>
+        </select><small id="controller-policy-detail">Steady coordination with useful headroom at every desk.</small></label>
         <div class="station-workloads" id="station-workloads" aria-label="Controller station workload">
           <button type="button" data-station-workload="approach"><b>Approach</b><span>0 tracks</span><i>Idle</i></button>
           <button type="button" data-station-workload="tower"><b>Tower</b><span>0 tracks</span><i>Idle</i></button>

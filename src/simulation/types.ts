@@ -126,6 +126,8 @@ export interface SandboxState {
 export type StationAutomationState = Record<OperationalControllerStation, boolean>;
 export type ScriptedControllerMode = 'scripted' | 'human' | 'inactive';
 export type ScriptedControllerPriority = 'safety' | 'urgent' | 'sequence' | 'routine';
+export type ControllerPolicyPresetId = 'balanced' | 'conservative' | 'efficient' | 'calm' | 'teaching' | 'realistic';
+export type ScriptedControllerDecisionDisposition = 'accepted' | 'rejected' | 'deferred';
 export type ScriptedControllerAction =
   | 'clear-approach'
   | 'clear-landing'
@@ -135,10 +137,53 @@ export type ScriptedControllerAction =
   | 'clear-takeoff'
   | 'offer-handoff'
   | 'accept-handoff'
+  | 'defer-handoff'
   | 'contact-handoff'
   | 'release-hold'
   | 'recover-disabled'
   | 'go-around';
+
+export interface ControllerStationPolicy {
+  station: ControllerStation;
+  trackLimit: number;
+  maxActionsPerEvaluation: number;
+  minimumDecisionIntervalSeconds: number;
+  handoffAcceptSeconds: number;
+  handoffContactSeconds: number;
+  handoffUrgencySeconds: number;
+  takeoverGraceSeconds: number;
+  deferralReviewSeconds: number;
+}
+
+export interface ControllerPolicyPreset {
+  id: ControllerPolicyPresetId;
+  label: string;
+  summary: string;
+  intent: string;
+  stations: Record<ControllerStation, ControllerStationPolicy>;
+}
+
+export interface ScriptedControllerWorkload {
+  ownedTracks: number;
+  incomingHandoffs: number;
+  outgoingHandoffs: number;
+  activeTracks: number;
+  trackLimit: number;
+  utilization: number;
+  atCapacity: boolean;
+  overloaded: boolean;
+  queuedActions: number;
+}
+
+export interface ScriptedControllerModeTransition {
+  id: string;
+  station: ControllerStation;
+  from: ScriptedControllerMode;
+  to: ScriptedControllerMode;
+  atSeconds: number;
+  reason: string;
+  continuityFlightIds: number[];
+}
 
 export interface ScriptedControllerDecision {
   id: string;
@@ -155,6 +200,7 @@ export interface ScriptedControllerDecision {
   plannedAtSeconds: number;
   resolvedAtSeconds: number;
   accepted: boolean;
+  disposition: ScriptedControllerDecisionDisposition;
   result: string;
   producedEventTypes: string[];
 }
@@ -166,20 +212,31 @@ export interface ScriptedControllerStationRuntime {
   planned: number;
   accepted: number;
   rejected: number;
+  deferred: number;
   lastEvaluatedAtSeconds: number | null;
   lastDecisionId: string | null;
+  policy: ControllerStationPolicy;
+  workload: ScriptedControllerWorkload;
+  modeChangedAtSeconds: number;
+  transitionCount: number;
+  transitionReason: string;
+  resumeGraceUntilSeconds: number;
+  nextRoutineDecisionAtSeconds: number;
 }
 
 export interface ScriptedControllerRuntime {
-  schemaVersion: 1;
-  programVersion: '1.0.0';
+  schemaVersion: 2;
+  programVersion: '2.0.0';
+  presetId: ControllerPolicyPresetId;
   cadenceSeconds: number;
   cycle: number;
   nextDecisionSequence: number;
+  nextTransitionSequence: number;
   lastEvaluatedAtSeconds: number | null;
   nextEvaluationAtSeconds: number;
   stations: Record<ControllerStation, ScriptedControllerStationRuntime>;
   decisions: ScriptedControllerDecision[];
+  transitions: ScriptedControllerModeTransition[];
 }
 export type FlightInstruction = 'slow' | 'normal' | 'expedite' | 'hold' | 'resume' | 'zigzag';
 export type GroupFlightInstruction = Extract<FlightInstruction, 'slow' | 'normal' | 'hold' | 'resume'>;
@@ -705,6 +762,12 @@ export interface ControllerWorkloadSnapshot {
   phaseRelevantFlights: number;
   pendingHandoffs: number;
   overdueFlights: number;
+  activeTracks: number;
+  trackLimit: number;
+  utilization: number;
+  atCapacity: boolean;
+  overloaded: boolean;
+  queuedActions: number;
   workload: 'idle' | 'light' | 'moderate' | 'heavy' | 'overload';
   responsibilities: string[];
 }

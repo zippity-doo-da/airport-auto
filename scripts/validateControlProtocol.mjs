@@ -22,13 +22,13 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-assert(CONTROL_PROTOCOL_VERSION === '1.1.0', 'control protocol version changed unexpectedly');
-assert(CONTROL_API_VERSION === '2.29.0', 'control API version changed unexpectedly');
-assert(CONTROL_SNAPSHOT_SCHEMA_VERSION === 31, 'snapshot schema version changed unexpectedly');
+assert(CONTROL_PROTOCOL_VERSION === '1.2.0', 'control protocol version changed unexpectedly');
+assert(CONTROL_API_VERSION === '2.30.0', 'control API version changed unexpectedly');
+assert(CONTROL_SNAPSHOT_SCHEMA_VERSION === 32, 'snapshot schema version changed unexpectedly');
 assert(CONTROL_REPLAY_SCHEMA_VERSION === 2, 'replay schema version changed unexpectedly');
 
 const definitions = Object.values(AIRPORT_CONTROL_COMMAND_DEFINITIONS);
-assert(definitions.length >= 75, 'formal command catalog lost commands');
+assert(definitions.length === 86, 'formal command catalog count changed unexpectedly');
 assert(new Set(definitions.map((definition) => definition.action)).size === definitions.length, 'command actions are not unique');
 assert(definitions.every((definition) => definition.schema.additionalProperties === false), 'a command schema permits unknown parameters');
 assert(definitions.every((definition) => definition.compatibility.protocolMajor === 1), 'a command has the wrong protocol major');
@@ -46,6 +46,8 @@ assert(!validateAirportControlCommand({ action: 'setSpeed' }).valid, 'missing co
 assert(!validateAirportControlCommand({ action: 'pause', surprise: true }).valid, 'unknown command parameter was accepted');
 assert(!validateAirportControlCommand({ action: 'setSpeed', value: Number.NaN }).valid, 'non-finite command number was accepted');
 assert(validateAirportControlCommand({ action: 'issueRouteAmendment', flightId: 1 }).valid, 'optional route fix list became required');
+assert(validateAirportControlCommand({ action: 'setControllerPolicyPreset', preset: 'realistic' }).valid, 'controller policy command was rejected');
+assert(!validateAirportControlCommand({ action: 'setControllerPolicyPreset', preset: 'reckless' }).valid, 'unknown controller policy was accepted');
 
 const envelope = {
   protocolVersion: CONTROL_PROTOCOL_VERSION,
@@ -59,7 +61,7 @@ const envelope = {
 const validEnvelope = validateAirportControlEnvelope(envelope);
 assert(validEnvelope.valid && validEnvelope.compatibility.compatible, 'current formal request envelope was rejected');
 assert(!validateAirportControlEnvelope({ ...envelope, protocolVersion: '2.0.0' }).valid, 'incompatible protocol major was accepted');
-assert(!validateAirportControlEnvelope({ ...envelope, protocolVersion: '1.2.0' }).valid, 'newer unsupported protocol minor was accepted');
+assert(!validateAirportControlEnvelope({ ...envelope, protocolVersion: '1.3.0' }).valid, 'newer unsupported protocol minor was accepted');
 assert(!validateAirportControlEnvelope({ ...envelope, expects: { snapshotSchemaVersion: 29 } }).valid, 'incompatible snapshot schema was accepted');
 assert(assessProtocolCompatibility('1.0.0', { apiVersion: '2.27.0' }).compatible, 'same-major prior protocol and API requirement was not accepted');
 

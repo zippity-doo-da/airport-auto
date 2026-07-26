@@ -42,7 +42,8 @@ automatic.setMode('auto');
 automatic.drainEvents();
 automatic.update(0.05);
 const automaticRuntime = automatic.state.scriptedControllers;
-assert(automaticRuntime.schemaVersion === 1 && automaticRuntime.programVersion === '1.0.0', 'scripted-controller runtime is not versioned');
+assert(automaticRuntime.schemaVersion === 2 && automaticRuntime.programVersion === '2.0.0', 'scripted-controller runtime is not versioned');
+assert(automaticRuntime.presetId === 'balanced', 'scripted-controller runtime did not start on the balanced policy');
 assert(CONTROLLER_STATIONS.every((station) => automaticRuntime.stations[station].mode === 'scripted'), 'Auto did not activate all five scripted positions');
 assert(CONTROLLER_STATIONS.every((station) => automaticRuntime.stations[station].evaluations > 0), 'a scripted station did not evaluate its queue');
 assert(automaticRuntime.decisions.length > 0, 'Auto produced no deterministic station decisions');
@@ -68,10 +69,12 @@ assert(!takeover.state.scriptedControllers.decisions.some((decision) => decision
 takeover.setStation('supervisor');
 for (const station of OPERATIONAL_CONTROLLER_STATIONS) takeover.setStationAutomation(station, false);
 assert(takeover.setStationAutomation('tower', true), 'Supervisor could not return Tower to scripted control');
-for (let tick = 0; tick < 2; tick += 1) takeover.update(0.1);
+for (let tick = 0; tick < 8; tick += 1) takeover.update(0.1);
 assert(takeoverArrival.cleared, 'scripted Tower did not clear an eligible coordinated arrival through the arbiter');
 const towerClearance = takeover.state.scriptedControllers.decisions.find((decision) => decision.station === 'tower' && decision.action === 'clear-landing');
 assert(towerClearance?.accepted && towerClearance.producedEventTypes.includes('clear'), 'Tower decision lacks an accepted landing-clearance result');
+assert(towerClearance?.disposition === 'accepted', 'accepted controller decision lost its disposition');
+assert(takeover.state.scriptedControllers.transitions.some((transition) => transition.station === 'tower' && transition.from === 'human' && transition.to === 'scripted'), 'Tower takeover transition was not audited');
 
 const holding = new AirportSimulation(config, 'quiet');
 holding.setMode('manual');
@@ -164,6 +167,7 @@ assert(flowDiagnostics.collisions.length === 0 && flowDiagnostics.obstacleCollis
 assert(flowDiagnostics.metrics.collisionAlerts === 0 && flowDiagnostics.metrics.runwayIncursions === 0, 'scripted ORD flow breached a safety invariant');
 assert(flowDiagnostics.metrics.manualCommands === 0, 'long-running scripted flow inflated human-command metrics');
 assert(flowRuntime.decisions.length <= 64, 'scripted decision history is not bounded');
+assert(flowRuntime.transitions.length <= 32, 'scripted controller transition history is not bounded');
 assert(JSON.stringify(JSON.parse(JSON.stringify(flowRuntime))) === JSON.stringify(flowRuntime), 'scripted runtime is not JSON stable');
 
 console.log(JSON.stringify({

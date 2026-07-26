@@ -6,8 +6,13 @@ import {
 } from "./controllerOperations";
 import { WORLD_METERS_PER_UNIT } from "./runwayPerformance";
 import { surfaceRouteCrossingWindows } from "./surfaceGraph";
+import {
+  controllerPolicyForStation,
+  createControllerWorkload,
+} from "./controllerPolicies";
 import type {
   AirportState,
+  ControllerPolicyPresetId,
   ControllerStation,
   Flight,
   OperationalControllerStation,
@@ -19,9 +24,7 @@ import type {
 
 export const SCRIPTED_CONTROLLER_CADENCE_SECONDS = 0.25;
 export const SCRIPTED_CONTROLLER_HISTORY_LIMIT = 64;
-export const SCRIPTED_CONTROLLER_MAX_ACTIONS_PER_STATION = 2;
-export const SCRIPTED_HANDOFF_ACCEPT_SECONDS = 0.75;
-export const SCRIPTED_HANDOFF_CONTACT_SECONDS = 0.65;
+export const SCRIPTED_CONTROLLER_TRANSITION_HISTORY_LIMIT = 32;
 const SCRIPTED_RETRY_SECONDS = 2;
 const CROSSING_CLEARANCE_RANGE_M = 190;
 
@@ -37,7 +40,11 @@ export interface ScriptedControllerPlannedAction {
   order: number;
 }
 
-function stationRuntime(station: ControllerStation) {
+function stationRuntime(
+  station: ControllerStation,
+  presetId: ControllerPolicyPresetId,
+) {
+  const policy = controllerPolicyForStation(presetId, station);
   return {
     station,
     mode: "inactive" as ScriptedControllerMode,
@@ -45,28 +52,51 @@ function stationRuntime(station: ControllerStation) {
     planned: 0,
     accepted: 0,
     rejected: 0,
+    deferred: 0,
     lastEvaluatedAtSeconds: null,
     lastDecisionId: null,
+    policy,
+    workload: {
+      ownedTracks: 0,
+      incomingHandoffs: 0,
+      outgoingHandoffs: 0,
+      activeTracks: 0,
+      trackLimit: policy.trackLimit,
+      utilization: 0,
+      atCapacity: false,
+      overloaded: false,
+      queuedActions: 0,
+    },
+    modeChangedAtSeconds: 0,
+    transitionCount: 0,
+    transitionReason: "controller runtime initialized",
+    resumeGraceUntilSeconds: 0,
+    nextRoutineDecisionAtSeconds: 0,
   };
 }
 
-export function createScriptedControllerRuntime(): ScriptedControllerRuntime {
+export function createScriptedControllerRuntime(
+  presetId: ControllerPolicyPresetId = "balanced",
+): ScriptedControllerRuntime {
   return {
-    schemaVersion: 1,
-    programVersion: "1.0.0",
+    schemaVersion: 2,
+    programVersion: "2.0.0",
+    presetId,
     cadenceSeconds: SCRIPTED_CONTROLLER_CADENCE_SECONDS,
     cycle: 0,
     nextDecisionSequence: 1,
+    nextTransitionSequence: 1,
     lastEvaluatedAtSeconds: null,
     nextEvaluationAtSeconds: 0,
     stations: {
-      supervisor: stationRuntime("supervisor"),
-      approach: stationRuntime("approach"),
-      tower: stationRuntime("tower"),
-      ground: stationRuntime("ground"),
-      ramp: stationRuntime("ramp"),
+      supervisor: stationRuntime("supervisor", presetId),
+      approach: stationRuntime("approach", presetId),
+      tower: stationRuntime("tower", presetId),
+      ground: stationRuntime("ground", presetId),
+      ramp: stationRuntime("ramp", presetId),
     },
     decisions: [],
+    transitions: [],
   };
 }
 
@@ -88,9 +118,59 @@ export function scriptedControllerMode(
 export function refreshScriptedControllerModes(
   state: AirportState,
   runtime: ScriptedControllerRuntime,
+  reason = "controller staffing state refreshed",
 ): void {
   for (const station of CONTROLLER_STATIONS) {
-    runtime.stations[station].mode = scriptedControllerMode(state, station);
+    const stationRuntime = runtime.stations[station];
+    const nextMode = scriptedControllerMode(state, station);
+    stationRuntime.workload = createControllerWorkload(
+      state,
+      station,
+      stationRuntime.policy,
+      nextMode === "scripted" ? stationRuntime.workload.queuedActions : 0,
+    );
+    if (stationRuntime.mode === nextMode) continue;
+    const previousMode = stationRuntime.mode;
+    const continuityFlightIds = state.flights
+      .filter((flight) => {
+        if (station === "supervisor") return true;
+        const handoff = flight.navigation.handoff;
+        return (
+          flight.navigation.frequencyOwner === station ||
+          (handoff !== undefined &&
+            (handoff.from === station || handoff.to === station) &&
+            ["offered", "accepted", "overdue"].includes(handoff.status))
+        );
+      })
+      .map((flight) => flight.id)
+      .sort((first, second) => first - second);
+    stationRuntime.mode = nextMode;
+    stationRuntime.modeChangedAtSeconds = state.elapsed;
+    stationRuntime.transitionCount += 1;
+    stationRuntime.transitionReason = reason;
+    if (previousMode === "human" && nextMode === "scripted") {
+      stationRuntime.resumeGraceUntilSeconds =
+        state.elapsed + stationRuntime.policy.takeoverGraceSeconds;
+    }
+    runtime.transitions.push({
+      id: `controller-transition-${runtime.nextTransitionSequence++}`,
+      station,
+      from: previousMode,
+      to: nextMode,
+      atSeconds: state.elapsed,
+      reason,
+      continuityFlightIds,
+    });
+    if (
+      runtime.transitions.length >
+      SCRIPTED_CONTROLLER_TRANSITION_HISTORY_LIMIT
+    ) {
+      runtime.transitions.splice(
+        0,
+        runtime.transitions.length -
+          SCRIPTED_CONTROLLER_TRANSITION_HISTORY_LIMIT,
+      );
+    }
   }
 }
 
@@ -108,17 +188,20 @@ function actionRecentlyRejected(
 ): boolean {
   for (let index = runtime.decisions.length - 1; index >= 0; index -= 1) {
     const decision = runtime.decisions[index];
-    if (elapsed - decision.resolvedAtSeconds >= SCRIPTED_RETRY_SECONDS)
-      return false;
     if (
-      !decision.accepted &&
+      decision.disposition !== "accepted" &&
       decision.station === candidate.station &&
       decision.action === candidate.action &&
       decision.flightId === candidate.flightId &&
       decision.runway === candidate.runway &&
       decision.targetStation === candidate.targetStation
     )
-      return true;
+      return (
+        elapsed - decision.resolvedAtSeconds <
+        (decision.disposition === "deferred"
+          ? runtime.stations[candidate.station].policy.deferralReviewSeconds
+          : SCRIPTED_RETRY_SECONDS)
+      );
   }
   return false;
 }
@@ -146,8 +229,11 @@ function nextUnclearedCrossing(config: AirportConfig, flight: Flight) {
 function handoffCandidates(
   state: AirportState,
   station: OperationalControllerStation,
+  runtime: ScriptedControllerRuntime,
 ): ScriptedControllerPlannedAction[] {
   const candidates: ScriptedControllerPlannedAction[] = [];
+  const stationRuntime = runtime.stations[station];
+  const policy = stationRuntime.policy;
   for (const flight of state.flights) {
     const handoff = flight.navigation.handoff;
     if (
@@ -155,17 +241,32 @@ function handoffCandidates(
       handoff.to === station &&
       (handoff.status === "offered" || handoff.status === "overdue") &&
       state.elapsed - handoff.offeredAtSeconds >=
-        SCRIPTED_HANDOFF_ACCEPT_SECONDS
+        policy.handoffAcceptSeconds
     ) {
+      const urgent =
+        handoff.status === "overdue" ||
+        handoff.responseDueSeconds - state.elapsed <=
+          policy.handoffUrgencySeconds;
+      const atOwnedTrackLimit =
+        stationRuntime.workload.ownedTracks >= policy.trackLimit;
       candidates.push({
         station,
-        action: "accept-handoff",
+        action:
+          atOwnedTrackLimit && !urgent
+            ? "defer-handoff"
+            : "accept-handoff",
         flightId: flight.id,
         targetStation: station,
-        ruleId: `${station}.handoff.accept`,
-        priority: handoff.status === "overdue" ? "urgent" : "sequence",
-        rationale: `${station} is the receiving position and the deterministic response interval has elapsed`,
-        order: handoff.status === "overdue" ? 1 : 11,
+        ruleId:
+          atOwnedTrackLimit && !urgent
+            ? `${station}.handoff.capacity-deferral`
+            : `${station}.handoff.accept`,
+        priority: urgent ? "urgent" : "sequence",
+        rationale:
+          atOwnedTrackLimit && !urgent
+            ? `${station} is at its ${policy.trackLimit}-track policy limit; preserve ownership and review the offer again`
+            : `${station} is receiving the flight within its deterministic coordination window`,
+        order: urgent ? 1 : atOwnedTrackLimit ? 12 : 11,
       });
     }
     if (
@@ -173,7 +274,7 @@ function handoffCandidates(
       handoff.from === station &&
       state.elapsed -
         (handoff.respondedAtSeconds ?? handoff.offeredAtSeconds) >=
-        SCRIPTED_HANDOFF_CONTACT_SECONDS
+        policy.handoffContactSeconds
     ) {
       candidates.push({
         station,
@@ -212,8 +313,9 @@ function handoffCandidates(
 
 function approachCandidates(
   state: AirportState,
+  runtime: ScriptedControllerRuntime,
 ): ScriptedControllerPlannedAction[] {
-  const candidates = handoffCandidates(state, "approach");
+  const candidates = handoffCandidates(state, "approach", runtime);
   for (const flight of state.flights) {
     if (
       flight.navigation.frequencyOwner !== "approach" ||
@@ -257,8 +359,9 @@ function approachCandidates(
 
 function towerCandidates(
   state: AirportState,
+  runtime: ScriptedControllerRuntime,
 ): ScriptedControllerPlannedAction[] {
-  const candidates = handoffCandidates(state, "tower");
+  const candidates = handoffCandidates(state, "tower", runtime);
   for (const flight of state.flights) {
     if (flight.navigation.frequencyOwner !== "tower") continue;
     if (
@@ -318,8 +421,9 @@ function towerCandidates(
 function groundCandidates(
   config: AirportConfig,
   state: AirportState,
+  runtime: ScriptedControllerRuntime,
 ): ScriptedControllerPlannedAction[] {
-  const candidates = handoffCandidates(state, "ground");
+  const candidates = handoffCandidates(state, "ground", runtime);
   for (const disruption of state.surfaceDisruptions) {
     if (
       disruption.kind !== "disabled-aircraft" ||
@@ -371,8 +475,9 @@ function groundCandidates(
 
 function rampCandidates(
   state: AirportState,
+  runtime: ScriptedControllerRuntime,
 ): ScriptedControllerPlannedAction[] {
-  const candidates = handoffCandidates(state, "ramp");
+  const candidates = handoffCandidates(state, "ramp", runtime);
   for (const flight of state.flights) {
     if (
       flight.navigation.frequencyOwner === "ramp" &&
@@ -427,15 +532,15 @@ export function planScriptedControllerActions(
 ): ScriptedControllerPlannedAction[] {
   const candidates =
     station === "approach"
-      ? approachCandidates(state)
+      ? approachCandidates(state, runtime)
       : station === "tower"
-        ? towerCandidates(state)
+        ? towerCandidates(state, runtime)
         : station === "ground"
-          ? groundCandidates(config, state)
+          ? groundCandidates(config, state, runtime)
           : station === "ramp"
-            ? rampCandidates(state)
+            ? rampCandidates(state, runtime)
             : supervisorCandidates(state);
-  return candidates
+  const ordered = candidates
     .filter(
       (candidate) => !actionRecentlyRejected(runtime, candidate, state.elapsed),
     )
@@ -445,6 +550,36 @@ export function planScriptedControllerActions(
         first.order - second.order ||
         first.flightId - second.flightId ||
         first.action.localeCompare(second.action),
-    )
-    .slice(0, SCRIPTED_CONTROLLER_MAX_ACTIONS_PER_STATION);
+    );
+  const stationRuntime = runtime.stations[station];
+  const immediate = ordered.filter(
+    (candidate) =>
+      candidate.priority === "safety" || candidate.priority === "urgent",
+  );
+  const paced = ordered.filter(
+    (candidate) =>
+      candidate.priority !== "safety" && candidate.priority !== "urgent",
+  );
+  const routineReady =
+    state.elapsed + 1e-6 >= stationRuntime.nextRoutineDecisionAtSeconds &&
+    state.elapsed + 1e-6 >= stationRuntime.resumeGraceUntilSeconds;
+  const selected = [
+    ...immediate,
+    ...(routineReady
+      ? paced.slice(0, stationRuntime.policy.maxActionsPerEvaluation)
+      : []),
+  ].sort(
+    (first, second) =>
+      priorityOrder(first.priority) - priorityOrder(second.priority) ||
+      first.order - second.order ||
+      first.flightId - second.flightId ||
+      first.action.localeCompare(second.action),
+  );
+  stationRuntime.workload = createControllerWorkload(
+    state,
+    station,
+    stationRuntime.policy,
+    Math.max(0, ordered.length - selected.length),
+  );
+  return selected;
 }

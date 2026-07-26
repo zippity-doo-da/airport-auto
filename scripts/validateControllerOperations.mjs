@@ -88,6 +88,8 @@ arrival.navigation.handoff = undefined;
 arrival.navigation.handoffStatus = 'owned';
 arrival.navigation.approachCleared = false;
 simulation.update(1 / 30);
+assert(arrival.navigation.handoff === undefined, 'newly automated Approach ignored takeover grace');
+for (let tick = 0; tick < 20 && !arrival.navigation.handoff; tick += 1) simulation.update(0.05);
 assert(arrival.navigation.frequencyOwner === 'approach' && arrival.navigation.handoff?.status === 'offered' && arrival.navigation.approachCleared, 'automated Approach did not offer the final handoff while retaining ownership');
 for (let tick = 0; tick < 80 && arrival.navigation.frequencyOwner !== 'tower'; tick += 1) simulation.update(0.05);
 assert(arrival.navigation.frequencyOwner === 'tower' && arrival.navigation.handoff?.status === 'completed', 'automated positions did not stage acceptance and contact');

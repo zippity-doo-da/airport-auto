@@ -3,8 +3,10 @@ import type {
   ControllerWorkloadSnapshot,
   Flight,
   OperationalControllerStation,
+  ScriptedControllerRuntime,
   StationAutomationState,
 } from './types';
+import { controllerPolicyForStation } from './controllerPolicies';
 
 export const OPERATIONAL_CONTROLLER_STATIONS: OperationalControllerStation[] = ['approach', 'tower', 'ground', 'ramp'];
 export const CONTROLLER_STATIONS: ControllerStation[] = ['supervisor', ...OPERATIONAL_CONTROLLER_STATIONS];
@@ -166,6 +168,7 @@ export function suggestedHandoffStation(flight: Flight): OperationalControllerSt
 export function controllerWorkloadSnapshots(
   flights: readonly Flight[],
   automation: StationAutomationState,
+  runtime?: ScriptedControllerRuntime,
 ): ControllerWorkloadSnapshot[] {
   return OPERATIONAL_CONTROLLER_STATIONS.map((station) => {
     const relevant = flights.filter((flight) => requiredControllerStation(flight) === station);
@@ -195,6 +198,15 @@ export function controllerWorkloadSnapshots(
           : pressure < 10
             ? 'heavy'
             : 'overload';
+    const runtimeWorkload = runtime?.stations[station].workload;
+    const policy = runtime?.stations[station].policy ?? controllerPolicyForStation('balanced', station);
+    const incomingHandoffs = flights.filter((flight) => {
+      const handoff = flight.navigation.handoff;
+      return handoff?.to === station && ['offered', 'accepted', 'overdue'].includes(handoff.status);
+    });
+    const activeTracks = runtimeWorkload?.activeTracks
+      ?? new Set([...owned.map((flight) => flight.id), ...incomingHandoffs.map((flight) => flight.id)]).size;
+    const trackLimit = runtimeWorkload?.trackLimit ?? policy.trackLimit;
     return {
       station,
       label: CONTROLLER_STATION_DEFINITIONS[station].label,
@@ -203,6 +215,12 @@ export function controllerWorkloadSnapshots(
       phaseRelevantFlights: relevant.length,
       pendingHandoffs,
       overdueFlights,
+      activeTracks,
+      trackLimit,
+      utilization: runtimeWorkload?.utilization ?? Number((activeTracks / Math.max(1, trackLimit)).toFixed(3)),
+      atCapacity: runtimeWorkload?.atCapacity ?? activeTracks >= trackLimit,
+      overloaded: runtimeWorkload?.overloaded ?? activeTracks > trackLimit,
+      queuedActions: runtimeWorkload?.queuedActions ?? 0,
       workload,
       responsibilities: [...CONTROLLER_STATION_DEFINITIONS[station].responsibilities],
     };

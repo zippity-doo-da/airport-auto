@@ -6,6 +6,7 @@ import type { TrafficDensity } from "../simulation/trafficDensity";
 import type {
   ChallengeId,
   ControlMode,
+  ControllerPolicyPresetId,
   ControllerStation,
   EmergencyType,
   FlightInstruction,
@@ -21,9 +22,9 @@ import type {
 export { AIRPORT_DOMAIN_EVENT_TYPES } from "./eventTypes";
 export type { AirportDomainEventType } from "./eventTypes";
 
-export const CONTROL_PROTOCOL_VERSION = "1.1.0" as const;
-export const CONTROL_API_VERSION = "2.29.0" as const;
-export const CONTROL_SNAPSHOT_SCHEMA_VERSION = 31 as const;
+export const CONTROL_PROTOCOL_VERSION = "1.2.0" as const;
+export const CONTROL_API_VERSION = "2.30.0" as const;
+export const CONTROL_SNAPSHOT_SCHEMA_VERSION = 32 as const;
 export const CONTROL_REPLAY_SCHEMA_VERSION = 2 as const;
 export const CONTROL_BROADCAST_CHANNEL = "airport-auto" as const;
 
@@ -103,6 +104,7 @@ export interface AirportControlCommandParameters {
     station: OperationalControllerStation;
     enabled: boolean;
   };
+  setControllerPolicyPreset: { preset: ControllerPolicyPresetId };
   triggerEmergency: { flightId: number; type: EmergencyType };
   setWeather: {
     condition: WeatherCondition;
@@ -1101,6 +1103,22 @@ const COMMAND_SPECS = {
       ),
     },
     { station: "tower", enabled: true },
+  ),
+  setControllerPolicyPreset: command(
+    "operations",
+    "Select the airport-wide deterministic controller workload and pacing policy.",
+    AUTHORITY.supervisor,
+    {
+      preset: stringSchema("Controller policy preset.", [
+        "balanced",
+        "conservative",
+        "efficient",
+        "calm",
+        "teaching",
+        "realistic",
+      ]),
+    },
+    { preset: "calm" },
   ),
   triggerEmergency: command(
     "operations",
