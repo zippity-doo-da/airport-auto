@@ -22,9 +22,9 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-assert(CONTROL_PROTOCOL_VERSION === '1.0.0', 'control protocol version changed unexpectedly');
-assert(CONTROL_API_VERSION === '2.28.0', 'control API version changed unexpectedly');
-assert(CONTROL_SNAPSHOT_SCHEMA_VERSION === 30, 'snapshot schema version changed unexpectedly');
+assert(CONTROL_PROTOCOL_VERSION === '1.1.0', 'control protocol version changed unexpectedly');
+assert(CONTROL_API_VERSION === '2.29.0', 'control API version changed unexpectedly');
+assert(CONTROL_SNAPSHOT_SCHEMA_VERSION === 31, 'snapshot schema version changed unexpectedly');
 assert(CONTROL_REPLAY_SCHEMA_VERSION === 2, 'replay schema version changed unexpectedly');
 
 const definitions = Object.values(AIRPORT_CONTROL_COMMAND_DEFINITIONS);
@@ -59,9 +59,9 @@ const envelope = {
 const validEnvelope = validateAirportControlEnvelope(envelope);
 assert(validEnvelope.valid && validEnvelope.compatibility.compatible, 'current formal request envelope was rejected');
 assert(!validateAirportControlEnvelope({ ...envelope, protocolVersion: '2.0.0' }).valid, 'incompatible protocol major was accepted');
-assert(!validateAirportControlEnvelope({ ...envelope, protocolVersion: '1.1.0' }).valid, 'newer unsupported protocol minor was accepted');
+assert(!validateAirportControlEnvelope({ ...envelope, protocolVersion: '1.2.0' }).valid, 'newer unsupported protocol minor was accepted');
 assert(!validateAirportControlEnvelope({ ...envelope, expects: { snapshotSchemaVersion: 29 } }).valid, 'incompatible snapshot schema was accepted');
-assert(assessProtocolCompatibility('1.0.0', { apiVersion: '2.27.0' }).compatible, 'same-major prior API requirement was not accepted');
+assert(assessProtocolCompatibility('1.0.0', { apiVersion: '2.27.0' }).compatible, 'same-major prior protocol and API requirement was not accepted');
 
 const protocol = getAirportControlProtocol();
 assert(protocol.commandCount === definitions.length, 'protocol command count disagrees with definitions');
@@ -83,6 +83,7 @@ const sampleEvent = {
   elapsed: 0,
   type: 'vector',
   causedByCommandId: 'cmd-validator-1',
+  causedByControllerDecisionId: 'controller-validator-1',
 };
 assert(validateProtocolValue(sampleEvent, protocol.schemas.event).length === 0, 'valid telemetry event failed its schema');
 
@@ -171,6 +172,7 @@ for (const requiredIntegration of [
   "validateAirportControlEnvelope",
   "dispatchAirportControl",
   "causedByCommandId",
+  "causedByControllerDecisionId",
   "message.type === 'request'",
   "type: 'response'",
   "protocol: getAirportControlProtocol",

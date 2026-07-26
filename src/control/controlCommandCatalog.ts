@@ -21,9 +21,9 @@ import type {
 export { AIRPORT_DOMAIN_EVENT_TYPES } from "./eventTypes";
 export type { AirportDomainEventType } from "./eventTypes";
 
-export const CONTROL_PROTOCOL_VERSION = "1.0.0" as const;
-export const CONTROL_API_VERSION = "2.28.0" as const;
-export const CONTROL_SNAPSHOT_SCHEMA_VERSION = 30 as const;
+export const CONTROL_PROTOCOL_VERSION = "1.1.0" as const;
+export const CONTROL_API_VERSION = "2.29.0" as const;
+export const CONTROL_SNAPSHOT_SCHEMA_VERSION = 31 as const;
 export const CONTROL_REPLAY_SCHEMA_VERSION = 2 as const;
 export const CONTROL_BROADCAST_CHANNEL = "airport-auto" as const;
 
@@ -1348,7 +1348,7 @@ function buildCommandSchema(
 ): ProtocolJsonSchema {
   const optional = new Set(spec.optionalParameters ?? []);
   return {
-    $id: `airport-auto://schema/command/${action}/1.0.0`,
+    $id: `airport-auto://schema/command/${action}/${CONTROL_PROTOCOL_VERSION}`,
     title: `Airport Auto command: ${action}`,
     description: spec.summary,
     type: "object",

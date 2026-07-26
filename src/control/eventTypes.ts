@@ -57,6 +57,7 @@ export const AIRPORT_DOMAIN_EVENT_TYPES = [
   "airborne-hold",
   "hold-release",
   "approach-clearance",
+  "controller-decision",
   "handoff",
   "handoff-offer",
   "handoff-accept",

@@ -6,6 +6,7 @@ import type {
   Flight,
   FlightPhase,
   RunwayConfigurationTransition,
+  ScriptedControllerRuntime,
   ShiftMetrics,
   SurfaceDisruptionState,
   TrafficScenario,
@@ -42,6 +43,7 @@ export interface FixedStepHarnessEvent {
   serviceVehicleId?: AirportEvent['serviceVehicleId'];
   serviceVehicleType?: AirportEvent['serviceVehicleType'];
   serviceVehicleStatus?: AirportEvent['serviceVehicleStatus'];
+  causedByControllerDecisionId?: string;
 }
 
 export interface FixedStepFlightSnapshot {
@@ -142,7 +144,7 @@ export interface FixedStepFlightSnapshot {
 }
 
 export interface FixedStepSimulationSnapshot {
-  schemaVersion: 9;
+  schemaVersion: 10;
   seed: number;
   airportCode: string;
   stepSeconds: number;
@@ -165,6 +167,7 @@ export interface FixedStepSimulationSnapshot {
     activeRunwayEnds: Record<number, -1 | 1>;
     activeRunwayRoles: Record<number, RunwayOperationalRole>;
     surfaceDisruptions: SurfaceDisruptionState[];
+    scriptedControllers: ScriptedControllerRuntime;
     weather: {
       enabled: boolean;
       windEnabled: boolean;
@@ -323,7 +326,7 @@ export class FixedStepSimulationHarness {
   snapshot(): FixedStepSimulationSnapshot {
     const diagnostics = this.simulation.diagnostics();
     return {
-      schemaVersion: 9,
+      schemaVersion: 10,
       seed: this.config.seed,
       airportCode: this.config.code,
       stepSeconds: round(this.stepSeconds),
@@ -354,6 +357,7 @@ export class FixedStepSimulationHarness {
           edgeIds: [...disruption.edgeIds],
           reroutedFlightIds: [...disruption.reroutedFlightIds],
         })),
+        scriptedControllers: structuredClone(this.simulation.state.scriptedControllers),
         weather: {
           enabled: this.simulation.state.weather.weatherEnabled,
           windEnabled: this.simulation.state.weather.windEnabled,
@@ -444,6 +448,7 @@ export class FixedStepSimulationHarness {
         serviceVehicleId: event.serviceVehicleId,
         serviceVehicleType: event.serviceVehicleType,
         serviceVehicleStatus: event.serviceVehicleStatus,
+        causedByControllerDecisionId: event.causedByControllerDecisionId,
       });
     }
   }

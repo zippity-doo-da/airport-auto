@@ -397,6 +397,15 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Publish formal `ready`, `event`, `request`, and `response` envelopes once per message on the already-namespaced `airport-auto` channel, retain legacy command input/result notifications, and document same-origin/non-authenticated limits before future remote control.
 - [x] Validate all command examples, 68 domain event types, compatibility rules, envelope/schema rejection, immutable protocol discovery, causal simulation tagging, asserted-authority rejection, formal page dispatch, and formal BroadcastChannel request/response behavior.
 
+## Airport Auto 2.29 — deterministic station controllers
+
+- [x] Replace direct Auto/Watch clearance mutations with independent deterministic programs for Supervisor, Approach, Tower, Ground, and Ramp, evaluated on a fixed 0.25-simulation-second cadence outside the renderer.
+- [x] Route approach, landing, pushback, runway-crossing, runway-entry, takeoff, hold-release, disabled-aircraft recovery, go-around, and offer/accept/contact handoff actions through the same public authority and safety methods used by human and API controllers.
+- [x] Preserve missed-handoff deadlines and physical surface reservations as simulation invariants while making every discretionary automated instruction an explicit station decision; Manual holds no longer release themselves merely because EFC elapsed, and controller ownership follows the aircraft's current surface zone instead of its destination stand.
+- [x] Add a serializable controller runtime with station mode, evaluation/accept/reject counters, bounded decision history, rule ID, priority, rationale, result, and produced event types; selected desks transfer immediately to human control while unstaffed desks continue safely.
+- [x] Add `causedByControllerDecisionId`, typed `controller-decision` events, decision payloads, and `controllers.scripted` snapshot state through protocol 1.1, API 2.29, and snapshot schema 31 without counting scripted work as manual commands.
+- [x] Validate all five positions, deterministic repeatability, staged handoffs, human takeover, EFC release, Supervisor intervention, shared-arbiter rejection, causal events, bounded JSON state, sustained ORD arrival/departure flow, and zero collision/incursion alerts; retain browser coverage for Watch-mode decisions.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.

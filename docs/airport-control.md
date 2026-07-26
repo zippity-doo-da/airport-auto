@@ -4,7 +4,7 @@ Airport Auto exposes a local, versioned interface for playtests, scripted contro
 
 ## Browser API
 
-The current API version is `2.28.0`; the formal control protocol is `1.0.0`, snapshots use schema version `30`, and portable recordings use schema version `2`.
+The current API version is `2.29.0`; the formal control protocol is `1.1.0`, snapshots use schema version `31`, and portable recordings use schema version `2`.
 
 ```js
 airportControl.version;
@@ -27,8 +27,8 @@ const result = airportControl.request({
 });
 
 // {
-//   protocolVersion: '1.0.0',
-//   apiVersion: '2.28.0',
+//   protocolVersion: '1.1.0',
+//   apiVersion: '2.29.0',
 //   sessionId: 'session-…',
 //   requestId: 'req-…',
 //   commandId: 'cmd-…',
@@ -50,13 +50,13 @@ const result = airportControl.request({
 
 ## Formal protocol
 
-`airportControl.protocol()` returns a deep-cloned, machine-readable contract rather than a second hand-maintained command list. It contains all 85 command definitions, parameter and root command JSON Schemas, examples, mutation flags, authority rules, availability notes, deprecation aliases, 68 domain event types, and schemas for request, result, event, and BroadcastChannel messages. Unknown actions, missing parameters, non-JSON numbers, and additional command properties are rejected before game code runs.
+`airportControl.protocol()` returns a deep-cloned, machine-readable contract rather than a second hand-maintained command list. It contains all 85 command definitions, parameter and root command JSON Schemas, examples, mutation flags, authority rules, availability notes, deprecation aliases, 69 domain event types, and schemas for request, result, event, and BroadcastChannel messages. Unknown actions, missing parameters, non-JSON numbers, and additional command properties are rejected before game code runs.
 
 Use `validate()` for structural checks without execution. Use `dispatch()` when a controller needs explicit identity, authority, and compatibility assertions:
 
 ```js
 const result = airportControl.dispatch({
-  protocolVersion: "1.0.0",
+  protocolVersion: "1.1.0",
   requestId: crypto.randomUUID(),
   clientId: "tower-agent-a",
   source: "agent",
@@ -65,8 +65,8 @@ const result = airportControl.dispatch({
     actorId: "tower-agent-a",
   },
   expects: {
-    apiVersion: "2.28.0",
-    snapshotSchemaVersion: 30,
+    apiVersion: "2.29.0",
+    snapshotSchemaVersion: 31,
   },
   command: {
     action: "clearTakeoff",
@@ -78,6 +78,14 @@ const result = airportControl.dispatch({
 An authority assertion is never a credential or a way to select a desk. It must match the simulator's already-selected station, and the command must then pass the same station, flight-ownership, phase, runway-protection, separation, reservation, and collision checks used by the visible UI. The result reports asserted, effective, and resulting stations plus the command's formal authority rule. A mismatch is a structured rejection and does not mutate the game.
 
 Protocol compatibility follows explicit rules: the protocol major must match and a client cannot require a newer protocol; an API requirement must be in major 2 and no newer than the running API; a requested snapshot schema must match exactly. Deprecated API-2.x aliases currently retained are `handoffFlight` → `offerHandoff` and multi-flight `controlFlights` → `issueGroupInstruction` behavior. A future protocol-major change may remove them.
+
+## Deterministic station controllers
+
+Auto, Watch, and automated unstaffed desks use five offline scripted programs: Supervisor, Approach, Tower, Ground, and Ramp. They evaluate authoritative simulation state every 0.25 simulation seconds in stable station/flight order. The programs do not move aircraft or mutate clearances directly. Each selected action calls the same public method used by the HUD and `airportControl`, so ownership, phase, runway protection, separation, reservations, disruptions, and collision checks can still reject it.
+
+The current action vocabulary covers approach and landing clearances, pushback, individual route-derived runway crossings, line-up/runway entry, takeoff, EFC hold release, disabled-aircraft recovery, safety go-arounds, and all three handoff stages. Missed-handoff deadlines and surface reservations remain simulation invariants rather than discretionary controller shortcuts. Ground/Ramp ownership follows the aircraft's current graph edge and operational zone, not the ramp zone of its future stand, so a flight remains with Ground through movement-area crossings before transferring to Ramp. Selecting an operational desk marks that desk `human` immediately and leaves configured unstaffed positions `scripted`; selecting Supervisor exposes the four desk automation switches.
+
+`snapshot().controllers.scripted` is replay-safe, JSON-stable state with runtime schema/program versions, cadence and cycle counters, the next deterministic decision sequence, and one entry for each station. Station entries report `scripted`, `human`, or `inactive` mode plus evaluation, planned, accepted, and rejected counts. The bounded decision history records station, action, flight, runway/target station, stable rule ID, priority, rationale, timestamps, arbiter acceptance/result, and the event types produced. This is the deterministic baseline for later policy and LLM work; shipped gameplay never requires a model, API key, network connection, or remote service.
 
 ## Commands
 
@@ -91,16 +99,26 @@ airportControl.request({ action: "setMode", value: "manual" });
 airportControl.request({ action: "selectAirport", code: "ORD" });
 airportControl.request({ action: "setScenario", scenario: "rush" });
 airportControl.request({ action: "setTrafficDensity", density: "busy" });
-airportControl.request({ action: "setSeparationRuleset", ruleset: "realistic" });
+airportControl.request({
+  action: "setSeparationRuleset",
+  ruleset: "realistic",
+});
 airportControl.request({ action: "setStation", station: "tower" });
-airportControl.request({ action: "setStationAutomation", station: "ramp", enabled: true });
+airportControl.request({
+  action: "setStationAutomation",
+  station: "ramp",
+  enabled: true,
+});
 airportControl.request({ action: "nextView" });
 airportControl.request({ action: "zoomIn" });
 airportControl.request({ action: "zoomOut" });
 airportControl.request({ action: "rotateLeft" });
 airportControl.request({ action: "rotateRight" });
 airportControl.request({ action: "resetCamera" });
-airportControl.request({ action: "focusTarget", target: { kind: "runway", id: "0" } });
+airportControl.request({
+  action: "focusTarget",
+  target: { kind: "runway", id: "0" },
+});
 airportControl.request({ action: "focusTarget", target: null });
 airportControl.request({ action: "setNightMode", enabled: true });
 airportControl.request({ action: "setRadarVisible", enabled: true });
@@ -155,7 +173,10 @@ airportControl.request({
   runwayId: null, // null chooses an open, role-compatible runway
   count: 4, // integer from 1 through 8
 });
-airportControl.request({ action: "setSandboxBackgroundTraffic", enabled: true });
+airportControl.request({
+  action: "setSandboxBackgroundTraffic",
+  enabled: true,
+});
 airportControl.request({ action: "cancelSandboxInjections" });
 airportControl.request({ action: "clearSandboxTraffic" });
 airportControl.request({ action: "stopSandbox" });
@@ -177,8 +198,14 @@ Flight commands:
 
 ```js
 airportControl.request({ action: "focusFlight", flightId: 12 });
-airportControl.request({ action: "focusTarget", target: { kind: "flight", id: "12" } });
-airportControl.request({ action: "focusTarget", target: { kind: "taxiway", id: "A" } });
+airportControl.request({
+  action: "focusTarget",
+  target: { kind: "flight", id: "12" },
+});
+airportControl.request({
+  action: "focusTarget",
+  target: { kind: "taxiway", id: "A" },
+});
 airportControl.request({ action: "focusTarget", target: null });
 airportControl.request({ action: "clearFlight", flightId: 12, runway: 1 });
 airportControl.request({ action: "clearPushback", flightId: 12 });
@@ -189,14 +216,36 @@ airportControl.request({
 });
 airportControl.request({ action: "clearRunwayEntry", flightId: 12 });
 airportControl.request({ action: "clearTakeoff", flightId: 12 });
-airportControl.request({ action: "assignHeading", flightId: 12, headingDegrees: 270 });
-airportControl.request({ action: "assignAltitude", flightId: 12, altitudeFt: 3000 });
-airportControl.request({ action: "assignAirspeed", flightId: 12, speedKts: 170 });
-airportControl.request({ action: "directTo", flightId: 12, fixId: "ORD-R1-A-BASE" });
+airportControl.request({
+  action: "assignHeading",
+  flightId: 12,
+  headingDegrees: 270,
+});
+airportControl.request({
+  action: "assignAltitude",
+  flightId: 12,
+  altitudeFt: 3000,
+});
+airportControl.request({
+  action: "assignAirspeed",
+  flightId: 12,
+  speedKts: 170,
+});
+airportControl.request({
+  action: "directTo",
+  flightId: 12,
+  fixId: "ORD-R1-A-BASE",
+});
 airportControl.request({
   action: "previewRoute",
   flightId: 12,
-  fixIds: ["ORD-R1-A-GW1", "ORD-R1-A-DW", "ORD-R1-A-BASE", "ORD-R1-A-INT", "ORD-R1-A-FAF"],
+  fixIds: [
+    "ORD-R1-A-GW1",
+    "ORD-R1-A-DW",
+    "ORD-R1-A-BASE",
+    "ORD-R1-A-INT",
+    "ORD-R1-A-FAF",
+  ],
 });
 airportControl.request({ action: "issueRouteAmendment", flightId: 12 });
 airportControl.request({ action: "acceptRouteReadback", flightId: 12 }); // optional test/agent acknowledgement
@@ -209,12 +258,24 @@ airportControl.request({
 airportControl.request({ action: "clearApproach", flightId: 12 });
 airportControl.request({ action: "holdFlight", flightId: 12, efcMinutes: 4 });
 airportControl.request({ action: "releaseHold", flightId: 12 });
-airportControl.request({ action: "offerHandoff", flightId: 12, station: "tower" });
+airportControl.request({
+  action: "offerHandoff",
+  flightId: 12,
+  station: "tower",
+});
 airportControl.request({ action: "acceptHandoff", flightId: 12 });
-airportControl.request({ action: "contactStation", flightId: 12, station: "tower" });
+airportControl.request({
+  action: "contactStation",
+  flightId: 12,
+  station: "tower",
+});
 airportControl.request({ action: "rejectHandoff", flightId: 12 });
 airportControl.request({ action: "cancelHandoff", flightId: 12 });
-airportControl.request({ action: "handoffFlight", flightId: 12, station: "tower" }); // legacy offer alias
+airportControl.request({
+  action: "handoffFlight",
+  flightId: 12,
+  station: "tower",
+}); // legacy offer alias
 airportControl.request({
   action: "assignTaxiRoute",
   flightId: 12,
@@ -308,7 +369,10 @@ airportControl.request({
   targetId: "OSM-E00042",
   enabled: true,
 });
-airportControl.request({ action: "clearSurfaceDisruption", disruptionId: "SD-1" });
+airportControl.request({
+  action: "clearSurfaceDisruption",
+  disruptionId: "SD-1",
+});
 airportControl.request({ action: "recoverDisabledAircraft", flightId: 12 });
 ```
 
@@ -353,15 +417,15 @@ Available IDs are `rush-hour`, `storm-operations`, `runway-closure`, and `emerge
 
 ## Snapshot and events
 
-Snapshot schema 30 adds `controlProtocol` metadata—protocol/API versions, session ID, command count, channel, and schema discovery path—while retaining schema 29 observer focus, schema 28 unified-input diagnostics, schema 27 sandbox state, schema 26 deterministic challenge definitions, and earlier controller/training state. Focus, scorecards, challenge grading, and coaching are read-only presentation or feedback; operational instructions still pass through the normal typed command and safety path.
+Snapshot schema 31 adds the deterministic `controllers.scripted` runtime and decision history while retaining schema 30 control-protocol discovery, schema 29 observer focus, schema 28 unified-input diagnostics, schema 27 sandbox state, schema 26 deterministic challenge definitions, and earlier controller/training state. Focus, scorecards, challenge grading, coaching, and decision history are read-only presentation or feedback; operational instructions still pass through the normal typed command and safety path.
 
 Top-level `selection` reports the selected flight, compact focused-target reference, whether Group select is active, and the selected grouped flight IDs. Top-level `focus` reports catalog schema 1, the current descriptor, and categorized targets for `flight`, `runway`, `taxiway`, `gate`, `queue`, and `conflict`. A descriptor carries stable key/reference, label, explanation, world bounds, suggested zoom, static/flight/group/vehicle follow strategy, related flight IDs, optional vehicle/selected-flight identity, and presentation tone. `renderer.camera.target` reports the currently resolved tracking point; the renderer derives moving points from the same interpolated visuals it already displays and never invents a separate route.
 
-Top-level `controllers.performance` is ordered as Supervisor, Approach, Tower, Ground, and Ramp. Each entry reports its traffic scope, authority summary, responsibilities, success measures, applicable operational workload, current score/status/summary, four objectives, and bounded role-scoped alerts with associated flight IDs. See [controller-roles.md](controller-roles.md) for the role boundaries, target semantics, and deterministic derivation rules.
+Top-level `controllers.performance` is ordered as Supervisor, Approach, Tower, Ground, and Ramp. Each entry reports its traffic scope, authority summary, responsibilities, success measures, applicable operational workload, current score/status/summary, four objectives, and bounded role-scoped alerts with associated flight IDs. `controllers.scripted` reports which of those desks are currently automated or human and exposes their bounded decision audit. See [controller-roles.md](controller-roles.md) for the role boundaries, target semantics, and deterministic derivation rules.
 
 Snapshots include the airport and seed, simulation clock, mode, speed, station, scenario, traffic density/flow, weather (including visibility, ceiling, wind, gusts, temperature, and surface condition), optional-overlay state, active runway configuration, selection mode, transition queue, ends, dynamic roles, eligibility/restriction reasons, closure, runway reservations, proposed Assisted clearances, structured operation queues, the complete surface graph, renderer/map-layer/camera diagnostics, safety metrics, and every flight's operation plan, complete flight plan/history, route, clearances, model data, authoritative pose, rendered nose-up attitude, kinematics, fuel, trajectory stage, hold reason, and assigned gate/terminal/concourse. Each `flight.fuelPlan` includes the deterministic arrival and departure route estimates plus block, trip, taxi, contingency, alternate, final-reserve, dispatch, and expected-arrival quantities; these are entertainment estimates, not dispatch data. `flight.kinematics` includes aviation heading degrees and a cardinal direction. `airport.airspaceProgram` contains its schema/data version, non-navigation disclaimer, fixes, airways, sectors, SIDs, STARs, constraints, holds, missed approaches, and FAA conceptual-source metadata. Every `flight.navigation` reports selected procedure/transition, remaining fixes, active fix, heading/altitude/speed assignments, vector or holding state, EFC, missed-approach ID, frequency ownership, handoff, and readback state. Its optional `routeClearance` preserves the proposed and prior fix lists, status, controller, timestamps, distance/time/turn estimate, safety decision, structured forecast warnings, and final reason. An active `flight.diversion` reports alternate airport, edge fix, instruction time/reason, captured start pose, exit stage, and stage progress. Top-level `separationRuleset` reports the complete active physical rules, coordinate basis, required radar NM, recent runway-operation history, and current violations. During a missed approach, `flight.goAround` reports its instruction time, reason, captured live start pose, selected missed-approach circuit stage, and stage progress. `flight.runwayExit` reports the chosen graph node and taxiway, source, candidate count, threshold/touchdown/rollout distances, available pavement and stopping margin, braking action/multiplier, target exit speed and angle, rapid-exit state, stand-route and live-congestion costs, competing-traffic penalty, deterministic score, safety result, route edges, rationale, and selection time. Top-level `surfaceDisruptions` reports each restriction's kind, status, source, target, label, blocked edges, runway/taxiway/flight association, timing, recovery progress, rerouted flights, and reason. An affected flight's `surfaceReroute` records revision, rerouted/holding status, trigger IDs, prior and current edge lists, added distance, and explanation. Renderer diagnostics expose pending, active, and recovering counts. `surfaceGraph.gatePlanning` names the scheduling model, turn buffer, policy, and scoring factors. Each `flight.gate.assignment` reports planned/inbound/occupied/releasing/released status; a readable operational-zone name; scheduled and actual gate-in/out times; next destination and departure runway; airline/service fit; service area; arrival/departure route distance; score; rationale; revision; and prior stand. Each `flight.turnaround` reports planned/servicing/ready/released status, overall timing and progress, initial/target fuel, active and blocking services, and all seven tasks with dependency, reason, duration, progress, and actual timestamps. `serviceVehicles` reports the task/type/lifecycle, stand/zone/bay, depot, outbound and return graph routes, stand path, dispatch time, authoritative pose, actual/max speed, current edge/node, hold reason, and protected-area authorization for every active turn. Ground-operation state reports `pushbackCleared`, left/right/straight `pushbackDirection`, normalized `pushbackProgress`, graph-derived `pushbackReleaseProgress`, `tugAttached`, and `engineState` (`off`, `starting`, or `running`). It also reports the active ramp-control zone and capacity, ramp alley, inbound/outbound flow direction, stand lead-in/lead-out state, and an explainable automatic hold reason. `surfaceRoutePlanning` separates physical distance from routing cost, congestion penalty, and occupied edges considered by the router. `taxiPerformance` reports the aircraft's straight and turn speed limits, ground acceleration/braking, current stopping distance, design/current turn radius, next-turn distance and speed, current/minimum route wingtip margin, limiting edge, and route compatibility. Surface graph schema v3 includes stand compatibility, sourced parking/gate references, passenger facilities and official gate-count provenance, pushback/ramp metadata, named routes, bridge/tunnel semantics, explicit control points, operational zones, and FAA hot spots. A taxiing flight reports its exact `crossingHoldPointId` when stopped for a runway crossing.
 
-Events carry `protocolVersion`, `apiVersion`, `sessionId`, a monotonic numeric `eventId`/`sequence`, and a globally unambiguous `eventKey`. A command attempt has a unique `commandId`; every synchronous simulation or lifecycle event it creates carries `causedByCommandId`, including accepted and rejected operational events. Autonomous traffic keeps that field absent, so consumers can distinguish controller effects from scheduler behavior. Events also include command payloads and acceptance, flight/runway/taxiway context, and safety-hold or go-around details. Handoff coordination emits `handoff-offer`, `handoff-accept`, `handoff-reject`, `handoff-overdue`, `handoff-cancel`, `handoff-complete`, and compatibility `contact` events. Each atomic group issue emits one `group-instruction` event per member with the common instruction, authority, and callsign set in its detail. Route editing emits `route-preview`, `route-clearance-issued`, `route-readback-accepted`, `route-readback-rejected`, `route-clearance-cancelled`, and final `route-amendment` events with a deep-cloned clearance/warning payload. Other controller-authored movement adds `taxi-route-clearance`, `hold-position`, `taxi-resume`, `diversion`, and terminal-scope `divert` events. Gate planning adds structured `gate-assignment`, `gate-reassignment`, and `gate-release` payloads. Arrival planning emits `runway-exit-plan` with the complete resulting exit state whenever the stand, braking action, traffic, or final-approach refresh changes the decision. Surface changes emit `surface-reroute`, `recovery-start`, and `recovery-complete` with the resulting route/restriction context. Turnarounds add `turnaround-start`, per-task `service-start` / `service-complete`, and `turnaround-ready` events with service, progress, and readiness timing. Ramp equipment adds dispatch, arrival, hold/release, return, and stand-clear events with vehicle ID/type/status. Pushback adds `pushback-clearance`, `pushback-start`, `engine-start`, and `tug-release` events. Winter operations add `deicing-planned`, `deicing-queue`, `deicing-pad-entry`, `deicing-start`, `deicing-complete`, `deicing-expired`, and `deicing-return`, including the resulting pad, lane, cycle, queue, treatment, and holdover state. The in-page log retains the latest 500 events.
+Events carry `protocolVersion`, `apiVersion`, `sessionId`, a monotonic numeric `eventId`/`sequence`, and a globally unambiguous `eventKey`. A command attempt has a unique `commandId`; every synchronous simulation or lifecycle event it creates carries `causedByCommandId`, including accepted and rejected operational events. A scripted action has a unique `controller-*` decision ID; its resulting domain events and the typed `controller-decision` audit event carry `causedByControllerDecisionId`, while the audit payload contains the complete decision record. Scheduler-only traffic keeps both cause fields absent, so consumers can distinguish human/API commands, deterministic controllers, and background lifecycle behavior. Events also include command payloads and acceptance, flight/runway/taxiway context, and safety-hold or go-around details. Handoff coordination emits `handoff-offer`, `handoff-accept`, `handoff-reject`, `handoff-overdue`, `handoff-cancel`, `handoff-complete`, and compatibility `contact` events. Each atomic group issue emits one `group-instruction` event per member with the common instruction, authority, and callsign set in its detail. Route editing emits `route-preview`, `route-clearance-issued`, `route-readback-accepted`, `route-readback-rejected`, `route-clearance-cancelled`, and final `route-amendment` events with a deep-cloned clearance/warning payload. Other controller-authored movement adds `taxi-route-clearance`, `hold-position`, `taxi-resume`, `diversion`, and terminal-scope `divert` events. Gate planning adds structured `gate-assignment`, `gate-reassignment`, and `gate-release` payloads. Arrival planning emits `runway-exit-plan` with the complete resulting exit state whenever the stand, braking action, traffic, or final-approach refresh changes the decision. Surface changes emit `surface-reroute`, `recovery-start`, and `recovery-complete` with the resulting route/restriction context. Turnarounds add `turnaround-start`, per-task `service-start` / `service-complete`, and `turnaround-ready` events with service, progress, and readiness timing. Ramp equipment adds dispatch, arrival, hold/release, return, and stand-clear events with vehicle ID/type/status. Pushback adds `pushback-clearance`, `pushback-start`, `engine-start`, and `tug-release` events. Winter operations add `deicing-planned`, `deicing-queue`, `deicing-pad-entry`, `deicing-start`, `deicing-complete`, `deicing-expired`, and `deicing-return`, including the resulting pad, lane, cycle, queue, treatment, and holdover state. The in-page log retains the latest 500 events.
 
 `recording()` returns replay schema 2 with protocol/API/session versions, the airport seed, initial state, accepted and rejected commands with request/command/event IDs and source, weather events, complete causal event log, and immutable full-state frames. The visible replay scrubber is read-only and drives the 3D world from those recorded frames.
 
@@ -382,12 +446,12 @@ channel.addEventListener("message", ({ data }) => {
 channel.postMessage({
   type: "request",
   envelope: {
-    protocolVersion: "1.0.0",
+    protocolVersion: "1.1.0",
     requestId,
     clientId: "local-observer",
     source: "agent",
     authority: { station: "supervisor" },
-    expects: { apiVersion: "2.28.0", snapshotSchemaVersion: 30 },
+    expects: { apiVersion: "2.29.0", snapshotSchemaVersion: 31 },
     command: { action: "focusFlight", flightId: 12 },
   },
 });

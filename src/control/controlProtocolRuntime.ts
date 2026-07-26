@@ -105,6 +105,7 @@ const telemetryEventSchema: ProtocolJsonSchema = {
       ],
     },
     causedByCommandId: { type: "string", minLength: 1 },
+    causedByControllerDecisionId: { type: "string", minLength: 1 },
     causedByEventId: { type: "integer", minimum: 1 },
     flightId: { type: "integer", minimum: 1 },
     callsign: { type: "string", minLength: 1 },
@@ -113,6 +114,7 @@ const telemetryEventSchema: ProtocolJsonSchema = {
     taxiway: { type: "string", minLength: 1 },
     accepted: { type: "boolean" },
     detail: { type: "string" },
+    payload: {},
   },
   required: [
     "protocolVersion",
@@ -801,6 +803,8 @@ export function getAirportControlProtocol() {
       eventKey: "Globally unambiguous sessionId:eventId key.",
       causedByCommandId:
         "Links synchronous domain events to the command that produced them.",
+      causedByControllerDecisionId:
+        "Links autonomous domain events to the deterministic station decision that produced them.",
       causedByEventId:
         "Optional event-to-event causal parent for future asynchronous workflows.",
     },

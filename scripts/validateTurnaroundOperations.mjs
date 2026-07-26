@@ -94,7 +94,13 @@ const arrival = harness.simulation.state.flights
   .filter((flight) => flight.phase === 'approach')
   .sort((first, second) => (first.gateAssignment?.scheduledGateInSeconds ?? Infinity) - (second.gateAssignment?.scheduledGateInSeconds ?? Infinity))[0];
 assert(arrival, 'ORD startup has no arrival for turnaround integration');
-assert(harness.runUntil((snapshot) => snapshot.flights.some((flight) => flight.id === arrival.id && flight.phase === 'resting'), 420), 'arrival never reached its stand');
+const reachedStand = harness.runUntil((snapshot) => snapshot.flights.some((flight) => flight.id === arrival.id && flight.phase === 'resting'), 420);
+assert(reachedStand, 'arrival never reached its stand: ' + JSON.stringify({
+  flight: harness.snapshot().flights.find((flight) => flight.id === arrival.id),
+  controllers: harness.simulation.state.scriptedControllers,
+  workloads: harness.simulation.controllerWorkloads(),
+  recentEvents: harness.snapshot().events.filter((event) => event.flightId === arrival.id).slice(-20),
+}));
 harness.simulation.setMode('manual');
 harness.simulation.setStation('ramp');
 let live = harness.simulation.state.flights.find((flight) => flight.id === arrival.id);

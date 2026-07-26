@@ -98,6 +98,7 @@ assert(!simulation.setMode('auto') && simulation.setMode('manual'), 'challenge m
 assert(simulation.beginChallenge(), 'challenge clock did not start');
 for (let tick = 0; tick < 20; tick += 1) simulation.update(0.05);
 assert(simulation.shiftMetrics().fuelBurnKg > 0, 'authoritative aircraft burn did not feed the challenge fuel summary');
+assert(simulation.shiftMetrics().missedHandoffs === 0, 'startup traffic recorded a missed handoff on the first challenge tick');
 
 assert(simulation.endChallenge(), 'active challenge could not be ended early');
 assert(simulation.state.challenge.status === 'abandoned' && simulation.state.challenge.grade === 'F', 'early ending did not produce a terminal F debrief');

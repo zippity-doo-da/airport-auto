@@ -8,6 +8,7 @@ import {
   SurfaceReservationLedger,
   surfaceCongestionPlanning,
   surfaceRampControlZones,
+  surfaceRouteOperationalState,
   surfaceRouteReservationClaims,
   surfaceStandFlow,
 } from './src/simulation/surfaceOperations.ts';
@@ -61,6 +62,10 @@ assert(standFlow?.leadIn.nodeIds.join(',') === 'R,S', 'stand lead-in path is not
 assert(standFlow?.leadOut.nodeIds.join(',') === 'S,R', 'stand lead-out path is not stand-to-ramp');
 const rampZones = surfaceRampControlZones(synthetic);
 assert(rampZones.length === 1 && rampZones[0].capacity === 2, 'terminal ramp-control capacity is wrong');
+const outsideRamp = surfaceRouteOperationalState(synthetic, ['A', 'B'], ['AB'], 0.1, 'taxi-in', 'S1');
+const insideRamp = surfaceRouteOperationalState(synthetic, ['A', 'R', 'S'], ['RA', 'SR'], 0.1, 'taxi-in', 'S1');
+assert(outsideRamp.rampControlZoneId === null, 'an assigned stand claimed ramp control while the aircraft was still on a movement-area taxiway');
+assert(insideRamp.rampControlZoneId === 'RAMP-ZONE-APRON', 'ramp-control entry was not detected from the aircraft current edge');
 
 const outboundClaims = surfaceRouteReservationClaims(synthetic, ['S', 'R', 'A'], ['SR', 'RA'], 0.1, 'taxi-out', 2);
 const inboundClaims = surfaceRouteReservationClaims(synthetic, ['A', 'R', 'S'], ['RA', 'SR'], 0.1, 'taxi-in', 2);

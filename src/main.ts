@@ -185,6 +185,7 @@ type TelemetryEvent = {
   detail?: string;
   payload?: unknown;
   causedByCommandId?: string;
+  causedByControllerDecisionId?: string;
   causedByEventId?: number;
 };
 
@@ -1390,11 +1391,17 @@ function frame(now: number): void {
       || event.type === 'route-readback-rejected'
       || event.type === 'route-clearance-cancelled'
       || event.type === 'route-amendment';
+    const controllerDecision = event.type === 'controller-decision' && event.causedByControllerDecisionId
+      ? simulation.state.scriptedControllers.decisions.find(
+          (decision) => decision.id === event.causedByControllerDecisionId,
+        )
+      : undefined;
     recordTelemetry(event.type, event.flight, event.runway, event.taxiway, {
       detail: event.detail ?? (event.type === 'safety-hold' ? event.flight.safetyHoldReason : undefined),
       causedByCommandId: event.causedByCommandId,
+      causedByControllerDecisionId: event.causedByControllerDecisionId,
       causedByEventId: event.causedByEventId,
-      payload: routeClearanceEvent && event.flight.navigation.routeClearance ? {
+      payload: controllerDecision ? structuredClone(controllerDecision) : routeClearanceEvent && event.flight.navigation.routeClearance ? {
         ...event.flight.navigation.routeClearance,
         routeFixIds: [...event.flight.navigation.routeClearance.routeFixIds],
         routeFixNames: [...event.flight.navigation.routeClearance.routeFixNames],
@@ -1624,6 +1631,7 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
   return {
     ...state,
     stationAutomation: { ...state.stationAutomation },
+    scriptedControllers: structuredClone(state.scriptedControllers),
     trafficFlow: cloneTrafficFlowState(state.trafficFlow),
     weather: { ...state.weather },
     training: {
@@ -3897,6 +3905,7 @@ function recordTelemetry(
     detail?: string;
     payload?: unknown;
     causedByCommandId?: string;
+    causedByControllerDecisionId?: string;
     causedByEventId?: number;
   },
 ): TelemetryEvent {
@@ -3918,6 +3927,7 @@ function recordTelemetry(
     taxiway,
     ...details,
     causedByCommandId: details?.causedByCommandId ?? activeControlCommandId ?? undefined,
+    causedByControllerDecisionId: details?.causedByControllerDecisionId,
     causedByEventId: details?.causedByEventId,
   };
   telemetryEvents.push(event);
@@ -4090,6 +4100,7 @@ function airportSnapshot() {
     input: inputLayer.snapshot(),
     controllers: {
       automation: { ...simulation.state.stationAutomation },
+      scripted: structuredClone(simulation.state.scriptedControllers),
       workloads: simulation.controllerWorkloads(),
       performance: simulation.controllerPerformance(),
       coordination: simulation.state.flights.flatMap((flight) => {
@@ -5337,7 +5348,7 @@ window.airportControl = {
       events: 'airportControl.events(100)',
       protocol: 'airportControl.protocol() // command/event JSON Schemas, authority, compatibility, examples',
       validate: "airportControl.validate({ action: 'pause' }) // structural validation without execution",
-      formalDispatch: "airportControl.dispatch({ protocolVersion: '1.0.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.28.0', snapshotSchemaVersion: 30 }, command: { action: 'pause' } })",
+      formalDispatch: "airportControl.dispatch({ protocolVersion: '1.1.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.29.0', snapshotSchemaVersion: 31 }, command: { action: 'pause' } })",
       structuredCommand: "airportControl.request({ action: 'pause' }) // legacy-compatible bare command; result includes requestId, commandId, eventId, authority, and compatibility",
       pause: "airportControl.command({ action: 'pause' })",
       speed: "airportControl.command({ action: 'setSpeed', value: 2 })",
@@ -5425,7 +5436,7 @@ window.airportControl = {
       construction: "airportControl.request({ action: 'setSurfaceDisruption', kind: 'construction', targetId: 'edge-id', enabled: true }) // supervisor",
       reopenSurface: "airportControl.request({ action: 'clearSurfaceDisruption', disruptionId: 'SD-1' }) // supervisor",
       recoverAircraft: "airportControl.request({ action: 'recoverDisabledAircraft', flightId: 3 }) // ground or supervisor",
-      broadcast: "new BroadcastChannel('airport-auto') // send { type: 'request', envelope: { protocolVersion: '1.0.0', requestId, source: 'agent', command } }; legacy { type: 'command', requestId, command } remains supported",
+      broadcast: "new BroadcastChannel('airport-auto') // send { type: 'request', envelope: { protocolVersion: '1.1.0', requestId, source: 'agent', command } }; legacy { type: 'command', requestId, command } remains supported",
     };
   },
 };

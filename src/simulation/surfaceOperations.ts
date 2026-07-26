@@ -232,7 +232,7 @@ export function surfaceRouteOperationalState(
   const leadStand = edge ? index.standByLeadEdgeId.get(edge.id) : undefined;
   const relevantStand = leadStand ?? stand;
   const zone = edge
-    ? index.rampZoneByEdgeId.get(edge.id) ?? (relevantStand ? index.rampZoneByStandId.get(relevantStand.id) : undefined)
+    ? index.rampZoneByEdgeId.get(edge.id) ?? (leadStand ? index.rampZoneByStandId.get(leadStand.id) : undefined)
     : relevantStand
       ? index.rampZoneByStandId.get(relevantStand.id)
       : undefined;

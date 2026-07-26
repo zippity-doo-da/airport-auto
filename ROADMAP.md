@@ -1,7 +1,7 @@
 # Airport Auto — Forward Roadmap
 
 Last reconciled: July 25, 2026
-Baseline: Airport Auto 2.28.0
+Baseline: Airport Auto 2.29.0
 
 Airport Auto is an **ASMR-first web airport simulation with an optional serious ATC layer**. The simulation should remain enjoyable as a calm, hands-off miniature world while also supporting increasingly authentic controller work when the player asks for it.
 
@@ -135,8 +135,8 @@ Make each controller position a complete, satisfying job rather than a filtered 
 Use the versioned local control protocol as the safety boundary for live human and agent controllers.
 
 - [x] Publish a formal command/event schema with parameters, results, causal event IDs, authority, and compatibility rules. (2.28: protocol 1.0 catalogs all 85 commands with JSON Schemas, examples, mutation/authority metadata, 68 domain event types, formal request/result/event/BroadcastChannel envelopes, asserted-station enforcement, request/command/event causality, runtime validation, API 2.x compatibility aliases, replay schema 2, deterministic validation, and browser coverage.)
-- [ ] Add deterministic scripted controllers for Approach, Tower, Ground, Ramp, and Supervisor before introducing LLM decisions.
-- [ ] Add per-station controller policies, workload limits, handoff behavior, explainable decisions, and human takeover.
+- [x] Add deterministic scripted controllers for Approach, Tower, Ground, Ramp, and Supervisor before introducing LLM decisions. (2.29: five fixed-cadence station programs replace direct automation mutations; every operational action uses the shared public authority/safety arbiter, decisions have bounded causal audit records, Manual EFC holds require a release, human takeover is immediate, and deterministic plus sustained ORD-flow tests cover all desks.)
+- [ ] Add per-station controller policies, workload limits, handoff behavior, explainable decisions, and human takeover. (2.29 foundation: station-specific rules, staged handoffs, rationales, results, counters, and basic human takeover now ship; configurable policy profiles, explicit workload capacity, and richer takeover continuity remain.)
 - [ ] Add evaluation metrics for conflicts, incursions, delay, throughput, fuel impact, unnecessary holds, rejected commands, and command quality.
 - [ ] Add controller presets such as conservative, efficient, calm, teaching, and realistic without weakening the safety arbiter.
 - [ ] Build an authenticated WebSocket service for external control; keep static GitHub Pages local/read-only when the service is absent.

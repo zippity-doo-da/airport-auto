@@ -124,6 +124,63 @@ export interface SandboxState {
   lastMessage: string;
 }
 export type StationAutomationState = Record<OperationalControllerStation, boolean>;
+export type ScriptedControllerMode = 'scripted' | 'human' | 'inactive';
+export type ScriptedControllerPriority = 'safety' | 'urgent' | 'sequence' | 'routine';
+export type ScriptedControllerAction =
+  | 'clear-approach'
+  | 'clear-landing'
+  | 'clear-pushback'
+  | 'clear-runway-crossing'
+  | 'clear-runway-entry'
+  | 'clear-takeoff'
+  | 'offer-handoff'
+  | 'accept-handoff'
+  | 'contact-handoff'
+  | 'release-hold'
+  | 'recover-disabled'
+  | 'go-around';
+
+export interface ScriptedControllerDecision {
+  id: string;
+  cycle: number;
+  station: ControllerStation;
+  action: ScriptedControllerAction;
+  flightId: number;
+  callsign: string;
+  runway?: number;
+  targetStation?: OperationalControllerStation;
+  ruleId: string;
+  priority: ScriptedControllerPriority;
+  rationale: string;
+  plannedAtSeconds: number;
+  resolvedAtSeconds: number;
+  accepted: boolean;
+  result: string;
+  producedEventTypes: string[];
+}
+
+export interface ScriptedControllerStationRuntime {
+  station: ControllerStation;
+  mode: ScriptedControllerMode;
+  evaluations: number;
+  planned: number;
+  accepted: number;
+  rejected: number;
+  lastEvaluatedAtSeconds: number | null;
+  lastDecisionId: string | null;
+}
+
+export interface ScriptedControllerRuntime {
+  schemaVersion: 1;
+  programVersion: '1.0.0';
+  cadenceSeconds: number;
+  cycle: number;
+  nextDecisionSequence: number;
+  lastEvaluatedAtSeconds: number | null;
+  nextEvaluationAtSeconds: number;
+  stations: Record<ControllerStation, ScriptedControllerStationRuntime>;
+  decisions: ScriptedControllerDecision[];
+}
 export type FlightInstruction = 'slow' | 'normal' | 'expedite' | 'hold' | 'resume' | 'zigzag';
 export type GroupFlightInstruction = Extract<FlightInstruction, 'slow' | 'normal' | 'hold' | 'resume'>;
 export type GroupInstructionDomain = 'airborne' | 'surface';
@@ -881,6 +938,8 @@ export interface AirportEvent {
   serviceVehicleStatus?: ServiceVehicleStatus;
   /** Command that synchronously produced this domain event, when applicable. */
   causedByCommandId?: string;
+  /** Deterministic station decision that synchronously produced this event. */
+  causedByControllerDecisionId?: string;
   /** Reserved for explicit event-to-event causal chains in asynchronous workflows. */
   causedByEventId?: number;
 }
@@ -907,6 +966,7 @@ export interface AirportState {
   nightMode: boolean;
   station: ControllerStation;
   stationAutomation: StationAutomationState;
+  scriptedControllers: ScriptedControllerRuntime;
   weather: WeatherState;
   scenario: TrafficScenario;
   trafficFlow: TrafficFlowState;
