@@ -161,6 +161,25 @@
             <output id="replay-time">LIVE</output>
             <button id="replay-export" type="button">Export</button>
           </div>
+          <section id="replay-inspector" class="replay-inspector" aria-label="Replay verification and comparison">
+            <header><b id="replay-source">Live buffer</b><small id="replay-detail">No recorded frames yet</small></header>
+            <div class="replay-inspector__actions">
+              <button id="replay-import" type="button">Import</button>
+              <input id="replay-file" class="visually-hidden" type="file" accept=".json,.airport-auto-replay.json,application/json" />
+              <button id="replay-live-buffer" type="button" disabled>Live buffer</button>
+              <button id="replay-seed-link" type="button">Copy seed link</button>
+              <button id="replay-verify" type="button" disabled>Verify</button>
+              <button id="replay-share" type="button" hidden>Share file</button>
+            </div>
+            <output id="replay-verification" class="replay-inspector__verification" aria-live="polite" data-tone="idle"><b>Not checked</b><small>Verify before importing or sharing a replay.</small></output>
+            <label class="replay-inspector__marker"><span>Event marker</span><select id="replay-marker" disabled><option value="">No event markers yet</option></select></label>
+            <div class="replay-inspector__compare">
+              <button id="replay-baseline" type="button" disabled>Set A</button>
+              <button id="replay-compare" type="button" disabled>Compare A ↔ current</button>
+              <output id="replay-comparison">Set a baseline frame, move the replay, then compare.</output>
+            </div>
+            <small class="replay-inspector__note">Imports are read-only. Share removes controller identity, correlation IDs, and free text; Export keeps the full local audit. Fingerprints detect accidental edits, not hostile tampering.</small>
+          </section>
           <fieldset class="remote-control-host" aria-label="External controller gateway">
             <legend>External controller gateway</legend>
             <div class="remote-control-host__status"><b id="remote-host-state">Disconnected</b><small id="remote-host-detail" aria-live="polite">Local page control only · no network connection is opened automatically.</small></div>

@@ -27,7 +27,7 @@ Watch mode selects the Calm preset but does not silently change a player's radio
 
 `SoundscapeEventScheduler` chooses event kind, variant, timing, caption, position, and cooldown from the airport seed plus authoritative domain events. It never uses renderer frame count or `Math.random()`.
 
-Replay schema 3 stores `soundEvents` alongside full-state frames, commands, weather history, and causal events. Scrubbing changes both the rendered environment mix and nearby recorded sound/caption decision; it never continues to sonify the hidden live weather state.
+Replay schema 4 stores `soundEvents` alongside full-state frames, commands, weather history, causal events, event markers, and deterministic receipts. Scrubbing changes both the rendered environment mix and nearby recorded sound/caption decision; it never continues to sonify the hidden live weather state. A privacy-filtered shared replay may retain these fictional offline decisions while removing controller identity, correlations, event payloads, and free text.
 
 The schema-37 snapshot exposes:
 

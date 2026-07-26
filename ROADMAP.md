@@ -1,7 +1,7 @@
 # Airport Auto — Forward Roadmap
 
 Last reconciled: July 26, 2026
-Working baseline: Airport Auto 2.37.0 (local release candidate; deployment intentionally withheld)
+Working baseline: Airport Auto 2.38.0 (local release candidate; deployment intentionally withheld)
 
 Airport Auto is an **ASMR-first web airport simulation with an optional serious ATC layer**. The simulation should remain enjoyable as a calm, hands-off miniature world while also supporting increasingly authentic controller work when the player asks for it.
 
@@ -193,25 +193,25 @@ Connect the simulation to the outside world without making it fragile or unsafe.
 - [ ] Add optional schedule/traffic feeds that seed plausible operations while preserving privacy, licensing, and deterministic replay.
 - [x] Add JSON and CSV exports for flights, commands, events, queues, delays, runway utilization, and shift metrics. (2.37 local candidate: one local JSON bundle and ten selectable CSV datasets cover the requested data plus named-taxiway use, flight-recorder samples, and conflict cells; nested data is serialized safely and nothing uploads.)
 - [x] Add a single-aircraft flight-data-recorder view, airport operations dashboard, conflict heatmap, and runway/taxiway utilization views. (2.37 local candidate: a responsive, keyboard-safe Data Lab presents authoritative one-second traces, shift pulse, utilization bars, runway-context forecast heat cells, and follow controls without reading positions from the renderer.)
-- [ ] Add exact-replay verification, event markers, state comparison, schema migrations, and shareable replay/seed links.
+- [x] Add exact-replay verification, event markers, state comparison, schema migrations, and shareable replay/seed links. (2.38 local candidate: replay schema 4 fingerprints every authoritative frame and the complete manifest, locates mismatches, adds marker seeking and bounded path diffs, migrates schema 3 with an unsealed warning, imports read-only files, accepts exact `seed=` launches, and separates raw local Export from re-fingerprinted privacy-filtered Share files.)
 - [ ] Add screenshot and short-clip capture plus a clean spectator presentation.
 - [ ] Add daily seeded challenges, classrooms, shared sessions, and server-validated leaderboards only if they support rather than undermine the ASMR-first direction.
-- [x] Define telemetry redaction, retention, consent, and public-sharing rules before enabling cloud storage. (2.37 local candidate: the bounded page-memory recorder, in-product disclosure, remote-summary boundary, and [allowlist/redaction policy](docs/operations-data-lab.md) explicitly keep cloud upload off and raw control identities local.)
+- [x] Define telemetry redaction, retention, consent, and public-sharing rules before enabling cloud storage. (2.37 established the bounded page-memory recorder and allowlist policy; 2.38 enforces it by removing controller identity, correlations, event payloads, free text, and precise recording time from separately fingerprinted Share files while keeping raw Export explicitly local.)
 
 ## Cross-cutting engineering and quality work
 
 These tasks travel with the milestones above rather than waiting for a final cleanup phase.
 
-- [ ] Continue splitting the large simulation, rendering, and application coordinators into model, systems, procedures, scene, camera, HUD, control, and telemetry modules. Queue diagnosis, queue UI, radar rendering, and surface-availability UI moved into dedicated modules in 2.12; the three legacy coordinators still need further extraction.
+- [ ] Continue splitting the large simulation, rendering, and application coordinators into model, systems, procedures, scene, camera, HUD, control, and telemetry modules. Queue diagnosis, queue UI, radar rendering, and surface-availability UI moved into dedicated modules in 2.12; 2.38 additionally extracted the replay contract, migration/fingerprint/diff/share logic, and replay-inspector DOM ownership, while the three legacy coordinators still need further extraction.
 - [ ] Centralize runway/runway-end, surface-protection, separation, and procedure rules so no second implementation can drift.
-- [ ] Add schema migrations for airport assets, saves, recordings, commands, events, and replays.
+- [ ] Add schema migrations for airport assets, saves, recordings, commands, events, and replays. (2.38 foundation: recording/replay schema 3 migrates to schema 4 through a versioned registry with explicit unsupported-version rejection; airport assets, saves, standalone commands, and standalone event migrations remain.)
 - [ ] Add a stable asset manifest instead of treating generated hashed filenames as public APIs.
 - [ ] Extend instancing to suitable lights, markings, buildings, and repeated airport props.
 - [ ] Extend pooling to trails, weather effects, labels, route previews, sound emitters, and transient events.
 - [ ] Add frame-time, simulation-time, memory, entity, audio-source, queue, draw-call, and long-session growth budgets.
 - [ ] Add a multi-hour single-session soak and a measured high-density stress profile without weakening safety rules.
 - [ ] Add browser smoke coverage for every named airport and scenario plus visual-regression baselines for representative desktop/mobile scenes.
-- [ ] Add property tests for graph imports, exact replay, route crossings, wake/runway rules, and command authorization.
+- [ ] Add property tests for graph imports, exact replay, route crossings, wake/runway rules, and command authorization. (2.38 foundation: canonical receipts prove exact fixed-step equality across different wall-frame partitions and localize a mutated nested frame; broader generated graph/rule/authorization properties remain.)
 - [ ] Add accessibility regression checks for focus, keyboard flow, touch targets, readable labels, captions, contrast, and reduced motion.
 - [x] Refresh GitHub Actions to current Node-supported action releases and keep dependencies routinely audited. (2.15: Checkout/Setup Node/Upload Artifact 7 and current Pages action generations; source tests split into bounded parallel jobs.)
 - [x] Keep source and Pages CI separate, additive, and capable of proving that the menagerie root still works. (2.15: private source CI and public Pages deployment remain separate; deployment mirrors only `airport-auto/` and verifies the menagerie root.)

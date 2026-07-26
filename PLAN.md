@@ -499,6 +499,22 @@ Deployment remains intentionally withheld to conserve GitHub Actions minutes. Th
 - [x] Define the future shared-replay allowlist, local-only identity/correlation/network fields, explicit preview/consent requirement, and retention/deletion gate before any cloud storage in [docs/operations-data-lab.md](docs/operations-data-lab.md).
 - [x] Validate sample cadence, reset isolation, all ten CSV datasets, JSON completeness, disclosure, TypeScript, lint, production build, protocol/remote compatibility, real browser download, and 1024×600 plus 390×844 containment locally without invoking GitHub Actions.
 
+## Airport Auto 2.38 — exact replay and safe sharing (local release candidate)
+
+Deployment remains intentionally withheld to conserve GitHub Actions minutes. This candidate has only been built and tested locally.
+
+The 2.38-focused validators and browser checks below pass. A broader aggregate `npm test` run was also attempted locally, but its shell guard expired after 15 minutes without an assertion failure or final buffered report; it is recorded as a timeout, not a pass.
+
+- [x] Add replay schema 4 with sorted canonical state fingerprints for the initial state, every immutable full-state frame, commands, events, weather, sound, markers, and one version/seed/disclosure manifest receipt.
+- [x] Keep playback on the authoritative recorded state and add exact mismatch localization, bounded path-level frame comparison, compact snapshot diagnostics, and cooperative browser fingerprinting that yields between small frame groups.
+- [x] Add non-audio telemetry markers categorized as safety, weather, command, movement, coordination, or system events, with nearest-frame seeking from the normal replay controls.
+- [x] Add verified read-only JSON import, automatic supported-airport/seed reconstruction, a 250 MB local limit, explicit rejection reasons, and a schema 3 → 4 in-memory migration labeled as legacy unsealed.
+- [x] Add exact `seed=` launches for generated and named airports plus a query/fragment-clean seed-link builder that includes only deterministic game/presentation options and never carries credentials or controller identity.
+- [x] Separate raw `local-full` Export from `shareable-redacted` Share packages; remove or replace controller/client/correlation identity, causal payloads, user-capable free text, and precise time, declare the redactions, prohibit automatic upload, and fingerprint the filtered result again.
+- [x] Extract replay data/migration/fingerprint/diff/share logic and replay-inspector DOM ownership from the application coordinator; expose `verify`, `load`, `compare`, `seedLink`, and `shareable` through the page-local API.
+- [x] Publish exact semantics, security limitations, privacy classes, migration behavior, controls, and verification in [docs/replay-verification.md](docs/replay-verification.md).
+- [x] Validate canonical key ordering, nested tamper localization, comparisons, marker placement, migrations, unsupported versions, redaction/non-leakage, shared-package verification, cooperative yields, fixed-step partition equality, types, lint, production build, and the real desktop/mobile replay workflow locally without invoking GitHub Actions.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.

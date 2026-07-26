@@ -1,0 +1,219 @@
+import { build } from "esbuild";
+
+const validationSource = `
+import {
+  buildReplaySeedLink,
+  compareReplayStates,
+  createReplayRecording,
+  createReplayRecordingAsync,
+  createShareableReplayRecording,
+  deriveReplayMarkers,
+  replayFilename,
+  stableReplayFingerprint,
+  verifyReplayRecording,
+  verifyReplayRecordingAsync,
+} from './src/replay/replayRecording.ts';
+import { createSeededSimulationHarness } from './src/simulation/fixedStepHarness.ts';
+
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+
+const baseState = {
+  elapsed: 12,
+  flights: [{
+    id: 7,
+    callsign: 'AAL107',
+    phase: 'takeoff',
+    motion: { x: 4, y: 0.4, z: -8, heading: 1.2, pitch: 0.12, onGround: false },
+    kinematics: { airspeedKts: 148, altitudeFt: 86, fuelPercent: 61 },
+  }],
+  serviceVehicles: [],
+  surfaceDisruptions: [],
+  arrivals: 2,
+  departures: 1,
+  gameOver: false,
+  paused: false,
+  mode: 'auto',
+  runwayConfigurationId: 'ORD-WEST-FLOW',
+  weather: { condition: 'clear', windSpeed: 12 },
+};
+
+const frames = [0, 1, 2].map((offset) => ({
+  clock: 10 + offset,
+  score: { landed: 2, departed: offset > 1 ? 1 : 0 },
+  flights: [{ id: 7, callsign: 'AAL107', phase: 'takeoff', runway: 1, progress: offset / 2 }],
+  predictions: [],
+  state: structuredClone({ ...baseState, elapsed: 10 + offset }),
+}));
+const events = [
+  {
+    protocolVersion: '1.2.0', apiVersion: '2.38.0', sessionId: 'session-test', eventId: 1,
+    eventKey: 'session-test:1', sequence: 1, airport: 'ORD', elapsed: 10.1,
+    type: 'command:clearTakeoff', flightId: 7, callsign: 'AAL107', runway: 1, accepted: true,
+    detail: 'takeoff clearance accepted',
+  },
+  {
+    protocolVersion: '1.2.0', apiVersion: '2.38.0', sessionId: 'session-test', eventId: 2,
+    eventKey: 'session-test:2', sequence: 2, airport: 'ORD', elapsed: 11.8,
+    type: 'separation-warning', flightId: 7, callsign: 'AAL107', accepted: false,
+    detail: 'projected path conflict',
+  },
+  {
+    protocolVersion: '1.2.0', apiVersion: '2.38.0', sessionId: 'session-test', eventId: 3,
+    eventKey: 'session-test:3', sequence: 3, airport: 'ORD', elapsed: 11.9,
+    type: 'sound:takeoff-power', detail: 'audio-only event',
+  },
+];
+
+const recording = createReplayRecording({
+  protocolVersion: '1.2.0',
+  snapshotSchemaVersion: 40,
+  simulationVersion: '2.38.0',
+  fixedStepSeconds: 0.05,
+  sessionId: 'session-test',
+  recordedAt: '2026-07-26T12:00:00.000Z',
+  seed: 10001,
+  airport: { code: 'ORD', name: "Chicago O'Hare International", scope: 'center' },
+  sharing: {
+    classification: 'local-full', containsControllerIdentity: true, containsCorrelationIds: true,
+    containsFreeText: true, automaticUpload: false, redactions: [],
+  },
+  initialState: structuredClone(baseState),
+  commands: [{
+    sequence: 1, eventId: 1, eventKey: 'session-test:1', elapsed: 10.1,
+    requestId: 'private-request', commandId: 'private-command', clientId: 'tower-client', source: 'agent',
+    station: 'tower', actorId: 'controller@example.test',
+    command: { action: 'divertFlight', flightId: 7, airportCode: 'KIND', reason: 'private user note' },
+    accepted: true, reason: 'private user note accepted',
+  }],
+  weatherHistory: [],
+  soundEvents: [],
+  events,
+  frames,
+});
+
+assert(recording.schemaVersion === 4, 'new recording did not use replay schema 4');
+assert(recording.integrity.frameHashes.length === frames.length, 'frame fingerprints were incomplete');
+assert(recording.markers.length === 2, 'sound-only telemetry leaked into event markers');
+assert(recording.markers[0].category === 'command', 'clearance marker was miscategorized');
+assert(recording.markers[1].category === 'safety' && recording.markers[1].priority === 'caution', 'separation marker lost safety priority');
+
+const verified = verifyReplayRecording(recording);
+assert(verified.accepted && verified.exact, 'fresh replay did not verify exactly: ' + verified.reason);
+assert(verified.checkedFrames === 3 && verified.checkedEvents === 3, 'verification totals were wrong');
+
+const reordered = { b: [3, { z: 1, a: 2 }], a: -0 };
+const reorderedTwin = { a: 0, b: [3, { a: 2, z: 1 }] };
+assert(stableReplayFingerprint(reordered) === stableReplayFingerprint(reorderedTwin), 'canonical fingerprint depended on object key order or negative zero');
+
+const tampered = structuredClone(recording);
+tampered.frames[1].state.flights[0].motion.x = 999;
+const rejected = verifyReplayRecording(tampered);
+assert(!rejected.accepted && !rejected.exact, 'tampered replay was accepted');
+assert(rejected.mismatches.some((mismatch) => mismatch.scope === 'frame' && mismatch.index === 1), 'tampered frame was not localized');
+
+const comparison = compareReplayStates(recording.frames[0].state, tampered.frames[1].state);
+assert(!comparison.equal && comparison.differenceCount > 0, 'state comparison missed authoritative changes');
+assert(comparison.differences.some((difference) => difference.path.includes('motion.x')), 'state comparison did not expose the changed motion path');
+assert(compareReplayStates(baseState, structuredClone(baseState)).equal, 'identical states compared unequal');
+
+const shareable = createShareableReplayRecording(recording);
+assert(shareable.sharing.classification === 'shareable-redacted', 'shared replay lacks redaction disclosure');
+assert(!shareable.sharing.containsControllerIdentity && !shareable.sharing.containsCorrelationIds && !shareable.sharing.containsFreeText, 'shared replay disclosure still claims private data');
+assert(shareable.sessionId === 'shared-session' && shareable.commands[0].clientId === null && shareable.commands[0].actorId === null, 'shared replay retained controller identity');
+assert(!('reason' in shareable.commands[0].command) && !('detail' in shareable.events[0]) && !('payload' in shareable.events[0]), 'shared replay retained user text or payload data');
+assert(!JSON.stringify(shareable).includes('controller@example.test') && !JSON.stringify(shareable).includes('private user note'), 'shared replay serialized private identity or text');
+assert(verifyReplayRecording(shareable).exact, 'redacted shared replay was not re-fingerprinted exactly');
+
+const legacy = structuredClone(recording);
+legacy.schemaVersion = 3;
+delete legacy.markers;
+delete legacy.integrity;
+delete legacy.snapshotSchemaVersion;
+delete legacy.fixedStepSeconds;
+const migrated = verifyReplayRecording(legacy);
+assert(migrated.accepted && migrated.exact && migrated.migrated && migrated.legacyUnsealed, 'schema 3 migration did not preserve its provenance warning');
+assert(migrated.recording?.schemaVersion === 4, 'schema 3 migration did not produce schema 4');
+
+const unsupported = verifyReplayRecording({ ...legacy, schemaVersion: 2 });
+assert(!unsupported.accepted && unsupported.reason.includes('unsupported'), 'unsupported replay schema was not rejected clearly');
+
+const markers = deriveReplayMarkers(events, frames);
+assert(markers[0].frameIndex === 0 && markers[1].frameIndex === 2, 'event markers did not snap to nearest replay frames');
+
+const seedLink = buildReplaySeedLink('https://example.test/airport-auto/?token=secret#private', {
+  airport: 'ord', seed: 10001, mode: 'auto', scenario: 'rush', density: 'busy', rules: 'realistic',
+  weather: 'rain', windDirectionDegrees: 270, windSpeed: 18, runwayConfiguration: 'auto',
+  hazards: true, lighting: 'automatic', season: 'summer', palette: 'cvd-safe',
+});
+const seedUrl = new URL(seedLink);
+assert(seedUrl.searchParams.get('airport') === 'ORD' && seedUrl.searchParams.get('seed') === '10001', 'seed link omitted exact airport seed');
+assert(seedUrl.searchParams.get('autostart') === '1' && seedUrl.searchParams.get('hazards') === '1', 'seed link omitted launch state');
+assert(!seedUrl.searchParams.has('token') && seedUrl.hash === '', 'seed link leaked unrelated query or fragment data');
+assert(replayFilename(recording).endsWith('.airport-auto-replay.json'), 'portable replay filename is not recognizable');
+assert(replayFilename(shareable).includes('-shared.airport-auto-replay.json'), 'redacted replay filename does not disclose sharing class');
+
+let asyncYields = 0;
+const asyncRecording = await createReplayRecordingAsync({
+  protocolVersion: recording.protocolVersion,
+  snapshotSchemaVersion: recording.snapshotSchemaVersion,
+  simulationVersion: recording.simulationVersion,
+  fixedStepSeconds: recording.fixedStepSeconds,
+  sessionId: recording.sessionId,
+  recordedAt: recording.recordedAt,
+  seed: recording.seed,
+  airport: recording.airport,
+  sharing: recording.sharing,
+  initialState: recording.initialState,
+  commands: recording.commands,
+  weatherHistory: recording.weatherHistory,
+  soundEvents: recording.soundEvents,
+  events: recording.events,
+  frames: recording.frames,
+}, { yieldEveryFrames: 1, yieldControl: async () => { asyncYields += 1; } });
+const asyncVerified = await verifyReplayRecordingAsync(asyncRecording, { yieldEveryFrames: 1, yieldControl: async () => { asyncYields += 1; } });
+assert(asyncVerified.exact && asyncYields >= 4, 'cooperative replay fingerprinting did not verify or yield between frames');
+const asyncLegacy = await verifyReplayRecordingAsync(legacy, { yieldEveryFrames: 1, yieldControl: async () => { asyncYields += 1; } });
+assert(asyncLegacy.exact && asyncLegacy.legacyUnsealed && asyncYields >= 8, 'legacy migration did not use cooperative fingerprinting');
+
+const whole = createSeededSimulationHarness(991, { stepSeconds: 0.05 });
+const partitioned = createSeededSimulationHarness(991, { stepSeconds: 0.05 });
+whole.advanceBy(90);
+for (const delta of [13.7, 0.3, 21.125, 4.875, 50]) partitioned.advanceBy(delta);
+const wholeHash = stableReplayFingerprint(whole.snapshot());
+const partitionedHash = stableReplayFingerprint(partitioned.snapshot());
+assert(wholeHash === partitionedHash, 'fixed-step engine did not produce an exact canonical receipt across wall-frame partitions');
+
+console.log(JSON.stringify({
+  schemaVersion: recording.schemaVersion,
+  frames: verified.checkedFrames,
+  markers: recording.markers.length,
+  tamperMismatches: rejected.mismatches.length,
+  migratedFrom: migrated.sourceSchemaVersion,
+  manifestHash: verified.manifestHash,
+  shareRedactions: shareable.sharing.redactions.length,
+  asyncYields,
+  deterministicTicks: whole.tickCount + partitioned.tickCount,
+}));
+`;
+
+const result = await build({
+  stdin: {
+    contents: validationSource,
+    resolveDir: process.cwd(),
+    sourcefile: "replay-recording-validation.ts",
+    loader: "ts",
+  },
+  bundle: true,
+  platform: "node",
+  format: "esm",
+  target: "node22",
+  write: false,
+  logLevel: "silent",
+});
+
+const executable = Buffer.from(result.outputFiles[0].contents).toString(
+  "base64",
+);
+await import(`data:text/javascript;base64,${executable}`);

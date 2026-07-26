@@ -239,7 +239,7 @@ export function generateAirportConfig(seed = Math.floor(Math.random() * 0x7fffff
   });
 }
 
-export function generateHubConfig(index = 0): AirportConfig {
+export function generateHubConfig(index = 0, seed = index + 10_000): AirportConfig {
   const profile = HUB_AIRPORTS[((index % HUB_AIRPORTS.length) + HUB_AIRPORTS.length) % HUB_AIRPORTS.length];
   const vectorData = airportVectorManifest(profile.code);
   const runwayProfiles = vectorData?.runtimeReference.runways ?? profile.runways;
@@ -255,7 +255,7 @@ export function generateHubConfig(index = 0): AirportConfig {
     designation: runway.designation,
   }));
   return withSurfaceGraph({
-    seed: index + 10_000,
+    seed,
     name: profile.name,
     code: profile.code,
     scope: 'center',

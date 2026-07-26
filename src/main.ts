@@ -107,6 +107,25 @@ import {
 } from './telemetry/operationsAnalytics';
 import { createOperationsLab, type OperationsLab } from './ui/operationsLab';
 import {
+  buildReplaySeedLink,
+  compareReplayStates,
+  createShareableReplayRecording,
+  createShareableReplayRecordingAsync,
+  createReplayRecording,
+  createReplayRecordingAsync,
+  deriveReplayMarkers,
+  replayFilename,
+  verifyReplayRecording,
+  verifyReplayRecordingAsync,
+  type ReplayRecordedCommand,
+  type ReplayRecording,
+  type ReplayRecordingDraft,
+  type ReplayStateComparison,
+  type ReplayTelemetryEvent,
+  type ReplayVerificationResult,
+} from './replay/replayRecording';
+import { createReplayInspector, type ReplayInspector } from './ui/replayInspector';
+import {
   AIRPORT_CONTROL_COMMAND_DEFINITIONS,
   CONTROL_API_VERSION,
   CONTROL_BROADCAST_CHANNEL,
@@ -168,36 +187,8 @@ type AirportControlResult = {
   data?: GroupInstructionPreview | GroupInstructionIssueResult;
 };
 
-type RecordedCommand = {
-  sequence: number;
-  eventId: number;
-  eventKey: string;
-  elapsed: number;
-  requestId: string;
-  commandId: string;
-  clientId: string | null;
-  source: ControlCommandSource;
-  station: ControllerStation;
-  actorId: string | null;
-  command: AirportControlCommand;
-  accepted: boolean;
-  reason: string;
-};
-type ReplayRecording = {
-  schemaVersion: typeof CONTROL_REPLAY_SCHEMA_VERSION;
-  protocolVersion: typeof CONTROL_PROTOCOL_VERSION;
-  simulationVersion: string;
-  sessionId: string;
-  recordedAt: string;
-  seed: number;
-  airport: { code: string; name: string; scope: string };
-  initialState: ReturnType<typeof cloneAirportState>;
-  commands: RecordedCommand[];
-  weatherHistory: TelemetryEvent[];
-  soundEvents: SoundscapeEvent[];
-  events: TelemetryEvent[];
-  frames: ReplayFrame[];
-};
+type RecordedCommand = ReplayRecordedCommand;
+type TelemetryEvent = ReplayTelemetryEvent;
 
 declare global {
   interface Window {
@@ -219,34 +210,20 @@ declare global {
       help(): Record<string, string>;
       replay(): ReplayFrame[];
       recording(): ReplayRecording;
+      replayTools: {
+        verify(recording?: unknown): ReplayVerificationResult;
+        verifyAsync(recording?: unknown): Promise<ReplayVerificationResult>;
+        load(recording: unknown): ReplayVerificationResult;
+        shareable(recording?: ReplayRecording): ReplayRecording;
+        shareableAsync(recording?: ReplayRecording): Promise<ReplayRecording>;
+        compare(leftFrameIndex: number, rightFrameIndex: number): ReplayStateComparison | null;
+        seedLink(): string;
+      };
       analytics(flightId?: number): OperationsAnalyticsSnapshot;
       exportData(format: 'json' | 'csv', dataset?: OperationsExportDataset, flightId?: number): string;
     };
   }
 }
-
-type TelemetryEvent = {
-  protocolVersion: typeof CONTROL_PROTOCOL_VERSION;
-  apiVersion: typeof CONTROL_API_VERSION;
-  sessionId: string;
-  eventId: number;
-  eventKey: string;
-  sequence: number;
-  airport: string;
-  elapsed: number;
-  type: string;
-  flightId?: number;
-  callsign?: string;
-  runway?: number;
-  phase?: string;
-  taxiway?: string;
-  accepted?: boolean;
-  detail?: string;
-  payload?: unknown;
-  causedByCommandId?: string;
-  causedByControllerDecisionId?: string;
-  causedByEventId?: number;
-};
 
 const FLIGHT_PHASE_ORDER: Record<FlightPhase, number> = {
   landing: 0,
@@ -487,6 +464,7 @@ const replayToggle = $<HTMLButtonElement>('#replay-toggle');
 const replaySlider = $<HTMLInputElement>('#replay-slider');
 const replayTime = $<HTMLOutputElement>('#replay-time');
 const replayExport = $<HTMLButtonElement>('#replay-export');
+const replayInspectorRoot = $<HTMLElement>('#replay-inspector');
 const remoteHostEndpoint = $<HTMLInputElement>('#remote-host-endpoint');
 const remoteHostSession = $<HTMLInputElement>('#remote-host-session');
 const remoteHostToken = $<HTMLInputElement>('#remote-host-token');
@@ -653,6 +631,10 @@ let replayIndex = -1;
 let replayMode = false;
 let pausedBeforeReplay = false;
 let lastReplaySoundIndex = -1;
+let importedReplay: ReplayRecording | null = null;
+let replayVerification: ReplayVerificationResult | null = null;
+let replayBaselineIndex: number | null = null;
+let replayComparison: ReplayStateComparison | null = null;
 let radioChatterEnabled = true;
 let radioCaptionsEnabled = true;
 let highStakesWeatherEnabled = false;
@@ -787,6 +769,16 @@ const operationsLab: OperationsLab = createOperationsLab(operationsLabPanel, ope
     setStatus(result.accepted ? 'Following recorder aircraft' : 'Flight focus unavailable', result.reason);
   },
   onExport: exportOperationsData,
+});
+const replayInspector: ReplayInspector = createReplayInspector(replayInspectorRoot, {
+  importFile: importReplayFile,
+  useLiveBuffer: useLiveReplayBuffer,
+  copySeedLink: copyReplaySeedLink,
+  verify: verifyActiveReplay,
+  share: shareActiveReplay,
+  seek: seekReplayFrame,
+  setBaseline: setReplayBaseline,
+  compare: compareReplayBaseline,
 });
 const inputLayer = createUnifiedInput({
   canvas,
@@ -1334,10 +1326,11 @@ surfaceDisruptionList.addEventListener('click', (event) => {
 });
 
 replayToggle.addEventListener('click', () => {
+  const frames = replayPlaybackFrames();
   replayMode = !replayMode;
   replayToggle.setAttribute('aria-pressed', String(replayMode));
   replayToggle.textContent = replayMode ? 'Live' : 'Replay';
-  replaySlider.disabled = !replayMode || replayFrames.length === 0;
+  replaySlider.disabled = !replayMode || frames.length === 0;
   if (!replayMode) {
     replayIndex = -1;
     lastReplaySoundIndex = -1;
@@ -1346,7 +1339,7 @@ replayToggle.addEventListener('click', () => {
   } else {
     pausedBeforeReplay = simulation.state.paused;
     simulation.setPaused(true);
-    replayIndex = Math.max(0, replayFrames.length - 1);
+    replayIndex = Math.max(0, frames.length - 1);
     lastReplaySoundIndex = -1;
     playReplaySoundFrame();
   }
@@ -1362,13 +1355,12 @@ replaySlider.addEventListener('input', () => {
   renderFlightActions();
 });
 replayExport.addEventListener('click', () => {
-  const payload = JSON.stringify(replayRecording(), null, 2);
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(new Blob([payload], { type: 'application/json' }));
-  link.download = `${config.code.toLowerCase()}-replay.json`;
-  link.click();
-  URL.revokeObjectURL(link.href);
-  setStatus('Replay exported', `${replayFrames.length} frames · seed, weather, commands, and states included`);
+  replayExport.disabled = true;
+  setStatus('Preparing replay', 'fingerprinting frames without blocking simulation updates');
+  void activeReplayRecordingAsync()
+    .then(downloadReplayRecording)
+    .catch((error: unknown) => setStatus('Replay export failed', error instanceof Error ? error.message : 'Unable to prepare replay.', 'critical'))
+    .finally(() => { replayExport.disabled = false; });
 });
 
 remoteHostConnect.addEventListener('click', () => {
@@ -1624,6 +1616,7 @@ function frame(now: number): void {
         state: cloneAirportState(simulation.state),
       });
       if (replayFrames.length > 900) replayFrames.shift();
+      if (!importedReplay) replayVerification = null;
     }
     updateSafetyUi(predictions);
     refreshFocusTargets(displayedState, predictions);
@@ -1796,7 +1789,8 @@ function frame(now: number): void {
   }
   if (telemetryEnabled && hudSecond !== lastTelemetrySecond) {
     renderTelemetryControls();
-    telemetryOutput.textContent = JSON.stringify(replayMode && replayFrames[replayIndex] ? { replay: replayFrames[replayIndex], live: airportSnapshot() } : airportSnapshot(), null, 2);
+    const playbackFrames = replayPlaybackFrames();
+    telemetryOutput.textContent = JSON.stringify(replayMode && playbackFrames[replayIndex] ? { replay: playbackFrames[replayIndex], live: airportSnapshot() } : airportSnapshot(), null, 2);
     updateReplayUi();
     lastTelemetrySecond = hudSecond;
   }
@@ -1804,7 +1798,8 @@ function frame(now: number): void {
 }
 
 function displayState() {
-  return replayMode && replayFrames[replayIndex]?.state ? replayFrames[replayIndex].state : simulation.state;
+  const frames = replayPlaybackFrames();
+  return replayMode && frames[replayIndex]?.state ? frames[replayIndex].state : simulation.state;
 }
 
 function cloneSoundscapeEvent(event: SoundscapeEvent): SoundscapeEvent {
@@ -1844,14 +1839,15 @@ function handleSoundscapeEvents(
 }
 
 function playReplaySoundFrame(): void {
-  if (!replayMode || replayIndex < 0 || replayIndex === lastReplaySoundIndex || !replayFrames[replayIndex]) return;
+  const frames = replayPlaybackFrames();
+  if (!replayMode || replayIndex < 0 || replayIndex === lastReplaySoundIndex || !frames[replayIndex]) return;
   lastReplaySoundIndex = replayIndex;
   radioCaptions.reset();
-  const clock = replayFrames[replayIndex].clock;
-  const events = soundscapeEvents
+  const clock = frames[replayIndex].clock;
+  const events = (importedReplay?.soundEvents ?? soundscapeEvents)
     .filter((event) => Math.abs(event.elapsed - clock) <= 0.55)
     .slice(-4);
-  handleSoundscapeEvents(events, replayFrames[replayIndex].state, false);
+  handleSoundscapeEvents(events, frames[replayIndex].state, false);
 }
 
 function capturePresentation(state: typeof simulation.state) {
@@ -2062,22 +2058,277 @@ function cloneAirportState(state: typeof simulation.state): typeof simulation.st
   };
 }
 
-function replayRecording(): ReplayRecording {
+function replayRecordingDraft(): ReplayRecordingDraft {
   return {
-    schemaVersion: CONTROL_REPLAY_SCHEMA_VERSION,
     protocolVersion: CONTROL_PROTOCOL_VERSION,
+    snapshotSchemaVersion: CONTROL_SNAPSHOT_SCHEMA_VERSION,
     simulationVersion: window.airportControl?.version ?? CONTROL_API_VERSION,
+    fixedStepSeconds: SIMULATION_STEP,
     sessionId: controlSessionId,
     recordedAt: new Date().toISOString(),
     seed: config.seed,
     airport: { code: config.code, name: config.name, scope: config.scope },
+    sharing: {
+      classification: 'local-full',
+      containsControllerIdentity: true,
+      containsCorrelationIds: true,
+      containsFreeText: true,
+      automaticUpload: false,
+      redactions: [],
+    },
     initialState: cloneAirportState(initialReplayState),
-    commands: commandHistory.map((entry) => ({ ...entry, command: { ...entry.command } as AirportControlCommand })),
-    weatherHistory: telemetryEvents.filter((event) => event.type.startsWith('weather') || event.type.startsWith('command:setWeather')),
+    commands: structuredClone(commandHistory),
+    weatherHistory: structuredClone(telemetryEvents.filter((event) => event.type.startsWith('weather') || event.type.startsWith('command:setWeather'))),
     soundEvents: soundscapeEvents.map(cloneSoundscapeEvent),
-    events: telemetryEvents.map((event) => ({ ...event })),
+    events: structuredClone(telemetryEvents),
     frames: replayFrames.map((frame) => ({ ...frame, state: cloneAirportState(frame.state) })),
   };
+}
+
+function replayRecording(): ReplayRecording {
+  return createReplayRecording(replayRecordingDraft());
+}
+
+function activeReplayRecording(): ReplayRecording {
+  return importedReplay ?? replayRecording();
+}
+
+async function activeReplayRecordingAsync(): Promise<ReplayRecording> {
+  return importedReplay ?? createReplayRecordingAsync(replayRecordingDraft());
+}
+
+function replayPlaybackFrames(): ReplayFrame[] {
+  return importedReplay?.frames ?? replayFrames;
+}
+
+function replayMarkers() {
+  return importedReplay?.markers ?? deriveReplayMarkers(telemetryEvents, replayFrames);
+}
+
+function resetReplayWorkspace(): void {
+  importedReplay = null;
+  replayVerification = null;
+  replayBaselineIndex = null;
+  replayComparison = null;
+}
+
+function downloadReplayRecording(recording: ReplayRecording): void {
+  const payload = JSON.stringify(recording, null, 2);
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([payload], { type: 'application/json' }));
+  link.download = replayFilename(recording);
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(link.href), 0);
+  setStatus(
+    'Replay exported',
+    recording.sharing.classification === 'shareable-redacted'
+      ? `${recording.frames.length.toLocaleString()} frames · identity and free text removed · no automatic upload`
+      : `${recording.frames.length.toLocaleString()} frames · full local audit may contain controller identity · do not post raw`,
+  );
+}
+
+function replaySeedLink(): string {
+  return buildReplaySeedLink(window.location.href, {
+    airport: config.code,
+    seed: config.seed,
+    mode: simulation.state.mode,
+    scenario: simulation.state.scenario,
+    density: simulation.state.trafficFlow.density,
+    rules: simulation.state.separationRuleset,
+    weather: simulation.state.weather.weatherEnabled ? simulation.state.weather.condition : 'off',
+    windDirectionDegrees: Math.round(mathAngleToAviationDegrees(simulation.state.weather.windDirection)),
+    windSpeed: simulation.state.weather.windEnabled ? Number(simulation.state.weather.windSpeed.toFixed(1)) : 'off',
+    runwayConfiguration: simulation.state.runwayConfigurationMode === 'manual' ? simulation.state.runwayConfigurationId : 'auto',
+    hazards: simulation.state.weather.hazardsEnabled,
+    lighting: simulation.state.environment.lightingMode,
+    season: simulation.state.environment.seasonMode,
+    palette: accessibilityPalette,
+  });
+}
+
+async function copyReplaySeedLink(): Promise<void> {
+  const link = replaySeedLink();
+  let copied = false;
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(link);
+      copied = true;
+    } catch {
+      copied = false;
+    }
+  }
+  if (!copied) {
+    const input = document.createElement('textarea');
+    input.value = link;
+    input.className = 'visually-hidden';
+    document.body.append(input);
+    input.select();
+    copied = document.execCommand('copy');
+    input.remove();
+  }
+  setStatus(
+    copied ? 'Seed link copied' : 'Seed link ready',
+    copied ? `${config.code} · seed ${config.seed} · no replay or controller identity embedded` : link,
+    copied ? undefined : 'warning',
+  );
+}
+
+function matchingReplayConfig(recording: ReplayRecording): AirportConfig | null {
+  if (recording.airport.code === 'LOCAL') return generateAirportConfig(recording.seed);
+  const index = HUB_AIRPORTS.findIndex((airport) => airport.code === recording.airport.code);
+  return index < 0 ? null : generateHubConfig(index, recording.seed);
+}
+
+function loadReplayRecording(input: unknown): ReplayVerificationResult {
+  return applyReplayVerification(verifyReplayRecording(input));
+}
+
+function applyReplayVerification(verification: ReplayVerificationResult): ReplayVerificationResult {
+  if (!verification.exact || !verification.recording) {
+    replayVerification = verification;
+    setStatus('Replay rejected', verification.reason, 'critical');
+    updateReplayUi();
+    return verification;
+  }
+  const recording = verification.recording;
+  if (!recording.frames.length) {
+    const rejected: ReplayVerificationResult = {
+      ...verification,
+      accepted: false,
+      exact: false,
+      reason: 'Replay has no recorded frames to play.',
+      recording: null,
+    };
+    replayVerification = rejected;
+    setStatus('Replay is empty', rejected.reason, 'warning');
+    updateReplayUi();
+    return rejected;
+  }
+  const replayConfig = matchingReplayConfig(recording);
+  if (!replayConfig) {
+    const rejected = { ...verification, accepted: false, exact: false, reason: `Airport ${recording.airport.code} is not available in this build.`, recording: null };
+    replayVerification = rejected;
+    setStatus('Replay airport unavailable', rejected.reason, 'critical');
+    updateReplayUi();
+    return rejected;
+  }
+  if (config.code !== replayConfig.code || config.seed !== replayConfig.seed) newSession(true, replayConfig);
+  importedReplay = recording;
+  replayVerification = verification;
+  replayBaselineIndex = null;
+  replayComparison = null;
+  replayMode = true;
+  pausedBeforeReplay = simulation.state.paused;
+  simulation.setPaused(true);
+  replayIndex = Math.max(0, recording.frames.length - 1);
+  lastReplaySoundIndex = -1;
+  replayToggle.setAttribute('aria-pressed', 'true');
+  replayToggle.textContent = 'Live';
+  playReplaySoundFrame();
+  updateReplayUi();
+  renderFlightStrip();
+  renderFlightActions();
+  setStatus(
+    verification.legacyUnsealed ? 'Legacy replay migrated' : 'Replay verified and loaded',
+    verification.reason,
+    verification.legacyUnsealed ? 'warning' : undefined,
+  );
+  return verification;
+}
+
+async function importReplayFile(file: File): Promise<void> {
+  if (file.size > 250_000_000) {
+    setStatus('Replay rejected', 'File exceeds the 250 MB local import limit.', 'critical');
+    return;
+  }
+  try {
+    const parsed = JSON.parse(await file.text()) as unknown;
+    setStatus('Checking replay', 'validating schema, markers, and authoritative frame receipts');
+    applyReplayVerification(await verifyReplayRecordingAsync(parsed));
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : 'The file is not valid JSON.';
+    setStatus('Replay import failed', reason, 'critical');
+  }
+}
+
+function useLiveReplayBuffer(): void {
+  importedReplay = null;
+  replayVerification = null;
+  replayBaselineIndex = null;
+  replayComparison = null;
+  const frames = replayPlaybackFrames();
+  replayIndex = frames.length ? frames.length - 1 : -1;
+  lastReplaySoundIndex = -1;
+  updateReplayUi();
+  setStatus('Live replay buffer selected', frames.length ? `${frames.length} local frames available` : 'the next simulation second will begin a new buffer');
+}
+
+async function verifyActiveReplay(): Promise<void> {
+  const recording = await activeReplayRecordingAsync();
+  const verification = await verifyReplayRecordingAsync(recording);
+  replayVerification = verification;
+  updateReplayUi();
+  setStatus(verification.exact ? 'Replay verified' : 'Replay mismatch', verification.reason, verification.exact ? undefined : 'critical');
+}
+
+async function shareActiveReplay(): Promise<void> {
+  const localRecording = await activeReplayRecordingAsync();
+  const recording = await createShareableReplayRecordingAsync(localRecording);
+  const verification = await verifyReplayRecordingAsync(recording);
+  replayVerification = verification;
+  updateReplayUi();
+  if (!verification.exact) {
+    setStatus('Replay not shared', verification.reason, 'critical');
+    return;
+  }
+  const file = new File([JSON.stringify(recording)], replayFilename(recording), { type: 'application/json' });
+  if (navigator.share && navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ title: `${recording.airport.code} Airport Auto replay`, files: [file] });
+      setStatus('Replay shared', 'portable verified file · identity and free text removed · no automatic cloud upload');
+    } catch (error) {
+      if (!(error instanceof DOMException) || error.name !== 'AbortError') {
+        setStatus('Replay share unavailable', error instanceof Error ? error.message : 'Use Export to save the verified file.', 'warning');
+      }
+    }
+  } else downloadReplayRecording(recording);
+}
+
+function seekReplayFrame(frameIndex: number): void {
+  const frames = replayPlaybackFrames();
+  if (!frames.length) return;
+  if (!replayMode) {
+    pausedBeforeReplay = simulation.state.paused;
+    simulation.setPaused(true);
+    replayMode = true;
+    replayToggle.setAttribute('aria-pressed', 'true');
+    replayToggle.textContent = 'Live';
+  }
+  replayIndex = Math.max(0, Math.min(frames.length - 1, frameIndex));
+  lastReplaySoundIndex = -1;
+  playReplaySoundFrame();
+  updateReplayUi();
+  renderFlightStrip();
+  renderFlightActions();
+}
+
+function setReplayBaseline(): void {
+  replayBaselineIndex = replayMode && replayIndex >= 0 ? replayIndex : null;
+  replayComparison = null;
+  updateReplayUi();
+}
+
+function compareReplayFrames(leftFrameIndex: number, rightFrameIndex: number): ReplayStateComparison | null {
+  const frames = replayPlaybackFrames();
+  const left = frames[leftFrameIndex];
+  const right = frames[rightFrameIndex];
+  return left && right ? compareReplayStates(left.state, right.state) : null;
+}
+
+function compareReplayBaseline(): void {
+  if (replayBaselineIndex === null || replayIndex < 0) return;
+  replayComparison = compareReplayFrames(replayBaselineIndex, replayIndex);
+  updateReplayUi();
 }
 
 function operationsAirportDescriptor(configuration: AirportConfig): OperationsAirportDescriptor {
@@ -2343,6 +2594,7 @@ function openSandbox(backgroundTraffic = false): boolean {
   previousPresentation = capturePresentation(simulation.state);
   world.snapToAuthoritativeState();
   replayFrames.length = 0;
+  resetReplayWorkspace();
   commandHistory.length = 0;
   initialReplayState = cloneAirportState(simulation.state);
   resetOperationsAnalytics();
@@ -2420,6 +2672,7 @@ function openChallengeBriefing(challengeId: ChallengeId): boolean {
   stationSelect.value = simulation.state.station;
   weatherSelection = simulation.state.weather.condition;
   replayFrames.length = 0;
+  resetReplayWorkspace();
   commandHistory.length = 0;
   initialReplayState = cloneAirportState(simulation.state);
   resetOperationsAnalytics();
@@ -2921,7 +3174,7 @@ function renderGroupActions(): void {
 
 function currentDisplayPredictions(): ConflictPrediction[] {
   if (!replayMode) return simulation.conflictPredictions();
-  return replayFrames[replayIndex]?.predictions.map((prediction) => ({
+  return replayPlaybackFrames()[replayIndex]?.predictions.map((prediction) => ({
     ...prediction,
     flights: [...prediction.flights],
   })) ?? [];
@@ -3792,17 +4045,33 @@ function renderDebugPanel(): void {
 }
 
 function updateReplayUi(): void {
-  replaySlider.max = String(Math.max(0, replayFrames.length - 1));
-  replaySlider.disabled = !replayMode || replayFrames.length === 0;
-  if (replayMode && replayFrames.length) {
-    replayIndex = Math.max(0, Math.min(replayFrames.length - 1, replayIndex < 0 ? replayFrames.length - 1 : replayIndex));
+  const frames = replayPlaybackFrames();
+  replaySlider.max = String(Math.max(0, frames.length - 1));
+  replaySlider.disabled = !replayMode || frames.length === 0;
+  if (replayMode && frames.length) {
+    replayIndex = Math.max(0, Math.min(frames.length - 1, replayIndex < 0 ? frames.length - 1 : replayIndex));
     replaySlider.value = String(replayIndex);
-    replayTime.value = formatTime(replayFrames[replayIndex].clock);
-    replayTime.textContent = formatTime(replayFrames[replayIndex].clock);
+    replayTime.value = formatTime(frames[replayIndex].clock);
+    replayTime.textContent = formatTime(frames[replayIndex].clock);
   } else {
     replayTime.value = 'LIVE';
     replayTime.textContent = 'LIVE';
   }
+  const durationSeconds = frames.length ? frames[frames.length - 1].clock - frames[0].clock : 0;
+  replayInspector.render({
+    source: importedReplay ? 'imported' : 'live',
+    sourceLabel: importedReplay ? `${importedReplay.airport.code} imported replay` : 'Live buffer',
+    detail: `${frames.length.toLocaleString()} frames · ${formatTime(durationSeconds)} · schema ${importedReplay?.schemaVersion ?? CONTROL_REPLAY_SCHEMA_VERSION}`,
+    schemaVersion: importedReplay?.schemaVersion ?? CONTROL_REPLAY_SCHEMA_VERSION,
+    frames: frames.length,
+    durationSeconds,
+    currentFrame: replayMode && replayIndex >= 0 ? replayIndex : null,
+    baselineFrame: replayBaselineIndex,
+    markers: replayMarkers(),
+    verification: replayVerification,
+    comparison: replayComparison,
+    shareAvailable: true,
+  });
 }
 
 function presentStatusMessage(message: StatusMessageView): void {
@@ -4133,6 +4402,7 @@ function newSession(paused: boolean, nextConfig = generateAirportConfig()): void
   updateAirportUi();
   clearRoute();
   replayFrames.length = 0;
+  resetReplayWorkspace();
   commandHistory.length = 0;
   initialReplayState = cloneAirportState(simulation.state);
   resetOperationsAnalytics();
@@ -4321,13 +4591,13 @@ function updateRunwayConfigurationOptions(): void {
     : 'auto';
 }
 
-function selectAirport(code: string, paused: boolean): void {
+function selectAirport(code: string, paused: boolean, seed?: number): void {
   if (code === 'LOCAL') {
-    newSession(paused, generateAirportConfig());
+    newSession(paused, generateAirportConfig(seed));
   } else {
     const index = HUB_AIRPORTS.findIndex((airport) => airport.code === code);
     hubIndex = index < 0 ? 0 : index;
-    newSession(paused, generateHubConfig(hubIndex));
+    newSession(paused, generateHubConfig(hubIndex, seed));
   }
   setStatus(`${config.code === 'LOCAL' ? config.name : config.code} selected`, trafficDescription());
 }
@@ -4864,9 +5134,38 @@ function airportSnapshot() {
     })),
     score: { landed: simulation.state.arrivals, departed: simulation.state.departures },
     replay: {
-      frames: replayFrames.length,
-      durationSeconds: replayFrames.length ? replayFrames[replayFrames.length - 1].clock - replayFrames[0].clock : 0,
-      soundEvents: soundscapeEvents.length,
+      schemaVersion: CONTROL_REPLAY_SCHEMA_VERSION,
+      source: importedReplay ? 'imported' : 'live',
+      frames: replayPlaybackFrames().length,
+      durationSeconds: replayPlaybackFrames().length
+        ? replayPlaybackFrames()[replayPlaybackFrames().length - 1].clock - replayPlaybackFrames()[0].clock
+        : 0,
+      markers: replayMarkers().length,
+      soundEvents: (importedReplay?.soundEvents ?? soundscapeEvents).length,
+      sharing: importedReplay?.sharing ?? {
+        classification: 'local-full',
+        containsControllerIdentity: true,
+        containsCorrelationIds: true,
+        containsFreeText: true,
+        automaticUpload: false,
+        redactions: [],
+      },
+      verification: replayVerification ? {
+        exact: replayVerification.exact,
+        migrated: replayVerification.migrated,
+        legacyUnsealed: replayVerification.legacyUnsealed,
+        checkedFrames: replayVerification.checkedFrames,
+        manifestHash: replayVerification.manifestHash,
+        reason: replayVerification.reason,
+      } : null,
+      baselineFrame: replayBaselineIndex,
+      comparison: replayComparison ? {
+        equal: replayComparison.equal,
+        differenceCount: replayComparison.differenceCount,
+        truncated: replayComparison.truncated,
+        leftHash: replayComparison.leftHash,
+        rightHash: replayComparison.rightHash,
+      } : null,
     },
     analytics: {
       schemaVersion: analytics.schemaVersion,
@@ -6128,8 +6427,23 @@ window.airportControl = {
   protocolVersion: CONTROL_PROTOCOL_VERSION,
   snapshot: airportSnapshot,
   events(limit = 100) { return telemetryEvents.slice(-Math.max(0, limit)); },
-  replay() { return replayFrames.slice(); },
+  replay() { return replayPlaybackFrames().slice(); },
   recording: replayRecording,
+  replayTools: {
+    verify(recording) { return verifyReplayRecording(recording ?? activeReplayRecording()); },
+    async verifyAsync(recording) {
+      const source = recording ?? await activeReplayRecordingAsync();
+      return verifyReplayRecordingAsync(source);
+    },
+    load: loadReplayRecording,
+    shareable(recording) { return createShareableReplayRecording(recording ?? activeReplayRecording()); },
+    async shareableAsync(recording) {
+      const source = recording ?? await activeReplayRecordingAsync();
+      return createShareableReplayRecordingAsync(source);
+    },
+    compare: compareReplayFrames,
+    seedLink: replaySeedLink,
+  },
   analytics(flightId) { return operationsAnalyticsSnapshot(Number.isFinite(flightId) ? flightId ?? null : null); },
   exportData(format, dataset = 'flights', flightId) {
     return serializeOperationsExport(format, isOperationsExportDataset(dataset) ? dataset : 'flights', flightId);
@@ -6150,7 +6464,7 @@ window.airportControl = {
       events: 'airportControl.events(100)',
       protocol: 'airportControl.protocol() // command/event JSON Schemas, authority, compatibility, examples',
       validate: "airportControl.validate({ action: 'pause' }) // structural validation without execution",
-      formalDispatch: "airportControl.dispatch({ protocolVersion: '1.2.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.37.0', snapshotSchemaVersion: 39 }, command: { action: 'pause' } })",
+      formalDispatch: "airportControl.dispatch({ protocolVersion: '1.2.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.38.0', snapshotSchemaVersion: 40 }, command: { action: 'pause' } })",
       structuredCommand: "airportControl.request({ action: 'pause' }) // legacy-compatible bare command; result includes requestId, commandId, eventId, authority, and compatibility",
       pause: "airportControl.command({ action: 'pause' })",
       speed: "airportControl.command({ action: 'setSpeed', value: 2 })",
@@ -6235,7 +6549,13 @@ window.airportControl = {
       aircraft: 'airportControl.snapshot().flights[0].aircraft',
       surfaceGraph: 'airportControl.snapshot().surfaceGraph',
       replay: 'airportControl.replay()',
-      recording: 'airportControl.recording() // seed + commands + weather + full-state frames',
+      recording: 'airportControl.recording() // replay schema 4 + exact state fingerprints + markers',
+      replayVerify: 'airportControl.replayTools.verify() // exact canonical frame/manifest receipt',
+      replayVerifyAsync: 'await airportControl.replayTools.verifyAsync() // cooperative long-recording verification',
+      replayLoad: 'airportControl.replayTools.load(recording) // read-only verified playback; schema 3 migrates in memory',
+      replayCompare: 'airportControl.replayTools.compare(10, 40) // bounded authoritative state diff',
+      replaySeedLink: 'airportControl.replayTools.seedLink() // safe deterministic launch URL; no identity or replay data',
+      replayShareable: 'await airportControl.replayTools.shareableAsync() // removes identity, correlations, payloads, and free text, then fingerprints again',
       analytics: 'airportControl.analytics() // local flight recorder, utilization, queues, metrics, and conflict heatmap',
       analyticsFlight: 'airportControl.analytics(1) // select one observed flight recorder trace',
       exportJson: "airportControl.exportData('json') // complete local operations bundle; no upload",
@@ -6337,7 +6657,12 @@ function cardinalDirection(headingDegrees: number): string {
 
 if (telemetryEnabled) telemetryPanel.hidden = false;
 const launchAirport = launchOptions.get('airport') ?? (soakEnabled ? 'ORD' : null);
-if (launchAirport) selectAirport(launchAirport.toUpperCase(), true);
+const launchSeedValue = Number(launchOptions.get('seed'));
+const launchSeed = launchOptions.has('seed') && Number.isSafeInteger(launchSeedValue) && launchSeedValue >= 0
+  ? launchSeedValue
+  : undefined;
+if (launchAirport) selectAirport(launchAirport.toUpperCase(), true, launchSeed);
+else if (launchSeed !== undefined) selectAirport('LOCAL', true, launchSeed);
 const launchSpeed = Number(launchOptions.get('speed'));
 if (Number.isFinite(launchSpeed) && launchOptions.has('speed')) setSimulationSpeed(launchSpeed);
 else if (soakEnabled) setSimulationSpeed(3);

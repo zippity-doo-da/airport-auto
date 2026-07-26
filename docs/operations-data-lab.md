@@ -77,9 +77,11 @@ The authenticated remote projection receives only the bounded overview and discl
 
 ## Privacy, consent, and future sharing policy
 
-There is no cloud storage or public sharing in 2.37. A local export can contain fictional callsigns and registrations plus controller `actorId` and `clientId` values supplied by a local or remote controller. The UI therefore labels exports **local** and **not shareable by default**.
+There is no cloud storage or public-link service. A raw local export can contain fictional callsigns and registrations plus controller `actorId` and `clientId` values supplied by a local or remote controller. The UI therefore labels analytics exports and full replay exports **local** and **not shareable by default**.
 
-If shared replay storage is added later, its public payload must use an explicit allowlist.
+Airport Auto 2.38 enforces the first file-sharing boundary: replay **Share file** creates a new allowlisted, redacted, separately fingerprinted package, while raw **Export** remains the full local audit. Controller identity, correlation IDs, causal payloads, user-capable free text, and precise recording time are removed or replaced before the operating-system share sheet is opened. See [replay-verification.md](replay-verification.md). Data Lab JSON/CSV exports remain local-only and do not pass through that replay-specific filter.
+
+If shared replay storage is added later, its public payload must continue using this explicit allowlist.
 
 Allowed after an informed, per-export opt-in:
 
@@ -111,4 +113,3 @@ npm run build
 ```
 
 The deterministic validator covers sample cadence, duplicate-second rejection, authoritative kinematics, runway/taxiway/queue/delay aggregation, heat cells, all ten CSV datasets, JSON completeness, disclosure, and reset isolation. The browser test covers the API, local download, charts, runway context, overlay behavior, and 1024×600 plus 390×844 containment.
-
