@@ -2252,20 +2252,45 @@ test("Go-around climbs from the live pose and flies a visible missed-approach pa
       window.airportControl.request({ action: "focusFlight", flightId }),
     before.id,
   );
-  await page.waitForTimeout(900);
-  await page.evaluate(() => {
-    for (let index = 0; index < 5; index += 1)
-      window.airportControl.command({ action: "zoomIn" });
-  });
-  await page.waitForTimeout(300);
-  const climbing = await page.evaluate(
-    (flightId) =>
-      window.airportControl
-        .snapshot()
-        .flights.find((flight) => flight.id === flightId)!,
-    before.id,
-  );
+  await page.waitForFunction((flightId) => {
+    const snapshot = window.airportControl.snapshot();
+    const flight = snapshot.flights.find(
+      (candidate) => candidate.id === flightId,
+    );
+    const target = snapshot.renderer.camera.target;
+    return Boolean(
+      flight?.goAround &&
+      target?.key === `flight:${flightId}` &&
+      target.tracking &&
+      target.subjectVisible &&
+      target.withinViewport &&
+      target.viewportX > 0.3 &&
+      target.viewportX < 0.7 &&
+      target.viewportY > 0.3 &&
+      target.viewportY < 0.7 &&
+      Math.abs(snapshot.renderer.camera.focusZ - target.resolvedZ) < 1 &&
+      target.resolvedZ >= flight.motion.z,
+    );
+  }, before.id);
+  const focused = await page.evaluate((flightId) => {
+    const snapshot = window.airportControl.snapshot();
+    return {
+      flight: snapshot.flights.find((candidate) => candidate.id === flightId)!,
+      camera: snapshot.renderer.camera,
+    };
+  }, before.id);
+  const climbing = focused.flight;
   expect(climbing.renderedAttitude?.noseUpDegrees).toBeGreaterThan(9);
+  expect(focused.camera.target).toMatchObject({
+    key: `flight:${before.id}`,
+    tracking: true,
+    withinViewport: true,
+    subjectVisible: true,
+  });
+  expect(focused.camera.target!.viewportX).toBeGreaterThan(0.3);
+  expect(focused.camera.target!.viewportX).toBeLessThan(0.7);
+  expect(focused.camera.target!.viewportY).toBeGreaterThan(0.3);
+  expect(focused.camera.target!.viewportY).toBeLessThan(0.7);
   await page.screenshot({ path: testInfo.outputPath("go-around-climb.png") });
 });
 

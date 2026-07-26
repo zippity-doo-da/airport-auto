@@ -92,6 +92,7 @@ export type WorldDiagnostics = {
   camera: {
     focusX: number;
     focusY: number;
+    focusZ: number;
     zoom: number;
     orbitDegrees: number;
     panningEnabled: true;
@@ -109,6 +110,11 @@ export type WorldDiagnostics = {
       tracking: boolean;
       resolvedX: number;
       resolvedY: number;
+      resolvedZ: number;
+      viewportX: number;
+      viewportY: number;
+      withinViewport: boolean;
+      subjectVisible: boolean;
     } | null;
   };
   surfaceLayers: Record<SurfaceLayer, boolean>;
@@ -275,6 +281,8 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   let manualOrbitOffset = 0;
   const cameraFocus = new THREE.Vector2();
   const resolvedFocus = new THREE.Vector2();
+  let cameraFocusHeight = 0;
+  let resolvedFocusHeight = 0;
   const focusMarker = createFocusMarker();
   world.add(focusMarker);
   const groundPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -1.3);
@@ -473,6 +481,8 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     if (focus && !manualCameraActive) {
       const follow = 1 - Math.exp(-delta * 2.8);
       cameraFocus.lerp(resolvedFocus.set(focus.x, focus.y), follow);
+      resolvedFocusHeight = focus.z;
+      cameraFocusHeight = THREE.MathUtils.lerp(cameraFocusHeight, resolvedFocusHeight, follow);
       if (focusZoomGoal !== null) {
         const nextZoom = THREE.MathUtils.lerp(manualZoom, focusZoomGoal, 1 - Math.exp(-delta * 3.2));
         if (Math.abs(nextZoom - manualZoom) > 0.0001) {
@@ -480,6 +490,8 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
           updateProjection();
         }
       }
+    } else if (Math.abs(cameraFocusHeight) > 0.001) {
+      cameraFocusHeight = THREE.MathUtils.lerp(cameraFocusHeight, 0, 1 - Math.exp(-delta * 4));
     }
     updateFocusMarker(focus, state.elapsed);
     const drift = reducedMotion || manualCameraActive ? 0 : 1;
@@ -500,9 +512,9 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     camera.position.set(
       cameraFocus.x + Math.cos(orbit) * cameraRadius,
       cameraFocus.y + Math.sin(orbit) * cameraRadius,
-      cameraHeight,
+      cameraHeight + cameraFocusHeight,
     );
-    camera.lookAt(targetX, targetY, 0);
+    camera.lookAt(targetX, targetY, cameraFocusHeight);
     camera.updateMatrixWorld();
   }
 
@@ -585,6 +597,8 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     manualCameraActive = true;
     worldFocusTarget = null;
     focusZoomGoal = null;
+    cameraFocusHeight = 0;
+    resolvedFocusHeight = 0;
     focusedFlightIds.clear();
     focusMarker.visible = false;
     applyCameraPose(0);
@@ -606,38 +620,40 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     focusMarker.visible = target !== null && target.kind !== 'flight';
   }
 
-  function resolveFocusTarget(): { x: number; y: number; radius: number } | null {
+  function resolveFocusTarget(): { x: number; y: number; z: number; radius: number } | null {
     if (!worldFocusTarget) return null;
-    const points: Array<{ x: number; y: number }> = [];
+    const points: Array<{ x: number; y: number; z: number }> = [];
     for (const flightId of worldFocusTarget.flightIds) {
       const visual = flightVisuals.get(flightId);
-      if (visual) points.push({ x: visual.root.position.x, y: visual.root.position.y });
+      if (visual) points.push({ x: visual.root.position.x, y: visual.root.position.y, z: visual.root.position.z });
     }
     if (worldFocusTarget.serviceVehicleId) {
       const visual = serviceVehicleVisuals.get(worldFocusTarget.serviceVehicleId);
-      if (visual) points.push({ x: visual.root.position.x, y: visual.root.position.y });
+      if (visual) points.push({ x: visual.root.position.x, y: visual.root.position.y, z: visual.root.position.z });
     }
     if (!points.length) {
       return {
         x: worldFocusTarget.position[0],
         y: worldFocusTarget.position[1],
+        z: 0,
         radius: worldFocusTarget.radius,
       };
     }
     const x = points.reduce((sum, point) => sum + point.x, 0) / points.length;
     const y = points.reduce((sum, point) => sum + point.y, 0) / points.length;
+    const z = points.reduce((sum, point) => sum + point.z, 0) / points.length;
     const radius = Math.max(
       worldFocusTarget.radius,
-      ...points.map((point) => Math.hypot(point.x - x, point.y - y) + 4),
+      ...points.map((point) => Math.hypot(point.x - x, point.y - y, point.z - z) + 4),
     );
-    return { x, y, radius };
+    return { x, y, z, radius };
   }
 
-  function updateFocusMarker(focus: { x: number; y: number; radius: number } | null, elapsed: number): void {
+  function updateFocusMarker(focus: { x: number; y: number; z: number; radius: number } | null, elapsed: number): void {
     const target = worldFocusTarget;
     focusMarker.visible = Boolean(focus && target && target.kind !== 'flight');
     if (!focus || !target || target.kind === 'flight') return;
-    focusMarker.position.set(focus.x, focus.y, 2.25);
+    focusMarker.position.set(focus.x, focus.y, Math.max(2.25, focus.z));
     const pulse = reducedMotion ? 1 : 1 + Math.sin(elapsed * 2.6) * 0.035;
     focusMarker.scale.setScalar(Math.max(5, focus.radius) * pulse);
     const color = target.tone === 'rose' ? 0xf0a29b : target.tone === 'amber' ? 0xefc775 : 0x89cee6;
@@ -749,6 +765,8 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     manualZoom = 1;
     manualOrbitOffset = 0;
     cameraFocus.set(0, 0);
+    cameraFocusHeight = 0;
+    resolvedFocusHeight = 0;
     worldFocusTarget = null;
     focusZoomGoal = null;
     focusedFlightIds.clear();
@@ -880,6 +898,21 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
     },
     diagnostics() {
       const groundCoverage = viewportGroundCoverage();
+      const resolvedTarget = resolveFocusTarget();
+      const targetScreen = resolvedTarget
+        ? project(new THREE.Vector3(resolvedTarget.x, resolvedTarget.y, resolvedTarget.z))
+        : null;
+      const canvasBounds = canvas.getBoundingClientRect();
+      const targetViewportX = targetScreen
+        ? (targetScreen.x - canvasBounds.left) / Math.max(1, canvasBounds.width)
+        : 0;
+      const targetViewportY = targetScreen
+        ? (targetScreen.y - canvasBounds.top) / Math.max(1, canvasBounds.height)
+        : 0;
+      const subjectVisible = worldFocusTarget
+        ? worldFocusTarget.flightIds.every((flightId) => flightVisuals.get(flightId)?.root.visible)
+          && (!worldFocusTarget.serviceVehicleId || Boolean(serviceVehicleVisuals.get(worldFocusTarget.serviceVehicleId)?.root.visible))
+        : false;
       const activeAircraft = [...flightVisuals.values()];
       const aircraftFamilies = activeAircraft.reduce<Record<string, number>>((counts, visual) => {
         counts[visual.family] = (counts[visual.family] ?? 0) + 1;
@@ -922,6 +955,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
         camera: {
           focusX: Number(cameraFocus.x.toFixed(3)),
           focusY: Number(cameraFocus.y.toFixed(3)),
+          focusZ: Number(cameraFocusHeight.toFixed(3)),
           zoom: Number(manualZoom.toFixed(3)),
           orbitDegrees: Number(THREE.MathUtils.radToDeg(manualOrbitOffset).toFixed(2)),
           panningEnabled: true,
@@ -939,6 +973,11 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
             tracking: !manualCameraActive,
             resolvedX: Number(resolvedFocus.x.toFixed(3)),
             resolvedY: Number(resolvedFocus.y.toFixed(3)),
+            resolvedZ: Number(resolvedFocusHeight.toFixed(3)),
+            viewportX: Number(targetViewportX.toFixed(4)),
+            viewportY: Number(targetViewportY.toFixed(4)),
+            withinViewport: targetViewportX >= 0 && targetViewportX <= 1 && targetViewportY >= 0 && targetViewportY <= 1,
+            subjectVisible,
           } : null,
         },
         surfaceLayers: {
