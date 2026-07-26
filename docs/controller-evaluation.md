@@ -32,6 +32,8 @@ Deferred autonomous work is reported separately and never counted as a rejection
 
 Physical collision alerts remain airport-wide. Runway incursions are shown as shared Tower/Ground context. The evaluator deliberately avoids inventing individual blame when the event log cannot prove causality.
 
+Per-operation delay remains zero until the first movement completes; total delay continues accumulating independently, so the evaluator never divides by a fabricated operation.
+
 ## Unnecessary-hold review
 
 The metric is intentionally conservative and explainable:

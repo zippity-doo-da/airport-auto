@@ -233,7 +233,7 @@ export function controllerEvaluationSnapshot(
   const elapsedHours = inputs.state.elapsed / 3_600;
   const throughputPerHour = elapsedHours > 0 ? completed / elapsedHours : 0;
   const delayPerOperationSeconds =
-    inputs.metrics.estimatedDelaySeconds / Math.max(1, completed);
+    completed > 0 ? inputs.metrics.estimatedDelaySeconds / completed : 0;
   const holdingBurnPercent =
     inputs.metrics.fuelBurnKg > 0
       ? (inputs.metrics.holdingFuelBurnKg / inputs.metrics.fuelBurnKg) * 100

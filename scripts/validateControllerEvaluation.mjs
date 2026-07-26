@@ -140,6 +140,16 @@ const unrated = controllerEvaluationSnapshot({
   commands: [],
 });
 assert(unrated.commands.commandQualityScore === null && unrated.commands.commandQualityRating === 'not-rated', 'no-command session received a fabricated quality score');
+const delayedWithoutCompletion = controllerEvaluationSnapshot({
+  state: unratedSimulation.state,
+  metrics: { ...unratedSimulation.shiftMetrics(), estimatedDelaySeconds: 270 },
+  queues: unratedSimulation.queueSnapshot(),
+  predictions: [],
+  workloads: unratedSimulation.controllerWorkloads(),
+  commands: [],
+});
+assert(delayedWithoutCompletion.operations.delayPerOperationSeconds === 0, 'delay was divided by a fabricated completed operation');
+assert(delayedWithoutCompletion.operations.totalDelaySeconds === 270, 'pre-completion total delay was discarded');
 assert(JSON.stringify(evaluate()) === JSON.stringify(evaluate()), 'controller evaluation is not deterministic');
 assert(evaluation.methodology.safetyPriority.includes('never'), 'evaluation does not explain its non-compensatory safety rule');
 
