@@ -4,7 +4,7 @@ Airport Auto exposes a local, versioned interface for playtests, scripted contro
 
 ## Browser API
 
-The current API version is `2.31.0`; the formal control protocol is `1.2.0`, snapshots use schema version `33`, and portable recordings use schema version `2`.
+The current API version is `2.32.0`; the formal control protocol is `1.2.0`, snapshots use schema version `34`, and portable recordings use schema version `2`.
 
 ```js
 airportControl.version;
@@ -28,7 +28,7 @@ const result = airportControl.request({
 
 // {
 //   protocolVersion: '1.2.0',
-//   apiVersion: '2.31.0',
+//   apiVersion: '2.32.0',
 //   sessionId: 'session-…',
 //   requestId: 'req-…',
 //   commandId: 'cmd-…',
@@ -65,8 +65,8 @@ const result = airportControl.dispatch({
     actorId: "tower-agent-a",
   },
   expects: {
-    apiVersion: "2.31.0",
-    snapshotSchemaVersion: 33,
+    apiVersion: "2.32.0",
+    snapshotSchemaVersion: 34,
   },
   command: {
     action: "clearTakeoff",
@@ -429,7 +429,7 @@ Available IDs are `rush-hour`, `storm-operations`, `runway-closure`, and `emerge
 
 ## Snapshot and events
 
-Snapshot schema 33 adds `controllers.evaluation`, station/actor command outcomes, explicit methodology, and explainable hold-review candidates while retaining schema 32 controller policies, schema 31 deterministic controller history, schema 30 control-protocol discovery, schema 29 observer focus, schema 28 unified-input diagnostics, schema 27 sandbox state, schema 26 deterministic challenge definitions, and earlier controller/training state. Focus, scorecards, evaluation, challenge grading, coaching, policy state, and decision history are presentation or feedback; operational instructions still pass through the normal typed command and safety path.
+Snapshot schema 34 adds redacted `remoteControl` host state and WebSocket transport discovery while retaining schema 33 controller evaluation, schema 32 controller policies, schema 31 deterministic controller history, schema 30 control-protocol discovery, schema 29 observer focus, schema 28 unified-input diagnostics, schema 27 sandbox state, schema 26 deterministic challenge definitions, and earlier controller/training state. Focus, scorecards, evaluation, challenge grading, coaching, policy state, decision history, and remote connection health are presentation or feedback; operational instructions still pass through the normal typed command and safety path.
 
 Top-level `selection` reports the selected flight, compact focused-target reference, whether Group select is active, and the selected grouped flight IDs. Top-level `focus` reports catalog schema 1, the current descriptor, and categorized targets for `flight`, `runway`, `taxiway`, `gate`, `queue`, and `conflict`. A descriptor carries stable key/reference, label, explanation, world bounds, suggested zoom, static/flight/group/vehicle follow strategy, related flight IDs, optional vehicle/selected-flight identity, and presentation tone. `renderer.camera.target` reports the currently resolved tracking point; the renderer derives moving points from the same interpolated visuals it already displays and never invents a separate route.
 
@@ -463,13 +463,38 @@ channel.postMessage({
     clientId: "local-observer",
     source: "agent",
     authority: { station: "supervisor" },
-    expects: { apiVersion: "2.31.0", snapshotSchemaVersion: 33 },
+    expects: { apiVersion: "2.32.0", snapshotSchemaVersion: 34 },
     command: { action: "focusFlight", flightId: 12 },
   },
 });
 ```
 
-The game publishes formal `ready`, `event`, and request-correlated `response` envelopes on the already-namespaced `airport-auto` channel. Existing clients can keep reading those message types; API-2.x `command` input and `command-result` notifications remain available during the compatibility window. Each telemetry event is published once, not duplicated for formal and compatibility consumers. This bridge is same-origin/local coordination, not a remote network API or authentication boundary. A future remote controller must add authentication, station claims, rate limits, timeouts, audit storage, reconnect policy, and an emergency stop before accepting commands.
+The game publishes formal `ready`, `event`, and request-correlated `response` envelopes on the already-namespaced `airport-auto` channel. Existing clients can keep reading those message types; API-2.x `command` input and `command-result` notifications remain available during the compatibility window. Each telemetry event is published once, not duplicated for formal and compatibility consumers. This bridge remains same-origin/local coordination and is not an authentication boundary.
+
+## Authenticated remote gateway
+
+An optional external gateway now provides the authentication and multi-controller boundary that `BroadcastChannel` deliberately does not. It is a separate Node process; static GitHub Pages contains no service or credentials and makes no connection until the operator explicitly connects a game host.
+
+```js
+await airportControl.remote.connect({
+  endpoint: "wss://control.example/v1/ws",
+  sessionId: "airport-auto",
+  token: hostToken,
+});
+
+airportControl.remote.state();
+airportControl.remote.disconnect();
+```
+
+Only `wss://` is accepted for remote hosts; unencrypted `ws://` is restricted to loopback development. The host token remains in private page memory only while the connection/reconnect policy is active and never appears in `snapshot()`, `remote.state()`, local storage, a URL, telemetry, or audit. The visible gateway panel is under **Controls → Replay & agent tools** and starts disconnected.
+
+The service authenticates host, controller, spectator, and admin roles; permits one game host and one exclusive controller lease per station/session; enforces token station/session permissions, active-client identity uniqueness, command rate limits, response timeouts, bounded audit, reconnect grace, explicit station offer/accept, and an admin emergency stop. A read-only HTTP API exposes the latest bounded operations snapshot and evaluation metrics to permitted dashboards. Spectators and HTTP clients have no command route.
+
+For each remote command the gateway replaces client-supplied `source`, `clientId`, `authority.station`, and `authority.actorId` with the authenticated controller and its active lease. The browser then calls the same formal dispatcher described above. Gateway authentication cannot satisfy flight ownership, phase, runway, separation, reservation, or collision checks by itself.
+
+Remote state is a deliberate projection rather than the full local snapshot: airport/session context, weather, runway configuration, compact flights, queues, disruptions, coordination, workloads, and evaluation are included; the imported surface graph, renderer/input diagnostics, and replay buffers are not. Command results retain formal causality and a compact resulting state.
+
+See [remote-control-gateway.md](remote-control-gateway.md) for the token manifest, controller console, WebSocket messages, HTTP endpoints, threat model, TLS/Origin requirements, container deployment, audit/retention guidance, and verification commands.
 
 ## Launch URL
 

@@ -425,6 +425,16 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Add a compact, collapsed Decision evaluation disclosure to Assisted and Manual role briefings with stable DOM, eight outcome cells, rating color, and a clear read-only/safety-priority explanation.
 - [x] Publish API 2.31 / snapshot schema 33, help and control documentation, a dedicated methodology document, deterministic validation, protocol assertions, and desktop browser coverage.
 
+## Airport Auto 2.32 — authenticated external controller gateway
+
+- [x] Add a provider-neutral Node 22 WebSocket/HTTP gateway with no default credentials, explicit token manifests, constant-time bearer verification, wildcard-rejecting exact browser-Origin policy, bounded payload/output/client handling, heartbeat cleanup, one host per session, and loopback-only plaintext browser development.
+- [x] Add host, controller, spectator, and admin identities with mandatory permitted-session scope, unique secrets, role-bound admin actions, unique active client IDs, and exclusive station leases; support explicit offer/accept desk transfer and credential-bound bounded reconnect without allowing a client to assert a different source, actor, or station.
+- [x] Route every external operational request back through the page's formal protocol-1.2 dispatcher and existing station, flight-ownership, phase, runway-protection, separation, reservation, and collision arbiter; retain structured accepted/rejected results and command causality while projecting bulky resulting snapshots.
+- [x] Add per-client duplicate-request protection and sliding command rate limits, host-response timeouts, a session-scoped admin emergency stop, bounded redacted in-memory/optional JSONL audit, initial/repeating state delivery, transient event delivery, and read-only authenticated session/snapshot/metrics endpoints with admin-only audit access.
+- [x] Add an opt-in game-host panel and `airportControl.remote` adapter with encrypted remote URL enforcement, private in-memory credential/reconnect state, explicit disconnect, redacted snapshot schema 34 health, one-second bounded operations projection, event publishing, and zero automatic network behavior on static Pages.
+- [x] Ship a responsive gateway-hosted human controller desk for connection, claim/release, live claims, traffic inspection, contextual command templates, raw typed commands, activity, and admin stop/resume, plus a non-root provider-neutral container and complete hosting, identity, threat-model, protocol, HTTP, audit, and operator documentation.
+- [x] Validate rejected origins/placeholders/unauthenticated access, role and station permissions, spectators, exclusive claims, transfer, identity conflict, forced authority, result/timeout/rate behavior, reconnect, emergency stop, state/metrics/audit access, credential redaction, and a real browser-host/external-Supervisor command round trip; publish API 2.32 / snapshot schema 34 without changing offline deterministic Auto.
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.
@@ -449,7 +459,6 @@ The prioritized implementation order, acceptance gates, and reconciled pre-2.1 b
 
 - Equivalent licensed vector imports and surveyed surface topology for hubs beyond ORD.
 - Real recorded engine/ramp/radio libraries after licensing, normalization, and long-loop repetition review.
-- Authenticated remote WebSocket control; static GitHub Pages intentionally exposes local-only control today.
 - Live METAR, NOTAM, schedule, and traffic feeds with caching and offline fallback.
 - Detailed tug types and deeper gate-service choreography.
 - Server-validated leaderboards, shared replay URLs, daily challenges, and classroom accounts.

@@ -1,0 +1,835 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Airport Auto remote desk</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+        background: #101a1b;
+        color: #f2ead6;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background:
+          radial-gradient(circle at 15% 10%, #304b46 0, transparent 36rem),
+          linear-gradient(135deg, #101a1b, #182625 65%, #252a24);
+      }
+      button,
+      input,
+      select,
+      textarea {
+        font: inherit;
+      }
+      button,
+      input,
+      select,
+      textarea {
+        border: 1px solid #718176;
+        border-radius: 0.55rem;
+        background: #172322;
+        color: inherit;
+      }
+      button {
+        min-height: 2.75rem;
+        padding: 0.55rem 0.85rem;
+        cursor: pointer;
+      }
+      button:hover:not(:disabled),
+      button:focus-visible {
+        border-color: #f0b77b;
+        background: #283733;
+      }
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.46;
+      }
+      input,
+      select,
+      textarea {
+        width: 100%;
+        padding: 0.65rem 0.75rem;
+      }
+      input,
+      select {
+        min-height: 2.75rem;
+      }
+      textarea {
+        min-height: 7.25rem;
+        resize: vertical;
+        font-family: ui-monospace, monospace;
+      }
+      label {
+        display: grid;
+        gap: 0.32rem;
+        color: #bcc8bd;
+        font-size: 0.8rem;
+      }
+      main {
+        width: min(1180px, 100%);
+        margin: 0 auto;
+        padding: clamp(1rem, 3vw, 2.5rem);
+      }
+      header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: end;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 1.25rem;
+      }
+      h1,
+      h2,
+      p {
+        margin: 0;
+      }
+      h1 {
+        font:
+          500 clamp(1.8rem, 4vw, 3.2rem)/1.05 Georgia,
+          serif;
+      }
+      h2 {
+        font:
+          500 1.15rem/1.2 Georgia,
+          serif;
+      }
+      .eyebrow {
+        color: #f0b77b;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        font-size: 0.7rem;
+      }
+      .muted {
+        color: #9aaca2;
+        font-size: 0.78rem;
+      }
+      .status {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+        color: #c9d2cc;
+      }
+      .status::before {
+        content: "";
+        width: 0.65rem;
+        height: 0.65rem;
+        border-radius: 50%;
+        background: #7f7770;
+      }
+      .status[data-state="connected"]::before {
+        background: #8fcaa5;
+        box-shadow: 0 0 0.8rem #8fcaa5;
+      }
+      .status[data-state="connecting"]::before {
+        background: #f0b77b;
+      }
+      .status[data-state="error"]::before {
+        background: #df8b87;
+      }
+      .panel {
+        border: 1px solid #53625a;
+        border-radius: 1rem;
+        background: rgb(15 25 25 / 82%);
+        box-shadow: 0 1.5rem 4rem rgb(0 0 0 / 25%);
+        padding: 1rem;
+      }
+      .connection-grid {
+        display: grid;
+        grid-template-columns: 1.6fr 1fr 1fr 1fr 1fr;
+        gap: 0.75rem;
+      }
+      .connection-actions,
+      .desk-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.55rem;
+        margin-top: 0.85rem;
+      }
+      .primary {
+        background: #966845;
+        border-color: #dba36e;
+      }
+      .danger {
+        color: #ffd7d2;
+        border-color: #b46866;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(18rem, 0.8fr) minmax(24rem, 1.2fr);
+        gap: 1rem;
+        margin-top: 1rem;
+      }
+      .panel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        margin-bottom: 0.8rem;
+      }
+      .claims {
+        display: grid;
+        gap: 0.45rem;
+      }
+      .claim {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.55rem 0.65rem;
+        border-radius: 0.45rem;
+        background: #1b2927;
+      }
+      .claim b {
+        text-transform: capitalize;
+      }
+      .flight-list {
+        display: grid;
+        gap: 0.45rem;
+        max-height: 31rem;
+        overflow: auto;
+        padding-right: 0.2rem;
+      }
+      .flight {
+        display: grid;
+        grid-template-columns: minmax(7rem, 1.2fr) repeat(
+            3,
+            minmax(4rem, 0.55fr)
+          );
+        gap: 0.5rem;
+        align-items: center;
+        width: 100%;
+        padding: 0.65rem 0.75rem;
+        text-align: left;
+        background: #1b2927;
+      }
+      .flight[aria-pressed="true"] {
+        border-color: #f0b77b;
+        background: #2f3930;
+      }
+      .flight b,
+      .flight small {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .flight small {
+        color: #9aaca2;
+      }
+      .composer {
+        display: grid;
+        gap: 0.65rem;
+      }
+      .command-feedback {
+        min-height: 2.4rem;
+        padding: 0.65rem;
+        border-radius: 0.45rem;
+        background: #1b2927;
+        color: #b9c7be;
+        white-space: pre-wrap;
+      }
+      .events {
+        max-height: 12rem;
+        overflow: auto;
+        margin: 0;
+        padding: 0.65rem 0.65rem 0.65rem 2rem;
+        color: #9eaea5;
+        font:
+          0.75rem/1.45 ui-monospace,
+          monospace;
+      }
+      @media (max-width: 850px) {
+        .connection-grid,
+        .layout {
+          grid-template-columns: 1fr;
+        }
+        .connection-grid {
+          grid-template-columns: 1fr 1fr;
+        }
+        .connection-grid label:first-child {
+          grid-column: 1 / -1;
+        }
+      }
+      @media (max-width: 520px) {
+        .connection-grid {
+          grid-template-columns: 1fr;
+        }
+        .connection-grid label:first-child {
+          grid-column: auto;
+        }
+        .flight {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">Airport Auto · remote operations</p>
+          <h1>Controller desk</h1>
+        </div>
+        <p
+          id="status"
+          class="status"
+          data-state="idle"
+          role="status"
+          aria-live="polite"
+        >
+          Disconnected
+        </p>
+      </header>
+
+      <section class="panel" aria-labelledby="connection-title">
+        <div class="panel-head">
+          <h2 id="connection-title">Connection</h2>
+          <small class="muted"
+            >Credentials remain only in this page's memory.</small
+          >
+        </div>
+        <div class="connection-grid">
+          <label
+            >Gateway URL<input
+              id="gateway-url"
+              type="url"
+              autocomplete="off"
+              spellcheck="false"
+          /></label>
+          <label
+            >Session<input
+              id="session-id"
+              value="airport-auto"
+              maxlength="64"
+              autocomplete="off"
+          /></label>
+          <label
+            >Client ID<input id="client-id" maxlength="128" autocomplete="off"
+          /></label>
+          <label
+            >Role<select id="role">
+              <option value="controller">Controller</option>
+              <option value="spectator">Spectator</option>
+              <option value="admin">Administrator</option>
+            </select></label
+          >
+          <label
+            >Station<select id="station">
+              <option value="approach">Approach</option>
+              <option value="tower">Tower</option>
+              <option value="ground">Ground</option>
+              <option value="ramp">Ramp</option>
+              <option value="supervisor">Supervisor</option>
+            </select></label
+          >
+        </div>
+        <label style="margin-top: 0.75rem"
+          >Bearer token<input id="token" type="password" autocomplete="off"
+        /></label>
+        <div class="connection-actions">
+          <button id="connect" class="primary" type="button">Connect</button>
+          <button id="disconnect" type="button" disabled>Disconnect</button>
+          <button id="claim" type="button" disabled>Claim station</button>
+          <button id="release" type="button" disabled>Release station</button>
+          <button id="stop" class="danger" type="button" disabled>
+            Emergency stop
+          </button>
+          <button id="resume" type="button" disabled>Resume routing</button>
+        </div>
+      </section>
+
+      <div class="layout">
+        <div style="display: grid; gap: 1rem; align-content: start">
+          <section class="panel" aria-labelledby="claims-title">
+            <div class="panel-head">
+              <h2 id="claims-title">Session authority</h2>
+              <small id="session-state" class="muted">No session</small>
+            </div>
+            <div id="claims" class="claims">
+              <p class="muted">Connect to inspect station leases.</p>
+            </div>
+          </section>
+          <section class="panel" aria-labelledby="composer-title">
+            <div class="panel-head">
+              <h2 id="composer-title">Typed command</h2>
+              <small id="selected-label" class="muted"
+                >No flight selected</small
+              >
+            </div>
+            <div class="composer">
+              <label
+                >Command JSON<textarea id="command-json" spellcheck="false">
+{
+  "action": "goAround",
+  "flightId": 1
+}</textarea>
+              </label>
+              <div class="desk-actions">
+                <button
+                  id="send-command"
+                  class="primary"
+                  type="button"
+                  disabled
+                >
+                  Send through safety arbiter
+                </button>
+                <button data-template="land" type="button">Land</button>
+                <button data-template="goAround" type="button">
+                  Go around
+                </button>
+                <button data-template="hold" type="button">Hold</button>
+                <button data-template="resume" type="button">Resume</button>
+                <button data-template="takeoff" type="button">Takeoff</button>
+              </div>
+              <output
+                id="command-feedback"
+                class="command-feedback"
+                aria-live="polite"
+                >Commands are unavailable until a controller station is
+                claimed.</output
+              >
+            </div>
+          </section>
+        </div>
+
+        <div style="display: grid; gap: 1rem; align-content: start">
+          <section class="panel" aria-labelledby="traffic-title">
+            <div class="panel-head">
+              <h2 id="traffic-title">Live traffic</h2>
+              <small id="traffic-state" class="muted"
+                >Waiting for host state</small
+              >
+            </div>
+            <div id="flights" class="flight-list">
+              <p class="muted">
+                The game host publishes a bounded operations view after it
+                connects.
+              </p>
+            </div>
+          </section>
+          <section class="panel" aria-labelledby="events-title">
+            <div class="panel-head">
+              <h2 id="events-title">Recent activity</h2>
+              <button id="clear-events" type="button">Clear</button>
+            </div>
+            <ol id="events" class="events">
+              <li>Console ready.</li>
+            </ol>
+          </section>
+        </div>
+      </div>
+    </main>
+    <script>
+      (() => {
+        const $ = (selector) => document.querySelector(selector);
+        const gatewayUrl = $("#gateway-url");
+        const sessionId = $("#session-id");
+        const clientId = $("#client-id");
+        const role = $("#role");
+        const station = $("#station");
+        const token = $("#token");
+        const status = $("#status");
+        const claims = $("#claims");
+        const sessionState = $("#session-state");
+        const flights = $("#flights");
+        const trafficState = $("#traffic-state");
+        const commandJson = $("#command-json");
+        const commandFeedback = $("#command-feedback");
+        const selectedLabel = $("#selected-label");
+        const events = $("#events");
+        const controls = {
+          connect: $("#connect"),
+          disconnect: $("#disconnect"),
+          claim: $("#claim"),
+          release: $("#release"),
+          stop: $("#stop"),
+          resume: $("#resume"),
+          send: $("#send-command"),
+        };
+        const defaultProtocol = "1.2.0";
+        let socket = null;
+        let welcome = null;
+        let currentSession = null;
+        let latestSnapshot = null;
+        let resumeToken = null;
+        let selectedFlightId = null;
+
+        gatewayUrl.value = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/v1/ws`;
+        clientId.value = `desk-${crypto.randomUUID().slice(0, 8)}`;
+
+        function setStatus(state, text) {
+          status.dataset.state = state;
+          status.textContent = text;
+        }
+
+        function addEvent(text) {
+          const item = document.createElement("li");
+          item.textContent = `${new Date().toLocaleTimeString()} · ${text}`;
+          events.prepend(item);
+          while (events.children.length > 40) events.lastElementChild.remove();
+        }
+
+        function send(message) {
+          if (!socket || socket.readyState !== WebSocket.OPEN) return false;
+          socket.send(JSON.stringify(message));
+          return true;
+        }
+
+        function claimedStation() {
+          return (
+            currentSession?.claims?.find(
+              (claim) => claim.clientId === clientId.value && claim.connected,
+            )?.station ?? null
+          );
+        }
+
+        function updateControls() {
+          const connected = Boolean(
+            welcome && socket?.readyState === WebSocket.OPEN,
+          );
+          const claimed = claimedStation();
+          const isController = welcome?.role === "controller";
+          const isAdmin = welcome?.permissions?.admin === true;
+          controls.connect.disabled = Boolean(
+            socket && socket.readyState < WebSocket.CLOSING,
+          );
+          controls.disconnect.disabled = !socket;
+          controls.claim.disabled =
+            !connected || !isController || Boolean(claimed);
+          controls.release.disabled = !connected || !claimed;
+          controls.send.disabled =
+            !connected ||
+            !claimed ||
+            currentSession?.emergencyStop?.active === true;
+          controls.stop.disabled =
+            !connected ||
+            !isAdmin ||
+            currentSession?.emergencyStop?.active === true;
+          controls.resume.disabled =
+            !connected ||
+            !isAdmin ||
+            currentSession?.emergencyStop?.active !== true;
+          station.disabled = role.value !== "controller" || Boolean(claimed);
+        }
+
+        function renderSession(session) {
+          currentSession = session;
+          if (!session) {
+            sessionState.textContent = "No session";
+            claims.replaceChildren(
+              Object.assign(document.createElement("p"), {
+                className: "muted",
+                textContent: "Connect to inspect station leases.",
+              }),
+            );
+            updateControls();
+            return;
+          }
+          sessionState.textContent = `${session.sessionId} · host ${session.hostConnected ? "online" : "offline"}${session.emergencyStop?.active ? " · STOPPED" : ""}`;
+          const fragment = document.createDocumentFragment();
+          for (const name of [
+            "approach",
+            "tower",
+            "ground",
+            "ramp",
+            "supervisor",
+          ]) {
+            const claim = session.claims?.find(
+              (candidate) => candidate.station === name,
+            );
+            const row = document.createElement("div");
+            row.className = "claim";
+            const title = document.createElement("b");
+            title.textContent = name;
+            const detail = document.createElement("small");
+            detail.textContent = claim
+              ? `${claim.displayName} · ${claim.connected ? "online" : "reconnecting"}`
+              : "available";
+            row.append(title, detail);
+            fragment.append(row);
+          }
+          claims.replaceChildren(fragment);
+          updateControls();
+        }
+
+        function snapshotFlights(snapshot) {
+          return Array.isArray(snapshot?.flights)
+            ? snapshot.flights
+            : Array.isArray(snapshot?.state?.flights)
+              ? snapshot.state.flights
+              : [];
+        }
+
+        function renderFlights(snapshot, sequence) {
+          latestSnapshot = snapshot;
+          const list = snapshotFlights(snapshot);
+          trafficState.textContent = `${list.length} aircraft · update ${sequence ?? "—"}`;
+          if (!list.length) {
+            flights.replaceChildren(
+              Object.assign(document.createElement("p"), {
+                className: "muted",
+                textContent: "No aircraft in the published operations view.",
+              }),
+            );
+            return;
+          }
+          const fragment = document.createDocumentFragment();
+          for (const flight of list) {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "flight";
+            button.dataset.flightId = String(flight.id);
+            button.setAttribute(
+              "aria-pressed",
+              String(flight.id === selectedFlightId),
+            );
+            const values = [
+              [
+                flight.callsign ?? `Flight ${flight.id}`,
+                `${flight.phase ?? "unknown"} · ${flight.ownerStation ?? flight.station ?? "unowned"}`,
+              ],
+              [
+                `${Math.round(flight.altitudeFt ?? flight.altitude ?? 0)} ft`,
+                "altitude",
+              ],
+              [
+                `${Math.round(flight.groundSpeedKts ?? flight.airspeed ?? 0)} kt`,
+                "ground speed",
+              ],
+              [
+                `${Math.round(flight.fuelPercent ?? flight.fuel ?? 0)}%`,
+                "fuel",
+              ],
+            ];
+            for (const [value, label] of values) {
+              const cell = document.createElement("span");
+              const strong = document.createElement("b");
+              strong.textContent = value;
+              const small = document.createElement("small");
+              small.textContent = label;
+              cell.append(strong, document.createElement("br"), small);
+              button.append(cell);
+            }
+            fragment.append(button);
+          }
+          flights.replaceChildren(fragment);
+        }
+
+        function selectFlight(id) {
+          selectedFlightId = id;
+          selectedLabel.textContent =
+            id == null ? "No flight selected" : `Flight ${id} selected`;
+          const current = snapshotFlights(latestSnapshot).find(
+            (flight) => flight.id === id,
+          );
+          if (current)
+            selectedLabel.textContent = `${current.callsign ?? `Flight ${id}`} selected`;
+          for (const button of flights.querySelectorAll("[data-flight-id]"))
+            button.setAttribute(
+              "aria-pressed",
+              String(Number(button.dataset.flightId) === id),
+            );
+        }
+
+        function commandTemplate(action) {
+          if (selectedFlightId == null) {
+            commandFeedback.textContent = "Select a flight first.";
+            return;
+          }
+          const current = snapshotFlights(latestSnapshot).find(
+            (flight) => flight.id === selectedFlightId,
+          );
+          let command;
+          if (action === "land")
+            command = {
+              action: "clearFlight",
+              flightId: selectedFlightId,
+              runway: current?.runway ?? 0,
+            };
+          else if (action === "goAround")
+            command = {
+              action: "triggerEmergency",
+              flightId: selectedFlightId,
+              type: "go-around",
+            };
+          else if (action === "hold")
+            command = {
+              action: current?.onGround ? "holdPosition" : "holdFlight",
+              flightId: selectedFlightId,
+            };
+          else if (action === "resume")
+            command = {
+              action: current?.onGround ? "resumeTaxi" : "releaseHold",
+              flightId: selectedFlightId,
+            };
+          else command = { action: "clearTakeoff", flightId: selectedFlightId };
+          commandJson.value = JSON.stringify(command, null, 2);
+        }
+
+        function connect() {
+          let url;
+          try {
+            url = new URL(gatewayUrl.value);
+          } catch {
+            setStatus("error", "Invalid gateway URL");
+            return;
+          }
+          if (
+            !["ws:", "wss:"].includes(url.protocol) ||
+            url.username ||
+            url.password
+          ) {
+            setStatus("error", "Use a ws:// or wss:// URL without credentials");
+            return;
+          }
+          if (!token.value || !sessionId.value || !clientId.value) {
+            setStatus("error", "Token, session, and client ID are required");
+            return;
+          }
+          setStatus("connecting", "Connecting");
+          controls.connect.disabled = true;
+          socket = new WebSocket(url);
+          socket.addEventListener("open", () => {
+            send({
+              type: "hello",
+              protocolVersion: "1.0.0",
+              sessionId: sessionId.value,
+              clientId: clientId.value,
+              role: role.value,
+              token: token.value,
+              ...(resumeToken ? { resumeToken } : {}),
+            });
+          });
+          socket.addEventListener("message", (event) => {
+            let message;
+            try {
+              message = JSON.parse(event.data);
+            } catch {
+              addEvent("Ignored malformed gateway message");
+              return;
+            }
+            if (message.type === "welcome") {
+              welcome = message;
+              resumeToken = message.resumeToken;
+              token.value = "";
+              setStatus(
+                "connected",
+                `${message.role} connected${message.resumed ? " · resumed" : ""}`,
+              );
+              renderSession(message.session);
+              addEvent(`Connected as ${message.clientId}`);
+              if (message.role === "controller" && !claimedStation())
+                send({
+                  type: "claim",
+                  requestId: crypto.randomUUID(),
+                  station: station.value,
+                });
+            } else if (message.type === "session-state") {
+              renderSession(message.session);
+            } else if (message.type === "state") {
+              renderFlights(message.snapshot, message.sequence);
+            } else if (message.type === "claim-result") {
+              renderSession(message.session);
+              commandFeedback.textContent = message.reason;
+              addEvent(message.reason);
+            } else if (message.type === "command-result") {
+              commandFeedback.textContent = `${message.accepted ? "Accepted" : "Rejected"} · ${message.reason}`;
+              addEvent(
+                `${message.requestId}: ${message.accepted ? "accepted" : "rejected"} · ${message.reason}`,
+              );
+            } else if (message.type === "event") {
+              const detail =
+                message.event?.callsign ??
+                message.event?.type ??
+                "simulation event";
+              addEvent(detail);
+            } else if (message.type === "gateway-error") {
+              commandFeedback.textContent = `${message.code}: ${message.reason}`;
+              addEvent(`${message.code}: ${message.reason}`);
+            } else if (message.type === "station-offer") {
+              addEvent(`${message.fromClientId} offered ${message.station}`);
+            }
+          });
+          socket.addEventListener("close", (event) => {
+            addEvent(`Disconnected (${event.code})`);
+            socket = null;
+            welcome = null;
+            currentSession = null;
+            setStatus(event.code === 1000 ? "idle" : "error", "Disconnected");
+            renderSession(null);
+            updateControls();
+          });
+          socket.addEventListener("error", () =>
+            setStatus("error", "Connection failed"),
+          );
+          updateControls();
+        }
+
+        controls.connect.addEventListener("click", connect);
+        controls.disconnect.addEventListener("click", () => {
+          resumeToken = null;
+          socket?.close(1000, "operator disconnect");
+        });
+        controls.claim.addEventListener("click", () =>
+          send({
+            type: "claim",
+            requestId: crypto.randomUUID(),
+            station: station.value,
+          }),
+        );
+        controls.release.addEventListener("click", () =>
+          send({ type: "release", requestId: crypto.randomUUID() }),
+        );
+        controls.stop.addEventListener("click", () =>
+          send({ type: "emergency-stop", reason: "operator emergency stop" }),
+        );
+        controls.resume.addEventListener("click", () =>
+          send({ type: "emergency-resume" }),
+        );
+        controls.send.addEventListener("click", () => {
+          let command;
+          try {
+            command = JSON.parse(commandJson.value);
+          } catch {
+            commandFeedback.textContent = "Command must be valid JSON.";
+            return;
+          }
+          const requestId = crypto.randomUUID();
+          if (
+            send({
+              type: "command",
+              envelope: {
+                protocolVersion: defaultProtocol,
+                requestId,
+                source: "agent",
+                command,
+              },
+            })
+          ) {
+            commandFeedback.textContent = `Sent ${requestId}; waiting for the game host.`;
+          }
+        });
+        flights.addEventListener("click", (event) => {
+          const button = event.target.closest("[data-flight-id]");
+          if (button) selectFlight(Number(button.dataset.flightId));
+        });
+        document
+          .querySelectorAll("[data-template]")
+          .forEach((button) =>
+            button.addEventListener("click", () =>
+              commandTemplate(button.dataset.template),
+            ),
+          );
+        $("#clear-events").addEventListener("click", () =>
+          events.replaceChildren(),
+        );
+        role.addEventListener("change", updateControls);
+        updateControls();
+      })();
+    </script>
+  </body>
+</html>

@@ -1,7 +1,7 @@
 # Airport Auto — Forward Roadmap
 
-Last reconciled: July 25, 2026
-Baseline: Airport Auto 2.31.0
+Last reconciled: July 26, 2026
+Baseline: Airport Auto 2.32.0
 
 Airport Auto is an **ASMR-first web airport simulation with an optional serious ATC layer**. The simulation should remain enjoyable as a calm, hands-off miniature world while also supporting increasingly authentic controller work when the player asks for it.
 
@@ -139,12 +139,12 @@ Use the versioned local control protocol as the safety boundary for live human a
 - [x] Add per-station controller policies, workload limits, handoff behavior, explainable decisions, and human takeover. (2.30: serializable station policies set track/action limits and coordination timing; capacity deferrals are distinct audited outcomes, overdue/safety work bypasses pacing, and bounded mode transitions retain coordinated flight IDs plus automation-resume grace.)
 - [x] Add evaluation metrics for conflicts, incursions, delay, throughput, fuel impact, unnecessary holds, rejected commands, and command quality. (2.31: read-only schema-1 current-session evaluation combines external and scripted outcomes, reports station/actor metrics, uses explainable hold-review candidates, leaves no-command desks unrated, and never lets flow offset safety or rejection penalties.)
 - [x] Add controller presets such as conservative, efficient, calm, teaching, and realistic without weakening the safety arbiter. (2.30: Balanced, Conservative, Efficient, Calm, Teaching, and explicitly game-scale Realistic Tempo profiles select airport-wide policy through Supervisor UI/API; all resulting actions still use the shared authority and safety methods.)
-- [ ] Build an authenticated WebSocket service for external control; keep static GitHub Pages local/read-only when the service is absent.
-- [ ] Add a read-only HTTP snapshot/metrics endpoint for dashboards that do not need control authority.
-- [ ] Add controller sessions, station claims, permissions, command rate limits, timeouts, audit logs, reconnect behavior, and an emergency stop.
-- [ ] Support multiple simultaneous human or agent controllers with explicit station handoffs and conflict-free authority.
-- [ ] Add a read-only spectator/observer role and a local development bridge that cannot silently gain production authority.
-- [ ] Preserve a deterministic offline Auto policy so gameplay never depends on an external model or service.
+- [x] Build an authenticated WebSocket service for external control; keep static GitHub Pages local/read-only when the service is absent. (2.32: opt-in outbound browser host, provider-neutral Node gateway, exact Origin policy, TLS requirement, and no embedded/default credentials.)
+- [x] Add a read-only HTTP snapshot/metrics endpoint for dashboards that do not need control authority. (2.32: authenticated bounded snapshot/metrics/session endpoints, public health/protocol discovery, admin-only audit, and no HTTP mutation route.)
+- [x] Add controller sessions, station claims, permissions, command rate limits, timeouts, audit logs, reconnect behavior, and an emergency stop. (2.32: token-scoped roles/stations/sessions, exclusive leases, identity uniqueness, sliding limits, host timeout, bounded redacted memory/JSONL audit, one-time reconnect, and session-scoped routing stop.)
+- [x] Support multiple simultaneous human or agent controllers with explicit station handoffs and conflict-free authority. (2.32: one lease per station, simultaneous independent desks, offer/accept transfer, forced authenticated envelope identity, and existing game-level flight handoffs/safety arbitration.)
+- [x] Add a read-only spectator/observer role and a local development bridge that cannot silently gain production authority. (2.32: spectator is command-rejected, loopback-only plaintext development, remote TLS, explicit host opt-in, and credentials never persist or enter URLs/snapshots/audit.)
+- [x] Preserve a deterministic offline Auto policy so gameplay never depends on an external model or service. (2.32: gateway is a replaceable adapter; Pages starts disconnected and all existing scripted controllers/tests run without it.)
 
 ## Milestone 6 — Long-form ASMR soundscape and environment
 
@@ -220,7 +220,7 @@ These tasks travel with the milestones above rather than waiting for a final cle
 - [x] Choose the first import sources and fidelity boundary for ORD Surface Graph v1.
 - [x] Keep Forgiving ATC as the default ASMR/game ruleset and offer FAA-inspired terminal separation as an explicit opt-in.
 - [x] Use captions plus an optional reusable offline library of license-cleared recorded or generated fictional speech; do not generate chatter in real time.
-- [ ] Choose the hosting and identity model for authenticated remote/multi-controller sessions.
+- [x] Choose the hosting and identity model for authenticated remote/multi-controller sessions. (2.32: separate self-hosted Node gateway with operator-owned pre-provisioned opaque tokens, exact Origin/TLS controls, provider-neutral container, and an explicit future OIDC migration boundary.)
 - [ ] Decide which telemetry may appear in shared replays and which must remain local.
 - [ ] Decide whether progression and leaderboards improve the project or conflict with its open-ended ASMR character.
 - [ ] Choose the second high-fidelity airport only after ORD v1 meets its acceptance gate.

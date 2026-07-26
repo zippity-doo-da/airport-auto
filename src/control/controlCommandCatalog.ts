@@ -23,8 +23,8 @@ export { AIRPORT_DOMAIN_EVENT_TYPES } from "./eventTypes";
 export type { AirportDomainEventType } from "./eventTypes";
 
 export const CONTROL_PROTOCOL_VERSION = "1.2.0" as const;
-export const CONTROL_API_VERSION = "2.31.0" as const;
-export const CONTROL_SNAPSHOT_SCHEMA_VERSION = 33 as const;
+export const CONTROL_API_VERSION = "2.32.0" as const;
+export const CONTROL_SNAPSHOT_SCHEMA_VERSION = 34 as const;
 export const CONTROL_REPLAY_SCHEMA_VERSION = 2 as const;
 export const CONTROL_BROADCAST_CHANNEL = "airport-auto" as const;
 
@@ -252,7 +252,7 @@ export interface CommandCompatibilityDefinition {
   formalizedInApi: typeof CONTROL_API_VERSION;
   protocolMajor: 1;
   modes: ControlMode[];
-  transports: Array<"page" | "broadcast">;
+  transports: Array<"page" | "broadcast" | "websocket">;
   availability: string;
   legacyAliasFor?: AirportControlAction;
   deprecated?: boolean;
@@ -1404,7 +1404,7 @@ export const AIRPORT_CONTROL_COMMAND_DEFINITIONS = Object.fromEntries(
         formalizedInApi: CONTROL_API_VERSION,
         protocolMajor: 1,
         modes: [...ALL_MODES],
-        transports: ["page", "broadcast"],
+        transports: ["page", "broadcast", "websocket"],
         availability:
           spec.availability ??
           "Runtime phase, ownership, safety, scenario, and lifecycle preconditions are returned as structured rejections.",

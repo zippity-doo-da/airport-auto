@@ -160,6 +160,15 @@
             <output id="replay-time">LIVE</output>
             <button id="replay-export" type="button">Export</button>
           </div>
+          <fieldset class="remote-control-host" aria-label="External controller gateway">
+            <legend>External controller gateway</legend>
+            <div class="remote-control-host__status"><b id="remote-host-state">Disconnected</b><small id="remote-host-detail" aria-live="polite">Local page control only · no network connection is opened automatically.</small></div>
+            <label><span>Gateway</span><input id="remote-host-endpoint" type="url" inputmode="url" placeholder="wss://control.example/v1/ws" autocomplete="off" spellcheck="false" /></label>
+            <label><span>Session</span><input id="remote-host-session" value="airport-auto" maxlength="64" autocomplete="off" spellcheck="false" /></label>
+            <label class="remote-control-host__token"><span>Host token</span><input id="remote-host-token" type="password" minlength="24" autocomplete="off" /></label>
+            <div class="remote-control-host__actions"><button id="remote-host-connect" type="button">Connect host</button><button id="remote-host-disconnect" type="button" disabled>Disconnect</button></div>
+            <small>Remote commands use the same typed station-authority, runway-protection, separation, reservation, and collision arbiter as this UI. Credentials are never saved, logged, or placed in the URL.</small>
+          </fieldset>
           <fieldset class="input-settings" aria-label="Input settings and bindings">
             <legend>Unified input</legend>
             <div class="input-settings__status"><b id="input-device">Keyboard · pointer · touch</b><small id="input-status" aria-live="polite">Connect a standard-mapped controller at any time; no restart is required.</small></div>

@@ -93,6 +93,11 @@ import {
   type ProtocolCompatibilityAssessment,
   type ProtocolValidationIssue,
 } from './control/controlProtocol';
+import {
+  RemoteControlHost,
+  type RemoteControlHostConfiguration,
+  type RemoteControlHostState,
+} from './control/remoteControlHost';
 
 type AirportControlResult = {
   protocolVersion: typeof CONTROL_PROTOCOL_VERSION;
@@ -171,6 +176,11 @@ declare global {
       validate(command: unknown): CommandValidationResult;
       dispatch(envelope: AirportControlRequestEnvelope): AirportControlResult;
       protocol(): ReturnType<typeof getAirportControlProtocol>;
+      remote: {
+        state(): RemoteControlHostState;
+        connect(configuration: RemoteControlHostConfiguration): Promise<RemoteControlHostState>;
+        disconnect(reason?: string): RemoteControlHostState;
+      };
       help(): Record<string, string>;
       replay(): ReplayFrame[];
       recording(): ReplayRecording;
@@ -407,6 +417,13 @@ const replayToggle = $<HTMLButtonElement>('#replay-toggle');
 const replaySlider = $<HTMLInputElement>('#replay-slider');
 const replayTime = $<HTMLOutputElement>('#replay-time');
 const replayExport = $<HTMLButtonElement>('#replay-export');
+const remoteHostEndpoint = $<HTMLInputElement>('#remote-host-endpoint');
+const remoteHostSession = $<HTMLInputElement>('#remote-host-session');
+const remoteHostToken = $<HTMLInputElement>('#remote-host-token');
+const remoteHostConnect = $<HTMLButtonElement>('#remote-host-connect');
+const remoteHostDisconnect = $<HTMLButtonElement>('#remote-host-disconnect');
+const remoteHostState = $<HTMLElement>('#remote-host-state');
+const remoteHostDetail = $<HTMLElement>('#remote-host-detail');
 const safetyScore = $<HTMLElement>('#safety-score');
 const flightStrip = $<HTMLElement>('#flight-strip');
 const flightStripToggle = $<HTMLButtonElement>('#flight-strip-toggle');
@@ -614,6 +631,11 @@ const telemetryEvents: TelemetryEvent[] = [];
 const commandHistory: RecordedCommand[] = [];
 let initialReplayState = cloneAirportState(simulation.state);
 const airportChannel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(CONTROL_BROADCAST_CHANNEL);
+const remoteControlHost: RemoteControlHost = new RemoteControlHost({
+  snapshot: (): unknown => airportSnapshot(),
+  dispatch: (envelope) => dispatchAirportControl(envelope),
+  onStateChange: (state: RemoteControlHostState) => updateRemoteControlHostUi(state),
+});
 const launchOptions = new URLSearchParams(window.location.search);
 const telemetryEnabled = launchOptions.get('telemetry') === '1';
 const debugEnabled = launchOptions.get('debug') === '1';
@@ -1172,6 +1194,26 @@ replayExport.addEventListener('click', () => {
   link.click();
   URL.revokeObjectURL(link.href);
   setStatus('Replay exported', `${replayFrames.length} frames · seed, weather, commands, and states included`);
+});
+
+remoteHostConnect.addEventListener('click', () => {
+  remoteHostConnect.disabled = true;
+  void remoteControlHost.connect({
+    endpoint: remoteHostEndpoint.value,
+    sessionId: remoteHostSession.value,
+    token: remoteHostToken.value,
+  }).then((state) => {
+    remoteHostToken.value = '';
+    setStatus('Remote host connected', `${state.sessionId} · external commands remain inside the shared safety arbiter`);
+  }).catch((error: unknown) => {
+    const reason = error instanceof Error ? error.message : 'The remote gateway connection failed.';
+    setStatus('Remote host rejected', reason);
+  });
+});
+remoteHostDisconnect.addEventListener('click', () => {
+  remoteControlHost.disconnect();
+  remoteHostToken.value = '';
+  setStatus('Remote host disconnected', 'local and deterministic Auto control remain available');
 });
 
 soundButton.addEventListener('click', async () => {
@@ -3391,6 +3433,30 @@ function setStatus(label: string, detail: string): void {
   statusDetail.textContent = detail;
 }
 
+function updateRemoteControlHostUi(state: RemoteControlHostState = remoteControlHost.state()): void {
+  if (state.connected) remoteHostToken.value = '';
+  remoteHostState.dataset.state = state.status;
+  remoteHostState.textContent = state.status === 'connected'
+    ? 'Gateway connected'
+    : state.status === 'connecting'
+      ? 'Connecting…'
+      : state.status === 'reconnecting'
+        ? `Reconnecting · attempt ${state.reconnectAttempt}`
+        : state.status === 'error'
+          ? 'Connection error'
+          : 'Disconnected';
+  remoteHostDetail.textContent = state.status === 'connected'
+    ? `${state.sessionId} · state and events are publishing${state.emergencyStop.active ? ' · remote routing stopped' : ''}`
+    : state.lastError
+      ? state.lastError
+      : 'Local page control only · no network connection is opened automatically.';
+  remoteHostConnect.disabled = state.status === 'connecting' || state.status === 'connected' || state.status === 'reconnecting';
+  remoteHostDisconnect.disabled = !state.configured;
+  remoteHostEndpoint.disabled = state.configured;
+  remoteHostSession.disabled = state.configured;
+  remoteHostToken.disabled = state.configured;
+}
+
 function showGameOver(callsign: string): void {
   clearRoute();
   clearFlightFocus();
@@ -4007,6 +4073,7 @@ function recordTelemetry(
   if (telemetryEvents.length > 500) telemetryEvents.splice(0, telemetryEvents.length - 500);
   window.dispatchEvent(new CustomEvent('airport-auto:event', { detail: event }));
   airportChannel?.postMessage({ type: 'event', event });
+  remoteControlHost.publishEvent(event);
   return event;
 }
 
@@ -4057,6 +4124,7 @@ function airportSnapshot() {
       channel: CONTROL_BROADCAST_CHANNEL,
       schemas: 'airportControl.protocol().schemas',
     },
+    remoteControl: remoteControlHost.state(),
     training: simulation.trainingSnapshot(),
     challenge: simulation.challengeSnapshot(),
     sandbox: simulation.sandboxSnapshot(),
@@ -5426,13 +5494,18 @@ window.airportControl = {
   validate: validateAirportControlCommand,
   dispatch: dispatchAirportControl,
   protocol: getAirportControlProtocol,
+  remote: {
+    state: () => remoteControlHost.state(),
+    connect: (configuration) => remoteControlHost.connect(configuration),
+    disconnect: (reason) => remoteControlHost.disconnect(reason),
+  },
   help() {
     return {
       snapshot: 'airportControl.snapshot()',
       events: 'airportControl.events(100)',
       protocol: 'airportControl.protocol() // command/event JSON Schemas, authority, compatibility, examples',
       validate: "airportControl.validate({ action: 'pause' }) // structural validation without execution",
-      formalDispatch: "airportControl.dispatch({ protocolVersion: '1.2.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.31.0', snapshotSchemaVersion: 33 }, command: { action: 'pause' } })",
+      formalDispatch: "airportControl.dispatch({ protocolVersion: '1.2.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.32.0', snapshotSchemaVersion: 34 }, command: { action: 'pause' } })",
       structuredCommand: "airportControl.request({ action: 'pause' }) // legacy-compatible bare command; result includes requestId, commandId, eventId, authority, and compatibility",
       pause: "airportControl.command({ action: 'pause' })",
       speed: "airportControl.command({ action: 'setSpeed', value: 2 })",
@@ -5523,6 +5596,9 @@ window.airportControl = {
       reopenSurface: "airportControl.request({ action: 'clearSurfaceDisruption', disruptionId: 'SD-1' }) // supervisor",
       recoverAircraft: "airportControl.request({ action: 'recoverDisabledAircraft', flightId: 3 }) // ground or supervisor",
       broadcast: "new BroadcastChannel('airport-auto') // send { type: 'request', envelope: { protocolVersion: '1.2.0', requestId, source: 'agent', command } }; legacy { type: 'command', requestId, command } remains supported",
+      remoteState: 'airportControl.remote.state() // disconnected by default; never contains a credential',
+      remoteConnect: "await airportControl.remote.connect({ endpoint: 'wss://control.example/v1/ws', sessionId: 'airport-auto', token: '<operator-provided host token>' }) // explicit opt-in only",
+      remoteDisconnect: "airportControl.remote.disconnect() // removes the in-memory credential and disables reconnect",
     };
   },
 };
@@ -5669,6 +5745,7 @@ if (launchOptions.get('autostart') === '1' || soakEnabled) {
 requestAnimationFrame(frame);
 window.addEventListener('beforeunload', () => {
   airportChannel?.close();
+  remoteControlHost.dispose();
   inputLayer.dispose();
   world.dispose();
 });

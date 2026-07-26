@@ -410,6 +410,21 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
 .agent-note { display: grid; gap: 2px; margin: 0; border-left: 2px solid var(--blue); padding-left: 8px; }
 .agent-note b { color: #d9f4f4; font-size: 10px; }
 .agent-note span { color: rgba(217, 244, 244, 0.58); font: 9px/1.4 Consolas, monospace; }
+.remote-control-host { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(110px, 0.7fr); gap: 8px 10px; margin: 10px 0; border: 1px solid rgba(121, 200, 232, 0.28); padding: 10px; background: rgba(121, 200, 232, 0.035); }
+.remote-control-host legend { padding: 0 5px; color: var(--blue); font-size: 9px; font-weight: 900; letter-spacing: 0.1em; text-transform: uppercase; }
+.remote-control-host__status { display: grid; grid-column: 1 / -1; gap: 2px; border-left: 2px solid rgba(244, 232, 206, 0.25); padding-left: 8px; }
+.remote-control-host__status b { color: var(--ivory); font: 400 11px/1.2 Georgia, serif; }
+.remote-control-host__status b[data-state="connected"] { color: #a7d8c1; }
+.remote-control-host__status b[data-state="connecting"], .remote-control-host__status b[data-state="reconnecting"] { color: var(--amber); }
+.remote-control-host__status b[data-state="error"] { color: #f2aaa2; }
+.remote-control-host__status small, .remote-control-host > small { color: rgba(244, 232, 206, 0.5); font-size: 8px; line-height: 1.4; }
+.remote-control-host label { display: grid; min-width: 0; gap: 3px; color: rgba(244, 232, 206, 0.62); font-size: 8px; font-weight: 900; letter-spacing: 0.06em; text-transform: uppercase; }
+.remote-control-host input { width: 100%; min-width: 0; min-height: 34px; border: 1px solid rgba(244, 232, 206, 0.22); border-radius: 3px; padding: 6px 7px; background: rgba(4, 13, 14, 0.48); color: var(--ivory); font: 10px/1.2 Consolas, monospace; }
+.remote-control-host input:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.remote-control-host__token { grid-column: 1 / -1; }
+.remote-control-host__actions { display: flex; grid-column: 1 / -1; flex-wrap: wrap; gap: 6px; }
+.remote-control-host__actions button { min-height: 36px; }
+.remote-control-host > small { grid-column: 1 / -1; }
 .map-data { display: grid; gap: 3px; margin: 10px 0; border-left: 2px solid var(--amber); padding-left: 8px; }
 .map-data b { color: var(--ivory); font: 400 12px/1.2 Georgia, serif; }
 .map-data span { color: rgba(244, 232, 206, 0.72); font-size: 9px; font-weight: 800; letter-spacing: 0.04em; }
@@ -701,6 +716,8 @@ body.watch-mode .brand { opacity: 0.75; }
   .scoreboard span { font-size: 7px; }
   .audio-mixer { grid-template-columns: 1fr; }
   .input-settings { grid-template-columns: 1fr; }
+  .remote-control-host { grid-template-columns: 1fr; }
+  .remote-control-host__token, .remote-control-host__actions, .remote-control-host > small, .remote-control-host__status { grid-column: 1; }
   .input-settings__toggle { min-height: 46px; }
   .input-bindings > div { grid-template-columns: minmax(72px, 0.8fr) repeat(2, minmax(0, 1fr)); }
   .input-bindings > div span:last-child { grid-column: 2 / -1; }

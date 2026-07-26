@@ -23,8 +23,8 @@ function assert(condition, message) {
 }
 
 assert(CONTROL_PROTOCOL_VERSION === '1.2.0', 'control protocol version changed unexpectedly');
-assert(CONTROL_API_VERSION === '2.31.0', 'control API version changed unexpectedly');
-assert(CONTROL_SNAPSHOT_SCHEMA_VERSION === 33, 'snapshot schema version changed unexpectedly');
+assert(CONTROL_API_VERSION === '2.32.0', 'control API version changed unexpectedly');
+assert(CONTROL_SNAPSHOT_SCHEMA_VERSION === 34, 'snapshot schema version changed unexpectedly');
 assert(CONTROL_REPLAY_SCHEMA_VERSION === 2, 'replay schema version changed unexpectedly');
 
 const definitions = Object.values(AIRPORT_CONTROL_COMMAND_DEFINITIONS);
@@ -32,6 +32,7 @@ assert(definitions.length === 86, 'formal command catalog count changed unexpect
 assert(new Set(definitions.map((definition) => definition.action)).size === definitions.length, 'command actions are not unique');
 assert(definitions.every((definition) => definition.schema.additionalProperties === false), 'a command schema permits unknown parameters');
 assert(definitions.every((definition) => definition.compatibility.protocolMajor === 1), 'a command has the wrong protocol major');
+assert(definitions.every((definition) => definition.compatibility.transports.includes('websocket')), 'a command is missing remote WebSocket compatibility');
 assert(definitions.every((definition) => definition.authority.description.length > 20), 'a command authority rule lacks an explanation');
 assert(definitions.every((definition) => definition.result.schemaRef.includes('/result/')), 'a command lacks a formal result contract');
 assert(definitions.every((definition) => definition.result.commandEventType === 'command:' + definition.action), 'a command result names the wrong audit event');

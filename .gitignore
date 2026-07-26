@@ -4,6 +4,13 @@ playwright-report/
 test-results/
 *.zip
 
+# Remote-control credentials and audit records are operator-local only.
+server/token-manifest.json
+server/token-manifest.*.json
+!server/token-manifest.example.json
+server/*.audit.jsonl
+server/audit/
+
 # Local design captures and scratch research are not part of the source repo.
 design/
 airport-game-teardown.md

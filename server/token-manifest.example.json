@@ -1,0 +1,32 @@
+[
+  {
+    "id": "game-host",
+    "displayName": "Airport Auto browser host",
+    "token": "REPLACE_WITH_A_RANDOM_SECRET_OF_32_BYTES_OR_MORE",
+    "roles": ["host"],
+    "sessions": ["airport-auto"]
+  },
+  {
+    "id": "tower-desk",
+    "displayName": "Tower controller",
+    "token": "REPLACE_WITH_A_DIFFERENT_RANDOM_SECRET_OF_32_BYTES",
+    "roles": ["controller"],
+    "stations": ["tower"],
+    "sessions": ["airport-auto"]
+  },
+  {
+    "id": "observer",
+    "displayName": "Read-only observer",
+    "token": "REPLACE_WITH_ANOTHER_RANDOM_SECRET_OF_32_BYTES",
+    "roles": ["spectator"],
+    "sessions": ["airport-auto"]
+  },
+  {
+    "id": "operations-admin",
+    "displayName": "Operations administrator",
+    "token": "REPLACE_WITH_A_FOURTH_RANDOM_SECRET_OF_32_BYTES",
+    "roles": ["admin"],
+    "sessions": ["airport-auto"],
+    "admin": true
+  }
+]

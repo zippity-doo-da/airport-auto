@@ -1,0 +1,9 @@
+node_modules
+dist
+test-results
+playwright-report
+.git
+server/token-manifest.json
+server/token-manifest.*.json
+server/*.audit.jsonl
+server/audit
