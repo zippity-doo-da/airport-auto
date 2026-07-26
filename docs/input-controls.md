@@ -22,6 +22,8 @@ Airport Auto 2.27 routes keyboard, mouse, touch, and optional standard-mapped ga
 
 Held camera keys and analog sticks move continuously at display cadence. A quick camera-key tap still produces one small nudge. Stick input uses an 18% radial deadzone and a user-selectable `0.5×`–`2.0×` sensitivity.
 
+A tap on any aircraft selects and follows it, including an uncleared arrival. Approach drawing begins only after that arrival is deliberately dragged at least three screen pixels, so normal click/touch jitter cannot flash the selection halo and immediately release it.
+
 ## Context and accessibility
 
 The action router has three contexts: `gameplay`, `ui`, and `modal`. Camera and clearance actions stop beneath drawers and dialogs; Cancel remains available everywhere. Keyboard shortcuts do not fire while typing in or operating form controls, and browser modifier shortcuts such as Ctrl/Command+F remain untouched. Pointer capture is cleaned up on cancellation, window blur, and page visibility loss.

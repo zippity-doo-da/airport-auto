@@ -450,6 +450,7 @@ This file is the status ledger. A checked item is shipped and tested. Future ide
 - [x] Verify desktop 1440×900, short-laptop 1024×600, and mobile 390×844 rendered layouts; the short-laptop run held approximately 57 FPS, the high-detail ORD scene reported 305 draw calls and 85,036 triangles, every active aircraft remained within its declared budget, and no browser warnings or errors were recorded. The final 28-case browser matrix completed with 17 applicable passes and 11 intentional cross-project skips.
 - [x] Follow the selected aircraft's interpolated three-dimensional rendered pose—not its ground projection—so go-arounds and climb-outs remain visible in the central viewport; expose height-aware camera diagnostics and retain explicit manual release.
 - [x] Broker transient status notices through a bounded priority queue with wall-clock 2.6–7 second minimum dwell, duplicate suppression, stale-message expiry, critical-only interruption, reduced-motion-safe transitions, and a live 3× ORD Rush browser regression so busy simulation bursts remain readable.
+- [x] Delay approach-route capture until an uncleared arrival is deliberately dragged at least three screen pixels, preserving ordinary aircraft selection through mouse/touch jitter; retain true route drawing and cover both gestures in Chromium.
 
 ## Airport fidelity policy
 

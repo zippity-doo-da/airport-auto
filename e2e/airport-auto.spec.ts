@@ -2294,6 +2294,170 @@ test("Go-around climbs from the live pose and flies a visible missed-approach pa
   await page.screenshot({ path: testInfo.outputPath("go-around-climb.png") });
 });
 
+test("Canvas taps keep an uncleared arrival selected while a real drag starts its route", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "desktop-chromium",
+    "Pointer intent is shared across layouts and covered once with a rendered aircraft.",
+  );
+  test.setTimeout(90_000);
+  await page.goto(
+    "/?airport=ATL&mode=manual&station=supervisor&autostart=1&detail=low&renderFps=30",
+  );
+  await page.waitForFunction(() => window.airportControl?.version === "2.33.0");
+  await page.waitForFunction(
+    () => window.airportControl.snapshot().renderer.aircraftAssets.active > 0,
+  );
+  const arrivalId = await page.evaluate(() => {
+    const arrival = window.airportControl
+      .snapshot()
+      .flights.find((flight) => flight.phase === "approach" && !flight.cleared);
+    if (!arrival)
+      throw new Error(
+        "Manual canvas-selection test needs an uncleared arrival.",
+      );
+    return arrival.id;
+  });
+
+  const centerFlight = async () => {
+    const result = await page.evaluate(
+      (flightId) =>
+        window.airportControl.request({ action: "focusFlight", flightId }),
+      arrivalId,
+    );
+    expect(result.accepted).toBeTruthy();
+    await page.waitForFunction((flightId) => {
+      const target = window.airportControl.snapshot().renderer.camera.target;
+      return Boolean(
+        target?.key === `flight:${flightId}` &&
+        target.subjectVisible &&
+        target.viewportX > 0.35 &&
+        target.viewportX < 0.65 &&
+        target.viewportY > 0.35 &&
+        target.viewportY < 0.65,
+      );
+    }, arrivalId);
+    return page.evaluate(() => {
+      const target = window.airportControl.snapshot().renderer.camera.target!;
+      const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: rect.left + rect.width * target.viewportX,
+        y: rect.top + rect.height * target.viewportY,
+      };
+    });
+  };
+
+  const tapPoint = await centerFlight();
+  await page.evaluate(({ x, y }) => {
+    const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
+    window.airportControl.request({ action: "focusFlight", flightId: null });
+    const pointer = {
+      bubbles: true,
+      pointerId: 910,
+      pointerType: "mouse",
+      isPrimary: true,
+    };
+    canvas.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        ...pointer,
+        clientX: x,
+        clientY: y,
+        button: 0,
+        buttons: 1,
+      }),
+    );
+    canvas.dispatchEvent(
+      new PointerEvent("pointermove", {
+        ...pointer,
+        clientX: x + 1.5,
+        clientY: y + 1.5,
+        button: -1,
+        buttons: 1,
+      }),
+    );
+    canvas.dispatchEvent(
+      new PointerEvent("pointerup", {
+        ...pointer,
+        clientX: x + 1.5,
+        clientY: y + 1.5,
+        button: 0,
+        buttons: 0,
+      }),
+    );
+  }, tapPoint);
+  await page.waitForFunction(
+    (flightId) =>
+      window.airportControl.snapshot().selection.focusedFlightId === flightId,
+    arrivalId,
+  );
+  await page.waitForTimeout(800);
+  const tapped = await page.evaluate(() => ({
+    selection: window.airportControl.snapshot().selection,
+    target: window.airportControl.snapshot().renderer.camera.target,
+    gesture: window.airportControl.snapshot().input.lastGesture,
+    route: document
+      .querySelector<SVGPathElement>("#route-path")
+      ?.getAttribute("d"),
+  }));
+  expect(tapped.selection.focusedFlightId).toBe(arrivalId);
+  expect(tapped.target?.key).toBe(`flight:${arrivalId}`);
+  expect(tapped.gesture).toBe("tap");
+  expect(tapped.route).toBe("");
+
+  const dragPoint = await centerFlight();
+  const dragged = await page.evaluate(({ x, y }) => {
+    const canvas = document.querySelector<HTMLCanvasElement>("#scene")!;
+    window.airportControl.request({ action: "focusFlight", flightId: null });
+    const pointer = {
+      bubbles: true,
+      pointerId: 911,
+      pointerType: "mouse",
+      isPrimary: true,
+    };
+    canvas.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        ...pointer,
+        clientX: x,
+        clientY: y,
+        button: 0,
+        buttons: 1,
+      }),
+    );
+    canvas.dispatchEvent(
+      new PointerEvent("pointermove", {
+        ...pointer,
+        clientX: x + 24,
+        clientY: y + 12,
+        button: -1,
+        buttons: 1,
+      }),
+    );
+    const result = {
+      route: document
+        .querySelector<SVGPathElement>("#route-path")
+        ?.getAttribute("d"),
+      gesture: window.airportControl.snapshot().input.lastGesture,
+      focusedFlightId:
+        window.airportControl.snapshot().selection.focusedFlightId,
+    };
+    canvas.dispatchEvent(
+      new PointerEvent("pointercancel", {
+        ...pointer,
+        clientX: x + 24,
+        clientY: y + 12,
+        button: 0,
+        buttons: 0,
+      }),
+    );
+    return result;
+  }, dragPoint);
+  expect(dragged.route).not.toBe("");
+  expect(dragged.gesture).toBe("route");
+  expect(dragged.focusedFlightId).toBe(arrivalId);
+});
+
 test("No-fail training teaches, explains rejection, and restores a live checkpoint", async ({
   page,
 }, testInfo) => {

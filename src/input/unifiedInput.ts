@@ -99,6 +99,7 @@ type PointerRecord = {
   point: ScreenPoint;
   moved: boolean;
   cameraStarted: boolean;
+  routeStarted: boolean;
   intent: CanvasPointerIntent;
 };
 
@@ -305,7 +306,7 @@ export function createUnifiedInput(options: UnifiedInputOptions): UnifiedInput {
     if (!route) return;
     route.intent = { kind: "camera" };
     route.moved = true;
-    options.onRouteCancel(device);
+    if (route.routeStarted) options.onRouteCancel(device);
   };
 
   const handlePointerDown = (event: PointerEvent): void => {
@@ -321,6 +322,7 @@ export function createUnifiedInput(options: UnifiedInputOptions): UnifiedInput {
       point,
       moved: false,
       cameraStarted: false,
+      routeStarted: false,
       intent: options.resolvePointerIntent(point, device, event.button),
     };
     pointers.set(event.pointerId, record);
@@ -342,10 +344,6 @@ export function createUnifiedInput(options: UnifiedInputOptions): UnifiedInput {
       markDevice("touch", undefined, "pinch");
       options.onCameraGestureStart("touch");
       return;
-    }
-    if (record.intent.kind === "route") {
-      markDevice(device, undefined, "route");
-      options.onRouteStart(record.intent.flightId, point, device);
     }
   };
 
@@ -376,10 +374,22 @@ export function createUnifiedInput(options: UnifiedInputOptions): UnifiedInput {
       return;
     }
     if (record.intent.kind === "route") {
+      if (
+        !record.routeStarted &&
+        Math.hypot(current.x - record.start.x, current.y - record.start.y) < 3
+      )
+        return;
       event.preventDefault();
-      record.moved =
-        record.moved ||
-        Math.hypot(current.x - record.start.x, current.y - record.start.y) > 3;
+      if (!record.routeStarted) {
+        record.routeStarted = true;
+        record.moved = true;
+        markDevice(record.device, undefined, "route");
+        options.onRouteStart(
+          record.intent.flightId,
+          record.start,
+          record.device,
+        );
+      }
       options.onRouteMove(current, record.device);
       return;
     }
@@ -405,8 +415,13 @@ export function createUnifiedInput(options: UnifiedInputOptions): UnifiedInput {
     if (!record) return;
     const point = pointFromPointer(event);
     if (record.intent.kind === "route") {
-      if (cancelled) options.onRouteCancel(record.device);
-      else options.onRouteEnd(point, record.device);
+      if (cancelled && record.routeStarted)
+        options.onRouteCancel(record.device);
+      else if (record.routeStarted) options.onRouteEnd(point, record.device);
+      else if (!cancelled && !multiTouchSequence) {
+        markDevice(record.device, undefined, "tap");
+        options.onTap(point, record.device);
+      }
     } else if (
       !cancelled &&
       record.intent.kind === "camera" &&
@@ -544,7 +559,7 @@ export function createUnifiedInput(options: UnifiedInputOptions): UnifiedInput {
 
   const resetTransientInput = (): void => {
     const route = [...pointers.values()].find(
-      (pointer) => pointer.intent.kind === "route",
+      (pointer) => pointer.intent.kind === "route" && pointer.routeStarted,
     );
     if (route) options.onRouteCancel(route.device);
     pressedKeyboardCodes.clear();
