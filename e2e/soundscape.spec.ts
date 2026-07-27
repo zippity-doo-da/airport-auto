@@ -10,9 +10,25 @@ test("soundscape stays spatial, readable, optional, and replay-visible", async (
   test.setTimeout(60_000);
   await page.goto("/?airport=ORD&mode=auto&autostart=1&detail=low&renderFps=2");
   await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
+  const caption = page.locator("#radio-caption");
   await page.waitForFunction(
-    () => window.airportControl.snapshot().audio.recordedEvents > 0,
+    () => {
+      const audio = window.airportControl.snapshot().audio;
+      const element = document.querySelector<HTMLElement>("#radio-caption");
+      return (
+        audio.recordedEvents > 0 &&
+        audio.captions.current !== null &&
+        element !== null &&
+        !element.hidden
+      );
+    },
+    undefined,
+    { polling: 100, timeout: 30_000 },
   );
+
+  await expect(caption).toBeVisible();
+  const captionId = await caption.getAttribute("data-caption-id");
+  await expect(page.locator("#radio-caption-copy")).not.toHaveText("");
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
   expect(initial.audio).toMatchObject({
@@ -29,16 +45,11 @@ test("soundscape stays spatial, readable, optional, and replay-visible", async (
   expect(initial.replay.soundEvents).toBeGreaterThan(0);
   expect(initial.audio.spatialAircraft.maximumVoices).toBe(14);
 
-  await expect(page.locator("#radio-caption")).toBeVisible();
-  const captionId = await page
-    .locator("#radio-caption")
-    .getAttribute("data-caption-id");
   await page.waitForTimeout(800);
-  await expect(page.locator("#radio-caption")).toHaveAttribute(
+  await expect(caption).toHaveAttribute(
     "data-caption-id",
     captionId ?? "",
   );
-  await expect(page.locator("#radio-caption-copy")).not.toHaveText("");
 
   await page.locator("#menu-toggle").click();
   await expect(page.locator("#control-panel")).toHaveClass(
