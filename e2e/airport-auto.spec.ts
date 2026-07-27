@@ -1493,20 +1493,25 @@ test("Assisted ORD shift exposes proposals, station workload, and structured con
     (await page.evaluate(() => window.airportControl.snapshot())).renderer
       .serviceVehiclesVisible,
   ).toBeTruthy();
-  await expect(page.locator("#contrails-toggle")).not.toBeChecked();
-  await page.locator("#contrails-toggle").check();
-  expect(
-    (await page.evaluate(() => window.airportControl.snapshot())).renderer
-      .contrailsVisible,
-  ).toBeTruthy();
-  const contrailResult = await page.evaluate(() =>
+  await expect(page.locator("#contrails-toggle")).toHaveCount(0);
+  const contrailEnableResult = await page.evaluate(() =>
+    window.airportControl.request({
+      action: "setContrailsVisible",
+      enabled: true,
+    }),
+  );
+  expect(contrailEnableResult.accepted).toBeFalsy();
+  expect(contrailEnableResult.reason).toContain("removed");
+  const contrailDisableResult = await page.evaluate(() =>
     window.airportControl.request({
       action: "setContrailsVisible",
       enabled: false,
     }),
   );
-  expect(contrailResult.accepted).toBeTruthy();
-  await expect(page.locator("#contrails-toggle")).not.toBeChecked();
+  expect(contrailDisableResult.accepted).toBeTruthy();
+  expect(
+    (await page.evaluate(() => window.airportControl.snapshot())).renderer,
+  ).toMatchObject({ contrailsVisible: false, activeContrails: 0 });
   await page.locator("#menu-toggle").click();
   await page.screenshot({ path: testInfo.outputPath("map-overlays.png") });
   await page.locator("#menu-toggle").click();

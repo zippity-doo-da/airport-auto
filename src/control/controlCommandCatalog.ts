@@ -735,7 +735,9 @@ const COMMAND_SPECS = {
     "Show or hide wind direction and speed on the map.",
   ),
   setServiceVehiclesVisible: visibility("Show or hide service vehicles."),
-  setContrailsVisible: visibility("Show or hide high-altitude contrails."),
+  setContrailsVisible: visibility(
+    "Deprecated API 2.x compatibility command. Enabling removed contrails is rejected; disabling is an accepted no-op.",
+  ),
   setAirportLifeVisible: visibility(
     "Show or hide optional airport-life details.",
   ),

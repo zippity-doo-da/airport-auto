@@ -14,7 +14,7 @@ Weather affects:
 - runway-exit choice and stopping margin;
 - taxi braking, turn speed, and stopping behavior;
 - deicing requirements and holdover flow in snow;
-- sky, haze/fog, precipitation, lighting, contrails, and weather audio.
+- sky, haze/fog, precipitation, lighting, and weather audio.
 
 The renderer and audio engine consume this state; neither invents a separate weather condition.
 

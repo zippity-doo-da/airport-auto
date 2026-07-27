@@ -52,7 +52,6 @@ export interface AircraftVisual {
   taxiLamp: THREE.Mesh;
   landingLight: THREE.PointLight;
   shadowCasters: THREE.Mesh[];
-  contrail: THREE.LineSegments;
   deicingSpray: THREE.Group;
   exhaust: THREE.Group;
   condensation: THREE.Group;
@@ -352,7 +351,6 @@ export function createAircraftVisual(
     taxiLamp: lighting.taxiLamp,
     landingLight: lighting.landingLight,
     shadowCasters,
-    contrail: effects.contrail,
     deicingSpray: effects.deicingSpray,
     exhaust: effects.exhaust,
     condensation: effects.condensation,
@@ -1362,39 +1360,12 @@ function addAircraftEffects(
   engineOffsets: number[],
   lowDetail: boolean,
 ): {
-  contrail: THREE.LineSegments;
   deicingSpray: THREE.Group;
   exhaust: THREE.Group;
   condensation: THREE.Group;
   tireSmoke: THREE.Group;
   surfaceSpray: THREE.Group;
 } {
-  const contrailGeometry = new THREE.BufferGeometry();
-  const positions = engineOffsets.flatMap((offset) => [
-    -visual.bodyLength * 0.44,
-    offset,
-    -visual.bodyRadius * 0.15,
-    -visual.bodyLength * 0.44 - Math.max(7.5, visual.bodyLength * 1.05),
-    offset,
-    -visual.bodyRadius * 0.15,
-  ]);
-  contrailGeometry.setAttribute(
-    "position",
-    new THREE.Float32BufferAttribute(positions, 3),
-  );
-  const contrail = new THREE.LineSegments(
-    contrailGeometry,
-    new THREE.LineBasicMaterial({
-      color: 0xeaf2ef,
-      transparent: true,
-      opacity: 0.12,
-      depthWrite: false,
-    }),
-  );
-  contrail.name = "contrail";
-  contrail.visible = false;
-  root.add(contrail);
-
   const deicingSpray = new THREE.Group();
   deicingSpray.name = "deicing-spray";
   const deicingMaterial = additiveMaterial(0xc9edf2, 0.28);
@@ -1493,7 +1464,6 @@ function addAircraftEffects(
   surfaceSpray.position.set(-visual.bodyLength * 0.3, 0, -0.92);
   root.add(surfaceSpray);
   return {
-    contrail,
     deicingSpray,
     exhaust,
     condensation,

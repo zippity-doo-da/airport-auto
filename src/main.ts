@@ -697,7 +697,6 @@ const windOverlayHeading = $<HTMLElement>("#wind-overlay-heading");
 const windOverlaySpeed = $<HTMLElement>("#wind-overlay-speed");
 const serviceVehiclesToggle = $<HTMLInputElement>("#service-vehicles-toggle");
 const airportLifeToggle = $<HTMLInputElement>("#airport-life-toggle");
-const contrailsToggle = $<HTMLInputElement>("#contrails-toggle");
 const surfaceDisruptionKind = $<HTMLSelectElement>("#surface-disruption-kind");
 const surfaceDisruptionTarget = $<HTMLSelectElement>(
   "#surface-disruption-target",
@@ -816,7 +815,6 @@ let queueInspectorUiKey = "";
 let windOverlayVisible = false;
 let serviceVehiclesVisible = true;
 let airportLifeVisible = false;
-let contrailsVisible = false;
 let accessibilityPalette: AccessibilityPalette = loadAccessibilityPalette();
 const cameraDirector = new CameraDirector();
 let cameraDirectorApplying = false;
@@ -1317,9 +1315,6 @@ serviceVehiclesToggle.addEventListener("change", () =>
 );
 airportLifeToggle.addEventListener("change", () =>
   setAirportLifeVisible(airportLifeToggle.checked),
-);
-contrailsToggle.addEventListener("change", () =>
-  setContrailsVisible(contrailsToggle.checked),
 );
 lightingModeSelect.addEventListener("change", () => {
   if (!isEnvironmentLightingMode(lightingModeSelect.value)) return;
@@ -4917,12 +4912,6 @@ function setServiceVehiclesVisible(visible: boolean): void {
   world.setServiceVehiclesVisible(visible);
 }
 
-function setContrailsVisible(visible: boolean): void {
-  contrailsVisible = visible;
-  contrailsToggle.checked = visible;
-  world.setContrailsVisible(visible);
-}
-
 function updateSurfaceDisruptionTargets(): void {
   updateSurfaceDisruptionTargetOptions(
     config,
@@ -6856,7 +6845,6 @@ function newSession(
   world = createWorld(canvas, config);
   world.setRunwayLabelsVisible(runwayLabelsVisible);
   world.setServiceVehiclesVisible(serviceVehiclesVisible);
-  world.setContrailsVisible(contrailsVisible);
   world.setAccessibilityPalette(accessibilityPalette);
   for (const [layer, visible] of Object.entries(
     surfaceLayerVisibility,
@@ -7023,8 +7011,6 @@ function updateAirportUi(): void {
   serviceVehiclesToggle.checked = serviceVehiclesVisible;
   world.setServiceVehiclesVisible(serviceVehiclesVisible);
   airportLifeToggle.checked = airportLifeVisible;
-  contrailsToggle.checked = contrailsVisible;
-  world.setContrailsVisible(contrailsVisible);
   radarAirport.textContent = config.code;
   runwayConfigurationOptionsKey = "";
   updateRunwayConfigurationOptions();
@@ -7672,7 +7658,8 @@ function airportSnapshot() {
     windOverlayVisible,
     serviceVehiclesVisible,
     airportLifeVisible,
-    contrailsVisible,
+    // Retained as an always-false compatibility field for API 2.x clients.
+    contrailsVisible: false,
     station: simulation.state.station,
     selection: {
       focusedFlightId,
@@ -8941,8 +8928,12 @@ function executeAirportRequest(
     setWindOverlayVisible(command.enabled);
   if (command.action === "setServiceVehiclesVisible")
     setServiceVehiclesVisible(command.enabled);
-  if (command.action === "setContrailsVisible")
-    setContrailsVisible(command.enabled);
+  if (command.action === "setContrailsVisible") {
+    accepted = !command.enabled;
+    reason = command.enabled
+      ? "contrails have been removed"
+      : "contrails are permanently disabled";
+  }
   if (command.action === "setAirportLifeVisible")
     setAirportLifeVisible(command.enabled);
   if (command.action === "setGamepadEnabled") {
@@ -9750,8 +9741,6 @@ window.airportControl = {
         "airportControl.command({ action: 'setWindOverlayVisible', enabled: true })",
       serviceVehicles:
         "airportControl.command({ action: 'setServiceVehiclesVisible', enabled: false })",
-      contrails:
-        "airportControl.command({ action: 'setContrailsVisible', enabled: true })",
       airportLife:
         "airportControl.command({ action: 'setAirportLifeVisible', enabled: true })",
       gamepad:
@@ -10061,7 +10050,6 @@ if (launchOptions.get("queues") === "1") {
   updateQueueInspectorControl();
   renderQueueInspector();
 }
-if (launchOptions.get("contrails") === "1") setContrailsVisible(true);
 if (launchOptions.get("airport-life") === "1") setAirportLifeVisible(true);
 const launchScenario = (launchOptions.get("scenario") ??
   (soakEnabled ? "rush" : null)) as TrafficScenario | null;

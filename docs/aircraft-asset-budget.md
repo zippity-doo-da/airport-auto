@@ -21,7 +21,7 @@ Observed validation maxima in 2.33 are 45/60 mesh nodes, 28/30 materials, 2,004/
 - Center/hub views select low detail by default. High detail is intended for the closer airfield view or an explicit `?detail=high` override.
 - Repeated engines, landing-gear trucks, tug wheels, paired lights, exhaust, condensation, deicing spray, tire smoke, and surface spray use instancing where their animation permits it.
 - Aircraft pooling is bounded globally at 24 low-detail or 36 high-detail visuals, with no more than three retained for any model/airline/palette key. Overflow is disposed rather than retained for a long ASMR session.
-- A 32-aircraft low-detail planning envelope therefore allows no more than 1,472 aircraft render nodes, 67,200 aircraft triangles, about 1.75 MiB of unique aircraft geometry buffers, and 24 retained pooled visuals. Actual draw calls are lower because gear, tug, lights, trails, and weather effects are conditional.
+- A 32-aircraft low-detail planning envelope therefore allows no more than 1,472 aircraft render nodes, 67,200 aircraft triangles, about 1.75 MiB of unique aircraft geometry buffers, and 24 retained pooled visuals. Actual draw calls are lower because gear, tug, lights, and weather effects are conditional.
 - The complete rendered frame—not only aircraft—must stay under the existing performance budget: target 60 fps / 16.7 ms at 1080p on the reference laptop, no catch-up spiral, and no unbounded growth during the measured stress and soak profiles.
 - `world.diagnostics().aircraftAssets` exposes active family counts, total and per-aircraft mesh maxima, material/texture maxima, triangle maxima, geometry bytes, and the pool budget. `world.diagnostics()` also exposes whole-frame draw calls, triangles, geometries, and textures.
 

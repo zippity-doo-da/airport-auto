@@ -46,7 +46,7 @@ One pure deterministic systems adapter derives presentation from authoritative f
 - Exhaust follows engine state and phase power.
 - Wing condensation requires airborne speed, high lift, low altitude, and moisture/cold conditions.
 - Tire smoke appears only during a fast dry touchdown; wet or contaminated pavement substitutes surface spray.
-- Shadows fade and soften with altitude. Optional contrails require an eligible airborne turbofan, altitude/moisture conditions, and the player’s map-layer toggle.
+- Shadows fade and soften with altitude; no persistent aircraft trail is rendered.
 - Deicing spray follows the existing authoritative deicing service state.
 
 The complete systems state is exposed in `flights[].systems` for browser tools, tests, replays, and future controllers.

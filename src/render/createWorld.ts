@@ -3,9 +3,8 @@ import type { AirportConfig, FlightColor, RunwayConfig, RunwayOperationalRole } 
 import { runwayEndPoint3 } from '../simulation/runwayGeometry';
 import { aircraftProfile } from '../simulation/aircraftProfiles';
 import { aircraftSystemsState } from '../simulation/aircraftSystems';
-import type { AirportState, Flight, FlightMotionState, ServiceVehicleType, SurfaceDisruptionKind, WeatherState } from '../simulation/types';
+import type { AirportState, Flight, FlightMotionState, ServiceVehicleType, SurfaceDisruptionKind } from '../simulation/types';
 import { applyAircraftOrientation } from './aircraftOrientation';
-import { contrailPresentation } from './aircraftEffects';
 import { weatherPresentation } from './weatherPresentation';
 import {
   environmentPresentation,
@@ -216,7 +215,6 @@ export interface AirportWorld {
   resetCamera(): void;
   setRunwayLabelsVisible(visible: boolean): void;
   setServiceVehiclesVisible(visible: boolean): void;
-  setContrailsVisible(visible: boolean): void;
   setAccessibilityPalette(palette: AccessibilityPalette): void;
   setSurfaceLayerVisible(layer: SurfaceLayer, visible: boolean): void;
   setAirspaceLayerVisible(layer: AirspaceLayer, visible: boolean): void;
@@ -349,7 +347,6 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   let currentState: AirportState | null = null;
   let runwayLabelsVisible = false;
   let serviceVehiclesVisible = true;
-  let contrailsVisible = false;
   let accessibilityPalette: AccessibilityPalette = 'standard';
   applySemanticPalette(semanticMaterials, accessibilityPalette);
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -465,7 +462,6 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
       (visual.tugBeacon.material as THREE.MeshBasicMaterial).opacity = tugPulse;
       const systems = aircraftSystemsState(flight, state.weather, state.elapsed);
       applyAircraftVisualSystems(visual, systems, flight, state.elapsed, delta, nightMix);
-      updateContrail(visual, flight, state.weather, state.elapsed, contrailsVisible);
       visual.deicingSpray.visible = flight.deicing.status === 'treating';
       if (visual.deicingSpray.visible) {
         const sprayPulse = 0.86 + Math.sin(state.elapsed * 7.2 + flight.id) * 0.14;
@@ -972,10 +968,6 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
       serviceVehiclesVisible = visible;
       for (const visual of serviceVehicleVisuals.values()) visual.root.visible = visible;
     },
-    setContrailsVisible(visible) {
-      contrailsVisible = visible;
-      if (!visible) for (const visual of flightVisuals.values()) visual.contrail.visible = false;
-    },
     setAccessibilityPalette(palette) {
       accessibilityPalette = palette;
       applySemanticPalette(semanticMaterials, palette);
@@ -1031,9 +1023,10 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
         heldServiceVehicles: [...serviceVehicleVisuals.values()].filter((visual) => Boolean(visual.root.userData.held)).length,
         pooledServiceVehicles: [...serviceVehiclePool.values()].reduce((sum, pool) => sum + pool.length, 0),
         serviceVehiclesVisible,
-        contrailsVisible,
+        // API 2.x compatibility fields: the feature and render allocation are gone.
+        contrailsVisible: false,
         accessibilityPalette,
-        activeContrails: [...flightVisuals.values()].filter((visual) => visual.contrail.visible).length,
+        activeContrails: 0,
         attachedTugs: [...flightVisuals.values()].filter((visual) => visual.tug.visible).length,
         startingEngines: [...flightVisuals.values()].filter((visual) => visual.root.userData.engineState === 'starting').length,
         aircraftAssets: {
@@ -1058,9 +1051,9 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
         },
         pooling: {
           trails: {
-            active: activeAircraft.length,
-            available: pooledAircraft,
-            capacity: aircraftPoolBudget,
+            active: 0,
+            available: 0,
+            capacity: 0,
           },
           labels: {
             active: activeAircraft.length,
@@ -1952,21 +1945,6 @@ function mainGearContactLift(flight: Flight, pitch: number, modelScale: number):
   const levelContactDepth = -wheelCenterZ + wheelRadius;
   const pitchedWheelBottom = Math.sin(pitch) * mainGearX + Math.cos(pitch) * wheelCenterZ - wheelRadius;
   return Math.max(0, (-pitchedWheelBottom - levelContactDepth) * modelScale);
-}
-
-function updateContrail(
-  visual: FlightVisual,
-  flight: Flight,
-  weather: WeatherState,
-  elapsed: number,
-  enabled: boolean,
-): void {
-  const presentation = contrailPresentation(flight, weather, enabled);
-  visual.contrail.visible = presentation.visible;
-  if (!presentation.visible) return;
-  const material = visual.contrail.material as THREE.LineBasicMaterial;
-  material.opacity = presentation.opacity * (0.97 + Math.sin(elapsed * 0.45 + flight.id) * 0.03);
-  visual.contrail.scale.set(presentation.lengthScale, 1, 1);
 }
 
 function addHoldShortMarkings(root: THREE.Group, config: AirportConfig, unitBox: THREE.BoxGeometry): void {
