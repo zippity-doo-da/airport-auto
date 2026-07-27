@@ -43,8 +43,7 @@ One pure deterministic systems adapter derives presentation from authoritative f
 - Gear extends on approach and landing, retracts after positive takeoff climb, and remains physically attached to the aircraft root.
 - Flaps, slats, spoilers, and reverser sleeves follow approach, takeoff, touchdown, rollout speed, and aircraft powerplant.
 - Navigation, beacon, double-pulse strobe, landing, taxi, and recognition lights follow engine, ground, and phase state.
-- Exhaust follows engine state and phase power.
-- Wing condensation requires airborne speed, high lift, low altitude, and moisture/cold conditions.
+- Persistent engine-exhaust and wing-condensation render trails are disabled; their compatibility telemetry fields remain zero.
 - Tire smoke appears only during a fast dry touchdown; wet or contaminated pavement substitutes surface spray.
 - Shadows fade and soften with altitude; no persistent aircraft trail is rendered.
 - Deicing spray follows the existing authoritative deicing service state.

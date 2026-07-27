@@ -53,8 +53,6 @@ export interface AircraftVisual {
   landingLight: THREE.PointLight;
   shadowCasters: THREE.Mesh[];
   deicingSpray: THREE.Group;
-  exhaust: THREE.Group;
-  condensation: THREE.Group;
   tireSmoke: THREE.Group;
   surfaceSpray: THREE.Group;
   beacon: THREE.PointLight;
@@ -173,22 +171,6 @@ export function applyAircraftVisualSystems(
     : 0;
 
   updateEffect(
-    visual.exhaust,
-    systems.effects.exhaust,
-    elapsedSeconds,
-    flight.id,
-    0.45,
-    1.35,
-  );
-  updateEffect(
-    visual.condensation,
-    systems.effects.condensation,
-    elapsedSeconds,
-    flight.id,
-    0.62,
-    1.8,
-  );
-  updateEffect(
     visual.tireSmoke,
     systems.effects.tireSmoke,
     elapsedSeconds,
@@ -276,12 +258,7 @@ export function createAircraftVisual(
     visual.family,
     lowDetail,
   );
-  const effects = addAircraftEffects(
-    root,
-    visual,
-    engineBuild.engineOffsets,
-    lowDetail,
-  );
+  const effects = addAircraftEffects(root, visual, lowDetail);
 
   const shadow = new THREE.Mesh(
     new THREE.CircleGeometry(
@@ -352,8 +329,6 @@ export function createAircraftVisual(
     landingLight: lighting.landingLight,
     shadowCasters,
     deicingSpray: effects.deicingSpray,
-    exhaust: effects.exhaust,
-    condensation: effects.condensation,
     tireSmoke: effects.tireSmoke,
     surfaceSpray: effects.surfaceSpray,
     beacon,
@@ -1357,12 +1332,9 @@ function addLandingGear(
 function addAircraftEffects(
   root: THREE.Group,
   visual: AircraftVisualSpec,
-  engineOffsets: number[],
   lowDetail: boolean,
 ): {
   deicingSpray: THREE.Group;
-  exhaust: THREE.Group;
-  condensation: THREE.Group;
   tireSmoke: THREE.Group;
   surfaceSpray: THREE.Group;
 } {
@@ -1397,66 +1369,6 @@ function addAircraftEffects(
   deicingSpray.visible = false;
   root.add(deicingSpray);
 
-  const exhaust = new THREE.Group();
-  exhaust.name = "engine-exhaust";
-  const exhaustMaterial = additiveMaterial(0x8ba4a2, 0.16);
-  const plume = new THREE.InstancedMesh(
-    new THREE.ConeGeometry(
-      Math.max(0.12, visual.engineRadius * 0.62),
-      Math.max(1.6, visual.engineLength * 1.9),
-      lowDetail ? 6 : 9,
-      1,
-      true,
-    ),
-    exhaustMaterial,
-    engineOffsets.length,
-  );
-  plume.name = "engine-exhaust-array";
-  engineOffsets.forEach((offset, index) => {
-    effectTransform.position.set(
-      -visual.bodyLength * 0.4 - visual.engineLength * 0.7,
-      offset,
-      -visual.bodyRadius * 0.18,
-    );
-    effectTransform.rotation.set(0, 0, -Math.PI / 2);
-    effectTransform.updateMatrix();
-    plume.setMatrixAt(index, effectTransform.matrix);
-  });
-  plume.instanceMatrix.needsUpdate = true;
-  exhaust.add(plume);
-  exhaust.visible = false;
-  root.add(exhaust);
-
-  const condensation = new THREE.Group();
-  condensation.name = "wing-condensation";
-  const condensationMaterial = additiveMaterial(0xf1f6f4, 0.2);
-  const ribbon = new THREE.InstancedMesh(
-    new THREE.ConeGeometry(
-      0.08,
-      Math.max(1.4, visual.wingSpan * 0.28),
-      lowDetail ? 5 : 8,
-      1,
-      true,
-    ),
-    condensationMaterial,
-    2,
-  );
-  ribbon.name = "wing-condensation-array";
-  [-1, 1].forEach((side, index) => {
-    effectTransform.position.set(
-      -visual.wingSweep - visual.wingSpan * 0.13,
-      side * visual.wingSpan * 0.46,
-      0.04,
-    );
-    effectTransform.rotation.set(0, 0, Math.PI / 2);
-    effectTransform.updateMatrix();
-    ribbon.setMatrixAt(index, effectTransform.matrix);
-  });
-  ribbon.instanceMatrix.needsUpdate = true;
-  condensation.add(ribbon);
-  condensation.visible = false;
-  root.add(condensation);
-
   const tireSmoke = puffGroup("touchdown-tire-smoke", 0xd8d2c4, lowDetail);
   tireSmoke.position.set(-visual.bodyLength * 0.2, 0, -0.9);
   root.add(tireSmoke);
@@ -1465,8 +1377,6 @@ function addAircraftEffects(
   root.add(surfaceSpray);
   return {
     deicingSpray,
-    exhaust,
-    condensation,
     tireSmoke,
     surfaceSpray,
   };

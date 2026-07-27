@@ -82,7 +82,7 @@ assert(animated.slats.every((part) => part.position.x > Number(part.userData.bas
 assert(animated.spoilers.every((part) => Math.abs(part.rotation.y) > 0.2), 'spoiler state did not animate');
 assert(animated.reversers.every((part) => part.position.x < Number(part.userData.baseX)), 'reverser state did not animate');
 assert(animated.navLights.every((light) => light.visible) && animated.strobeLights.every((light) => light.visible), 'light state did not reach visual adapter');
-assert(animated.exhaust.visible && animated.condensation.visible && animated.tireSmoke.visible && !animated.surfaceSpray.visible, 'conditional effects did not reach visual adapter');
+assert(animated.tireSmoke.visible && !animated.surfaceSpray.visible, 'momentary contact effects did not reach visual adapter');
 
 console.log(JSON.stringify({
   models: AIRCRAFT_ROSTER.length,

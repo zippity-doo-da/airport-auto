@@ -39,7 +39,7 @@ const approachSystems = aircraftSystemsState(systemsFlight, weather, 12.25);
 assert(approachSystems.gearExtension > 0.9, 'approach gear did not extend progressively');
 assert(approachSystems.flapExtension > 0.65 && approachSystems.slatExtension > 0.65, 'approach high-lift system did not deploy');
 assert(approachSystems.lights.landing && approachSystems.lights.strobe && approachSystems.lights.navigation, 'approach lighting state is incomplete');
-assert(approachSystems.effects.condensation > 0, 'humid high-lift approach has no condensation');
+assert(approachSystems.effects.exhaust === 0 && approachSystems.effects.condensation === 0, 'persistent trail-like aircraft effects were re-enabled');
 assert(JSON.stringify({ systemsFlight, weather }) === systemsBefore, 'aircraft systems mutated authoritative input');
 assert(JSON.stringify(approachSystems) === JSON.stringify(aircraftSystemsState(systemsFlight, weather, 12.25)), 'aircraft systems are not deterministic');
 

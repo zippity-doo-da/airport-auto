@@ -52,7 +52,6 @@ export function aircraftSystemsState(
   const engineLive = flight.engineState !== "off";
   const stageProgress = clamp01(flight.motion.stageProgress);
   const groundSpeed = Math.max(0, flight.kinematics.groundSpeedKts);
-  const airspeed = Math.max(0, flight.kinematics.airspeedKts);
 
   let gearExtension = onGround ? 1 : 0;
   if (flight.phase === "approach") {
@@ -121,21 +120,6 @@ export function aircraftSystemsState(
     !flight.tugAttached &&
     (flight.phase === "taxi-in" || flight.phase === "taxi-out");
 
-  const weatherMoisture =
-    weather.weatherEnabled && weather.condition !== "clear";
-  const coldMoisture = weather.temperatureC <= 8 && weather.visibility <= 8;
-  const highLift = Math.max(
-    flapExtension,
-    Math.min(1, Math.abs(flight.motion.bank) * 1.7),
-  );
-  const condensation =
-    airborne &&
-    airspeed > 95 &&
-    flight.kinematics.altitudeFt < 6_000 &&
-    highLift > 0.38 &&
-    (weatherMoisture || coldMoisture)
-      ? clamp01((highLift - 0.32) * 1.4) * smoothstep(95, 155, airspeed)
-      : 0;
   const tireSmoke =
     flight.phase === "landing" &&
     onGround &&
@@ -149,15 +133,6 @@ export function aircraftSystemsState(
       ? smoothstep(11, 72, groundSpeed) *
         (weather.surfaceCondition === "contaminated" ? 1 : 0.68)
       : 0;
-  const phasePower =
-    flight.phase === "takeoff"
-      ? 1
-      : flight.phase === "approach" || flight.phase === "landing"
-        ? 0.52
-        : flight.phase === "taxi-in" || flight.phase === "taxi-out"
-          ? 0.25
-          : 0.1;
-
   return {
     schemaVersion: 1,
     gearExtension: round4(gearExtension),
@@ -178,12 +153,10 @@ export function aircraftSystemsState(
       beaconPulse: round4(beaconPulse),
     },
     effects: {
-      exhaust: running
-        ? phasePower
-        : flight.engineState === "starting"
-          ? 0.16
-          : 0,
-      condensation: round4(condensation),
+      // Compatibility fields remain zero so no renderer or external client
+      // can reconstruct the removed persistent trail-like effects.
+      exhaust: 0,
+      condensation: 0,
       tireSmoke: round4(clamp01(tireSmoke)),
       surfaceSpray: round4(clamp01(surfaceSpray)),
     },

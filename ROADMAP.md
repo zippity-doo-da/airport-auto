@@ -180,7 +180,7 @@ Make model differences visible on the field rather than only in flight strips.
 - [x] Replace the shared jet silhouette with distinct original aircraft families or optimized licensed assets.
 - [x] Add convincing landing gear, flap/slat, spoiler, reverser, beacon, navigation, strobe, landing, taxi, and recognition-light states.
 - [x] Add airline/fleet assignment rules and original liveries with readable but uncluttered identification.
-- [x] Add plausible exhaust, condensation, tire smoke, spray, and shadow behavior only when conditions warrant them; remove the former optional contrail layer at user request.
+- [x] Keep plausible momentary tire smoke, spray, and shadow behavior; remove the former contrail, exhaust-plume, and wing-condensation trail meshes at user request.
 - [x] Add maintenance, out-of-service, ferry, cargo, and special-operation events as optional detail layers.
 - [x] Establish asset LOD, texture, material, draw-call, and memory budgets before adding high-detail models broadly.
 
