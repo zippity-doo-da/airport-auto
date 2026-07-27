@@ -1,5 +1,6 @@
 import type { AirportConfig, RunwayConfig } from './airportConfig';
 import { WORLD_METERS_PER_UNIT } from './runwayPerformance';
+import { runwayEndTuple } from './runwayGeometry';
 import type { AircraftCategory, PushbackDirection } from './types';
 
 export type SurfaceNodeKind =
@@ -515,9 +516,9 @@ export function buildAirportSurfaceGraph(config: SurfaceGraphConfig): AirportSur
 
     for (const end of [-1, 1] as const) {
       const suffix = end === -1 ? 'NEG' : 'POS';
-      const threshold = addNode(`RWY-${runway.id}-${suffix}-THR`, 'runway-threshold', runwayEnd(runway, end, 0), { runwayId: runway.id });
-      const exit = addNode(`RWY-${runway.id}-${suffix}-EXIT`, 'runway-exit', runwayEnd(runway, end, -5), { runwayId: runway.id });
-      const hold = addNode(`RWY-${runway.id}-${suffix}-HOLD`, 'hold-short', runwayEnd(runway, end, 8), { runwayId: runway.id });
+      const threshold = addNode(`RWY-${runway.id}-${suffix}-THR`, 'runway-threshold', runwayEndTuple(runway, end, 0), { runwayId: runway.id });
+      const exit = addNode(`RWY-${runway.id}-${suffix}-EXIT`, 'runway-exit', runwayEndTuple(runway, end, -5), { runwayId: runway.id });
+      const hold = addNode(`RWY-${runway.id}-${suffix}-HOLD`, 'hold-short', runwayEndTuple(runway, end, 8), { runwayId: runway.id });
       endNodes.set(end, { threshold, exit, hold });
       addEdge(hold, threshold, { kind: 'runway-access', name: `${runwayName} entry`, width: runway.width, runwayId: runway.id });
       runwayAccess.push({
@@ -585,7 +586,7 @@ export function buildAirportSurfaceGraph(config: SurfaceGraphConfig): AirportSur
     }
     const firstExit = proceduralExitNodes[0];
     if (firstExit) {
-      const outerAnchor = add(runwayEnd(runway, -1, 12), scale(exitSide, runway.width / 2 + 1.4));
+      const outerAnchor = add(runwayEndTuple(runway, -1, 12), scale(exitSide, runway.width / 2 + 1.4));
       const outerNode = addWaypoint(outerAnchor);
       addEdge(firstExit, outerNode, { kind: 'taxiway', name: taxiway.name, width: 8, taxiwayId: taxiway.id });
       for (const apronSide of [-1, 1] as const) {
@@ -1486,7 +1487,7 @@ function oharePerimeterTaxiRoute(config: SurfaceGraphConfig, runway: RunwayConfi
   right = Math.max(right, config.terminal[0] + gateLayout.centerOffset + gateHalfWidth + 16);
   const direction: Point = [Math.cos(runway.heading), Math.sin(runway.heading)];
   const sign = dot(subtract(anchor, runway.center), direction) >= 0 ? 1 : -1;
-  const exit = runwayEnd(runway, sign, 12);
+  const exit = runwayEndTuple(runway, sign, 12);
   const outward = scale(direction, sign);
   const points: Point[] = [anchor, exit];
   if (Math.abs(outward[0]) >= Math.abs(outward[1])) {
@@ -1509,11 +1510,6 @@ function oharePerimeterTaxiRoute(config: SurfaceGraphConfig, runway: RunwayConfi
   }
   points.push(apronEntry);
   return points;
-}
-
-function runwayEnd(runway: RunwayConfig, sign: number, beyond: number): Point {
-  const amount = sign * (runway.length / 2 + beyond);
-  return [runway.center[0] + Math.cos(runway.heading) * amount, runway.center[1] + Math.sin(runway.heading) * amount];
 }
 
 function add(first: Point, second: Point): Point { return [first[0] + second[0], first[1] + second[1]]; }

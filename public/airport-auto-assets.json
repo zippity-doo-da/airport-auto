@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "manifestId": "airport-auto-assets",
+  "applicationVersion": "2.39.0",
+  "basePath": "./",
+  "generatedBundlesArePublicApi": false,
+  "assets": [
+    {
+      "key": "audio.soundscape-manifest",
+      "kind": "audio-manifest",
+      "path": "audio/soundscape-manifest.json",
+      "contentType": "application/json",
+      "sha256": "d3a0d70c576a32400a1951651d87681498ff18d9cd2cece13ee7cef20c810f42",
+      "offlineRequired": true,
+      "licenseRef": "public/audio/soundscape-manifest.json"
+    },
+    {
+      "key": "airport.ORD.vector",
+      "kind": "airport-vector",
+      "path": "data/airports/KORD.vector.json",
+      "contentType": "application/json",
+      "sha256": "93c0a55b78d5a151de2425435f7d0955926c56c92ccf246368cbdb7cb3f57431",
+      "offlineRequired": true,
+      "licenseRef": "src/data/airports/KORD.manifest.json"
+    },
+    {
+      "key": "airport.ORD.surface-source",
+      "kind": "airport-surface-source",
+      "path": "data/airports/KORD.osm-surface.json",
+      "contentType": "application/json",
+      "sha256": "e7d614ab31bf650741aa7109749caeefc446e7e36c12901b09ed0edc0befdbf9",
+      "offlineRequired": true,
+      "licenseRef": "src/data/airports/KORD.surface.manifest.json"
+    },
+    {
+      "key": "airport.ORD.context",
+      "kind": "airport-context",
+      "path": "data/airports/KORD.context.json",
+      "contentType": "application/json",
+      "sha256": "f46f8b1de52ad59d648956b048ce3910c2b881c40d95e6d3a075d9f53b52ecb6",
+      "offlineRequired": true,
+      "licenseRef": "src/data/airports/KORD.context.manifest.json"
+    }
+  ]
+}

@@ -1,8 +1,17 @@
 import type { AirportConfig, RunwayConfig } from './airportConfig';
 import { aircraftProfile, type AircraftModel } from './aircraftProfiles';
 import { WORLD_METERS_PER_UNIT } from './runwayPerformance';
-import type { Flight, FlightGoAroundState, FlightPhase, FlightRunwayExitState } from './types';
+import type { Flight, FlightGoAroundState, FlightRunwayExitState } from './types';
 import { procedureFix } from './airspaceProcedures';
+import {
+  runwayDirection,
+  runwayEndPoint3,
+  runwayTravelDirection,
+} from './runwayGeometry';
+
+export {
+  phaseUsesAirborneTrajectory as phaseUsesFlightTrajectory,
+} from './runwayProtection';
 
 export type FlightTrajectoryStage =
   | 'edge-entry'
@@ -93,10 +102,6 @@ const DIVERSION_PATH_CACHE = new WeakMap<NonNullable<Flight['diversion']>, Prepa
 const VECTOR_PATH_CACHE = new WeakMap<NonNullable<Flight['navigation']['vector']>, PreparedSmoothPath>();
 const HOLD_PATH_CACHE = new WeakMap<NonNullable<Flight['navigation']['hold']>, PreparedSmoothPath>();
 
-export function phaseUsesFlightTrajectory(phase: FlightPhase): phase is 'approach' | 'landing' | 'takeoff' {
-  return phase === 'approach' || phase === 'landing' || phase === 'takeoff';
-}
-
 export function sampleFlightTrajectory(
   config: AirportConfig,
   flight: Flight,
@@ -138,7 +143,7 @@ export function landingTrajectoryTiming(
   const rolloutEnd = Math.min(exitDistance - 2, touchdownDistance + landingRollDistance(runway, aircraft, runwayExit));
   const exitNode = runwayExit ? config.surfaceGraph.nodes.find((node) => node.id === runwayExit.nodeId) : undefined;
   const travel = runwayExit ? runwayTravelDirection(runway, runwayExit.operatingEnd) : { x: Math.cos(runway.heading), y: Math.sin(runway.heading) };
-  const threshold = runwayExit ? runwayEnd(runway, runwayExit.operatingEnd, 0, RUNWAY_TRACK_ALTITUDE) : { x: runway.center[0], y: runway.center[1], z: RUNWAY_TRACK_ALTITUDE };
+  const threshold = runwayExit ? runwayEndPoint3(runway, runwayExit.operatingEnd, 0, RUNWAY_TRACK_ALTITUDE) : { x: runway.center[0], y: runway.center[1], z: RUNWAY_TRACK_ALTITUDE };
   const rolloutPoint = { x: threshold.x + travel.x * rolloutEnd, y: threshold.y + travel.y * rolloutEnd, z: RUNWAY_TRACK_ALTITUDE };
   const remainingMeters = exitNode
     ? Math.max(1, Math.hypot(exitNode.position[0] - rolloutPoint.x, exitNode.position[1] - rolloutPoint.y) * WORLD_METERS_PER_UNIT)
@@ -234,7 +239,7 @@ function sampleApproachPath(config: AirportConfig, flight: Flight, progress: num
   if (!path) {
     const startDistance = config.scope === 'center' ? 265 : 175;
     const lateral = config.scope === 'center' ? 12 : 38;
-    const threshold = runwayEnd(runway, landingSign, 0, THRESHOLD_CROSSING_ALTITUDE);
+    const threshold = runwayEndPoint3(runway, landingSign, 0, THRESHOLD_CROSSING_ALTITUDE);
     const procedurePoints = (navigation?.routeFixIds ?? [])
       .map((fixId) => procedureFix(config.airspaceProgram, fixId))
       .filter((fix): fix is NonNullable<typeof fix> => Boolean(fix))
@@ -248,16 +253,16 @@ function sampleApproachPath(config: AirportConfig, flight: Flight, progress: num
         z: approachAltitude(Math.hypot(fix.position[0] - threshold.x, fix.position[1] - threshold.y)),
       }));
     path = prepareSmoothPath(procedurePoints.length >= 3
-      ? [...procedurePoints, runwayEnd(runway, landingSign, 21, approachAltitude(21)), runwayEnd(runway, landingSign, 8, approachAltitude(8)), threshold]
+      ? [...procedurePoints, runwayEndPoint3(runway, landingSign, 21, approachAltitude(21)), runwayEndPoint3(runway, landingSign, 8, approachAltitude(8)), threshold]
       : [
-          offset(runwayEnd(runway, landingSign, startDistance, approachAltitude(startDistance, altitudeLane * 4)), side, lateralSign * lateral),
-          offset(runwayEnd(runway, landingSign, startDistance * 0.82, approachAltitude(startDistance * 0.82, altitudeLane * 4)), side, lateralSign * lateral * 0.94),
-          offset(runwayEnd(runway, landingSign, startDistance * 0.62, approachAltitude(startDistance * 0.62, altitudeLane * 3.2)), side, lateralSign * lateral * 0.68),
-          offset(runwayEnd(runway, landingSign, startDistance * 0.43, approachAltitude(startDistance * 0.43, altitudeLane * 1.4)), side, lateralSign * lateral * 0.34),
-          offset(runwayEnd(runway, landingSign, startDistance * 0.31, approachAltitude(startDistance * 0.31, altitudeLane * 0.25)), side, lateralSign * lateral * 0.06),
-          runwayEnd(runway, landingSign, 44, approachAltitude(44)),
-          runwayEnd(runway, landingSign, 21, approachAltitude(21)),
-          runwayEnd(runway, landingSign, 8, approachAltitude(8)),
+          offset(runwayEndPoint3(runway, landingSign, startDistance, approachAltitude(startDistance, altitudeLane * 4)), side, lateralSign * lateral),
+          offset(runwayEndPoint3(runway, landingSign, startDistance * 0.82, approachAltitude(startDistance * 0.82, altitudeLane * 4)), side, lateralSign * lateral * 0.94),
+          offset(runwayEndPoint3(runway, landingSign, startDistance * 0.62, approachAltitude(startDistance * 0.62, altitudeLane * 3.2)), side, lateralSign * lateral * 0.68),
+          offset(runwayEndPoint3(runway, landingSign, startDistance * 0.43, approachAltitude(startDistance * 0.43, altitudeLane * 1.4)), side, lateralSign * lateral * 0.34),
+          offset(runwayEndPoint3(runway, landingSign, startDistance * 0.31, approachAltitude(startDistance * 0.31, altitudeLane * 0.25)), side, lateralSign * lateral * 0.06),
+          runwayEndPoint3(runway, landingSign, 44, approachAltitude(44)),
+          runwayEndPoint3(runway, landingSign, 21, approachAltitude(21)),
+          runwayEndPoint3(runway, landingSign, 8, approachAltitude(8)),
           threshold,
         ]);
     airportPaths.set(cacheKey, path);
@@ -398,7 +403,7 @@ function sampleLanding(config: AirportConfig, flight: Flight, progress: number):
   const timing = landingTrajectoryTiming(config, flight.runway, flight.aircraft, flight.runwayExit);
   const elapsed = progress * timing.totalSeconds;
   const travel = runwayTravelDirection(runway, flight.operatingEnd);
-  const threshold = runwayEnd(runway, flight.operatingEnd, 0, THRESHOLD_CROSSING_ALTITUDE);
+  const threshold = runwayEndPoint3(runway, flight.operatingEnd, 0, THRESHOLD_CROSSING_ALTITUDE);
   const fallbackExitDistance = Math.max(1, runway.length - 5);
   const plannedExitNode = flight.runwayExit
     ? config.surfaceGraph.nodes.find((node) => node.id === flight.runwayExit?.nodeId)
@@ -514,7 +519,7 @@ function sampleGoAround(config: AirportConfig, flight: Flight, progress: number)
     const travel = runwayTravelDirection(runway, flight.operatingEnd);
     const side = { x: -travel.y, y: travel.x };
     const circuitSide = flight.id % 2 ? 1 : -1;
-    const threshold = runwayEnd(runway, flight.operatingEnd, 0, THRESHOLD_CROSSING_ALTITUDE);
+    const threshold = runwayEndPoint3(runway, flight.operatingEnd, 0, THRESHOLD_CROSSING_ALTITUDE);
     const entry = sampleApproachPath(config, flight, 0);
     const entryNext = sampleApproachPath(config, flight, 0.035);
     const entryLength = Math.hypot(entryNext.point.x - entry.point.x, entryNext.point.y - entry.point.y) || 1;
@@ -740,7 +745,7 @@ function sampleDeparture(config: AirportConfig, flight: Flight, progress: number
   const timing = departureTrajectoryTiming(config, flight.runway, flight.aircraft);
   const elapsed = progress * timing.totalSeconds;
   const travel = runwayTravelDirection(runway, flight.operatingEnd);
-  const threshold = runwayEnd(runway, flight.operatingEnd, 0, RUNWAY_TRACK_ALTITUDE);
+  const threshold = runwayEndPoint3(runway, flight.operatingEnd, 0, RUNWAY_TRACK_ALTITUDE);
   const holdPoint = runwaySurfacePoint(config, flight.runway, flight.operatingEnd, 'hold') ?? {
     x: threshold.x - travel.x * 8,
     y: threshold.y - travel.y * 8,
@@ -1089,24 +1094,6 @@ function combineHermite(
     x: p1.x * p1Weight + m1.x * m1Weight + p2.x * p2Weight + m2.x * m2Weight,
     y: p1.y * p1Weight + m1.y * m1Weight + p2.y * p2Weight + m2.y * m2Weight,
     z: p1.z * p1Weight + m1.z * m1Weight + p2.z * p2Weight + m2.z * m2Weight,
-  };
-}
-
-function runwayDirection(runway: RunwayConfig): { x: number; y: number } {
-  return { x: Math.cos(runway.heading), y: Math.sin(runway.heading) };
-}
-
-function runwayTravelDirection(runway: RunwayConfig, landingEnd: -1 | 1): { x: number; y: number } {
-  const direction = runwayDirection(runway);
-  return { x: -landingEnd * direction.x, y: -landingEnd * direction.y };
-}
-
-function runwayEnd(runway: RunwayConfig, sign: number, beyond: number, z: number): Point3 {
-  const amount = sign * (runway.length / 2 + beyond);
-  return {
-    x: runway.center[0] + Math.cos(runway.heading) * amount,
-    y: runway.center[1] + Math.sin(runway.heading) * amount,
-    z,
   };
 }
 

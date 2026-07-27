@@ -7,6 +7,8 @@ import { phaseUsesFlightTrajectory } from './flightTrajectory';
 import { runwaysConflict } from './runwayConflict';
 import { sampleFlightMotion } from './flightMotion';
 import { WORLD_METERS_PER_UNIT } from './runwayPerformance';
+import { runwayEndPoint } from './runwayGeometry';
+import { flightHasCommittedRunwayTrajectory } from './runwayProtection';
 
 /**
  * Safety samples the same renderer-independent trajectory used by the view.
@@ -305,8 +307,8 @@ export function aircraftCollisionEnvelope(config: AirportConfig, flight: Flight,
   }
 
   const runwayAnchor = flight.phase === 'taxi-in'
-    ? runwayEnd(runway, takeoffSign, -5)
-    : runwayEnd(runway, landingSign, 8);
+    ? runwayEndPoint(runway, takeoffSign, -5)
+    : runwayEndPoint(runway, landingSign, 8);
   const from = flight.phase === 'taxi-in' ? runwayAnchor : gate;
   const to = flight.phase === 'taxi-in' ? gate : runwayAnchor;
   const taxiway = flight.taxiway === 'APRON'
@@ -668,8 +670,7 @@ export function findProposedConflict(
   // it until the landing or departure has passed.
   if (flight.phase === 'taxi-in' || flight.phase === 'taxi-out') {
     for (const other of otherFlights) {
-      const committedApproach = other.phase === 'approach' && other.cleared;
-      if (other.id === flight.id || (!committedApproach && other.phase !== 'landing' && other.phase !== 'takeoff')) continue;
+      if (other.id === flight.id || !flightHasCommittedRunwayTrajectory(other)) continue;
       const protectedSweep = committedRunwaySweep(config, other);
       const sweepRadius = Math.max(
         AIR_SURFACE_HORIZONTAL,
@@ -942,14 +943,6 @@ function gatePoint(config: AirportConfig, gateSlot: number): { x: number; y: num
   return {
     x: config.terminal[0] + (column - (columns - 1) / 2) * spacing,
     y: config.terminal[1] + side * sideOffset,
-  };
-}
-
-function runwayEnd(runway: AirportConfig['runways'][number], sign: number, beyond: number): { x: number; y: number } {
-  const distance = sign * (runway.length / 2 + beyond);
-  return {
-    x: runway.center[0] + Math.cos(runway.heading) * distance,
-    y: runway.center[1] + Math.sin(runway.heading) * distance,
   };
 }
 

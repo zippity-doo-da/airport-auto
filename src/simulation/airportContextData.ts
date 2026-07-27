@@ -1,4 +1,6 @@
 import kordContextManifestJson from '../data/airports/KORD.context.manifest.json';
+import { airportAutoAssetPath } from '../assets/assetManifest';
+import { requireCurrentAirportAsset } from '../assets/airportAssetMigrations';
 
 export interface AirportContextDataManifest {
   schemaVersion: 1;
@@ -48,7 +50,13 @@ export interface AirportContextDataManifest {
   copyrightUrl: string;
 }
 
-const KORD_CONTEXT_MANIFEST = kordContextManifestJson as unknown as AirportContextDataManifest;
+const KORD_CONTEXT_MANIFEST = {
+  ...(requireCurrentAirportAsset(
+    'context-manifest',
+    kordContextManifestJson,
+  ) as unknown as AirportContextDataManifest),
+  assetPath: airportAutoAssetPath('airport.ORD.context'),
+};
 
 export function airportContextDataManifest(airportCode: string): AirportContextDataManifest | undefined {
   return airportCode === 'ORD' ? KORD_CONTEXT_MANIFEST : undefined;

@@ -37,6 +37,8 @@ const EMPTY_SPATIAL_SNAPSHOT: SpatialAircraftAudioSnapshot = {
   maximumVoices: 14,
   audibleFlightIds: [],
   pooledNoiseBuffer: false,
+  pooledEmitters: 0,
+  emitterPoolCapacity: 14,
 };
 
 const PRESET_MIX: Record<AudioPreset, Record<AudioChannel, number>> = {

@@ -13,6 +13,8 @@ export interface SpatialAircraftAudioSnapshot {
   maximumVoices: number;
   audibleFlightIds: number[];
   pooledNoiseBuffer: boolean;
+  pooledEmitters: number;
+  emitterPoolCapacity: number;
 }
 
 interface AircraftVoice {
@@ -23,8 +25,10 @@ interface AircraftVoice {
   filter: BiquadFilterNode;
   oscillators: OscillatorNode[];
   noise: AudioBufferSourceNode;
+  noiseGain: GainNode;
   lastDistance: number;
   lastUpdatedAt: number;
+  active: boolean;
 }
 
 interface AudibleCandidate {
@@ -81,6 +85,7 @@ function voiceFrequencies(flight: Flight): [number, number] {
 
 export class SpatialAircraftAudio {
   private readonly voices = new Map<number, AircraftVoice>();
+  private readonly voicePool: AircraftVoice[] = [];
   private readonly noiseBuffer: AudioBuffer;
   private audibleFlightIds: number[] = [];
 
@@ -100,7 +105,7 @@ export class SpatialAircraftAudio {
     if (!enabled) {
       this.audibleFlightIds = [];
       for (const [flightId, voice] of this.voices) {
-        this.stopVoice(voice, now);
+        this.releaseVoice(voice, now);
         this.voices.delete(flightId);
       }
       return;
@@ -131,21 +136,23 @@ export class SpatialAircraftAudio {
     );
     this.audibleFlightIds = selected.map((candidate) => candidate.flight.id);
 
+    for (const [flightId, voice] of this.voices) {
+      const selectedFlight = selected.find(
+        (candidate) => candidate.flight.id === flightId,
+      )?.flight;
+      if (
+        selectedIds.has(flightId) &&
+        selectedFlight?.aircraft === voice.aircraft
+      )
+        continue;
+      this.releaseVoice(voice, now);
+      this.voices.delete(flightId);
+    }
     for (const candidate of selected) {
       let voice = this.voices.get(candidate.flight.id);
-      if (voice && voice.aircraft !== candidate.flight.aircraft) {
-        this.stopVoice(voice, now);
-        this.voices.delete(candidate.flight.id);
-        voice = undefined;
-      }
-      voice ??= this.createVoice(candidate.flight);
+      voice ??= this.acquireVoice(candidate.flight);
       this.voices.set(candidate.flight.id, voice);
       this.updateVoice(voice, candidate, view, now, enabled);
-    }
-    for (const [flightId, voice] of this.voices) {
-      if (selectedIds.has(flightId)) continue;
-      this.stopVoice(voice, now);
-      this.voices.delete(flightId);
     }
   }
 
@@ -155,15 +162,17 @@ export class SpatialAircraftAudio {
       maximumVoices: MAXIMUM_FLIGHT_VOICES,
       audibleFlightIds: [...this.audibleFlightIds],
       pooledNoiseBuffer: true,
+      pooledEmitters: this.voicePool.length,
+      emitterPoolCapacity: MAXIMUM_FLIGHT_VOICES,
     };
   }
 
   dispose(): void {
     const now = this.context.currentTime;
-    for (const voice of this.voices.values()) {
-      this.stopVoice(voice, now, 0.25);
-    }
+    for (const voice of this.voices.values()) this.destroyVoice(voice, now);
+    for (const voice of this.voicePool) this.destroyVoice(voice, now);
     this.voices.clear();
+    this.voicePool.length = 0;
     this.audibleFlightIds = [];
   }
 
@@ -172,7 +181,6 @@ export class SpatialAircraftAudio {
     const panner = this.context.createStereoPanner();
     const filter = this.context.createBiquadFilter();
     const noiseGain = this.context.createGain();
-    const [fundamental, harmonic] = voiceFrequencies(flight);
     const low = this.context.createOscillator();
     const high = this.context.createOscillator();
     const noise = this.context.createBufferSource();
@@ -181,21 +189,8 @@ export class SpatialAircraftAudio {
     filter.type = "lowpass";
     filter.frequency.value = 1_400;
     filter.Q.value = 0.65;
-    low.type =
-      aircraftProfile(flight.aircraft).engineType === "piston"
-        ? "triangle"
-        : "sine";
-    high.type =
-      aircraftProfile(flight.aircraft).engineType === "turboprop"
-        ? "sawtooth"
-        : "triangle";
-    low.frequency.value = fundamental;
-    high.frequency.value = harmonic;
     noise.buffer = this.noiseBuffer;
     noise.loop = true;
-    noise.loopStart = (flight.id * 0.37) % 3.8;
-    noiseGain.gain.value =
-      aircraftProfile(flight.aircraft).engineType === "turbofan" ? 0.17 : 0.08;
 
     low.connect(gain);
     high.connect(gain);
@@ -205,7 +200,7 @@ export class SpatialAircraftAudio {
     high.start();
     noise.start();
 
-    return {
+    const voice: AircraftVoice = {
       flightId: flight.id,
       aircraft: flight.aircraft,
       gain,
@@ -213,22 +208,58 @@ export class SpatialAircraftAudio {
       filter,
       oscillators: [low, high],
       noise,
+      noiseGain,
       lastDistance: Number.NaN,
       lastUpdatedAt: this.context.currentTime,
+      active: true,
     };
+    this.configureVoice(voice, flight);
+    return voice;
   }
 
-  private stopVoice(
-    voice: AircraftVoice,
-    now: number,
-    stopAfterSeconds = 1.4,
-  ): void {
+  private acquireVoice(flight: Flight): AircraftVoice {
+    const voice = this.voicePool.pop() ?? this.createVoice(flight);
+    this.configureVoice(voice, flight);
+    return voice;
+  }
+
+  private configureVoice(voice: AircraftVoice, flight: Flight): void {
+    const profile = aircraftProfile(flight.aircraft);
+    const [fundamental, harmonic] = voiceFrequencies(flight);
+    voice.flightId = flight.id;
+    voice.aircraft = flight.aircraft;
+    voice.active = true;
+    voice.lastDistance = Number.NaN;
+    voice.lastUpdatedAt = this.context.currentTime;
+    voice.oscillators[0].type =
+      profile.engineType === "piston" ? "triangle" : "sine";
+    voice.oscillators[1].type =
+      profile.engineType === "turboprop" ? "sawtooth" : "triangle";
+    voice.oscillators[0].frequency.value = fundamental;
+    voice.oscillators[1].frequency.value = harmonic;
+    voice.noise.loopStart = (flight.id * 0.37) % 3.8;
+    voice.noiseGain.gain.value = profile.engineType === "turbofan" ? 0.17 : 0.08;
+  }
+
+  private releaseVoice(voice: AircraftVoice, now: number): void {
     voice.gain.gain.cancelScheduledValues(now);
     voice.gain.gain.setTargetAtTime(0.0001, now, 0.12);
-    for (const oscillator of voice.oscillators) {
-      oscillator.stop(now + stopAfterSeconds);
-    }
-    voice.noise.stop(now + stopAfterSeconds);
+    voice.active = false;
+    voice.flightId = -1;
+    if (this.voicePool.length < MAXIMUM_FLIGHT_VOICES)
+      this.voicePool.push(voice);
+    else this.destroyVoice(voice, now);
+  }
+
+  private destroyVoice(voice: AircraftVoice, now: number): void {
+    voice.gain.gain.cancelScheduledValues(now);
+    voice.gain.gain.setValueAtTime(0.0001, now);
+    for (const oscillator of voice.oscillators) oscillator.stop(now + 0.05);
+    voice.noise.stop(now + 0.05);
+    voice.gain.disconnect();
+    voice.noiseGain.disconnect();
+    voice.filter.disconnect();
+    voice.panner.disconnect();
   }
 
   private updateVoice(

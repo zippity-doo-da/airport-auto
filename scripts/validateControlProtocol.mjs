@@ -183,8 +183,8 @@ for (const requiredIntegration of [
   "dispatchAirportControl",
   "causedByCommandId",
   "causedByControllerDecisionId",
-  "message.type === 'request'",
-  "type: 'response'",
+  "migrateBroadcastControlRequest",
+  'type: "response"',
   "protocol: getAirportControlProtocol",
 ]) {
   if (!mainSource.includes(requiredIntegration))

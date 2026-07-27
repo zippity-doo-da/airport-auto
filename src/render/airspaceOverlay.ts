@@ -4,8 +4,20 @@ import type { AirportState, Flight } from '../simulation/types';
 import { procedureFix } from '../simulation/airspaceProcedures';
 import { WORLD_METERS_PER_UNIT } from '../simulation/runwayPerformance';
 import { requiredRadarSeparationNm, separationRuleset } from '../simulation/separationRules';
+import {
+  BoundedObjectPool,
+  type BoundedObjectPoolSnapshot,
+} from './boundedObjectPool';
 
 export type AirspaceLayer = 'airspace-sectors' | 'navigation-fixes' | 'procedures' | 'flight-routes' | 'separation';
+
+export interface AirspaceOverlayDiagnostics {
+  activeRoutes: number;
+  activeRoutePreviews: number;
+  activeSeparationRings: number;
+  dashedPool: BoundedObjectPoolSnapshot;
+  ringPool: BoundedObjectPoolSnapshot;
+}
 
 export interface AirspaceOverlayRuntime {
   root: THREE.Group;
@@ -13,6 +25,7 @@ export interface AirspaceOverlayRuntime {
   update(state: AirportState, delta: number): void;
   setVisible(layer: AirspaceLayer, visible: boolean): void;
   visibility(): Record<AirspaceLayer, boolean>;
+  diagnostics(): AirspaceOverlayDiagnostics;
   dispose(): void;
 }
 
@@ -39,6 +52,8 @@ export function createAirspaceOverlay(config: AirportConfig): AirspaceOverlayRun
   const routeVisuals = new Map<number, THREE.Line>();
   const routePreviewVisuals = new Map<number, THREE.Line>();
   const separationVisuals = new Map<number, THREE.Line>();
+  const dashedLinePool = transientLinePool(true, 48);
+  const separationRingPool = transientLinePool(false, 40);
   let updateIn = 0;
   let lastRouteKey = '';
   let lastPreviewKey = '';
@@ -53,7 +68,13 @@ export function createAirspaceOverlay(config: AirportConfig): AirspaceOverlayRun
       .map((flight) => `${flight.id}:${flight.navigation.routeClearance?.revision}:${flight.navigation.routeClearance?.status}:${flight.navigation.routeClearance?.safeToIssue}:${flight.motion.x.toFixed(1)}:${flight.motion.y.toFixed(1)}`)
       .join('|');
     if (previewKey !== lastPreviewKey || (!previewFlights.length && routePreviewVisuals.size)) {
-      updateRoutePreviews(config, previewFlights, routePreviewLayer, routePreviewVisuals);
+      updateRoutePreviews(
+        config,
+        previewFlights,
+        routePreviewLayer,
+        routePreviewVisuals,
+        dashedLinePool,
+      );
       lastPreviewKey = previewKey;
     }
     if (layers['flight-routes'].visible) {
@@ -62,11 +83,23 @@ export function createAirspaceOverlay(config: AirportConfig): AirspaceOverlayRun
         .map((flight) => `${flight.id}:${flight.navigation.routeFixIds.join(',')}:${flight.navigation.activeFixIndex}:${flight.motion.x.toFixed(1)}:${flight.motion.y.toFixed(1)}`)
         .join('|');
       if (key !== lastRouteKey) {
-        updateFlightRoutes(config, state.flights, layers['flight-routes'], routeVisuals);
+        updateFlightRoutes(
+          config,
+          state.flights,
+          layers['flight-routes'],
+          routeVisuals,
+          dashedLinePool,
+        );
         lastRouteKey = key;
       }
     }
-    if (layers.separation.visible) updateSeparation(state, layers.separation, separationVisuals);
+    if (layers.separation.visible)
+      updateSeparation(
+        state,
+        layers.separation,
+        separationVisuals,
+        separationRingPool,
+      );
   };
 
   return {
@@ -78,8 +111,17 @@ export function createAirspaceOverlay(config: AirportConfig): AirspaceOverlayRun
       if (visible) updateIn = 0;
     },
     visibility: () => Object.fromEntries(LAYER_NAMES.map((layer) => [layer, layers[layer].visible])) as Record<AirspaceLayer, boolean>,
+    diagnostics: () => ({
+      activeRoutes: routeVisuals.size,
+      activeRoutePreviews: routePreviewVisuals.size,
+      activeSeparationRings: separationVisuals.size,
+      dashedPool: dashedLinePool.snapshot(),
+      ringPool: separationRingPool.snapshot(),
+    }),
     dispose() {
       disposeObject(root);
+      dashedLinePool.dispose();
+      separationRingPool.dispose();
       routeVisuals.clear();
       routePreviewVisuals.clear();
       separationVisuals.clear();
@@ -141,6 +183,7 @@ function updateFlightRoutes(
   flights: Flight[],
   group: THREE.Group,
   visuals: Map<number, THREE.Line>,
+  pool: BoundedObjectPool<THREE.Line>,
 ): void {
   const active = new Set<number>();
   for (const flight of flights.filter(isAirborne)) {
@@ -156,20 +199,23 @@ function updateFlightRoutes(
     ];
     let visual = visuals.get(flight.id);
     if (!visual) {
-      visual = line(points, flight.phase === 'approach' ? 0xe0a092 : 0x9fc8d1, 0.72, true);
+      visual = acquireTransientLine(
+        pool,
+        points,
+        flight.phase === 'approach' ? 0xe0a092 : 0x9fc8d1,
+        0.72,
+      );
       visual.name = `flight-route-${flight.id}`;
       visuals.set(flight.id, visual);
       group.add(visual);
     } else {
-      visual.geometry.dispose();
-      visual.geometry = new THREE.BufferGeometry().setFromPoints(points);
-      visual.computeLineDistances();
+      updateLineGeometry(visual, points, true);
     }
   }
   for (const [id, visual] of visuals) {
     if (active.has(id)) continue;
     group.remove(visual);
-    disposeObject(visual);
+    pool.release(visual);
     visuals.delete(id);
   }
 }
@@ -179,6 +225,7 @@ function updateRoutePreviews(
   flights: Flight[],
   group: THREE.Group,
   visuals: Map<number, THREE.Line>,
+  pool: BoundedObjectPool<THREE.Line>,
 ): void {
   const active = new Set<number>();
   for (const flight of flights) {
@@ -199,28 +246,31 @@ function updateRoutePreviews(
     if (!visual || visual.userData.style !== style) {
       if (visual) {
         group.remove(visual);
-        disposeObject(visual);
+        pool.release(visual);
       }
-      visual = line(points, color, 0.92, true);
+      visual = acquireTransientLine(pool, points, color, 0.92);
       visual.name = `route-preview-${flight.id}`;
       visual.userData.style = style;
       visuals.set(flight.id, visual);
       group.add(visual);
     } else {
-      visual.geometry.dispose();
-      visual.geometry = new THREE.BufferGeometry().setFromPoints(points);
-      visual.computeLineDistances();
+      updateLineGeometry(visual, points, true);
     }
   }
   for (const [id, visual] of visuals) {
     if (active.has(id)) continue;
     group.remove(visual);
-    disposeObject(visual);
+    pool.release(visual);
     visuals.delete(id);
   }
 }
 
-function updateSeparation(state: AirportState, group: THREE.Group, visuals: Map<number, THREE.Line>): void {
+function updateSeparation(
+  state: AirportState,
+  group: THREE.Group,
+  visuals: Map<number, THREE.Line>,
+  pool: BoundedObjectPool<THREE.Line>,
+): void {
   const active = new Set<number>();
   const radius = requiredRadarSeparationNm(separationRuleset(state.separationRuleset), state.weather) * 1_852 / WORLD_METERS_PER_UNIT;
   for (const flight of state.flights.filter(isAirborne)) {
@@ -228,13 +278,17 @@ function updateSeparation(state: AirportState, group: THREE.Group, visuals: Map<
     let visual = visuals.get(flight.id);
     if (!visual) {
       const points = separationCircle(radius);
-      visual = line(points, flight.wakeClass === 'heavy' ? 0xe1a083 : 0xc7bb86, 0.18, false);
+      visual = acquireTransientLine(
+        pool,
+        points,
+        flight.wakeClass === 'heavy' ? 0xe1a083 : 0xc7bb86,
+        0.18,
+      );
       visual.name = `separation-ring-${flight.id}`;
       visuals.set(flight.id, visual);
       group.add(visual);
     } else if (Math.abs(Number(visual.userData.radius ?? 0) - radius) > 0.01) {
-      visual.geometry.dispose();
-      visual.geometry = new THREE.BufferGeometry().setFromPoints(separationCircle(radius));
+      updateLineGeometry(visual, separationCircle(radius), false);
     }
     visual.userData.radius = radius;
     visual.position.set(flight.motion.x, flight.motion.y, 0);
@@ -242,7 +296,7 @@ function updateSeparation(state: AirportState, group: THREE.Group, visuals: Map<
   for (const [id, visual] of visuals) {
     if (active.has(id)) continue;
     group.remove(visual);
-    disposeObject(visual);
+    pool.release(visual);
     visuals.delete(id);
   }
 }
@@ -263,6 +317,106 @@ function line(points: THREE.Vector3[], color: number, opacity: number, dashed: b
   if (dashed) visual.computeLineDistances();
   visual.renderOrder = 4;
   return visual;
+}
+
+function transientLinePool(
+  dashed: boolean,
+  capacity: number,
+): BoundedObjectPool<THREE.Line> {
+  return new BoundedObjectPool<THREE.Line>({
+    capacity,
+    create: () => line([], 0xffffff, 1, dashed),
+    reset(visual) {
+      visual.visible = false;
+      visual.name = '';
+      visual.position.set(0, 0, 0);
+      visual.rotation.set(0, 0, 0);
+      visual.scale.setScalar(1);
+      visual.userData = {};
+      visual.geometry.setDrawRange(0, 0);
+    },
+    dispose: disposeObject,
+  });
+}
+
+function acquireTransientLine(
+  pool: BoundedObjectPool<THREE.Line>,
+  points: THREE.Vector3[],
+  color: number,
+  opacity: number,
+): THREE.Line {
+  const visual = pool.acquire();
+  visual.visible = true;
+  const material = visual.material as THREE.LineBasicMaterial;
+  material.color.setHex(color);
+  material.opacity = opacity;
+  updateLineGeometry(
+    visual,
+    points,
+    material instanceof THREE.LineDashedMaterial,
+  );
+  return visual;
+}
+
+function nextBufferCapacity(required: number): number {
+  let capacity = 2;
+  while (capacity < required) capacity *= 2;
+  return capacity;
+}
+
+function ensureFloatAttribute(
+  geometry: THREE.BufferGeometry,
+  name: string,
+  required: number,
+  itemSize: number,
+): THREE.BufferAttribute {
+  const existing = geometry.getAttribute(name);
+  if (
+    existing instanceof THREE.BufferAttribute &&
+    existing.itemSize === itemSize &&
+    existing.count >= required
+  ) {
+    return existing;
+  }
+  const attribute = new THREE.Float32BufferAttribute(
+    nextBufferCapacity(required) * itemSize,
+    itemSize,
+  );
+  attribute.setUsage(THREE.DynamicDrawUsage);
+  geometry.setAttribute(name, attribute);
+  return attribute;
+}
+
+function updateLineGeometry(
+  visual: THREE.Line,
+  points: THREE.Vector3[],
+  dashed: boolean,
+): void {
+  const geometry = visual.geometry;
+  const position = ensureFloatAttribute(
+    geometry,
+    'position',
+    Math.max(1, points.length),
+    3,
+  );
+  let cumulativeDistance = 0;
+  const lineDistance = dashed
+    ? ensureFloatAttribute(
+        geometry,
+        'lineDistance',
+        Math.max(1, points.length),
+        1,
+      )
+    : null;
+  points.forEach((point, index) => {
+    position.setXYZ(index, point.x, point.y, point.z);
+    if (index > 0) cumulativeDistance += point.distanceTo(points[index - 1]);
+    lineDistance?.setX(index, cumulativeDistance);
+  });
+  position.needsUpdate = true;
+  if (lineDistance) lineDistance.needsUpdate = true;
+  geometry.setDrawRange(0, points.length);
+  if (points.length > 0) geometry.computeBoundingSphere();
 }
 
 function textSprite(text: string, color: string, background: string): THREE.Sprite {

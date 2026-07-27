@@ -101,7 +101,10 @@ const telemetryEventSchema: ProtocolJsonSchema = {
     type: {
       anyOf: [
         { enum: [...AIRPORT_DOMAIN_EVENT_TYPES], type: "string" },
-        { type: "string", pattern: "^(command|challenge):[A-Za-z0-9-]+$" },
+        {
+          type: "string",
+          pattern: "^(command|challenge|sound|weather):[A-Za-z0-9-]+$",
+        },
       ],
     },
     causedByCommandId: { type: "string", minLength: 1 },

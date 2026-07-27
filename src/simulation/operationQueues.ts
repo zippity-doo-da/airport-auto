@@ -2,9 +2,9 @@ import type { AirportConfig } from './airportConfig';
 import type {
   AirportState,
   Flight,
-  FlightPhase,
   ServiceVehicleState,
 } from './types';
+import { phaseProtectsAssignedRunway } from './runwayProtection';
 
 export const OPERATION_QUEUE_CATEGORIES = [
   'gate',
@@ -435,13 +435,9 @@ function runwayBlockers(
   if (owner !== undefined && owner !== flight.id) result.add(owner);
   for (const other of state.flights) {
     if (other.id === flight.id || other.runway !== (flight.crossingHoldRunway ?? flight.runway)) continue;
-    if (protectedRunwayPhase(other.phase) || other.motion.protectedRunway) result.add(other.id);
+    if (phaseProtectsAssignedRunway(other.phase) || other.motion.protectedRunway) result.add(other.id);
   }
   return [...result];
-}
-
-function protectedRunwayPhase(phase: FlightPhase): boolean {
-  return phase === 'landing' || phase === 'takeoff';
 }
 
 function classifyReason(reason: string): OperationQueueCategory {

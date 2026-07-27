@@ -1,4 +1,6 @@
 import kordManifestJson from "../data/airports/KORD.manifest.json";
+import { airportAutoAssetPath } from "../assets/assetManifest";
+import { requireCurrentAirportAsset } from "../assets/airportAssetMigrations";
 
 export interface AirportVectorSourceMetadata {
   layer: string;
@@ -72,7 +74,13 @@ export interface AirportVectorManifest {
   sources: AirportVectorSourceMetadata[];
 }
 
-const KORD_MANIFEST = kordManifestJson as unknown as AirportVectorManifest;
+const KORD_MANIFEST = {
+  ...(requireCurrentAirportAsset(
+    "vector-manifest",
+    kordManifestJson,
+  ) as unknown as AirportVectorManifest),
+  assetPath: airportAutoAssetPath("airport.ORD.vector"),
+};
 
 export function airportVectorManifest(
   airportCode: string,

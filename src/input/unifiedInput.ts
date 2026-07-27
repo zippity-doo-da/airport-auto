@@ -10,6 +10,12 @@ import {
   type InputActionId,
   type InputAxes,
 } from "./actionMap";
+import {
+  INPUT_PREFERENCES_SCHEMA_VERSION,
+  migrateInputPreferences,
+  serializeInputPreferences,
+  type StoredInputPreferences,
+} from "../persistence/inputPreferences";
 
 export type InputDevice = "keyboard" | "mouse" | "touch" | "gamepad";
 export type ScreenPoint = { x: number; y: number };
@@ -103,11 +109,6 @@ type PointerRecord = {
   intent: CanvasPointerIntent;
 };
 
-type StoredInputPreferences = {
-  gamepadEnabled?: boolean;
-  gamepadSensitivity?: number;
-};
-
 const INPUT_PREFERENCES_KEY = "airport-auto.input.v1";
 const MOUSE_DRAG_THRESHOLD_PX = 6;
 const TOUCH_DRAG_THRESHOLD_PX = 10;
@@ -127,33 +128,32 @@ function inputPreferenceStorage(): Storage | null {
 
 function loadInputPreferences(): StoredInputPreferences {
   const storage = inputPreferenceStorage();
-  if (!storage) return {};
+  if (!storage)
+    return { schemaVersion: INPUT_PREFERENCES_SCHEMA_VERSION };
   try {
-    const value = JSON.parse(
-      storage.getItem(INPUT_PREFERENCES_KEY) ?? "{}",
-    ) as Record<string, unknown> | null;
-    if (!value || typeof value !== "object") return {};
-    return {
-      gamepadEnabled:
-        typeof value.gamepadEnabled === "boolean"
-          ? value.gamepadEnabled
-          : undefined,
-      gamepadSensitivity:
-        typeof value.gamepadSensitivity === "number" &&
-        Number.isFinite(value.gamepadSensitivity)
-          ? value.gamepadSensitivity
-          : undefined,
-    };
+    const migration = migrateInputPreferences(
+      JSON.parse(storage.getItem(INPUT_PREFERENCES_KEY) ?? "{}"),
+    );
+    return (
+      migration.value ?? {
+        schemaVersion: INPUT_PREFERENCES_SCHEMA_VERSION,
+      }
+    );
   } catch {
-    return {};
+    return { schemaVersion: INPUT_PREFERENCES_SCHEMA_VERSION };
   }
 }
 
-function saveInputPreferences(preferences: StoredInputPreferences): void {
+function saveInputPreferences(
+  preferences: Omit<StoredInputPreferences, "schemaVersion">,
+): void {
   const storage = inputPreferenceStorage();
   if (!storage) return;
   try {
-    storage.setItem(INPUT_PREFERENCES_KEY, JSON.stringify(preferences));
+    storage.setItem(
+      INPUT_PREFERENCES_KEY,
+      JSON.stringify(serializeInputPreferences(preferences)),
+    );
   } catch {
     // Storage may be unavailable in hardened or private browser contexts.
   }

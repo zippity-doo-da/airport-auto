@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import type { AirportConfig, FlightColor, RunwayConfig, RunwayOperationalRole } from '../simulation/airportConfig';
+import { runwayEndPoint3 } from '../simulation/runwayGeometry';
 import { aircraftProfile } from '../simulation/aircraftProfiles';
 import { aircraftSystemsState } from '../simulation/aircraftSystems';
-import type { AirportState, Flight, FlightMotionState, ServiceVehicleType, WeatherState } from '../simulation/types';
+import type { AirportState, Flight, FlightMotionState, ServiceVehicleType, SurfaceDisruptionKind, WeatherState } from '../simulation/types';
 import { applyAircraftOrientation } from './aircraftOrientation';
 import { contrailPresentation } from './aircraftEffects';
 import { weatherPresentation } from './weatherPresentation';
@@ -18,9 +19,20 @@ import {
   type AircraftVisual as FlightVisual,
 } from './aircraftVisualFactory';
 import { createAirportContext, type AirportContextDiagnostics } from './airportContext';
+import {
+  buildLandscape,
+  landscapeDimensions,
+} from './landscapeScene';
 import { treePlacement } from './sceneryPlacement';
-import { updateSurfaceDisruptionVisuals } from './surfaceDisruptionVisuals';
-import { createAirspaceOverlay, type AirspaceLayer } from './airspaceOverlay';
+import {
+  surfaceDisruptionPoolSize,
+  updateSurfaceDisruptionVisuals,
+} from './surfaceDisruptionVisuals';
+import {
+  createAirspaceOverlay,
+  type AirspaceLayer,
+  type AirspaceOverlayDiagnostics,
+} from './airspaceOverlay';
 import type { FocusTargetKind, FocusTargetTone } from '../presentation/focusTargets';
 import {
   accessibilityPaletteDefinition,
@@ -93,12 +105,29 @@ export type WorldDiagnostics = {
     maximumGeometryBytesPerAircraft: number;
     poolBudget: number;
   };
+  instancing: {
+    drawGroups: number;
+    instances: number;
+    landscapeDrawGroups: number;
+    landscapeInstances: number;
+    districtInstances: number;
+    highwayInstances: number;
+  };
+  pooling: {
+    trails: { active: number; available: number; capacity: number };
+    labels: { active: number; available: number; capacity: number };
+    weatherEffects: { persistentBuffers: number; particleCapacity: number };
+    routeLines: AirspaceOverlayDiagnostics;
+    transientEvents: { available: number; capacity: number };
+  };
   passengerFacilities: number;
   surfaceDisruptions: {
     total: number;
     pending: number;
     active: number;
     recovering: number;
+    pooledMarkers: number;
+    poolBudget: number;
   };
   camera: {
     focusX: number;
@@ -149,6 +178,7 @@ export type WorldDiagnostics = {
     trackedSurfaceMaterials: number;
   };
 };
+
 
 export interface WorldFocusTarget {
   key: string;
@@ -261,7 +291,7 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   scene.add(sun);
 
   const landscape = landscapeDimensions(config);
-  buildLandscape(world, config, landscape);
+  const landscapeBuild = buildLandscape(world, config, landscape);
   const contextRuntime = config.contextData
     ? createAirportContext(world, config.contextData, config.vectorData?.runtimeReference.worldMetersPerUnit ?? 38)
     : null;
@@ -277,6 +307,8 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   disruptionLayer.name = 'surface-disruptions';
   world.add(disruptionLayer);
   const disruptionVisuals = new Map<string, THREE.Group>();
+  const disruptionPools = new Map<SurfaceDisruptionKind, THREE.Group[]>();
+  const disruptionPoolBudget = lowDetail ? 10 : 18;
   const swayingObjects = buildDetails(world, config, lowDetail);
   const clouds = buildClouds(scene, lowDetail);
   const rain = buildRain(scene, config.seed, lowDetail);
@@ -398,6 +430,8 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
       scope: config.scope,
       layer: disruptionLayer,
       visuals: disruptionVisuals,
+      pools: disruptionPools,
+      poolBudget: disruptionPoolBudget,
       dispose: disposeObject,
     });
     airspaceOverlay.update(state, delta);
@@ -596,7 +630,15 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
   }
 
   function pickRunway(clientX: number, clientY: number): number | null {
-    const thresholds = config.runways.map((runway) => runwayEnd(runway, currentState?.activeRunwayEnds[runway.id] ?? runway.landingEnd, 0, 2.2));
+    const thresholds = config.runways.map((runway) => {
+      const point = runwayEndPoint3(
+        runway,
+        currentState?.activeRunwayEnds[runway.id] ?? runway.landingEnd,
+        0,
+        2.2,
+      );
+      return new THREE.Vector3(point.x, point.y, point.z);
+    });
     let best: { runway: number; distance: number } | null = null;
     for (let index = 0; index < thresholds.length; index += 1) {
       const threshold = thresholds[index];
@@ -966,13 +1008,25 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
         counts[visual.family] = (counts[visual.family] ?? 0) + 1;
         return counts;
       }, {});
+      const pooledAircraft = [...flightPool.values()].reduce(
+        (sum, pool) => sum + pool.length,
+        0,
+      );
+      const airspaceDiagnostics = airspaceOverlay.diagnostics();
+      let instancedDrawGroups = 0;
+      let instances = 0;
+      scene.traverse((object) => {
+        if (!(object instanceof THREE.InstancedMesh)) return;
+        instancedDrawGroups += 1;
+        instances += object.count;
+      });
       return {
         drawCalls: renderer.info.render.calls,
         triangles: renderer.info.render.triangles,
         geometries: renderer.info.memory.geometries,
         textures: renderer.info.memory.textures,
         detail: lowDetail ? 'low' : 'high',
-        pooledAircraft: [...flightPool.values()].reduce((sum, pool) => sum + pool.length, 0),
+        pooledAircraft,
         activeServiceVehicles: serviceVehicleVisuals.size,
         heldServiceVehicles: [...serviceVehicleVisuals.values()].filter((visual) => Boolean(visual.root.userData.held)).length,
         pooledServiceVehicles: [...serviceVehiclePool.values()].reduce((sum, pool) => sum + pool.length, 0),
@@ -994,12 +1048,44 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
           maximumGeometryBytesPerAircraft: Math.max(0, ...activeAircraft.map((visual) => visual.assetCounts.geometryBytes)),
           poolBudget: aircraftPoolBudget,
         },
+        instancing: {
+          drawGroups: instancedDrawGroups,
+          instances,
+          landscapeDrawGroups: landscapeBuild.instancedDrawGroups,
+          landscapeInstances: landscapeBuild.instances,
+          districtInstances: landscapeBuild.districtInstances,
+          highwayInstances: landscapeBuild.highwayInstances,
+        },
+        pooling: {
+          trails: {
+            active: activeAircraft.length,
+            available: pooledAircraft,
+            capacity: aircraftPoolBudget,
+          },
+          labels: {
+            active: activeAircraft.length,
+            available: pooledAircraft,
+            capacity: aircraftPoolBudget,
+          },
+          weatherEffects: {
+            persistentBuffers: 1,
+            particleCapacity:
+              rain.geometry.getAttribute('position')?.count ?? 0,
+          },
+          routeLines: airspaceDiagnostics,
+          transientEvents: {
+            available: surfaceDisruptionPoolSize(disruptionPools),
+            capacity: disruptionPoolBudget,
+          },
+        },
         passengerFacilities: config.surfaceGraph.passengerFacilities.length,
         surfaceDisruptions: {
           total: currentState?.surfaceDisruptions.length ?? 0,
           pending: currentState?.surfaceDisruptions.filter((disruption) => disruption.status === 'pending').length ?? 0,
           active: currentState?.surfaceDisruptions.filter((disruption) => disruption.status === 'active').length ?? 0,
           recovering: currentState?.surfaceDisruptions.filter((disruption) => disruption.status === 'recovering').length ?? 0,
+          pooledMarkers: surfaceDisruptionPoolSize(disruptionPools),
+          poolBudget: disruptionPoolBudget,
         },
         camera: {
           focusX: Number(cameraFocus.x.toFixed(3)),
@@ -1068,20 +1154,13 @@ export function createWorld(canvas: HTMLCanvasElement, config: AirportConfig): A
       flightPool.clear();
       for (const pool of serviceVehiclePool.values()) for (const visual of pool) disposeObject(visual.root);
       serviceVehiclePool.clear();
+      for (const pool of disruptionPools.values()) for (const marker of pool) disposeObject(marker);
+      disruptionPools.clear();
       disposeObject(scene);
       renderer.dispose();
     },
   };
 }
-
-type LandscapeDimensions = {
-  width: number;
-  height: number;
-  detailedWidth: number;
-  detailedHeight: number;
-  panX: number;
-  panY: number;
-};
 
 type EnvironmentMaterialState = {
   material: THREE.MeshStandardMaterial;
@@ -1175,73 +1254,6 @@ function applySemanticPalette(
   for (const entry of materials) {
     const color = entry.kind === 'critical' ? semantic.critical : semantic[entry.kind];
     entry.material.color.setHex(color);
-  }
-}
-
-function landscapeDimensions(config: Pick<AirportConfig, 'scope'>): LandscapeDimensions {
-  return config.scope === 'center'
-    ? { width: 16000, height: 12000, detailedWidth: 4000, detailedHeight: 3000, panX: 5200, panY: 3900 }
-    : { width: 9600, height: 7200, detailedWidth: 2400, detailedHeight: 1800, panX: 3000, panY: 2200 };
-}
-
-function buildLandscape(root: THREE.Group, config: AirportConfig, dimensions: LandscapeDimensions): void {
-  const terrainColors = {
-    coast: { ground: 0x6f8068, district: 0x829071 },
-    highland: { ground: 0x756f55, district: 0x918868 },
-    woodland: { ground: 0x4f6852, district: 0x687a5c },
-  }[config.terrain];
-  const groundMaterial = new THREE.MeshStandardMaterial({ color: terrainColors.ground, roughness: 1 });
-  groundMaterial.name = 'environment:terrain';
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(dimensions.width, dimensions.height),
-    groundMaterial,
-  );
-  ground.position.z = 1.24;
-  ground.receiveShadow = true;
-  root.add(ground);
-
-  if (config.contextData) return;
-
-  const districtMaterial = new THREE.MeshStandardMaterial({ color: terrainColors.district, roughness: 1 });
-  districtMaterial.name = 'environment:district';
-  for (let row = -3; row <= 3; row += 1) {
-    for (let column = -4; column <= 4; column += 1) {
-      if (Math.abs(row) <= 1 && Math.abs(column) <= 1) continue;
-      const district = new THREE.Mesh(new THREE.PlaneGeometry(48, 30), districtMaterial);
-      district.position.set(column * 70, row * 58, 1.26);
-      district.rotation.z = (row + column) * 0.035;
-      root.add(district);
-    }
-  }
-
-  if (config.scope === 'center') {
-    addHighway(root, new THREE.Vector3(-700, -104, 1.42), new THREE.Vector3(700, -104, 1.42), 9);
-    addHighway(root, new THREE.Vector3(-700, 112, 1.42), new THREE.Vector3(700, 112, 1.42), 7);
-    addHighway(root, new THREE.Vector3(-142, -500, 1.43), new THREE.Vector3(-142, 500, 1.43), 8);
-  }
-}
-
-function addHighway(root: THREE.Group, start: THREE.Vector3, end: THREE.Vector3, width: number): void {
-  const midpoint = start.clone().add(end).multiplyScalar(0.5);
-  const length = start.distanceTo(end);
-  const angle = Math.atan2(end.y - start.y, end.x - start.x);
-  const road = new THREE.Mesh(
-    new THREE.BoxGeometry(length, width, 0.22),
-    new THREE.MeshStandardMaterial({ color: 0x414a49, roughness: 0.92 }),
-  );
-  (road.material as THREE.MeshStandardMaterial).name = 'environment:pavement';
-  road.position.copy(midpoint);
-  road.rotation.z = angle;
-  road.receiveShadow = true;
-  root.add(road);
-  for (const offset of [-width * 0.23, width * 0.23]) {
-    const lane = new THREE.Mesh(
-      new THREE.BoxGeometry(length - 4, 0.16, 0.04),
-      new THREE.MeshBasicMaterial({ color: 0xd8d0ac }),
-    );
-    lane.position.copy(midpoint).add(new THREE.Vector3(-Math.sin(angle) * offset, Math.cos(angle) * offset, 0.16));
-    lane.rotation.z = angle;
-    root.add(lane);
   }
 }
 
@@ -1438,14 +1450,25 @@ function buildAirport(root: THREE.Group, config: AirportConfig, lowDetail: boole
     roof.position.z = 5.8;
     roof.castShadow = true;
     terminal.add(roof);
-    for (let index = -5; index <= 5; index += 1) {
-      const window = new THREE.Mesh(
-        new THREE.BoxGeometry(1.4, 0.15, 1.25),
-        new THREE.MeshStandardMaterial({ color: COLORS.window, emissive: 0x193536, emissiveIntensity: 0.3 }),
-      );
-      window.position.set(index * 2.25, -4.58, 3.1);
-      terminal.add(window);
-    }
+    const windowMaterial = new THREE.MeshStandardMaterial({
+      color: COLORS.window,
+      emissive: 0x193536,
+      emissiveIntensity: 0.3,
+    });
+    const windows = createBoxInstances(
+      unitBox,
+      windowMaterial,
+      Array.from({ length: 11 }, (_, index) => ({
+        x: (index - 5) * 2.25,
+        y: -4.58,
+        z: 3.1,
+        width: 1.4,
+        depth: 0.15,
+        height: 1.25,
+      })),
+    );
+    windows.name = 'instanced-terminal-windows';
+    terminal.add(windows);
     root.add(terminal);
   }
   addPassengerFacilityLabels(root, config.surfaceGraph.passengerFacilities);
@@ -1975,11 +1998,6 @@ function addHoldShortMarkings(root: THREE.Group, config: AirportConfig, unitBox:
   if (!transforms.length) return;
   const yellow = new THREE.MeshBasicMaterial({ color: 0xf2c84b, depthWrite: false });
   root.add(createBoxInstances(unitBox, yellow, transforms));
-}
-
-function runwayEnd(runway: RunwayConfig, sign: number, beyond = 0, z = 2): THREE.Vector3 {
-  const distance = sign * (runway.length / 2 + beyond);
-  return new THREE.Vector3(runway.center[0] + Math.cos(runway.heading) * distance, runway.center[1] + Math.sin(runway.heading) * distance, z);
 }
 
 function dampAngle(current: number, target: number, smoothing: number, delta: number): number {

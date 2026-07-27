@@ -1,5 +1,7 @@
 import kordSurfaceGraphJson from '../data/airports/KORD.surfaceGraph.mjs';
 import kordSurfaceManifestJson from '../data/airports/KORD.surface.manifest.json';
+import { airportAutoAssetPath } from '../assets/assetManifest';
+import { requireCurrentAirportAsset } from '../assets/airportAssetMigrations';
 import type { AirportSurfaceGraph } from './surfaceGraph';
 
 export interface AirportSurfaceDataManifest {
@@ -52,8 +54,17 @@ export interface AirportSurfaceDataManifest {
   copyrightUrl: string;
 }
 
-const KORD_SURFACE_MANIFEST = kordSurfaceManifestJson as unknown as AirportSurfaceDataManifest;
-const KORD_SURFACE_GRAPH = kordSurfaceGraphJson as unknown as AirportSurfaceGraph;
+const KORD_SURFACE_MANIFEST = {
+  ...(requireCurrentAirportAsset(
+    'surface-manifest',
+    kordSurfaceManifestJson,
+  ) as unknown as AirportSurfaceDataManifest),
+  assetPath: airportAutoAssetPath('airport.ORD.surface-source'),
+};
+const KORD_SURFACE_GRAPH = requireCurrentAirportAsset(
+  'surface-graph',
+  kordSurfaceGraphJson,
+) as unknown as AirportSurfaceGraph;
 
 export function airportSurfaceDataManifest(airportCode: string): AirportSurfaceDataManifest | undefined {
   return airportCode === 'ORD' ? KORD_SURFACE_MANIFEST : undefined;
