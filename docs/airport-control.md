@@ -4,7 +4,7 @@ Airport Auto exposes a local, versioned interface for playtests, scripted contro
 
 ## Browser API
 
-The current API version is `2.39.0`; the formal control protocol is `1.2.0`, snapshots use schema version `41`, and portable recordings use schema version `4`.
+The current API version is `2.40.0`; the formal control protocol is `1.2.0`, snapshots use schema version `42`, and portable recordings use schema version `4`.
 
 ```js
 airportControl.version;
@@ -38,7 +38,7 @@ const result = airportControl.request({
 
 // {
 //   protocolVersion: '1.2.0',
-//   apiVersion: '2.39.0',
+//   apiVersion: '2.40.0',
 //   sessionId: 'session-…',
 //   requestId: 'req-…',
 //   commandId: 'cmd-…',
@@ -75,8 +75,8 @@ const result = airportControl.dispatch({
     actorId: "tower-agent-a",
   },
   expects: {
-    apiVersion: "2.39.0",
-    snapshotSchemaVersion: 41,
+    apiVersion: "2.40.0",
+    snapshotSchemaVersion: 42,
   },
   command: {
     action: "clearTakeoff",
@@ -364,9 +364,15 @@ airportControl.request({ action: "setWindEnabled", enabled: false });
 Environment and observer-presentation commands are public, never move an aircraft, and never bypass the safety arbiter:
 
 ```js
-airportControl.request({ action: "setEnvironmentLightingMode", mode: "automatic" });
+airportControl.request({
+  action: "setEnvironmentLightingMode",
+  mode: "automatic",
+});
 airportControl.request({ action: "setEnvironmentSeasonMode", mode: "winter" });
-airportControl.request({ action: "setAccessibilityPalette", palette: "cvd-safe" });
+airportControl.request({
+  action: "setAccessibilityPalette",
+  palette: "cvd-safe",
+});
 airportControl.request({ action: "setCameraDirectorEnabled", enabled: true });
 ```
 
@@ -459,9 +465,17 @@ Top-level `snapshot().analytics` and the remote gateway carry only a compact ove
 
 `airportControl.performance()` and top-level `snapshot().performance` expose the same bounded local runtime monitor. It separates display-frame work from display-frame gaps, measures fixed simulation ticks directly, tracks dropped wall time and maximum catch-up ticks, and samples heap, aircraft, service vehicles, spatial audio voices, queues, draw calls, geometries, and textures once per simulation second. Each metric has an explicit warming/nominal/attention/exceeded/unavailable budget result; up to 1,200 frame/tick timings and 21,600 counter samples are retained in memory. The optional **Performance** control shows the compact report without changing traffic, quality, or any safety rule. Browser heap data is unavailable where `performance.memory` is not implemented. See [performance-budget.md](performance-budget.md).
 
+## Live previews, local capture, and community helpers
+
+`airportControl.liveData.snapshot()` returns only the default-off browser adapter state, active ICAO station, freshness/provenance summaries, review decisions, and bounded cache diagnostics. `clearCache()` deletes only normalized live-report cache entries. Credentials and raw provider payloads never appear. Live reports cannot mutate the board through this read-only helper; the visible review actions invoke the ordinary typed weather, disruption, or density command through Supervisor authority. See [live-data-adapters.md](live-data-adapters.md).
+
+`airportControl.capture` exposes `snapshot()`, asynchronous `screenshot()`, `startClip(seconds?)`, `stopClip()`, and `setCleanView(enabled)`. Capture is canvas-only and local: snapshots explicitly report no microphone or automatic upload, clips are silent WebM bounded to 15 seconds, and clean view changes presentation only. See [media-capture.md](media-capture.md).
+
+`airportControl.community.snapshot()` returns today’s schema-versioned UTC challenge plan, its allowlisted classroom link, and the sharing/product-policy disclosure. `loadDailyChallenge()` reconstructs that exact airport/seed/Assisted/Supervisor briefing; `copyClassroomLink()` copies the no-account link when clipboard access is available. These presentation helpers do not add a control-protocol command or bypass the challenge briefing. Multi-controller live classrooms continue to use authenticated remote station claims. See [community-and-product-direction.md](community-and-product-direction.md).
+
 ## Snapshot and events
 
-Snapshot schema 41 adds bounded runtime performance distributions, counters, growth rates, and budget checks while retaining schema 40 replay verification, schema 39 local analytics, schema 38 deterministic environment/presentation, and schema 37 operational weather. `environment` reports local time, lighting/season modes, resolved solar phase, daylight and sun pose, continuous cloud/wet/snow state, and runway-light demand. `presentation` reports the persisted semantic palette and optional camera-director status/subject. Focus, palettes, scorecards, evaluation, challenge grading, coaching, policy state, decision history, and remote connection health remain presentation or feedback; operational instructions still pass through the normal typed command and safety path.
+Snapshot schema 42 adds redacted live-data status, local-capture state, and deterministic community-sharing state while retaining schema 41 runtime performance, schema 40 replay verification, schema 39 local analytics, schema 38 deterministic environment/presentation, and schema 37 operational weather. `environment` reports local time, lighting/season modes, resolved solar phase, daylight and sun pose, continuous cloud/wet/snow state, and runway-light demand. `presentation` reports the persisted semantic palette, optional camera-director status/subject, and local capture state. Focus, palettes, scorecards, evaluation, challenge grading, coaching, policy state, decision history, live-data review, community links, and remote connection health remain presentation or feedback; operational instructions still pass through the normal typed command and safety path.
 
 Top-level `selection` reports the selected flight, compact focused-target reference, whether Group select is active, and the selected grouped flight IDs. Top-level `focus` reports catalog schema 1, the current descriptor, and categorized targets for `flight`, `runway`, `taxiway`, `gate`, `queue`, and `conflict`. A descriptor carries stable key/reference, label, explanation, world bounds, suggested zoom, static/flight/group/vehicle follow strategy, related flight IDs, optional vehicle/selected-flight identity, and presentation tone. `renderer.camera.target` reports the resolved XYZ tracking point, normalized viewport position, containment, and rendered-subject visibility; the height-aware renderer derives moving points from the same interpolated visuals it already displays and never invents a separate route.
 
@@ -503,7 +517,7 @@ channel.postMessage({
     clientId: "local-observer",
     source: "agent",
     authority: { station: "supervisor" },
-    expects: { apiVersion: "2.39.0", snapshotSchemaVersion: 41 },
+    expects: { apiVersion: "2.40.0", snapshotSchemaVersion: 42 },
     command: { action: "focusFlight", flightId: 12 },
   },
 });

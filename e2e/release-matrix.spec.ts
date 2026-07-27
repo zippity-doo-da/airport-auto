@@ -24,7 +24,7 @@ const SCENARIOS = [
 ] as const;
 
 async function waitForRuntime(page: import("@playwright/test").Page) {
-  await page.waitForFunction(() => window.airportControl?.version === "2.39.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
   await page.waitForFunction(
     () => window.airportControl.snapshot().renderer.aircraftAssets.active > 0,
   );
@@ -141,7 +141,7 @@ test("modal focus, keyboard flow, readable strips, and semantic contrast regress
   await page.goto(
     "/?airport=ATL&seed=10000&mode=manual&detail=low&renderFps=4",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.39.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
   await expect(page.locator("#enter")).toBeFocused();
   const inertSiblings = await page.locator("#app > [inert]").count();
   expect(inertSiblings).toBeGreaterThan(5);
@@ -326,13 +326,20 @@ test("reduced-motion mode suppresses runtime and CSS animation", async ({
 test("offline sound recordings decode from the application origin", async ({
   page,
 }, testInfo) => {
-  test.skip(testInfo.project.name !== "desktop-chromium", "Audio decode gate runs once.");
-  await page.goto("/?airport=ATL&seed=10000&mode=watch&autostart=1&detail=low&renderFps=4");
+  test.skip(
+    testInfo.project.name !== "desktop-chromium",
+    "Audio decode gate runs once.",
+  );
+  await page.goto(
+    "/?airport=ATL&seed=10000&mode=watch&autostart=1&detail=low&renderFps=4",
+  );
   await waitForRuntime(page);
   await page.locator("#menu-toggle").click();
   await page.locator("#sound-toggle").click();
   await page.waitForFunction(
-    () => window.airportControl.snapshot().audio.offlineLibrary.status !== "loading",
+    () =>
+      window.airportControl.snapshot().audio.offlineLibrary.status !==
+      "loading",
     undefined,
     { timeout: 20_000 },
   );
@@ -348,4 +355,132 @@ test("offline sound recordings decode from the application origin", async ({
     lastError: null,
     syntheticVoicesDisclosed: true,
   });
+});
+
+test("local media capture and clean spectator presentation stay bounded", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "desktop-chromium",
+    "Capture gate runs once.",
+  );
+  await page.goto(
+    "/?airport=ORD&seed=14001&mode=watch&autostart=1&detail=low&renderFps=30",
+  );
+  await waitForRuntime(page);
+
+  const clean = await page.evaluate(() => {
+    window.airportControl.capture.setCleanView(true);
+    const visibleSiblings = [
+      ...document.querySelectorAll<HTMLElement>("#app > *"),
+    ]
+      .filter(
+        (element) => !["scene", "capture-clean-exit"].includes(element.id),
+      )
+      .filter((element) => getComputedStyle(element).visibility !== "hidden")
+      .map((element) => element.id || element.className);
+    return {
+      snapshot: window.airportControl.capture.snapshot(),
+      visibleSiblings,
+    };
+  });
+  expect(clean.snapshot.cleanView).toBeTruthy();
+  expect(clean.snapshot.localOnly).toBeTruthy();
+  expect(clean.snapshot.microphone).toBeFalsy();
+  expect(clean.visibleSiblings).toEqual([]);
+  await page.keyboard.press("Escape");
+  expect(
+    await page.evaluate(
+      () => window.airportControl.capture.snapshot().cleanView,
+    ),
+  ).toBeFalsy();
+
+  await page.locator("#menu-toggle").click();
+  await page
+    .locator(".advanced-tools")
+    .evaluate((element: HTMLDetailsElement) => {
+      element.open = true;
+    });
+  const download = page.waitForEvent("download");
+  await page.locator("[data-capture-screenshot]").click();
+  const screenshot = await download;
+  expect(screenshot.suggestedFilename()).toMatch(
+    /^airport-auto-ord-14001-.*\.png$/,
+  );
+  expect((await screenshot.createReadStream()) !== null).toBeTruthy();
+
+  const liveState = await page.evaluate(() => ({
+    snapshot: window.airportControl.liveData.snapshot(),
+    inputType:
+      document.querySelector<HTMLInputElement>("[data-live-token]")?.type,
+  }));
+  expect(liveState.snapshot).toMatchObject({ enabled: false, station: "KORD" });
+  expect(liveState.inputType).toBe("password");
+});
+
+test("daily and classroom links reproduce one deliberate seeded briefing", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "desktop-chromium",
+    "Daily challenge gate runs once.",
+  );
+  await page.goto(
+    "/?daily=2026-07-27&airport=ATL&seed=1&mode=watch&challenge=rush-hour&detail=low&renderFps=4",
+  );
+  await waitForRuntime(page);
+  const state = await page.evaluate(() => {
+    const snapshot = window.airportControl.snapshot();
+    const community = window.airportControl.community.snapshot();
+    const link = new URL(community.classroomLink);
+    return {
+      airport: snapshot.airport.code,
+      seed: snapshot.surfaceGraph.seed,
+      mode: snapshot.mode,
+      station: snapshot.station,
+      paused: snapshot.paused,
+      challenge: snapshot.challenge,
+      daily: community.daily,
+      classroom: Object.fromEntries(link.searchParams),
+    };
+  });
+  expect(state).toMatchObject({
+    airport: "ORD",
+    seed: 3387434395,
+    mode: "assisted",
+    station: "supervisor",
+    paused: true,
+    challenge: { status: "briefing", challengeId: "storm-operations" },
+    daily: {
+      date: "2026-07-27",
+      airportCode: "ORD",
+      seed: 3387434395,
+      challengeId: "storm-operations",
+    },
+    classroom: {
+      airport: "ORD",
+      seed: "3387434395",
+      mode: "assisted",
+      station: "supervisor",
+      rules: "forgiving",
+      challenge: "storm-operations",
+      daily: "2026-07-27",
+      classroom: "2026-07-27",
+    },
+  });
+
+  await page.locator("#enter").click();
+  await page.locator("#menu-toggle").click();
+  await page
+    .locator("#challenge-setup")
+    .evaluate((element: HTMLDetailsElement) => {
+      element.open = true;
+    });
+  await expect(page.locator("[data-daily-title]")).toHaveText(
+    "ORD · Storm operations",
+  );
+  await expect(page.locator("[data-daily-open]")).toHaveAttribute(
+    "href",
+    /classroom=2026-07-27/,
+  );
 });

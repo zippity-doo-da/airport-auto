@@ -9,7 +9,7 @@ test("soundscape stays spatial, readable, optional, and replay-visible", async (
   );
   test.setTimeout(60_000);
   await page.goto("/?airport=ORD&mode=auto&autostart=1&detail=low&renderFps=2");
-  await page.waitForFunction(() => window.airportControl?.version === "2.39.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
   await page.waitForFunction(
     () => window.airportControl.snapshot().audio.recordedEvents > 0,
   );
@@ -101,7 +101,7 @@ test("soundscape stays spatial, readable, optional, and replay-visible", async (
   const manifest = await page.request.get("/audio/soundscape-manifest.json");
   expect(manifest.ok()).toBeTruthy();
   await expect(manifest.json()).resolves.toMatchObject({
-    schemaVersion: 1,
+    schemaVersion: 2,
     networkAudio: false,
     runtimeVoiceGeneration: false,
     microphoneAccess: false,

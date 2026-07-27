@@ -34,8 +34,8 @@ export { AIRPORT_DOMAIN_EVENT_TYPES } from "./eventTypes";
 export type { AirportDomainEventType } from "./eventTypes";
 
 export const CONTROL_PROTOCOL_VERSION = "1.2.0" as const;
-export const CONTROL_API_VERSION = "2.39.0" as const;
-export const CONTROL_SNAPSHOT_SCHEMA_VERSION = 41 as const;
+export const CONTROL_API_VERSION = "2.40.0" as const;
+export const CONTROL_SNAPSHOT_SCHEMA_VERSION = 42 as const;
 export const CONTROL_REPLAY_SCHEMA_VERSION = 4 as const;
 export const CONTROL_BROADCAST_CHANNEL = "airport-auto" as const;
 
@@ -664,7 +664,10 @@ const COMMAND_SPECS = {
     "Select automatic local-time lighting or force day/night presentation.",
     AUTHORITY.public,
     {
-      mode: stringSchema("Environment lighting mode.", ENVIRONMENT_LIGHTING_MODES),
+      mode: stringSchema(
+        "Environment lighting mode.",
+        ENVIRONMENT_LIGHTING_MODES,
+      ),
     },
     { mode: "automatic" },
   ),
@@ -686,7 +689,9 @@ const COMMAND_SPECS = {
     },
     { palette: "high-contrast" },
   ),
-  setCameraDirectorEnabled: visibility("Enable or disable the optional observer camera director."),
+  setCameraDirectorEnabled: visibility(
+    "Enable or disable the optional observer camera director.",
+  ),
   setRadarVisible: visibility("Show or hide the inset radar."),
   setQueueInspectorVisible: visibility(
     "Show or hide the operations queue inspector.",
@@ -731,7 +736,9 @@ const COMMAND_SPECS = {
   ),
   setServiceVehiclesVisible: visibility("Show or hide service vehicles."),
   setContrailsVisible: visibility("Show or hide high-altitude contrails."),
-  setAirportLifeVisible: visibility("Show or hide optional airport-life details."),
+  setAirportLifeVisible: visibility(
+    "Show or hide optional airport-life details.",
+  ),
   setGamepadEnabled: visibility("Enable or disable gamepad input."),
   setGamepadSensitivity: command(
     "presentation",
@@ -1186,9 +1193,7 @@ const COMMAND_SPECS = {
     "Set modeled weather and wind conditions.",
     AUTHORITY.session,
     {
-      condition: stringSchema("Weather condition.", [
-        ...WEATHER_CONDITIONS,
-      ]),
+      condition: stringSchema("Weather condition.", [...WEATHER_CONDITIONS]),
       directionDegrees: numberSchema(
         "Meteorological wind-from direction in degrees.",
       ),

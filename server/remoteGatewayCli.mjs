@@ -2,6 +2,10 @@ import { open, readFile } from "node:fs/promises";
 import process from "node:process";
 
 import { createRemoteGateway } from "./remoteGateway.mjs";
+import {
+  createConfiguredJsonProvider,
+  createLiveDataService,
+} from "./liveDataService.mjs";
 
 function positiveInteger(value, fallback) {
   const parsed = Number(value);
@@ -40,6 +44,29 @@ if (auditFile) {
   const auditHandle = await open(auditFile, "a");
   await auditHandle.close();
 }
+const liveDataEnabled = process.env.AIRPORT_LIVE_DATA_ENABLED === "1";
+function configuredProvider(prefix) {
+  const endpointTemplate = process.env[`${prefix}_URL_TEMPLATE`];
+  if (!endpointTemplate) return null;
+  return createConfiguredJsonProvider({
+    endpointTemplate,
+    token: process.env[`${prefix}_TOKEN`] || "",
+    providerName: process.env[`${prefix}_PROVIDER`] || "Configured provider",
+    license:
+      process.env[`${prefix}_LICENSE`] ||
+      "Operator-configured provider terms apply",
+  });
+}
+const liveDataService = liveDataEnabled
+  ? createLiveDataService({
+      metarEnabled: process.env.AIRPORT_METAR_ENABLED !== "0",
+      notamProvider: configuredProvider("AIRPORT_NOTAM"),
+      trafficProvider: configuredProvider("AIRPORT_TRAFFIC"),
+      userAgent:
+        process.env.AIRPORT_LIVE_USER_AGENT ||
+        "Airport-Auto/2.40 live-data gateway",
+    })
+  : null;
 const gateway = createRemoteGateway({
   tokens,
   allowedOrigins,
@@ -63,6 +90,7 @@ const gateway = createRemoteGateway({
     process.env.AIRPORT_REMOTE_MAX_CONNECTIONS_PER_SESSION,
     64,
   ),
+  liveDataService,
 });
 
 const address = await gateway.listen({ host, port });
@@ -74,6 +102,9 @@ process.stdout.write(
     allowedOrigins.length
       ? `Browser origins: ${allowedOrigins.join(", ")}`
       : "Browser origins: same-origin controller console only",
+    liveDataEnabled
+      ? `Live data: ${JSON.stringify(liveDataService.diagnostics().providers)}`
+      : "Live data: disabled (set AIRPORT_LIVE_DATA_ENABLED=1 to opt in)",
     "Static Airport Auto clients remain disconnected until a host explicitly connects.",
   ].join("\n") + "\n",
 );

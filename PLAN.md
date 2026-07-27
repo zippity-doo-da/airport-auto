@@ -537,6 +537,22 @@ Deployment remains intentionally withheld to conserve GitHub Actions minutes. Th
 
 The multi-hour roadmap acceptance item is complete locally. Deployment remains intentionally withheld; no GitHub Actions workflow was invoked.
 
+## Airport Auto 2.40 — roadmap completion (local release candidate)
+
+Deployment remains intentionally withheld to conserve GitHub Actions minutes. This candidate is built and tested locally only.
+
+- [x] Ship 11 project-original, license-manifested PCM ambience beds and 24 detailed operation/weather cues with deterministic variant selection, state-driven mixing, bounded cooldown retention, same-origin decode, and procedural fallback.
+- [x] Ship ten reusable fictional synthetic radio exchanges with four disclosed abstract voice timbres, readable dynamic captions, station/traffic selection, calm repetition budgets, no runtime generation, and a no-voice fallback.
+- [x] Close the release-bounded engineering tranche with canonical operational-rule ownership, schema migration contracts, a stable hashed asset manifest, expanded instancing/pooling, release-matrix visual/accessibility coverage, and generated rule/property gates.
+- [x] Add default-off live-data infrastructure: official AWC METAR relay, operator-configured NOTAM and licensed aggregate-traffic adapters, server/browser validation, minimum request caches, bounded local cache, provenance/age display, credential redaction, deterministic offline fallback, and explicit human application through the normal command/safety paths.
+- [x] Add local PNG and bounded silent WebM capture plus a clean spectator view with Escape/accessible exit, no microphone, no automatic upload, media-track teardown, typed local diagnostics, and real browser-download coverage.
+- [x] Add a schema-versioned UTC daily challenge across all named hubs and existing shifts, authoritative date-based launch reconstruction, and allowlisted classroom links that reproduce one deliberate Assisted/Supervisor briefing without accounts, identity, score upload, or autostart.
+- [x] Reuse the authenticated remote gateway for genuinely shared human/agent classrooms; keep static/offline daily boards independent and preserve explicit station claims, spectator-only access, host consent, and the existing safety arbiter.
+- [x] Decide that persistent progression and public/server-validated leaderboards conflict with the default open-ended ASMR loop and are complete-deferred unless a separate consented, moderated, exact-replay-verified competitive service is justified.
+- [x] Select KATL/Atlanta as the second high-fidelity import only after the complete ORD gate; document current FAA/airport sources, five-parallel-runway and surface-operation rationale, importer-reuse value, risks, and the equivalent gate ATL must pass before losing its schematic label.
+- [x] Reconcile `ROADMAP.md`, this release ledger, README, the completion audit, live-data/capture/community documentation, API help, gateway discovery, and focused acceptance commands without adding a deployment step.
+- [x] Pass the complete local deterministic, trajectory/collision, lint, production-build, and desktop/mobile browser release gates after final version/schema reconciliation. (`npm test`, lint, and build passed; Playwright passed 35 tests with 27 intentional cross-viewport skips and zero failures against 2.40/schema 42.)
+
 ## Airport fidelity policy
 
 Named hubs are deliberately labeled **ATC schematic**. Their runway patterns, operating scale, and representative named taxiways are modeled for play, but they are not navigation data. Airport Auto will not claim a hub is faithful until a documented, licensed vector import has been validated against a current official airport diagram.
@@ -559,11 +575,11 @@ These are expansions, not unfinished 2.1 defect fixes:
 
 The prioritized implementation order, acceptance gates, and reconciled pre-2.1 backlog now live in [ROADMAP.md](ROADMAP.md).
 
-- Equivalent licensed vector imports and surveyed surface topology for hubs beyond ORD.
+- The selected KATL high-fidelity vector/surface/context import and equivalent acceptance gate; ATL remains schematic until that future expansion is complete.
 - Real recorded engine/ramp/radio libraries after licensing, normalization, and long-loop repetition review.
-- Live METAR, NOTAM, schedule, and traffic feeds with caching and offline fallback.
+- Navigation-grade, automatically applied, or credential-bearing live aviation integrations remain intentionally excluded; the shipped optional adapters are preview/manual and not for navigation.
 - Detailed tug types and deeper gate-service choreography.
-- Server-validated leaderboards, shared replay URLs, daily challenges, and classroom accounts.
+- Public server-validated leaderboards and account-backed classroom administration remain deferred by product decision; daily links and authenticated shared stations already ship without accounts.
 - Optional generated or recorded ATC voice; captions and event telemetry remain the accessible source of truth.
 
 ## Release commands

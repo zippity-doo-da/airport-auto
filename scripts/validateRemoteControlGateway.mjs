@@ -265,6 +265,7 @@ try {
   assert.deepEqual((await protocol.json()).transports, [
     "websocket",
     "http-read-only",
+    "optional-live-data-relay",
   ]);
   const consolePage = await response(address.httpUrl, "/console");
   assert.equal(consolePage.status, 200);

@@ -48,19 +48,19 @@ const frames = [0, 1, 2].map((offset) => ({
 }));
 const events = [
   {
-    protocolVersion: '1.2.0', apiVersion: '2.39.0', sessionId: 'session-test', eventId: 1,
+    protocolVersion: '1.2.0', apiVersion: '2.40.0', sessionId: 'session-test', eventId: 1,
     eventKey: 'session-test:1', sequence: 1, airport: 'ORD', elapsed: 10.1,
     type: 'command:clearTakeoff', flightId: 7, callsign: 'AAL107', runway: 1, accepted: true,
     detail: 'takeoff clearance accepted',
   },
   {
-    protocolVersion: '1.2.0', apiVersion: '2.39.0', sessionId: 'session-test', eventId: 2,
+    protocolVersion: '1.2.0', apiVersion: '2.40.0', sessionId: 'session-test', eventId: 2,
     eventKey: 'session-test:2', sequence: 2, airport: 'ORD', elapsed: 11.8,
     type: 'separation-warning', flightId: 7, callsign: 'AAL107', accepted: false,
     detail: 'projected path conflict',
   },
   {
-    protocolVersion: '1.2.0', apiVersion: '2.39.0', sessionId: 'session-test', eventId: 3,
+    protocolVersion: '1.2.0', apiVersion: '2.40.0', sessionId: 'session-test', eventId: 3,
     eventKey: 'session-test:3', sequence: 3, airport: 'ORD', elapsed: 11.9,
     type: 'sound:takeoff-power', detail: 'audio-only event',
   },
@@ -68,8 +68,8 @@ const events = [
 
 const recording = createReplayRecording({
   protocolVersion: '1.2.0',
-  snapshotSchemaVersion: 41,
-  simulationVersion: '2.39.0',
+  snapshotSchemaVersion: 42,
+  simulationVersion: '2.40.0',
   fixedStepSeconds: 0.05,
   sessionId: 'session-test',
   recordedAt: '2026-07-26T12:00:00.000Z',

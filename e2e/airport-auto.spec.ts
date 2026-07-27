@@ -17,7 +17,7 @@ test("Assisted ORD shift exposes proposals, station workload, and structured con
   );
   await expect(page.locator("#airport-name")).toContainText("O’Hare");
   await expect(page.locator("#flight-strip-count")).toContainText("aircraft");
-  await page.waitForFunction(() => window.airportControl?.version === "2.39.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
   await page.waitForFunction(
     () => window.airportControl.snapshot().renderer.context.status === "loaded",
   );
@@ -29,10 +29,10 @@ test("Assisted ORD shift exposes proposals, station workload, and structured con
   );
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
-  expect(initial.schemaVersion).toBe(41);
+  expect(initial.schemaVersion).toBe(42);
   expect(initial.controlProtocol).toMatchObject({
     protocolVersion: "1.2.0",
-    apiVersion: "2.39.0",
+    apiVersion: "2.40.0",
     commandCount: 92,
     channel: "airport-auto",
   });
@@ -201,7 +201,7 @@ test("Assisted ORD shift exposes proposals, station workload, and structured con
       requestId: "e2e-authority-rejection",
       source: "test",
       authority: { station: "tower", actorId: "tower-test-agent" },
-      expects: { apiVersion: "2.39.0", snapshotSchemaVersion: 41 },
+      expects: { apiVersion: "2.40.0", snapshotSchemaVersion: 42 },
       command: { action: "pause" },
     });
     const paused = window.airportControl.dispatch({
@@ -210,7 +210,7 @@ test("Assisted ORD shift exposes proposals, station workload, and structured con
       clientId: "playwright",
       source: "test",
       authority: { station: "supervisor", actorId: "supervisor-test-agent" },
-      expects: { apiVersion: "2.39.0", snapshotSchemaVersion: 41 },
+      expects: { apiVersion: "2.40.0", snapshotSchemaVersion: 42 },
       command: { action: "pause" },
     });
     const resumed = window.airportControl.dispatch({
@@ -273,7 +273,7 @@ test("Assisted ORD shift exposes proposals, station workload, and structured con
   });
   expect(protocolProbe.paused).toMatchObject({
     protocolVersion: "1.2.0",
-    apiVersion: "2.39.0",
+    apiVersion: "2.40.0",
     requestId: "e2e-formal-pause",
     clientId: "playwright",
     source: "test",
@@ -320,7 +320,7 @@ test("Assisted ORD shift exposes proposals, station workload, and structured con
               clientId: "playwright-channel",
               source: "test",
               authority: { station: "supervisor" },
-              expects: { apiVersion: "2.39.0", snapshotSchemaVersion: 41 },
+              expects: { apiVersion: "2.40.0", snapshotSchemaVersion: 42 },
               command: { action: "setRadarVisible", enabled: false },
             },
           });
@@ -588,6 +588,8 @@ test("Assisted ORD shift exposes proposals, station workload, and structured con
     pending: 0,
     active: 0,
     recovering: 0,
+    pooledMarkers: 0,
+    poolBudget: 10,
   });
   expect(initial.surfaceDisruptions).toHaveLength(0);
   for (const concourse of ["B", "C", "E", "F", "G", "H", "K", "L", "M"]) {
@@ -991,7 +993,9 @@ test("Assisted ORD shift exposes proposals, station workload, and structured con
     () => window.airportControl.snapshot().renderer.camera,
   );
   await page.locator("#scene").focus();
-  await page.keyboard.press("d");
+  // W is a continuous camera key with no matching airport-select option, so
+  // this verifies gameplay blocking without invoking native select typeahead.
+  await page.keyboard.press("w");
   await page.keyboard.press("w");
   await page.waitForFunction(
     ({ x, y }) => {
@@ -1325,8 +1329,8 @@ test("Assisted ORD shift exposes proposals, station workload, and structured con
   expect(recording).toMatchObject({
     schemaVersion: 4,
     protocolVersion: "1.2.0",
-    simulationVersion: "2.39.0",
-    snapshotSchemaVersion: 41,
+    simulationVersion: "2.40.0",
+    snapshotSchemaVersion: 42,
     sessionId: expect.stringMatching(/^session-/),
   });
   expect(recording.seed).toBe(10_004);
@@ -1540,7 +1544,7 @@ test("Manual ORD supports live procedure control, ownership handoffs, and physic
   await page.goto(
     "/?airport=ORD&mode=manual&station=approach&density=quiet&autostart=1&detail=low&renderFps=0.25",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.39.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
   const pauseResult = await page.evaluate(() =>
     window.airportControl.request({ action: "pause" }),
   );
@@ -1719,7 +1723,7 @@ test("Manual ORD supports live procedure control, ownership handoffs, and physic
   );
   expect(causalVector).toMatchObject({
     protocolVersion: "1.2.0",
-    apiVersion: "2.39.0",
+    apiVersion: "2.40.0",
     causedByCommandId: heading.commandId,
   });
   expect(causalVector!.eventId).toBeGreaterThan(heading.eventId);
@@ -1999,7 +2003,7 @@ test("Group select exposes and applies only shared atomic commands", async ({
   await page.goto(
     "/?airport=ORD&mode=manual&station=supervisor&density=rush&autostart=1&detail=low&renderFps=0.25",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.39.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
   await page.evaluate(() => window.airportControl.request({ action: "pause" }));
   const arrivals = await page.evaluate(() =>
     window.airportControl
@@ -2123,7 +2127,7 @@ test("ORD snow exposes the deicing route and holdover model in the normal UI", a
   await page.goto(
     "/?airport=ORD&mode=auto&autostart=1&detail=low&weather=snow&windDir=270&wind=12&renderFps=0.25",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.39.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
   await page.waitForFunction(
     () => window.airportControl.snapshot().renderer.context.status === "loaded",
   );
@@ -2221,7 +2225,7 @@ test("Thunderstorm hazards remain opt-in and expose modeled runway reports", asy
   await page.goto(
     "/?airport=ORD&mode=auto&autostart=1&detail=low&weather=thunderstorm&windDir=240&wind=25&renderFps=0.25",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.39.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
   await page.waitForFunction(
     () => window.airportControl.snapshot().renderer.context.status === "loaded",
   );
@@ -2288,7 +2292,7 @@ test("Go-around climbs from the live pose and flies a visible missed-approach pa
   await page.goto(
     "/?airport=ATL&mode=auto&autostart=1&detail=low&speed=3&renderFps=0.25",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.39.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
   await page.waitForFunction(() => {
     const flight = window.airportControl
       .snapshot()
@@ -2396,7 +2400,7 @@ test("Canvas taps keep an uncleared arrival selected while a real drag starts it
   await page.goto(
     "/?airport=ATL&mode=manual&station=supervisor&autostart=1&detail=low&renderFps=30",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.39.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
   await page.waitForFunction(
     () => window.airportControl.snapshot().renderer.aircraftAssets.active > 0,
   );
@@ -2566,7 +2570,7 @@ test("No-fail training teaches, explains rejection, and restores a live checkpoi
 }, testInfo) => {
   test.setTimeout(120_000);
   await page.goto("/?airport=ORD&autostart=1&detail=low&renderFps=0.25");
-  await page.waitForFunction(() => window.airportControl?.version === "2.39.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
 
   const started = await page.evaluate(() =>
     window.airportControl.request({
@@ -2575,7 +2579,7 @@ test("No-fail training teaches, explains rejection, and restores a live checkpoi
     }),
   );
   expect(started.accepted).toBeTruthy();
-  expect(started.resultingState.schemaVersion).toBe(41);
+  expect(started.resultingState.schemaVersion).toBe(42);
   expect(started.resultingState.training).toMatchObject({
     status: "coach-paused",
     lessonId: "arrival-basics",
@@ -2749,7 +2753,7 @@ test("Challenge shifts lock conditions, grade operations, and fit responsive pla
   await page.goto(
     "/?airport=ORD&mode=auto&challenge=rush-hour&detail=low&renderFps=0.25",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.39.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
   await page.waitForFunction(
     () => window.airportControl.snapshot().renderer.context.status === "loaded",
   );
@@ -2757,7 +2761,7 @@ test("Challenge shifts lock conditions, grade operations, and fit responsive pla
   await expect(page.locator("#intro")).toHaveClass(/modal--hidden/);
 
   const briefing = await page.evaluate(() => window.airportControl.snapshot());
-  expect(briefing.schemaVersion).toBe(41);
+  expect(briefing.schemaVersion).toBe(42);
   expect(briefing.mode).toBe("assisted");
   expect(briefing.paused).toBeTruthy();
   expect(briefing.challenge).toMatchObject({
@@ -2955,14 +2959,14 @@ test("Sandbox stages requested traffic without score pressure and fits responsiv
   await page.goto(
     "/?airport=ORD&mode=auto&sandbox=1&autostart=1&detail=low&renderFps=0.25",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.39.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
   await page.waitForFunction(
     () => window.airportControl.snapshot().renderer.context.status === "loaded",
   );
   await expect(page.locator("#intro")).toHaveClass(/modal--hidden/);
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
-  expect(initial.schemaVersion).toBe(41);
+  expect(initial.schemaVersion).toBe(42);
   expect(initial.airport.code).toBe("ORD");
   expect(initial.sandbox).toMatchObject({
     active: true,
@@ -3127,7 +3131,7 @@ test("Unified input keeps held keys smooth and supports a standard gamepad witho
     });
   });
   await page.goto("/?airport=ATL&mode=auto&autostart=1&detail=low&renderFps=4");
-  await page.waitForFunction(() => window.airportControl?.version === "2.39.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
   await page.waitForFunction(
     () => window.airportControl.snapshot().input.devices.gamepad.connected,
   );
@@ -3226,6 +3230,10 @@ test("Unified input keeps held keys smooth and supports a standard gamepad witho
   expect(
     await page.evaluate(() => window.airportControl.snapshot().input.context),
   ).toBe("ui");
+  // The airport selector deliberately receives first focus for accessibility.
+  // Probe gameplay blocking from a non-editable drawer control so native
+  // select typeahead cannot change airports during this input assertion.
+  await page.locator(".advanced-tools > summary").focus();
   const drawerCamera = await page.evaluate(
     () => window.airportControl.snapshot().renderer.camera,
   );
@@ -3360,7 +3368,7 @@ test("Unified input keeps held keys smooth and supports a standard gamepad witho
   expect(stillDisabled.renderer.camera.focusY).toBe(disabledCamera.focusY);
   expect(stillDisabled.input.devices.gamepad.enabled).toBeFalsy();
   await page.reload();
-  await page.waitForFunction(() => window.airportControl?.version === "2.39.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
   const persisted = await page.evaluate(
     () => window.airportControl.snapshot().input.devices.gamepad,
   );
@@ -3379,9 +3387,9 @@ test("Environment controls, accessible palettes, and the camera director remain 
   await page.goto(
     "/?airport=ORD&mode=watch&autostart=1&detail=low&renderFps=2&lighting=automatic&season=automatic",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.39.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
   const initial = await page.evaluate(() => window.airportControl.snapshot());
-  expect(initial.schemaVersion).toBe(41);
+  expect(initial.schemaVersion).toBe(42);
   expect(initial.environment).toMatchObject({
     schemaVersion: 1,
     lightingMode: "automatic",
@@ -3480,7 +3488,7 @@ test("Environment controls, accessible palettes, and the camera director remain 
   expect(yielded.presentation.cameraDirector.reason).toContain("Manual camera");
 
   await page.reload();
-  await page.waitForFunction(() => window.airportControl?.version === "2.39.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
   const persisted = await page.evaluate(() => window.airportControl.snapshot());
   expect(persisted.presentation.accessibilityPalette).toBe("high-contrast");
   await expect(page.locator("html")).toHaveAttribute(
@@ -3499,7 +3507,7 @@ test("Operations data lab records authoritative traces and exports local analysi
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 1024, height: 600 });
   await page.goto("/?airport=ORD&mode=auto&autostart=1&detail=low&renderFps=4");
-  await page.waitForFunction(() => window.airportControl?.version === "2.39.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
   await page.waitForFunction(
     () =>
       window.airportControl.snapshot().analytics.window.retainedSamples >= 2,
@@ -3613,7 +3621,7 @@ test("Replay inspector verifies, migrates, compares, imports, and shares exact s
   await page.goto(
     "/?airport=LOCAL&seed=4242&mode=auto&autostart=1&detail=low&renderFps=4",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.39.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
   await page.waitForFunction(
     () => window.airportControl.snapshot().replay.frames >= 3,
   );
@@ -3686,7 +3694,7 @@ test("Replay inspector verifies, migrates, compares, imports, and shares exact s
   });
   expect(api.recording).toMatchObject({
     schemaVersion: 4,
-    snapshotSchemaVersion: 41,
+    snapshotSchemaVersion: 42,
     fixedStepSeconds: 0.05,
     frames: expect.any(Number),
     markers: expect.any(Number),
@@ -3819,7 +3827,7 @@ test("Controller policies expose capacity, preserve safety authority, and surviv
   await page.goto(
     "/?airport=ORD&mode=watch&station=supervisor&autostart=1&detail=low&renderFps=1",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.39.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
   await page.waitForFunction(
     () =>
       window.airportControl.snapshot().controllers.scripted.decisions.length >
@@ -3888,7 +3896,7 @@ test("Controller policies expose capacity, preserve safety authority, and surviv
       requestId: "policy-supervisor-change",
       source: "test",
       authority: { station: "supervisor", actorId: "supervisor-policy-test" },
-      expects: { apiVersion: "2.39.0", snapshotSchemaVersion: 41 },
+      expects: { apiVersion: "2.40.0", snapshotSchemaVersion: 42 },
       command: { action: "setControllerPolicyPreset", preset: "efficient" },
     });
   });
@@ -3931,7 +3939,7 @@ test("Observer focus follows live traffic, airport assets, queues, and conflicts
   await page.goto(
     "/?airport=ORD&mode=watch&density=busy&autostart=1&detail=low&renderFps=4",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.39.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
   await page.waitForFunction(
     () =>
       window.airportControl.snapshot().controllers.scripted.decisions.length >
@@ -3946,7 +3954,7 @@ test("Observer focus follows live traffic, airport assets, queues, and conflicts
   );
 
   const initial = await page.evaluate(() => window.airportControl.snapshot());
-  expect(initial.schemaVersion).toBe(41);
+  expect(initial.schemaVersion).toBe(42);
   expect(
     Object.values(initial.controllers.scripted.stations).every(
       (station) => station.mode === "scripted" && station.evaluations > 0,
@@ -3964,7 +3972,7 @@ test("Observer focus follows live traffic, airport assets, queues, and conflicts
   );
   expect(scriptedEvent).toMatchObject({
     protocolVersion: "1.2.0",
-    apiVersion: "2.39.0",
+    apiVersion: "2.40.0",
     causedByControllerDecisionId: expect.stringMatching(/^controller-/),
     payload: {
       station: expect.any(String),
@@ -4222,7 +4230,7 @@ test("Mobile Watch mode keeps non-ORD and procedural maps navigable in low detai
   await page.goto(
     "/?airport=ATL&mode=watch&autostart=1&detail=low&renderFps=0.25",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.39.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
   await expect(page.locator("body")).toHaveClass(/watch-mode/);
   await expect(page.locator("#menu-toggle")).toBeVisible();
   await expect(page.locator("#zoom-in")).toBeVisible();
@@ -4531,7 +4539,7 @@ test("Laptop viewports keep the complete controls menu reachable", async ({
   test.setTimeout(180_000);
   await page.setViewportSize({ width: 1024, height: 600 });
   await page.goto("/?airport=ORD&detail=low&renderFps=0.25");
-  await page.waitForFunction(() => window.airportControl?.version === "2.39.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
   const introPanel = page.locator("#intro .intro__panel");
   const introBounds = await introPanel.evaluate((element) => {
     const rect = element.getBoundingClientRect();
@@ -4554,7 +4562,7 @@ test("Laptop viewports keep the complete controls menu reachable", async ({
   await page.goto(
     "/?airport=ORD&mode=auto&autostart=1&detail=low&renderFps=0.25",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.39.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
   await page.waitForFunction(
     () => window.airportControl.snapshot().renderer.drawCalls > 100,
   );
@@ -4772,7 +4780,7 @@ test("Runtime budgets stay bounded, visible, and available to local control", as
   await page.goto(
     "/?airport=ORD&mode=auto&density=extreme&autostart=1&detail=low&renderFps=0.25",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.39.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
   await page.waitForFunction(
     () => window.airportControl.performance().frameWorkMs.samples >= 30,
   );

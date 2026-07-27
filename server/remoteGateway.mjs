@@ -329,6 +329,7 @@ function commandRequestId(message) {
 
 export function createRemoteGateway(options = {}) {
   const tokens = normalizeRemoteTokenManifest(options.tokens);
+  const liveDataService = options.liveDataService ?? null;
   const allowedOrigins = normalizeAllowedOrigins(options.allowedOrigins);
   const handshakeTimeoutMs = integer(options.handshakeTimeoutMs, 5_000, 250);
   const commandTimeoutMs = integer(options.commandTimeoutMs, 5_000, 250);
@@ -1271,6 +1272,13 @@ export function createRemoteGateway(options = {}) {
             (total, session) => total + session.connections.size,
             0,
           ),
+          liveData: liveDataService?.diagnostics?.() ?? {
+            providers: {
+              metar: "disabled",
+              notam: "disabled",
+              traffic: "disabled",
+            },
+          },
         },
         requestOrigin,
       );
@@ -1285,7 +1293,11 @@ export function createRemoteGateway(options = {}) {
           protocolVersion: REMOTE_GATEWAY_PROTOCOL_VERSION,
           roles: [...REMOTE_ROLES],
           stations: [...CONTROLLER_STATIONS],
-          transports: ["websocket", "http-read-only"],
+          transports: [
+            "websocket",
+            "http-read-only",
+            "optional-live-data-relay",
+          ],
           security: [
             "explicit bearer token",
             "exclusive station claim",
@@ -1298,6 +1310,68 @@ export function createRemoteGateway(options = {}) {
         },
         requestOrigin,
       );
+      return;
+    }
+    const liveDataMatch = /^\/v1\/live\/(metar|notams|traffic)\/([^/]+)$/.exec(
+      url.pathname,
+    );
+    if (request.method === "GET" && liveDataMatch) {
+      const token = permittedHttpToken(request, tokens);
+      if (!token) {
+        jsonResponse(
+          response,
+          401,
+          { error: "valid bearer token required" },
+          requestOrigin,
+        );
+        return;
+      }
+      if (!token.admin && !token.roles.includes("host")) {
+        jsonResponse(
+          response,
+          403,
+          { error: "host or admin token required for live-data relay" },
+          requestOrigin,
+        );
+        return;
+      }
+      if (!liveDataService) {
+        jsonResponse(
+          response,
+          503,
+          { error: "live-data relay is disabled by the gateway operator" },
+          requestOrigin,
+        );
+        return;
+      }
+      let station;
+      try {
+        station = decodeURIComponent(liveDataMatch[2]).toUpperCase();
+      } catch {
+        jsonResponse(
+          response,
+          400,
+          { error: "station is not valid URL encoding" },
+          requestOrigin,
+        );
+        return;
+      }
+      const kind = liveDataMatch[1] === "notams" ? "notam" : liveDataMatch[1];
+      Promise.resolve(liveDataService.report(kind, station))
+        .then((report) =>
+          jsonResponse(response, 200, { report }, requestOrigin),
+        )
+        .catch((error) =>
+          jsonResponse(
+            response,
+            503,
+            {
+              error:
+                boundedText(error?.message, 300) || "live-data provider failed",
+            },
+            requestOrigin,
+          ),
+        );
       return;
     }
     if (request.method === "GET" && url.pathname === "/v1/sessions") {

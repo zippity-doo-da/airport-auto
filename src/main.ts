@@ -136,6 +136,11 @@ import {
   createChallengePanel,
   type ChallengeSnapshot,
 } from "./ui/challengePanel";
+import {
+  dailyChallengePlan,
+  type DailyChallengePlan,
+} from "./simulation/dailyChallenge";
+import { createCommunityPanel, type CommunityPanel } from "./ui/communityPanel";
 import { createSandboxPanel } from "./ui/sandboxPanel";
 import {
   createInputSettingsPanel,
@@ -196,6 +201,22 @@ import {
   createReplayInspector,
   type ReplayInspector,
 } from "./ui/replayInspector";
+import { LiveDataCoordinator } from "./live/liveDataCoordinator";
+import {
+  type LiveMetarReport,
+  type LiveNotamReport,
+  type LiveSurfaceStatusItem,
+  type LiveTrafficReport,
+  type LiveTrafficSeedPlan,
+} from "./live/liveDataTypes";
+import { liveDataAge } from "./live/liveDataAdapters";
+import { liveDataStationForAirport } from "./live/airportStations";
+import { createLiveDataPanel, type LiveDataPanel } from "./ui/liveDataPanel";
+import {
+  LocalCapture,
+  type LocalCaptureSnapshot,
+} from "./presentation/localCapture";
+import { createCapturePanel, type CapturePanel } from "./ui/capturePanel";
 import {
   AIRPORT_CONTROL_COMMAND_DEFINITIONS,
   CONTROL_API_VERSION,
@@ -292,6 +313,22 @@ declare global {
           configuration: RemoteControlHostConfiguration,
         ): Promise<RemoteControlHostState>;
         disconnect(reason?: string): RemoteControlHostState;
+      };
+      liveData: {
+        snapshot(): ReturnType<LiveDataPanel["snapshot"]>;
+        clearCache(): ReturnType<LiveDataPanel["snapshot"]>;
+      };
+      capture: {
+        snapshot(): LocalCaptureSnapshot & { cleanView: boolean };
+        screenshot(): Promise<LocalCaptureSnapshot>;
+        startClip(durationSeconds?: number): LocalCaptureSnapshot;
+        stopClip(): LocalCaptureSnapshot;
+        setCleanView(enabled: boolean): boolean;
+      };
+      community: {
+        snapshot(): ReturnType<CommunityPanel["snapshot"]>;
+        loadDailyChallenge(): boolean;
+        copyClassroomLink(): Promise<boolean>;
       };
       help(): Record<string, string>;
       replay(): ReplayFrame[];
@@ -474,6 +511,8 @@ const trainingRetry = $<HTMLButtonElement>("#training-retry");
 const trainingSkip = $<HTMLButtonElement>("#training-skip");
 const trainingEnd = $<HTMLButtonElement>("#training-end");
 const challengeSetup = $<HTMLDetailsElement>("#challenge-setup");
+const communityRoot = $<HTMLElement>("#community-panel");
+const dailyChallengeLoad = $<HTMLButtonElement>("[data-daily-load]");
 const challengeSelect = $<HTMLSelectElement>("#challenge-select");
 const challengeSetupNote = $<HTMLElement>("#challenge-setup-note");
 const challengeStart = $<HTMLButtonElement>("#challenge-start");
@@ -613,6 +652,8 @@ const remoteHostConnect = $<HTMLButtonElement>("#remote-host-connect");
 const remoteHostDisconnect = $<HTMLButtonElement>("#remote-host-disconnect");
 const remoteHostState = $<HTMLElement>("#remote-host-state");
 const remoteHostDetail = $<HTMLElement>("#remote-host-detail");
+const liveDataRoot = $<HTMLElement>("#live-data-panel");
+const captureRoot = $<HTMLElement>("#capture-panel");
 const safetyScore = $<HTMLElement>("#safety-score");
 const flightStrip = $<HTMLElement>("#flight-strip");
 const flightStripToggle = $<HTMLButtonElement>("#flight-strip-toggle");
@@ -701,6 +742,7 @@ const challengePanel = createChallengePanel({
     windToggle,
     weatherConditionSelect,
     runwayConfigurationSelect,
+    dailyChallengeLoad,
     fieldButton,
     scopeButton,
   ],
@@ -873,6 +915,15 @@ const remoteControlHost: RemoteControlHost = new RemoteControlHost({
     updateRemoteControlHostUi(state),
 });
 const launchOptions = new URLSearchParams(window.location.search);
+const requestedDailyDate = launchOptions.get("daily");
+let requestedDailyPlan: DailyChallengePlan | null = null;
+if (requestedDailyDate) {
+  try {
+    requestedDailyPlan = dailyChallengePlan(requestedDailyDate);
+  } catch {
+    requestedDailyPlan = null;
+  }
+}
 const telemetryEnabled = launchOptions.get("telemetry") === "1";
 const debugEnabled = launchOptions.get("debug") === "1";
 let performancePanelVisible = debugEnabled;
@@ -983,6 +1034,42 @@ const replayInspector: ReplayInspector = createReplayInspector(
     compare: compareReplayBaseline,
   },
 );
+const liveDataCoordinator = new LiveDataCoordinator({
+  storage: (() => {
+    try {
+      return window.localStorage;
+    } catch {
+      return null;
+    }
+  })(),
+});
+const liveDataPanel: LiveDataPanel = createLiveDataPanel(liveDataRoot, {
+  coordinator: liveDataCoordinator,
+  airportCode: () => config.code,
+  applyMetar: applyLiveMetar,
+  applySurfaceStatus: applyLiveSurfaceStatus,
+  applyTraffic: applyLiveTraffic,
+  announce: (label, detail, critical = false) =>
+    setStatus(label, detail, critical ? "warning" : undefined),
+});
+let capturePanel: CapturePanel | null = null;
+const localCapture = new LocalCapture(canvas, {
+  onStateChange: (snapshot) => capturePanel?.render(snapshot),
+});
+capturePanel = createCapturePanel(captureRoot, {
+  capture: localCapture,
+  filenameBase: captureFilenameBase,
+  beforeCleanView: prepareCleanSpectatorView,
+  announce: (label, detail, warning = false) =>
+    setStatus(label, detail, warning ? "warning" : undefined),
+});
+const communityPanel: CommunityPanel = createCommunityPanel(communityRoot, {
+  currentUrl: window.location.href,
+  plan: requestedDailyPlan ?? undefined,
+  loadDailyChallenge: loadDailyChallenge,
+  announce: (label, detail, warning = false) =>
+    setStatus(label, detail, warning ? "warning" : undefined),
+});
 const inputLayer = createUnifiedInput({
   canvas,
   getContext: inputContext,
@@ -3901,6 +3988,20 @@ function beginTrainingLesson(lessonId: TrainingLessonId): boolean {
   return true;
 }
 
+function loadDailyChallenge(plan: DailyChallengePlan): boolean {
+  selectAirport(plan.airportCode, true, plan.seed);
+  if (!selectControl(plan.mode)) return false;
+  setSeparationRules(plan.separationRuleset);
+  setStation(plan.station);
+  challengeSelect.value = plan.challengeId;
+  const accepted = openChallengeBriefing(plan.challengeId);
+  if (accepted) {
+    challengeSetup.open = true;
+    setControlPanelOpen(false);
+  }
+  return accepted;
+}
+
 function openChallengeBriefing(challengeId: ChallengeId): boolean {
   const accepted = simulation.startChallenge(challengeId);
   if (!accepted) return false;
@@ -6239,6 +6340,154 @@ function setAirportLifeVisible(visible: boolean): void {
   renderFlightStrip();
 }
 
+function liveReportMatchesAirport(station: string): boolean {
+  return liveDataStationForAirport(config.code) === station;
+}
+
+function applyLiveMetar(report: LiveMetarReport): {
+  accepted: boolean;
+  reason: string;
+} {
+  if (!liveReportMatchesAirport(report.station)) {
+    return {
+      accepted: false,
+      reason: `${report.station} does not match the active ${config.code} airport.`,
+    };
+  }
+  const age = liveDataAge(report);
+  if (age.stale) {
+    return {
+      accepted: false,
+      reason: `The report is ${age.label}; stale weather remains preview-only.`,
+    };
+  }
+  const directionDegrees =
+    report.weather.windDirectionDegrees ??
+    mathAngleToAviationDegrees(simulation.state.weather.windDirection);
+  const result = executeAirportRequest({
+    action: "setWeather",
+    condition: report.weather.condition,
+    directionDegrees,
+    windSpeed: Math.min(40, report.weather.windSpeedKts),
+  });
+  return {
+    accepted: result.accepted,
+    reason: result.accepted
+      ? `${report.station} ${age.label} · ${report.provenance.provider} · modeled weather updated, not for navigation.`
+      : result.reason,
+  };
+}
+
+function normalizedSurfaceLabel(value: string): string {
+  return value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+function applyLiveSurfaceStatus(
+  item: LiveSurfaceStatusItem,
+  report: LiveNotamReport,
+): { accepted: boolean; reason: string } {
+  if (!liveReportMatchesAirport(report.station)) {
+    return {
+      accepted: false,
+      reason: `${report.station} does not match the active ${config.code} airport.`,
+    };
+  }
+  if (Date.now() > Date.parse(report.expiresAt)) {
+    return {
+      accepted: false,
+      reason:
+        "This surface-status report has expired; refresh it before review.",
+    };
+  }
+  if (item.endsAt && Date.now() > Date.parse(item.endsAt)) {
+    return {
+      accepted: false,
+      reason: `${item.id} has ended and cannot change the current topology.`,
+    };
+  }
+  let kind: "runway-closure" | "taxiway-closure";
+  let targetId: string | null = null;
+  if (item.targetKind === "runway") {
+    kind = "runway-closure";
+    const requested = normalizedSurfaceLabel(item.target);
+    const runway = config.runways.find((candidate) =>
+      candidate.designation?.some(
+        (designation) => normalizedSurfaceLabel(designation) === requested,
+      ),
+    );
+    targetId = runway ? String(runway.id) : null;
+  } else {
+    kind = "taxiway-closure";
+    const requested = normalizedSurfaceLabel(item.target);
+    const taxiway = config.surfaceGraph.taxiways.find(
+      (candidate) =>
+        normalizedSurfaceLabel(candidate.id) === requested ||
+        normalizedSurfaceLabel(candidate.name) === requested,
+    );
+    targetId = taxiway?.id ?? null;
+  }
+  if (!targetId) {
+    return {
+      accepted: false,
+      reason: `${item.targetKind} ${item.target} is not present in the active sourced surface graph; no approximation was made.`,
+    };
+  }
+  const result = executeAirportRequest({
+    action: "setSurfaceDisruption",
+    kind,
+    targetId,
+    enabled: item.status !== "open",
+  });
+  return {
+    accepted: result.accepted,
+    reason: result.accepted
+      ? `${item.id} was reviewed and passed through supervisor authority and the surface safety arbiter.`
+      : result.reason,
+  };
+}
+
+function applyLiveTraffic(
+  plan: LiveTrafficSeedPlan,
+  report: LiveTrafficReport,
+): { accepted: boolean; reason: string } {
+  if (!liveReportMatchesAirport(report.station)) {
+    return {
+      accepted: false,
+      reason: `${report.station} does not match the active ${config.code} airport.`,
+    };
+  }
+  const age = liveDataAge(report);
+  if (age.stale) {
+    return {
+      accepted: false,
+      reason: `The aggregate demand report is ${age.label}; refresh before applying it.`,
+    };
+  }
+  const result = executeAirportRequest({
+    action: "setTrafficDensity",
+    density: plan.density,
+  });
+  return {
+    accepted: result.accepted,
+    reason: result.accepted
+      ? `${plan.operationsPerHour} aggregate ops/hr mapped to ${plan.density}; ${plan.aggregateFingerprint}. Only the deterministic density command enters replay.`
+      : result.reason,
+  };
+}
+
+function captureFilenameBase(): string {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return `airport-auto-${config.code.toLowerCase()}-${config.seed}-${stamp}`;
+}
+
+function prepareCleanSpectatorView(): void {
+  setControlPanelOpen(false);
+  if (operationsLab.visible()) operationsLab.setVisible(false, false);
+  if (focusNavigator.visible()) focusNavigator.setVisible(false);
+  if (radarVisible) setRadarPanelVisible(false);
+  if (queueInspectorVisible) setQueuePanelVisible(false);
+}
+
 function updateRemoteControlHostUi(
   state: RemoteControlHostState = remoteControlHost.state(),
 ): void {
@@ -6751,6 +7000,7 @@ function updateAirportUi(): void {
     mapFacilitySource.hidden = true;
   }
   document.title = `${config.code === "LOCAL" ? config.name : config.code} · Airport Auto`;
+  liveDataPanel.setAirport(config.code);
   scopeButton.setAttribute("aria-pressed", String(center));
   scopeButton.classList.toggle("control--active", center);
   scopeLabel.textContent = center ? "Airfield" : "Center";
@@ -7410,7 +7660,13 @@ function airportSnapshot() {
     presentation: {
       accessibilityPalette,
       cameraDirector: cameraDirector.snapshot(performance.now() / 1_000),
+      capture: {
+        ...localCapture.snapshot(),
+        cleanView: capturePanel?.cleanView() ?? false,
+      },
     },
+    liveData: liveDataPanel.snapshot(),
+    community: communityPanel.snapshot(),
     radarVisible,
     queueInspectorVisible,
     windOverlayVisible,
@@ -9418,6 +9674,30 @@ window.airportControl = {
     connect: (configuration) => remoteControlHost.connect(configuration),
     disconnect: (reason) => remoteControlHost.disconnect(reason),
   },
+  liveData: {
+    snapshot: () => liveDataPanel.snapshot(),
+    clearCache() {
+      liveDataCoordinator.clearCache();
+      liveDataPanel.setAirport(config.code);
+      return liveDataPanel.snapshot();
+    },
+  },
+  capture: {
+    snapshot: () => ({
+      ...localCapture.snapshot(),
+      cleanView: capturePanel?.cleanView() ?? false,
+    }),
+    screenshot: () => localCapture.screenshot(captureFilenameBase()),
+    startClip: (durationSeconds = 5) =>
+      localCapture.startClip(durationSeconds, captureFilenameBase()),
+    stopClip: () => localCapture.stopClip(),
+    setCleanView: (enabled) => capturePanel?.setCleanView(enabled) ?? false,
+  },
+  community: {
+    snapshot: () => communityPanel.snapshot(),
+    loadDailyChallenge: () => communityPanel.loadDailyChallenge(),
+    copyClassroomLink: () => communityPanel.copyClassroomLink(),
+  },
   help() {
     return {
       snapshot: "airportControl.snapshot()",
@@ -9427,7 +9707,13 @@ window.airportControl = {
       validate:
         "airportControl.validate({ action: 'pause' }) // structural validation without execution",
       formalDispatch:
-        "airportControl.dispatch({ protocolVersion: '1.2.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.39.0', snapshotSchemaVersion: 41 }, command: { action: 'pause' } })",
+        "airportControl.dispatch({ protocolVersion: '1.2.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.40.0', snapshotSchemaVersion: 42 }, command: { action: 'pause' } })",
+      liveData:
+        "airportControl.liveData.snapshot() // redacted opt-in/cache/review state; credentials and raw feeds are never exposed",
+      capture:
+        "airportControl.capture.setCleanView(true); airportControl.capture.screenshot(); airportControl.capture.startClip(5) // local-only canvas media",
+      community:
+        "airportControl.community.snapshot(); airportControl.community.loadDailyChallenge(); airportControl.community.copyClassroomLink() // deterministic daily/classroom board, no accounts or score upload",
       structuredCommand:
         "airportControl.request({ action: 'pause' }) // legacy-compatible bare command; result includes requestId, commandId, eventId, authority, and compatibility",
       pause: "airportControl.command({ action: 'pause' })",
@@ -9736,21 +10022,24 @@ function cardinalDirection(headingDegrees: number): string {
 
 if (telemetryEnabled) telemetryPanel.hidden = false;
 const launchAirport =
-  launchOptions.get("airport") ?? (soakEnabled ? "ORD" : null);
+  requestedDailyPlan?.airportCode ??
+  launchOptions.get("airport") ??
+  (soakEnabled ? "ORD" : null);
 const launchSeedValue = Number(launchOptions.get("seed"));
 const launchSeed =
-  launchOptions.has("seed") &&
+  requestedDailyPlan?.seed ??
+  (launchOptions.has("seed") &&
   Number.isSafeInteger(launchSeedValue) &&
   launchSeedValue >= 0
     ? launchSeedValue
-    : undefined;
+    : undefined);
 if (launchAirport) selectAirport(launchAirport.toUpperCase(), true, launchSeed);
 else if (launchSeed !== undefined) selectAirport("LOCAL", true, launchSeed);
 const launchSpeed = Number(launchOptions.get("speed"));
 if (Number.isFinite(launchSpeed) && launchOptions.has("speed"))
   setSimulationSpeed(launchSpeed);
 else if (soakEnabled) setSimulationSpeed(3);
-const launchMode = launchOptions.get("mode");
+const launchMode = requestedDailyPlan?.mode ?? launchOptions.get("mode");
 if (
   launchMode === "auto" ||
   launchMode === "assisted" ||
@@ -9788,14 +10077,16 @@ if (launchDensity && isTrafficDensity(launchDensity)) {
   simulation.setTrafficDensity(launchDensity);
   newSession(true, config);
 }
-const launchRuleset = launchOptions.get("rules");
+const launchRuleset =
+  requestedDailyPlan?.separationRuleset ?? launchOptions.get("rules");
 if (launchRuleset === "forgiving" || launchRuleset === "realistic")
   setSeparationRules(launchRuleset);
 if (launchOptions.get("sandbox") === "1") {
   openSandbox(launchOptions.get("background") === "1");
   sandboxSetup.open = true;
 }
-const launchStation = launchOptions.get("station") as ControllerStation | null;
+const launchStation = (requestedDailyPlan?.station ??
+  launchOptions.get("station")) as ControllerStation | null;
 if (launchStation && isControllerStation(launchStation))
   setStation(launchStation);
 const launchWeatherValue = launchOptions.get("weather");
@@ -9842,7 +10133,8 @@ if (
   trainingLessonSelect.value = launchLesson;
   beginTrainingLesson(launchLesson);
 }
-const launchChallenge = launchOptions.get("challenge") as ChallengeId | null;
+const launchChallenge = (requestedDailyPlan?.challengeId ??
+  launchOptions.get("challenge")) as ChallengeId | null;
 if (
   launchChallenge &&
   [
@@ -9854,6 +10146,7 @@ if (
 ) {
   challengeSelect.value = launchChallenge;
   openChallengeBriefing(launchChallenge);
+  if (requestedDailyPlan) challengeSetup.open = true;
 }
 if (launchOptions.get("autostart") === "1" || soakEnabled) {
   startShift();
@@ -9866,5 +10159,9 @@ window.addEventListener("beforeunload", () => {
   airportChannel?.close();
   remoteControlHost.dispose();
   inputLayer.dispose();
+  liveDataPanel.dispose();
+  capturePanel?.dispose();
+  localCapture.dispose();
+  communityPanel.dispose();
   world.dispose();
 });

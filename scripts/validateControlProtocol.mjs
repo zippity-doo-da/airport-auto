@@ -23,8 +23,8 @@ function assert(condition, message) {
 }
 
 assert(CONTROL_PROTOCOL_VERSION === '1.2.0', 'control protocol version changed unexpectedly');
-assert(CONTROL_API_VERSION === '2.39.0', 'control API version changed unexpectedly');
-assert(CONTROL_SNAPSHOT_SCHEMA_VERSION === 41, 'snapshot schema version changed unexpectedly');
+assert(CONTROL_API_VERSION === '2.40.0', 'control API version changed unexpectedly');
+assert(CONTROL_SNAPSHOT_SCHEMA_VERSION === 42, 'snapshot schema version changed unexpectedly');
 assert(CONTROL_REPLAY_SCHEMA_VERSION === 4, 'replay schema version changed unexpectedly');
 
 const definitions = Object.values(AIRPORT_CONTROL_COMMAND_DEFINITIONS);

@@ -90,7 +90,7 @@ const legacyEvent = migrateStandaloneTelemetryEvent(
   { sessionId: 'migration-test', airport: 'ORD', eventId: 8 },
 );
 assert(legacyEvent.accepted && legacyEvent.value?.event.eventKey === 'migration-test:8', 'legacy event causality was not filled');
-assert(legacyEvent.value?.event.protocolVersion === '1.2.0' && legacyEvent.value.event.apiVersion === '2.39.0', 'legacy event protocol fields were not upgraded');
+assert(legacyEvent.value?.event.protocolVersion === '1.2.0' && legacyEvent.value.event.apiVersion === '2.40.0', 'legacy event protocol fields were not upgraded');
 assert(!migrateStandaloneTelemetryEvent({ schemaVersion: 2, event: legacyEvent.value?.event }).accepted, 'future standalone event was accepted');
 
 const airport = { faaId: 'TST', icaoId: 'KTST', name: 'Test Airport' };
@@ -160,4 +160,6 @@ const result = await build({
 
 const bundled = result.outputFiles[0]?.text;
 if (!bundled) throw new Error("Schema migration validation bundle was empty.");
-await import(`data:text/javascript;base64,${Buffer.from(bundled).toString("base64")}`);
+await import(
+  `data:text/javascript;base64,${Buffer.from(bundled).toString("base64")}`
+);

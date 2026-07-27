@@ -66,8 +66,11 @@ class GatewayPeer {
   }
 }
 
-async function openController(endpoint: string): Promise<GatewayPeer> {
-  const socket = new WebSocket(endpoint, { origin: "http://127.0.0.1:4178" });
+async function openController(
+  endpoint: string,
+  origin: string,
+): Promise<GatewayPeer> {
+  const socket = new WebSocket(endpoint, { origin });
   const peer = new GatewayPeer(socket);
   await new Promise<void>((resolve, reject) => {
     socket.once("open", () => resolve());
@@ -87,8 +90,9 @@ test("opt-in browser host and external controller share the formal safety arbite
   const hostToken = randomBytes(32).toString("base64url");
   const controllerToken = randomBytes(32).toString("base64url");
   const sessionId = "playwright-remote";
+  const browserOrigin = new URL(testInfo.project.use.baseURL as string).origin;
   const gateway = createRemoteGateway({
-    allowedOrigins: ["http://127.0.0.1:4178"],
+    allowedOrigins: [browserOrigin],
     tokens: [
       {
         id: "browser-host",
@@ -112,7 +116,7 @@ test("opt-in browser host and external controller share the formal safety arbite
       "/?airport=ORD&mode=manual&station=supervisor&autostart=1&detail=low&renderFps=0.25",
     );
     await page.waitForFunction(
-      () => window.airportControl?.version === "2.39.0",
+      () => window.airportControl?.version === "2.40.0",
     );
     const connected = await page.evaluate(
       ({ endpoint, session, token }) =>
@@ -136,7 +140,7 @@ test("opt-in browser host and external controller share the formal safety arbite
     );
     await expect(page.locator("#remote-host-disconnect")).toBeEnabled();
 
-    controller = await openController(address.webSocketUrl);
+    controller = await openController(address.webSocketUrl, browserOrigin);
     controller.send({
       type: "hello",
       protocolVersion: "1.0.0",
@@ -163,7 +167,7 @@ test("opt-in browser host and external controller share the formal safety arbite
     const compactSnapshot = state.snapshot as Record<string, unknown>;
     expect(compactSnapshot).toMatchObject({
       schemaVersion: 1,
-      sourceSnapshotSchemaVersion: 37,
+      sourceSnapshotSchemaVersion: 42,
       airport: { code: "ORD", navigationUse: false },
       mode: "manual",
     });

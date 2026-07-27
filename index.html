@@ -4,271 +4,1108 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#183638" />
-    <meta name="description" content="Airport Auto is a calm, live air-traffic simulation with automatic and hands-on ATC modes." />
+    <meta
+      name="description"
+      content="Airport Auto is a calm, live air-traffic simulation with automatic and hands-on ATC modes."
+    />
     <title>Airport Auto — Live Air Traffic</title>
   </head>
   <body>
     <main id="app">
-      <canvas id="scene" tabindex="0" aria-label="Live three-dimensional airport traffic simulation.">Airport Auto requires a browser with WebGL support.</canvas>
-      <svg id="route-layer" aria-hidden="true"><path id="route-shadow"/><path id="route-path"/></svg>
+      <canvas
+        id="scene"
+        tabindex="0"
+        aria-label="Live three-dimensional airport traffic simulation."
+        >Airport Auto requires a browser with WebGL support.</canvas
+      >
+      <button
+        id="capture-clean-exit"
+        class="capture-clean-exit"
+        type="button"
+        aria-label="Exit clean spectator view"
+        aria-pressed="false"
+        hidden
+      >
+        Exit clean view
+      </button>
+      <svg id="route-layer" aria-hidden="true">
+        <path id="route-shadow" />
+        <path id="route-path" />
+      </svg>
 
       <header class="brand" aria-label="Airport Auto">
         <span id="brand-mark" class="brand__mark" aria-hidden="true">S</span>
-        <div><p id="airport-name">Stillwater</p><span id="airport-meta">Local · airfield control</span></div>
+        <div>
+          <p id="airport-name">Stillwater</p>
+          <span id="airport-meta">Local · airfield control</span>
+        </div>
       </header>
 
-      <button id="menu-toggle" class="menu-toggle" type="button" aria-label="Open controls" aria-controls="control-panel" aria-expanded="false">
-        <span class="menu-toggle__icon" aria-hidden="true"><i></i><i></i><i></i></span>
+      <button
+        id="menu-toggle"
+        class="menu-toggle"
+        type="button"
+        aria-label="Open controls"
+        aria-controls="control-panel"
+        aria-expanded="false"
+      >
+        <span class="menu-toggle__icon" aria-hidden="true"
+          ><i></i><i></i><i></i
+        ></span>
         <small>Controls</small>
       </button>
 
-      <aside id="control-panel" class="control-panel" aria-label="Airfield controls" aria-hidden="true" inert>
+      <aside
+        id="control-panel"
+        class="control-panel"
+        aria-label="Airfield controls"
+        aria-hidden="true"
+        inert
+      >
         <section class="quick-setup" aria-label="Airport and control selection">
-        <label><span>Airport</span><select id="airport-select">
-          <option value="LOCAL">Random local airfield</option>
-          <option value="ATL">ATL — Atlanta</option>
-          <option value="DXB">DXB — Dubai</option>
-          <option value="HND">HND — Tokyo Haneda</option>
-          <option value="DFW">DFW — Dallas/Fort Worth</option>
-          <option value="ORD">ORD — Chicago O’Hare</option>
-          <option value="LHR">LHR — London Heathrow</option>
-          <option value="IST">IST — Istanbul</option>
-          <option value="DEN">DEN — Denver</option>
-          <option value="LAX">LAX — Los Angeles</option>
-          <option value="JFK">JFK — New York</option>
-        </select></label>
-        <label><span>Control</span><select id="control-select">
-          <option value="auto">Full auto</option>
-          <option value="assisted">Assisted ATC</option>
-          <option value="manual">Full manual</option>
-          <option value="watch">Watch / ASMR</option>
-        </select></label>
-        <label><span>Scenario</span><select id="scenario-select">
-          <option value="normal">Normal flow</option>
-          <option value="rush">Rush hour</option>
-          <option value="storm">Storm front</option>
-          <option value="closure">Runway closure</option>
-          <option value="training">Training pattern</option>
-          <option value="emergency">Emergency response</option>
-        </select></label>
-        <label><span>Traffic</span><select id="density-select" aria-label="Traffic density">
-          <option value="quiet">Quiet</option>
-          <option value="realistic" selected>Realistic</option>
-          <option value="busy">Busy</option>
-          <option value="rush">Rush</option>
-          <option value="extreme">Extreme</option>
-        </select></label>
-        <label><span>Separation</span><select id="separation-rules-select" aria-label="Separation ruleset">
-          <option value="forgiving" selected>Forgiving ATC</option>
-          <option value="realistic">FAA-inspired terminal</option>
-        </select></label>
-        <label><span>Station</span><select id="station-select">
-          <option value="supervisor">Supervisor</option>
-          <option value="approach">Approach</option>
-          <option value="tower">Tower</option>
-          <option value="ground">Ground</option>
-          <option value="ramp">Ramp</option>
-        </select></label>
-        <fieldset class="station-automation" id="station-automation"><legend>Unstaffed desks</legend>
-          <label><input type="checkbox" data-station-automation="approach" /> Approach</label>
-          <label><input type="checkbox" data-station-automation="tower" /> Tower</label>
-          <label><input type="checkbox" data-station-automation="ground" /> Ground</label>
-          <label><input type="checkbox" data-station-automation="ramp" /> Ramp</label>
-          <small>Supervisor can automate any desk. Your selected desk remains under your control.</small>
-        </fieldset>
-        <label class="controller-policy"><span>Controller policy</span><select id="controller-policy-select" aria-describedby="controller-policy-detail">
-          <option value="balanced" selected>Balanced</option>
-          <option value="conservative">Conservative</option>
-          <option value="efficient">Efficient</option>
-          <option value="calm">Calm</option>
-          <option value="teaching">Teaching</option>
-          <option value="realistic">Realistic tempo</option>
-        </select><small id="controller-policy-detail">Steady coordination with useful headroom at every desk.</small></label>
-        <div class="station-workloads" id="station-workloads" aria-label="Controller station workload">
-          <button type="button" data-station-workload="approach"><b>Approach</b><span>0 tracks</span><i>Idle</i></button>
-          <button type="button" data-station-workload="tower"><b>Tower</b><span>0 tracks</span><i>Idle</i></button>
-          <button type="button" data-station-workload="ground"><b>Ground</b><span>0 tracks</span><i>Idle</i></button>
-          <button type="button" data-station-workload="ramp"><b>Ramp</b><span>0 tracks</span><i>Idle</i></button>
-        </div>
-        <fieldset class="training-setup" aria-label="No-fail controller training"><legend>Training school</legend>
-          <label><span>Lesson</span><select id="training-lesson-select">
-            <option value="arrival-basics">Arrival foundations · 3 min</option>
-            <option value="tower-landing">Tower landing sequence · 4 min</option>
-            <option value="surface-flow">Ramp and surface flow · 4 min</option>
-            <option value="handoff-workflow">Controller handoffs · 3 min</option>
-          </select></label>
-          <button id="training-start" type="button">Begin no-fail lesson</button>
-          <small>Unsafe instructions are rejected with a plain-language explanation. Retry restores the exact step checkpoint.</small>
-        </fieldset>
-        <details class="challenge-setup" id="challenge-setup">
-          <summary>Challenge shifts <span>timed · graded</span></summary>
-          <div>
-            <label><span>Shift</span><select id="challenge-select" aria-label="Controller challenge">
-              <option value="rush-hour">Rush hour · 6 min</option>
-              <option value="storm-operations">Storm · 7 min</option>
-              <option value="runway-closure">Closure · 7 min</option>
-              <option value="emergency-priority">Emergency · 5 min</option>
-            </select></label>
-            <button id="challenge-start" type="button">Open challenge briefing</button>
-            <small id="challenge-setup-note">Choose a deterministic shift with locked conditions, live objectives, and a full operational debrief.</small>
+          <label
+            ><span>Airport</span
+            ><select id="airport-select">
+              <option value="LOCAL">Random local airfield</option>
+              <option value="ATL">ATL — Atlanta</option>
+              <option value="DXB">DXB — Dubai</option>
+              <option value="HND">HND — Tokyo Haneda</option>
+              <option value="DFW">DFW — Dallas/Fort Worth</option>
+              <option value="ORD">ORD — Chicago O’Hare</option>
+              <option value="LHR">LHR — London Heathrow</option>
+              <option value="IST">IST — Istanbul</option>
+              <option value="DEN">DEN — Denver</option>
+              <option value="LAX">LAX — Los Angeles</option>
+              <option value="JFK">JFK — New York</option>
+            </select></label
+          >
+          <label
+            ><span>Control</span
+            ><select id="control-select">
+              <option value="auto">Full auto</option>
+              <option value="assisted">Assisted ATC</option>
+              <option value="manual">Full manual</option>
+              <option value="watch">Watch / ASMR</option>
+            </select></label
+          >
+          <label
+            ><span>Scenario</span
+            ><select id="scenario-select">
+              <option value="normal">Normal flow</option>
+              <option value="rush">Rush hour</option>
+              <option value="storm">Storm front</option>
+              <option value="closure">Runway closure</option>
+              <option value="training">Training pattern</option>
+              <option value="emergency">Emergency response</option>
+            </select></label
+          >
+          <label
+            ><span>Traffic</span
+            ><select id="density-select" aria-label="Traffic density">
+              <option value="quiet">Quiet</option>
+              <option value="realistic" selected>Realistic</option>
+              <option value="busy">Busy</option>
+              <option value="rush">Rush</option>
+              <option value="extreme">Extreme</option>
+            </select></label
+          >
+          <label
+            ><span>Separation</span
+            ><select
+              id="separation-rules-select"
+              aria-label="Separation ruleset"
+            >
+              <option value="forgiving" selected>Forgiving ATC</option>
+              <option value="realistic">FAA-inspired terminal</option>
+            </select></label
+          >
+          <label
+            ><span>Station</span
+            ><select id="station-select">
+              <option value="supervisor">Supervisor</option>
+              <option value="approach">Approach</option>
+              <option value="tower">Tower</option>
+              <option value="ground">Ground</option>
+              <option value="ramp">Ramp</option>
+            </select></label
+          >
+          <fieldset class="station-automation" id="station-automation">
+            <legend>Unstaffed desks</legend>
+            <label
+              ><input type="checkbox" data-station-automation="approach" />
+              Approach</label
+            >
+            <label
+              ><input type="checkbox" data-station-automation="tower" />
+              Tower</label
+            >
+            <label
+              ><input type="checkbox" data-station-automation="ground" />
+              Ground</label
+            >
+            <label
+              ><input type="checkbox" data-station-automation="ramp" />
+              Ramp</label
+            >
+            <small
+              >Supervisor can automate any desk. Your selected desk remains
+              under your control.</small
+            >
+          </fieldset>
+          <label class="controller-policy"
+            ><span>Controller policy</span
+            ><select
+              id="controller-policy-select"
+              aria-describedby="controller-policy-detail"
+            >
+              <option value="balanced" selected>Balanced</option>
+              <option value="conservative">Conservative</option>
+              <option value="efficient">Efficient</option>
+              <option value="calm">Calm</option>
+              <option value="teaching">Teaching</option>
+              <option value="realistic">Realistic tempo</option></select
+            ><small id="controller-policy-detail"
+              >Steady coordination with useful headroom at every desk.</small
+            ></label
+          >
+          <div
+            class="station-workloads"
+            id="station-workloads"
+            aria-label="Controller station workload"
+          >
+            <button type="button" data-station-workload="approach">
+              <b>Approach</b><span>0 tracks</span><i>Idle</i>
+            </button>
+            <button type="button" data-station-workload="tower">
+              <b>Tower</b><span>0 tracks</span><i>Idle</i>
+            </button>
+            <button type="button" data-station-workload="ground">
+              <b>Ground</b><span>0 tracks</span><i>Idle</i>
+            </button>
+            <button type="button" data-station-workload="ramp">
+              <b>Ramp</b><span>0 tracks</span><i>Idle</i>
+            </button>
           </div>
-        </details>
-        <details class="sandbox-setup" id="sandbox-setup">
-          <summary>Sandbox lab <span>no score · no fail</span></summary>
-          <div>
-            <button id="sandbox-toggle" type="button">Enter clean sandbox</button>
-            <label class="sandbox-background"><input id="sandbox-background" type="checkbox" />Continuous background traffic</label>
-            <fieldset class="sandbox-injection" aria-label="Sandbox traffic injection">
-              <legend>Traffic injection</legend>
-              <label><span>Flow</span><select id="sandbox-direction"><option value="arrival">Arrival</option><option value="departure">Departure</option></select></label>
-              <label><span>Class</span><select id="sandbox-traffic-class"><option value="auto">Airport mix</option><option value="passenger">Passenger</option><option value="regional">Regional</option><option value="cargo">Cargo</option><option value="general-aviation">General aviation</option></select></label>
-              <label><span>Runway</span><select id="sandbox-runway"><option value="auto">Automatic safe runway</option></select></label>
-              <label><span>Count</span><select id="sandbox-count"><option value="1">1 aircraft</option><option value="2">2 aircraft</option><option value="4">4 aircraft</option><option value="8">8 aircraft</option></select></label>
-              <button id="sandbox-inject" type="button">Queue traffic</button>
-            </fieldset>
-            <p class="sandbox-setup__status"><b id="sandbox-status">Sandbox inactive</b><span id="sandbox-detail">Enter with a clear board, then stage only the traffic you want.</span></p>
-            <footer><button id="sandbox-cancel" type="button">Cancel pending</button><button id="sandbox-clear" type="button">Clear board</button></footer>
-            <small>Injected aircraft still obey runway performance, stand compatibility, spacing, protected routes, and collision prevention. Weather and runway controls remain live.</small>
+          <fieldset
+            class="training-setup"
+            aria-label="No-fail controller training"
+          >
+            <legend>Training school</legend>
+            <label
+              ><span>Lesson</span
+              ><select id="training-lesson-select">
+                <option value="arrival-basics">
+                  Arrival foundations · 3 min
+                </option>
+                <option value="tower-landing">
+                  Tower landing sequence · 4 min
+                </option>
+                <option value="surface-flow">
+                  Ramp and surface flow · 4 min
+                </option>
+                <option value="handoff-workflow">
+                  Controller handoffs · 3 min
+                </option>
+              </select></label
+            >
+            <button id="training-start" type="button">
+              Begin no-fail lesson
+            </button>
+            <small
+              >Unsafe instructions are rejected with a plain-language
+              explanation. Retry restores the exact step checkpoint.</small
+            >
+          </fieldset>
+          <details class="challenge-setup" id="challenge-setup">
+            <summary>Challenge shifts <span>timed · graded</span></summary>
+            <div>
+              <section
+                id="community-panel"
+                class="daily-challenge"
+                aria-labelledby="daily-challenge-heading"
+              >
+                <span id="daily-challenge-heading">Shared daily shift</span>
+                <strong data-daily-title>Daily challenge</strong>
+                <small data-daily-detail>One UTC seed for every player.</small>
+                <div>
+                  <button data-daily-load type="button">
+                    Load today’s shift
+                  </button>
+                  <button data-daily-copy type="button">
+                    Copy classroom link
+                  </button>
+                  <a data-daily-open href="./">Open share link</a>
+                </div>
+                <small data-daily-status aria-live="polite"
+                  >No account or score upload.</small
+                >
+              </section>
+              <label
+                ><span>Shift</span
+                ><select
+                  id="challenge-select"
+                  aria-label="Controller challenge"
+                >
+                  <option value="rush-hour">Rush hour · 6 min</option>
+                  <option value="storm-operations">Storm · 7 min</option>
+                  <option value="runway-closure">Closure · 7 min</option>
+                  <option value="emergency-priority">Emergency · 5 min</option>
+                </select></label
+              >
+              <button id="challenge-start" type="button">
+                Open challenge briefing
+              </button>
+              <small id="challenge-setup-note"
+                >Choose a deterministic shift with locked conditions, live
+                objectives, and a full operational debrief.</small
+              >
+            </div>
+          </details>
+          <details class="sandbox-setup" id="sandbox-setup">
+            <summary>Sandbox lab <span>no score · no fail</span></summary>
+            <div>
+              <button id="sandbox-toggle" type="button">
+                Enter clean sandbox
+              </button>
+              <label class="sandbox-background"
+                ><input id="sandbox-background" type="checkbox" />Continuous
+                background traffic</label
+              >
+              <fieldset
+                class="sandbox-injection"
+                aria-label="Sandbox traffic injection"
+              >
+                <legend>Traffic injection</legend>
+                <label
+                  ><span>Flow</span
+                  ><select id="sandbox-direction">
+                    <option value="arrival">Arrival</option>
+                    <option value="departure">Departure</option>
+                  </select></label
+                >
+                <label
+                  ><span>Class</span
+                  ><select id="sandbox-traffic-class">
+                    <option value="auto">Airport mix</option>
+                    <option value="passenger">Passenger</option>
+                    <option value="regional">Regional</option>
+                    <option value="cargo">Cargo</option>
+                    <option value="general-aviation">General aviation</option>
+                  </select></label
+                >
+                <label
+                  ><span>Runway</span
+                  ><select id="sandbox-runway">
+                    <option value="auto">Automatic safe runway</option>
+                  </select></label
+                >
+                <label
+                  ><span>Count</span
+                  ><select id="sandbox-count">
+                    <option value="1">1 aircraft</option>
+                    <option value="2">2 aircraft</option>
+                    <option value="4">4 aircraft</option>
+                    <option value="8">8 aircraft</option>
+                  </select></label
+                >
+                <button id="sandbox-inject" type="button">Queue traffic</button>
+              </fieldset>
+              <p class="sandbox-setup__status">
+                <b id="sandbox-status">Sandbox inactive</b
+                ><span id="sandbox-detail"
+                  >Enter with a clear board, then stage only the traffic you
+                  want.</span
+                >
+              </p>
+              <footer>
+                <button id="sandbox-cancel" type="button">Cancel pending</button
+                ><button id="sandbox-clear" type="button">Clear board</button>
+              </footer>
+              <small
+                >Injected aircraft still obey runway performance, stand
+                compatibility, spacing, protected routes, and collision
+                prevention. Weather and runway controls remain live.</small
+              >
+            </div>
+          </details>
+          <label class="speed-control"
+            ><span
+              >Speed
+              <output id="speed-output" for="speed-control">1×</output></span
+            ><input
+              id="speed-control"
+              type="range"
+              min="0.5"
+              max="3"
+              step="0.25"
+              value="1"
+              aria-label="Simulation speed"
+          /></label>
+          <div class="weather-readout" aria-label="Current weather">
+            <span id="weather-condition">WX off</span
+            ><b id="weather-wind">calm · wind off</b
+            ><small id="weather-visibility">10 mi visibility</small
+            ><small id="weather-runway-condition"
+              >Runways dry · RwyCC 6/6/6</small
+            ><small id="environment-readout"
+              >Automatic light · dawn · summer</small
+            ><small id="operation-bank">06:20 local · Morning traffic</small
+            ><small id="traffic-flow">Realistic · metering clear</small
+            ><small id="runway-configuration">Primary flow</small>
+            <div class="weather-readout__switches">
+              <button id="weather-toggle" type="button" aria-pressed="false">
+                WX OFF</button
+              ><button id="wind-toggle" type="button" aria-pressed="false">
+                WIND OFF</button
+              ><select
+                id="weather-condition-select"
+                aria-label="Weather condition"
+              >
+                <option value="auto">Auto cycle</option>
+                <option value="clear">Clear</option>
+                <option value="haze">Haze</option>
+                <option value="rain">Rain</option>
+                <option value="fog">Fog</option>
+                <option value="snow">Snow / deicing</option>
+                <option value="thunderstorm">Thunderstorm</option>
+              </select>
+            </div>
+            <label class="runway-configuration-control"
+              ><span>Runway plan</span
+              ><select
+                id="runway-configuration-select"
+                aria-label="Runway configuration"
+              >
+                <option value="auto">Automatic</option>
+              </select></label
+            >
           </div>
-        </details>
-        <label class="speed-control"><span>Speed <output id="speed-output" for="speed-control">1×</output></span><input id="speed-control" type="range" min="0.5" max="3" step="0.25" value="1" aria-label="Simulation speed" /></label>
-        <div class="weather-readout" aria-label="Current weather">
-          <span id="weather-condition">WX off</span><b id="weather-wind">calm · wind off</b><small id="weather-visibility">10 mi visibility</small><small id="weather-runway-condition">Runways dry · RwyCC 6/6/6</small><small id="environment-readout">Automatic light · dawn · summer</small><small id="operation-bank">06:20 local · Morning traffic</small><small id="traffic-flow">Realistic · metering clear</small><small id="runway-configuration">Primary flow</small>
-          <div class="weather-readout__switches"><button id="weather-toggle" type="button" aria-pressed="false">WX OFF</button><button id="wind-toggle" type="button" aria-pressed="false">WIND OFF</button><select id="weather-condition-select" aria-label="Weather condition"><option value="auto">Auto cycle</option><option value="clear">Clear</option><option value="haze">Haze</option><option value="rain">Rain</option><option value="fog">Fog</option><option value="snow">Snow / deicing</option><option value="thunderstorm">Thunderstorm</option></select></div>
-          <label class="runway-configuration-control"><span>Runway plan</span><select id="runway-configuration-select" aria-label="Runway configuration"><option value="auto">Automatic</option></select></label>
-        </div>
-        <label class="audio-preset"><span>Soundscape</span><select id="audio-preset"><option value="full">Full field</option><option value="calm">Calm</option><option value="radio">Radio focus</option><option value="engines">Engines only</option><option value="silent">Silent simulation</option></select></label>
+          <label class="audio-preset"
+            ><span>Soundscape</span
+            ><select id="audio-preset">
+              <option value="full">Full field</option>
+              <option value="calm">Calm</option>
+              <option value="radio">Radio focus</option>
+              <option value="engines">Engines only</option>
+              <option value="silent">Silent simulation</option>
+            </select></label
+          >
         </section>
 
         <nav class="controls" aria-label="Game controls">
-          <button id="mode-toggle" class="control control--active" type="button" aria-label="Switch control mode" aria-pressed="true"><span id="mode-icon" aria-hidden="true">A</span><small id="mode-label">Auto</small></button>
-          <button id="scope-toggle" class="control" type="button" aria-label="Switch between airfield and center view" aria-pressed="false"><span aria-hidden="true">⌁</span><small id="scope-label">Center</small></button>
-          <button id="night-toggle" class="control" type="button" aria-label="Cycle automatic, night, and day lighting" aria-pressed="false"><span id="night-icon" aria-hidden="true">◐</span><small id="night-label">Auto</small></button>
-          <button id="sound-toggle" class="control" type="button" aria-label="Toggle sound" aria-pressed="false"><span aria-hidden="true">◖))</span><small>Sound</small></button>
-          <button id="pause-toggle" class="control" type="button" aria-label="Pause shift" aria-pressed="false"><span id="pause-icon" aria-hidden="true">Ⅱ</span><small id="pause-label">Pause</small></button>
-          <button id="view-toggle" class="control" type="button" aria-label="Change camera view"><span aria-hidden="true">◇</span><small>New view</small></button>
-          <button id="radar-toggle" class="control" type="button" aria-label="Show radar inset" aria-pressed="false"><span aria-hidden="true">◎</span><small id="radar-label">Radar off</small></button>
-          <button id="queue-toggle" class="control" type="button" aria-label="Show operation queue inspector" aria-pressed="false"><span aria-hidden="true">≡</span><small id="queue-label">Queues off</small></button>
-          <button id="operations-lab-toggle" class="control" type="button" aria-label="Open operations data lab" aria-controls="operations-lab" aria-expanded="false" aria-pressed="false"><span aria-hidden="true">⌁</span><small>Data lab</small></button>
-          <button id="performance-toggle" class="control" type="button" aria-label="Show runtime performance budgets" aria-controls="debug-panel" aria-expanded="false" aria-pressed="false"><span aria-hidden="true">∿</span><small id="performance-label">Performance</small></button>
-          <button id="runway-label-toggle" class="control" type="button" aria-label="Show runway labels" aria-pressed="false"><span aria-hidden="true">09</span><small id="runway-label-label">Labels off</small></button>
-          <button id="field-toggle" class="control" type="button" aria-label="Generate a new airfield"><span aria-hidden="true">↻</span><small id="field-label">New field</small></button>
+          <button
+            id="mode-toggle"
+            class="control control--active"
+            type="button"
+            aria-label="Switch control mode"
+            aria-pressed="true"
+          >
+            <span id="mode-icon" aria-hidden="true">A</span
+            ><small id="mode-label">Auto</small>
+          </button>
+          <button
+            id="scope-toggle"
+            class="control"
+            type="button"
+            aria-label="Switch between airfield and center view"
+            aria-pressed="false"
+          >
+            <span aria-hidden="true">⌁</span
+            ><small id="scope-label">Center</small>
+          </button>
+          <button
+            id="night-toggle"
+            class="control"
+            type="button"
+            aria-label="Cycle automatic, night, and day lighting"
+            aria-pressed="false"
+          >
+            <span id="night-icon" aria-hidden="true">◐</span
+            ><small id="night-label">Auto</small>
+          </button>
+          <button
+            id="sound-toggle"
+            class="control"
+            type="button"
+            aria-label="Toggle sound"
+            aria-pressed="false"
+          >
+            <span aria-hidden="true">◖))</span><small>Sound</small>
+          </button>
+          <button
+            id="pause-toggle"
+            class="control"
+            type="button"
+            aria-label="Pause shift"
+            aria-pressed="false"
+          >
+            <span id="pause-icon" aria-hidden="true">Ⅱ</span
+            ><small id="pause-label">Pause</small>
+          </button>
+          <button
+            id="view-toggle"
+            class="control"
+            type="button"
+            aria-label="Change camera view"
+          >
+            <span aria-hidden="true">◇</span><small>New view</small>
+          </button>
+          <button
+            id="radar-toggle"
+            class="control"
+            type="button"
+            aria-label="Show radar inset"
+            aria-pressed="false"
+          >
+            <span aria-hidden="true">◎</span
+            ><small id="radar-label">Radar off</small>
+          </button>
+          <button
+            id="queue-toggle"
+            class="control"
+            type="button"
+            aria-label="Show operation queue inspector"
+            aria-pressed="false"
+          >
+            <span aria-hidden="true">≡</span
+            ><small id="queue-label">Queues off</small>
+          </button>
+          <button
+            id="operations-lab-toggle"
+            class="control"
+            type="button"
+            aria-label="Open operations data lab"
+            aria-controls="operations-lab"
+            aria-expanded="false"
+            aria-pressed="false"
+          >
+            <span aria-hidden="true">⌁</span><small>Data lab</small>
+          </button>
+          <button
+            id="performance-toggle"
+            class="control"
+            type="button"
+            aria-label="Show runtime performance budgets"
+            aria-controls="debug-panel"
+            aria-expanded="false"
+            aria-pressed="false"
+          >
+            <span aria-hidden="true">∿</span
+            ><small id="performance-label">Performance</small>
+          </button>
+          <button
+            id="runway-label-toggle"
+            class="control"
+            type="button"
+            aria-label="Show runway labels"
+            aria-pressed="false"
+          >
+            <span aria-hidden="true">09</span
+            ><small id="runway-label-label">Labels off</small>
+          </button>
+          <button
+            id="field-toggle"
+            class="control"
+            type="button"
+            aria-label="Generate a new airfield"
+          >
+            <span aria-hidden="true">↻</span
+            ><small id="field-label">New field</small>
+          </button>
         </nav>
         <details class="advanced-tools">
           <summary>Replay & agent tools</summary>
           <div class="replay-tools" aria-label="Replay controls">
             <button id="replay-toggle" type="button">Replay</button>
-            <input id="replay-slider" type="range" min="0" max="0" value="0" step="1" aria-label="Replay position" disabled />
+            <input
+              id="replay-slider"
+              type="range"
+              min="0"
+              max="0"
+              value="0"
+              step="1"
+              aria-label="Replay position"
+              disabled
+            />
             <output id="replay-time">LIVE</output>
             <button id="replay-export" type="button">Export</button>
           </div>
-          <section id="replay-inspector" class="replay-inspector" aria-label="Replay verification and comparison">
-            <header><b id="replay-source">Live buffer</b><small id="replay-detail">No recorded frames yet</small></header>
+          <section
+            id="replay-inspector"
+            class="replay-inspector"
+            aria-label="Replay verification and comparison"
+          >
+            <header>
+              <b id="replay-source">Live buffer</b
+              ><small id="replay-detail">No recorded frames yet</small>
+            </header>
             <div class="replay-inspector__actions">
               <button id="replay-import" type="button">Import</button>
-              <input id="replay-file" class="visually-hidden" type="file" accept=".json,.airport-auto-replay.json,application/json" />
-              <button id="replay-live-buffer" type="button" disabled>Live buffer</button>
-              <button id="replay-seed-link" type="button">Copy seed link</button>
+              <input
+                id="replay-file"
+                class="visually-hidden"
+                type="file"
+                accept=".json,.airport-auto-replay.json,application/json"
+              />
+              <button id="replay-live-buffer" type="button" disabled>
+                Live buffer
+              </button>
+              <button id="replay-seed-link" type="button">
+                Copy seed link
+              </button>
               <button id="replay-verify" type="button" disabled>Verify</button>
               <button id="replay-share" type="button" hidden>Share file</button>
             </div>
-            <output id="replay-verification" class="replay-inspector__verification" aria-live="polite" data-tone="idle"><b>Not checked</b><small>Verify before importing or sharing a replay.</small></output>
-            <label class="replay-inspector__marker"><span>Event marker</span><select id="replay-marker" disabled><option value="">No event markers yet</option></select></label>
+            <output
+              id="replay-verification"
+              class="replay-inspector__verification"
+              aria-live="polite"
+              data-tone="idle"
+              ><b>Not checked</b
+              ><small
+                >Verify before importing or sharing a replay.</small
+              ></output
+            >
+            <label class="replay-inspector__marker"
+              ><span>Event marker</span
+              ><select id="replay-marker" disabled>
+                <option value="">No event markers yet</option>
+              </select></label
+            >
             <div class="replay-inspector__compare">
               <button id="replay-baseline" type="button" disabled>Set A</button>
-              <button id="replay-compare" type="button" disabled>Compare A ↔ current</button>
-              <output id="replay-comparison">Set a baseline frame, move the replay, then compare.</output>
+              <button id="replay-compare" type="button" disabled>
+                Compare A ↔ current
+              </button>
+              <output id="replay-comparison"
+                >Set a baseline frame, move the replay, then compare.</output
+              >
             </div>
-            <small class="replay-inspector__note">Imports are read-only. Share removes controller identity, correlation IDs, and free text; Export keeps the full local audit. Fingerprints detect accidental edits, not hostile tampering.</small>
+            <small class="replay-inspector__note"
+              >Imports are read-only. Share removes controller identity,
+              correlation IDs, and free text; Export keeps the full local audit.
+              Fingerprints detect accidental edits, not hostile
+              tampering.</small
+            >
           </section>
-          <fieldset class="remote-control-host" aria-label="External controller gateway">
+          <fieldset
+            class="remote-control-host"
+            aria-label="External controller gateway"
+          >
             <legend>External controller gateway</legend>
-            <div class="remote-control-host__status"><b id="remote-host-state">Disconnected</b><small id="remote-host-detail" aria-live="polite">Local page control only · no network connection is opened automatically.</small></div>
-            <label><span>Gateway</span><input id="remote-host-endpoint" type="url" inputmode="url" placeholder="wss://control.example/v1/ws" autocomplete="off" spellcheck="false" /></label>
-            <label><span>Session</span><input id="remote-host-session" value="airport-auto" maxlength="64" autocomplete="off" spellcheck="false" /></label>
-            <label class="remote-control-host__token"><span>Host token</span><input id="remote-host-token" type="password" minlength="24" autocomplete="off" /></label>
-            <div class="remote-control-host__actions"><button id="remote-host-connect" type="button">Connect host</button><button id="remote-host-disconnect" type="button" disabled>Disconnect</button></div>
-            <small>Remote commands use the same typed station-authority, runway-protection, separation, reservation, and collision arbiter as this UI. Credentials are never saved, logged, or placed in the URL.</small>
+            <div class="remote-control-host__status">
+              <b id="remote-host-state">Disconnected</b
+              ><small id="remote-host-detail" aria-live="polite"
+                >Local page control only · no network connection is opened
+                automatically.</small
+              >
+            </div>
+            <label
+              ><span>Gateway</span
+              ><input
+                id="remote-host-endpoint"
+                type="url"
+                inputmode="url"
+                placeholder="wss://control.example/v1/ws"
+                autocomplete="off"
+                spellcheck="false"
+            /></label>
+            <label
+              ><span>Session</span
+              ><input
+                id="remote-host-session"
+                value="airport-auto"
+                maxlength="64"
+                autocomplete="off"
+                spellcheck="false"
+            /></label>
+            <label class="remote-control-host__token"
+              ><span>Host token</span
+              ><input
+                id="remote-host-token"
+                type="password"
+                minlength="24"
+                autocomplete="off"
+            /></label>
+            <div class="remote-control-host__actions">
+              <button id="remote-host-connect" type="button">
+                Connect host</button
+              ><button id="remote-host-disconnect" type="button" disabled>
+                Disconnect
+              </button>
+            </div>
+            <small
+              >Remote commands use the same typed station-authority,
+              runway-protection, separation, reservation, and collision arbiter
+              as this UI. Credentials are never saved, logged, or placed in the
+              URL.</small
+            >
           </fieldset>
-          <fieldset class="input-settings" aria-label="Input settings and bindings">
+          <fieldset
+            id="live-data-panel"
+            class="live-data-panel"
+            aria-label="Optional live operational data"
+          >
+            <legend>Optional live operational data</legend>
+            <label class="live-data-panel__toggle"
+              ><input data-live-enabled type="checkbox" /><span
+                >Enable manual live-data requests</span
+              ></label
+            >
+            <div class="live-data-panel__status">
+              <b data-live-station>No station</b
+              ><small data-live-status aria-live="polite"
+                >Off · no network requests.</small
+              >
+            </div>
+            <label
+              ><span>Gateway</span
+              ><input
+                data-live-endpoint
+                type="url"
+                inputmode="url"
+                placeholder="https://control.example"
+                autocomplete="off"
+                spellcheck="false"
+                disabled
+            /></label>
+            <label
+              ><span>Host token</span
+              ><input
+                data-live-token
+                type="password"
+                minlength="24"
+                autocomplete="off"
+                disabled
+            /></label>
+            <div class="live-data-panel__actions">
+              <button data-live-refresh type="button" disabled>
+                Refresh reports</button
+              ><button data-live-clear type="button">Clear cache</button>
+            </div>
+            <section aria-label="METAR weather preview">
+              <header><b>METAR</b><span>preview before apply</span></header>
+              <div data-live-metar>No cached weather report.</div>
+            </section>
+            <section aria-label="NOTAM and surface-status review">
+              <header>
+                <b>Surface status</b><span>human review required</span>
+              </header>
+              <div data-live-notams>No cached surface-status report.</div>
+            </section>
+            <section aria-label="Aggregate traffic preview">
+              <header><b>Traffic demand</b><span>aggregate only</span></header>
+              <div data-live-traffic>No cached aggregate traffic report.</div>
+            </section>
+            <small
+              >Two-step opt-in: the gateway operator enables providers, then you
+              request reports manually. Credentials stay in memory, normalized
+              cache is bounded, raw traffic feeds never enter replay, and every
+              surface change uses the normal safety arbiter. Not for
+              navigation.</small
+            >
+          </fieldset>
+          <fieldset
+            id="capture-panel"
+            class="capture-panel"
+            aria-label="Local media capture and spectator presentation"
+          >
+            <legend>Capture &amp; spectator view</legend>
+            <label
+              ><input data-capture-clean type="checkbox" /><span
+                >Clean spectator presentation</span
+              ></label
+            >
+            <div class="capture-panel__actions">
+              <button data-capture-screenshot type="button">
+                Save PNG screenshot</button
+              ><select data-capture-duration aria-label="Clip duration">
+                <option value="3">3 sec clip</option>
+                <option value="5" selected>5 sec clip</option>
+                <option value="10">10 sec clip</option>
+                <option value="15">15 sec clip</option></select
+              ><button data-capture-record type="button">
+                Record local clip
+              </button>
+            </div>
+            <output data-capture-status aria-live="polite"
+              >PNG screenshots and 3–15 second silent WebM clips stay on this
+              device.</output
+            >
+            <small
+              >Capture reads only the rendered airport canvas. It never requests
+              a microphone, uploads media, or includes gateway credentials and
+              interface panels.</small
+            >
+          </fieldset>
+          <fieldset
+            class="input-settings"
+            aria-label="Input settings and bindings"
+          >
             <legend>Unified input</legend>
-            <div class="input-settings__status"><b id="input-device">Keyboard · pointer · touch</b><small id="input-status" aria-live="polite">Connect a standard-mapped controller at any time; no restart is required.</small></div>
-            <label class="input-settings__toggle"><input id="gamepad-enabled" type="checkbox" checked /><span>Enable gamepad</span></label>
-            <label class="input-settings__sensitivity"><span>Stick sensitivity <output id="gamepad-sensitivity-output" for="gamepad-sensitivity">1.0×</output></span><input id="gamepad-sensitivity" type="range" min="0.5" max="2" step="0.1" value="1" aria-label="Gamepad stick sensitivity" /></label>
-            <div id="input-bindings" class="input-bindings" aria-label="Core input bindings"></div>
-            <small>Camera input pauses beneath drawers and modals. Every clearance still passes through the same controller-authority and safety arbiter.</small>
+            <div class="input-settings__status">
+              <b id="input-device">Keyboard · pointer · touch</b
+              ><small id="input-status" aria-live="polite"
+                >Connect a standard-mapped controller at any time; no restart is
+                required.</small
+              >
+            </div>
+            <label class="input-settings__toggle"
+              ><input id="gamepad-enabled" type="checkbox" checked /><span
+                >Enable gamepad</span
+              ></label
+            >
+            <label class="input-settings__sensitivity"
+              ><span
+                >Stick sensitivity
+                <output
+                  id="gamepad-sensitivity-output"
+                  for="gamepad-sensitivity"
+                  >1.0×</output
+                ></span
+              ><input
+                id="gamepad-sensitivity"
+                type="range"
+                min="0.5"
+                max="2"
+                step="0.1"
+                value="1"
+                aria-label="Gamepad stick sensitivity"
+            /></label>
+            <div
+              id="input-bindings"
+              class="input-bindings"
+              aria-label="Core input bindings"
+            ></div>
+            <small
+              >Camera input pauses beneath drawers and modals. Every clearance
+              still passes through the same controller-authority and safety
+              arbiter.</small
+            >
           </fieldset>
-          <fieldset class="presentation-settings" aria-label="Scene and accessibility settings">
+          <fieldset
+            class="presentation-settings"
+            aria-label="Scene and accessibility settings"
+          >
             <legend>Scene &amp; accessibility</legend>
-            <label><span>Lighting</span><select id="lighting-mode-select"><option value="automatic">Automatic time</option><option value="day">Force day</option><option value="night">Force night</option></select></label>
-            <label><span>Season</span><select id="season-mode-select"><option value="automatic">Automatic</option><option value="spring">Spring</option><option value="summer">Summer</option><option value="autumn">Autumn</option><option value="winter">Winter</option></select></label>
-            <label><span>Palette</span><select id="accessibility-palette-select"><option value="standard">Original</option><option value="high-contrast">High contrast</option><option value="cvd-safe">Blue / amber safe</option><option value="monochrome">Monochrome</option></select></label>
-            <label class="presentation-settings__toggle"><input id="camera-director-enabled" type="checkbox" /><span>Calm camera director</span></label>
-            <div class="presentation-settings__status"><b id="camera-director-status">Director off</b><small>Optional observer only; any pan, zoom, rotation, or selection turns it off immediately.</small></div>
+            <label
+              ><span>Lighting</span
+              ><select id="lighting-mode-select">
+                <option value="automatic">Automatic time</option>
+                <option value="day">Force day</option>
+                <option value="night">Force night</option>
+              </select></label
+            >
+            <label
+              ><span>Season</span
+              ><select id="season-mode-select">
+                <option value="automatic">Automatic</option>
+                <option value="spring">Spring</option>
+                <option value="summer">Summer</option>
+                <option value="autumn">Autumn</option>
+                <option value="winter">Winter</option>
+              </select></label
+            >
+            <label
+              ><span>Palette</span
+              ><select id="accessibility-palette-select">
+                <option value="standard">Original</option>
+                <option value="high-contrast">High contrast</option>
+                <option value="cvd-safe">Blue / amber safe</option>
+                <option value="monochrome">Monochrome</option>
+              </select></label
+            >
+            <label class="presentation-settings__toggle"
+              ><input id="camera-director-enabled" type="checkbox" /><span
+                >Calm camera director</span
+              ></label
+            >
+            <div class="presentation-settings__status">
+              <b id="camera-director-status">Director off</b
+              ><small
+                >Optional observer only; any pan, zoom, rotation, or selection
+                turns it off immediately.</small
+              >
+            </div>
           </fieldset>
           <fieldset class="audio-mixer" aria-label="Sound levels">
             <legend>Sound mixer</legend>
-            <label><span>Ambience</span><input data-audio-level="ambience" type="range" min="0" max="1" step="0.05" value="1" /></label>
-            <label><span>Aircraft</span><input data-audio-level="aircraft" type="range" min="0" max="1" step="0.05" value="1" /></label>
-            <label><span>Weather</span><input data-audio-level="weather" type="range" min="0" max="1" step="0.05" value="1" /></label>
-            <label><span>Radio</span><input data-audio-level="radio" type="range" min="0" max="1" step="0.05" value="1" /></label>
-            <label><span>UI</span><input data-audio-level="ui" type="range" min="0" max="1" step="0.05" value="0.7" /></label>
+            <label
+              ><span>Ambience</span
+              ><input
+                data-audio-level="ambience"
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value="1"
+            /></label>
+            <label
+              ><span>Aircraft</span
+              ><input
+                data-audio-level="aircraft"
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value="1"
+            /></label>
+            <label
+              ><span>Weather</span
+              ><input
+                data-audio-level="weather"
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value="1"
+            /></label>
+            <label
+              ><span>Radio</span
+              ><input
+                data-audio-level="radio"
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value="1"
+            /></label>
+            <label
+              ><span>UI</span
+              ><input
+                data-audio-level="ui"
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value="0.7"
+            /></label>
             <div class="audio-mixer__switches">
-              <label><input id="radio-chatter-enabled" type="checkbox" checked /><span>Radio cues</span></label>
-              <label><input id="radio-captions-enabled" type="checkbox" checked /><span>Radio captions</span></label>
-              <label><input id="high-stakes-weather-enabled" type="checkbox" /><span>Rare severe weather</span></label>
+              <label
+                ><input
+                  id="radio-chatter-enabled"
+                  type="checkbox"
+                  checked
+                /><span>Radio cues</span></label
+              >
+              <label
+                ><input
+                  id="radio-captions-enabled"
+                  type="checkbox"
+                  checked
+                /><span>Radio captions</span></label
+              >
+              <label
+                ><input id="high-stakes-weather-enabled" type="checkbox" /><span
+                  >Rare severe weather</span
+                ></label
+              >
             </div>
-            <small>Project-original procedural and offline WAV soundscape with disclosed fictional synthetic ATC voices and captions. No live radio, runtime voice generation, microphone, or network audio.</small>
+            <small
+              >Project-original procedural and offline WAV soundscape with
+              disclosed fictional synthetic ATC voices and captions. No live
+              radio, runtime voice generation, microphone, or network
+              audio.</small
+            >
           </fieldset>
           <fieldset class="map-layers" aria-label="Optional airport map layers">
             <legend>Map layers</legend>
-            <label><input data-surface-layer="taxiway-labels" type="checkbox" />Taxiway labels</label>
-            <label><input data-surface-layer="operational-zones" type="checkbox" />Operational areas</label>
-            <label><input data-surface-layer="hotspots" type="checkbox" />FAA hot spots</label>
-            <label><input data-surface-layer="airport-boundary" type="checkbox" />Airport boundary</label>
-            <label><input data-airspace-layer="airspace-sectors" type="checkbox" />Terminal sectors</label>
-            <label><input data-airspace-layer="navigation-fixes" type="checkbox" />Navigation fixes</label>
-            <label><input data-airspace-layer="procedures" type="checkbox" />SID / STAR procedures</label>
-            <label><input data-airspace-layer="flight-routes" type="checkbox" />Active flight routes</label>
-            <label><input data-airspace-layer="separation" type="checkbox" />Separation rings</label>
-            <label><input id="map-orientation-toggle" type="checkbox" />Compass &amp; scale</label>
-            <label><input id="wind-overlay-toggle" type="checkbox" />Wind on map</label>
-            <label><input id="service-vehicles-toggle" type="checkbox" checked />Service vehicles</label>
-            <label><input id="airport-life-toggle" type="checkbox" />Airport-life details</label>
-            <label><input id="contrails-toggle" type="checkbox" />High-altitude contrails</label>
-            <small>All overlays start hidden to preserve the clean field view.</small>
+            <label
+              ><input
+                data-surface-layer="taxiway-labels"
+                type="checkbox"
+              />Taxiway labels</label
+            >
+            <label
+              ><input
+                data-surface-layer="operational-zones"
+                type="checkbox"
+              />Operational areas</label
+            >
+            <label
+              ><input data-surface-layer="hotspots" type="checkbox" />FAA hot
+              spots</label
+            >
+            <label
+              ><input
+                data-surface-layer="airport-boundary"
+                type="checkbox"
+              />Airport boundary</label
+            >
+            <label
+              ><input
+                data-airspace-layer="airspace-sectors"
+                type="checkbox"
+              />Terminal sectors</label
+            >
+            <label
+              ><input
+                data-airspace-layer="navigation-fixes"
+                type="checkbox"
+              />Navigation fixes</label
+            >
+            <label
+              ><input data-airspace-layer="procedures" type="checkbox" />SID /
+              STAR procedures</label
+            >
+            <label
+              ><input
+                data-airspace-layer="flight-routes"
+                type="checkbox"
+              />Active flight routes</label
+            >
+            <label
+              ><input
+                data-airspace-layer="separation"
+                type="checkbox"
+              />Separation rings</label
+            >
+            <label
+              ><input id="map-orientation-toggle" type="checkbox" />Compass
+              &amp; scale</label
+            >
+            <label
+              ><input id="wind-overlay-toggle" type="checkbox" />Wind on
+              map</label
+            >
+            <label
+              ><input
+                id="service-vehicles-toggle"
+                type="checkbox"
+                checked
+              />Service vehicles</label
+            >
+            <label
+              ><input id="airport-life-toggle" type="checkbox" />Airport-life
+              details</label
+            >
+            <label
+              ><input id="contrails-toggle" type="checkbox" />High-altitude
+              contrails</label
+            >
+            <small
+              >All overlays start hidden to preserve the clean field
+              view.</small
+            >
           </fieldset>
-          <fieldset class="surface-disruptions" aria-label="Surface availability controls">
+          <fieldset
+            class="surface-disruptions"
+            aria-label="Surface availability controls"
+          >
             <legend>Surface availability</legend>
             <div class="surface-disruptions__controls">
-              <select id="surface-disruption-kind" aria-label="Restriction type"><option value="taxiway-closure">Taxiway closure</option><option value="construction">Construction zone</option><option value="runway-closure">Runway closure</option></select>
-              <select id="surface-disruption-target" aria-label="Restriction target"></select>
-              <select id="surface-disruption-duration" aria-label="Restriction duration"><option value="90">90 sec</option><option value="180">3 min</option><option value="0">Until reopened</option></select>
-              <button id="surface-disruption-apply" type="button">Restrict</button>
+              <select
+                id="surface-disruption-kind"
+                aria-label="Restriction type"
+              >
+                <option value="taxiway-closure">Taxiway closure</option>
+                <option value="construction">Construction zone</option>
+                <option value="runway-closure">Runway closure</option>
+              </select>
+              <select
+                id="surface-disruption-target"
+                aria-label="Restriction target"
+              ></select>
+              <select
+                id="surface-disruption-duration"
+                aria-label="Restriction duration"
+              >
+                <option value="90">90 sec</option>
+                <option value="180">3 min</option>
+                <option value="0">Until reopened</option>
+              </select>
+              <button id="surface-disruption-apply" type="button">
+                Restrict
+              </button>
             </div>
-            <div id="surface-disruption-list" class="surface-disruptions__list" aria-live="polite"><small>All movement surfaces available.</small></div>
-            <small>Supervisor changes phase around occupied pavement; aircraft reroute without jumping.</small>
+            <div
+              id="surface-disruption-list"
+              class="surface-disruptions__list"
+              aria-live="polite"
+            >
+              <small>All movement surfaces available.</small>
+            </div>
+            <small
+              >Supervisor changes phase around occupied pavement; aircraft
+              reroute without jumping.</small
+            >
           </fieldset>
-          <section id="operations-health" class="operations-health" aria-label="Live simulation health">
-            <header><b>Simulation health</b><span id="health-state">WARMING UP</span></header>
-            <div><span><b id="health-throughput">0.0</b><small>ops/hr</small></span><span><b id="health-conflicts">0</b><small>conflicts</small></span><span><b id="health-incursions">0</b><small>incursions</small></span><span><b id="health-pauses">0</b><small>pauses</small></span><span><b id="health-hold">0s</b><small>longest hold</small></span><span><b id="health-delay">0m</b><small>queue delay</small></span><span><b id="health-fps">—</b><small>fps</small></span></div>
+          <section
+            id="operations-health"
+            class="operations-health"
+            aria-label="Live simulation health"
+          >
+            <header>
+              <b>Simulation health</b><span id="health-state">WARMING UP</span>
+            </header>
+            <div>
+              <span><b id="health-throughput">0.0</b><small>ops/hr</small></span
+              ><span
+                ><b id="health-conflicts">0</b><small>conflicts</small></span
+              ><span
+                ><b id="health-incursions">0</b><small>incursions</small></span
+              ><span><b id="health-pauses">0</b><small>pauses</small></span
+              ><span><b id="health-hold">0s</b><small>longest hold</small></span
+              ><span><b id="health-delay">0m</b><small>queue delay</small></span
+              ><span><b id="health-fps">—</b><small>fps</small></span>
+            </div>
           </section>
           <section class="map-data" aria-label="Airport map data">
             <b>Airport data</b>
             <span id="map-data-version">Procedural airfield</span>
-            <small id="map-data-attribution">Original generated scenery · not for navigation</small>
-            <a id="map-data-source" href="https://www.faa.gov/data/aero_data" target="_blank" rel="noreferrer" hidden>Source and attribution ↗</a>
-            <a id="map-surface-source" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer" hidden>OpenStreetMap contributors ↗</a>
-            <a id="map-facility-source" href="https://www.flychicago.com/business/CDA/factsfigures/Pages/facility.aspx" target="_blank" rel="noreferrer" hidden>Chicago airport facility data ↗</a>
+            <small id="map-data-attribution"
+              >Original generated scenery · not for navigation</small
+            >
+            <a
+              id="map-data-source"
+              href="https://www.faa.gov/data/aero_data"
+              target="_blank"
+              rel="noreferrer"
+              hidden
+              >Source and attribution ↗</a
+            >
+            <a
+              id="map-surface-source"
+              href="https://www.openstreetmap.org/copyright"
+              target="_blank"
+              rel="noreferrer"
+              hidden
+              >OpenStreetMap contributors ↗</a
+            >
+            <a
+              id="map-facility-source"
+              href="https://www.flychicago.com/business/CDA/factsfigures/Pages/facility.aspx"
+              target="_blank"
+              rel="noreferrer"
+              hidden
+              >Chicago airport facility data ↗</a
+            >
           </section>
-          <p class="agent-note"><b>Live agent channel ready</b><span>window.airportControl · BroadcastChannel “airport-auto”</span></p>
+          <p class="agent-note">
+            <b>Live agent channel ready</b
+            ><span
+              >window.airportControl · BroadcastChannel “airport-auto”</span
+            >
+          </p>
         </details>
       </aside>
 
-      <aside id="training-coach" class="training-coach" aria-label="Controller training coach" hidden>
-        <header><span id="training-title">Training</span><b id="training-progress">1 / 1</b></header>
-        <p id="training-objective" aria-live="polite" aria-atomic="true">Select a lesson from Controls.</p>
-        <small id="training-context">No-fail coaching keeps every safety rule active.</small>
+      <aside
+        id="training-coach"
+        class="training-coach"
+        aria-label="Controller training coach"
+        hidden
+      >
+        <header>
+          <span id="training-title">Training</span
+          ><b id="training-progress">1 / 1</b>
+        </header>
+        <p id="training-objective" aria-live="polite" aria-atomic="true">
+          Select a lesson from Controls.
+        </p>
+        <small id="training-context"
+          >No-fail coaching keeps every safety rule active.</small
+        >
         <details id="training-explanation">
           <summary>Why this matters</summary>
           <p id="training-why"></p>
@@ -283,123 +1120,423 @@
         </footer>
       </aside>
 
-      <aside id="challenge-hud" class="challenge-hud" aria-label="Active controller challenge" hidden>
-        <header><span id="challenge-title">Challenge shift</span><b id="challenge-clock">06:00</b></header>
-        <div class="challenge-hud__grade"><b id="challenge-grade">Briefing</b><span id="challenge-conditions">Locked operating conditions</span></div>
-        <p id="challenge-status" aria-live="polite" aria-atomic="true">Review the shift before starting its clock.</p>
+      <aside
+        id="challenge-hud"
+        class="challenge-hud"
+        aria-label="Active controller challenge"
+        hidden
+      >
+        <header>
+          <span id="challenge-title">Challenge shift</span
+          ><b id="challenge-clock">06:00</b>
+        </header>
+        <div class="challenge-hud__grade">
+          <b id="challenge-grade">Briefing</b
+          ><span id="challenge-conditions">Locked operating conditions</span>
+        </div>
+        <p id="challenge-status" aria-live="polite" aria-atomic="true">
+          Review the shift before starting its clock.
+        </p>
         <details id="challenge-objective-details">
           <summary>Objectives and live grade</summary>
           <div id="challenge-objectives" class="challenge-objectives"></div>
         </details>
-        <footer><button id="challenge-primary" type="button">Begin timed shift</button><button id="challenge-end" type="button">Leave challenge</button></footer>
+        <footer>
+          <button id="challenge-primary" type="button">Begin timed shift</button
+          ><button id="challenge-end" type="button">Leave challenge</button>
+        </footer>
       </aside>
 
-      <aside id="sandbox-hud" class="sandbox-hud" aria-label="Active traffic sandbox" hidden>
-        <span>Sandbox</span><b>No score · no fail</b><small id="sandbox-hud-status">Clear board · background demand off</small>
+      <aside
+        id="sandbox-hud"
+        class="sandbox-hud"
+        aria-label="Active traffic sandbox"
+        hidden
+      >
+        <span>Sandbox</span><b>No score · no fail</b
+        ><small id="sandbox-hud-status"
+          >Clear board · background demand off</small
+        >
       </aside>
 
-      <aside id="flight-strip" class="flight-strip" aria-label="Live flight information">
-        <button id="flight-strip-toggle" class="flight-strip__toggle" type="button" aria-controls="flight-strip-body" aria-expanded="true">
-          <span><b id="flight-strip-title">Live traffic</b><small id="flight-strip-count">0 aircraft</small></span>
+      <aside
+        id="flight-strip"
+        class="flight-strip"
+        aria-label="Live flight information"
+      >
+        <button
+          id="flight-strip-toggle"
+          class="flight-strip__toggle"
+          type="button"
+          aria-controls="flight-strip-body"
+          aria-expanded="true"
+        >
+          <span
+            ><b id="flight-strip-title">Live traffic</b
+            ><small id="flight-strip-count">0 aircraft</small></span
+          >
           <i aria-hidden="true">−</i>
         </button>
         <div id="flight-strip-body" class="flight-strip__body">
-          <section id="station-briefing" class="station-briefing" hidden></section>
-          <section id="coordination-inbox" class="coordination-inbox" aria-live="polite" hidden></section>
+          <section
+            id="station-briefing"
+            class="station-briefing"
+            hidden
+          ></section>
+          <section
+            id="coordination-inbox"
+            class="coordination-inbox"
+            aria-live="polite"
+            hidden
+          ></section>
           <div class="flight-strip__tools">
-            <button id="group-select-toggle" type="button" aria-pressed="false">Group select</button>
+            <button id="group-select-toggle" type="button" aria-pressed="false">
+              Group select
+            </button>
             <span id="group-select-count" aria-live="polite">Choose 2–8</span>
           </div>
-          <section id="group-actions" class="group-actions" aria-live="polite" hidden></section>
-          <section id="flight-actions" class="flight-actions" aria-live="polite" hidden></section>
-          <section id="clearance-advisor" class="clearance-advisor" aria-live="polite" hidden></section>
+          <section
+            id="group-actions"
+            class="group-actions"
+            aria-live="polite"
+            hidden
+          ></section>
+          <section
+            id="flight-actions"
+            class="flight-actions"
+            aria-live="polite"
+            hidden
+          ></section>
+          <section
+            id="clearance-advisor"
+            class="clearance-advisor"
+            aria-live="polite"
+            hidden
+          ></section>
           <div id="flight-chips" class="flight-chips" role="list"></div>
         </div>
       </aside>
 
       <nav class="camera-tools" aria-label="Camera controls">
-        <button id="focus-toggle" class="camera-tools__focus" type="button" aria-label="Open observer focus navigator" aria-controls="focus-panel" aria-expanded="false" aria-pressed="false">◎</button>
+        <button
+          id="focus-toggle"
+          class="camera-tools__focus"
+          type="button"
+          aria-label="Open observer focus navigator"
+          aria-controls="focus-panel"
+          aria-expanded="false"
+          aria-pressed="false"
+        >
+          ◎
+        </button>
         <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
         <button id="zoom-out" type="button" aria-label="Zoom out">−</button>
-        <button id="camera-reset" type="button" aria-label="Reset camera">⌂</button>
+        <button id="camera-reset" type="button" aria-label="Reset camera">
+          ⌂
+        </button>
       </nav>
 
       <aside id="focus-status" class="focus-status" aria-live="polite" hidden>
         <span aria-hidden="true">◎</span>
-        <div><b id="focus-status-label">Following target</b><small id="focus-status-detail">Fixed airport location</small></div>
+        <div>
+          <b id="focus-status-label">Following target</b
+          ><small id="focus-status-detail">Fixed airport location</small>
+        </div>
         <button id="focus-status-release" type="button">Release</button>
       </aside>
 
-      <aside id="map-orientation" class="map-orientation" aria-label="Map north and scale" hidden>
+      <aside
+        id="map-orientation"
+        class="map-orientation"
+        aria-label="Map north and scale"
+        hidden
+      >
         <div class="map-orientation__compass" aria-hidden="true">
-          <b class="map-orientation__n" data-bearing="0">N</b><b class="map-orientation__e" data-bearing="90">E</b><b class="map-orientation__s" data-bearing="180">S</b><b class="map-orientation__w" data-bearing="270">W</b>
+          <b class="map-orientation__n" data-bearing="0">N</b
+          ><b class="map-orientation__e" data-bearing="90">E</b
+          ><b class="map-orientation__s" data-bearing="180">S</b
+          ><b class="map-orientation__w" data-bearing="270">W</b>
           <span id="map-north-arrow">↑</span>
         </div>
-        <div class="map-orientation__scale"><span id="map-scale-label">1 km</span><i id="map-scale-bar" aria-hidden="true"></i></div>
+        <div class="map-orientation__scale">
+          <span id="map-scale-label">1 km</span
+          ><i id="map-scale-bar" aria-hidden="true"></i>
+        </div>
       </aside>
 
-      <aside id="wind-overlay" class="wind-overlay" aria-label="Current wind" hidden>
+      <aside
+        id="wind-overlay"
+        class="wind-overlay"
+        aria-label="Current wind"
+        hidden
+      >
         <span id="wind-overlay-arrow" aria-hidden="true">➜</span>
-        <div><b id="wind-overlay-heading">WIND 270°</b><small id="wind-overlay-speed">12G18 kt</small></div>
+        <div>
+          <b id="wind-overlay-heading">WIND 270°</b
+          ><small id="wind-overlay-speed">12G18 kt</small>
+        </div>
       </aside>
 
-      <aside id="focus-panel" class="focus-panel" aria-label="Observer focus navigator" hidden>
-        <header><div><b>Observer focus</b><span id="focus-count">0 targets</span></div><button id="focus-close" type="button" aria-label="Close observer focus navigator">×</button></header>
-        <label><span>Target type</span><select id="focus-kind" aria-label="Focus target type"></select></label>
-        <label><span>Target</span><select id="focus-target" aria-label="Focus target"></select></label>
-        <p id="focus-detail" class="focus-panel__detail">Choose a live track or airport location.</p>
-        <div class="focus-panel__controls"><button id="focus-previous" type="button" aria-label="Previous focus target">←</button><button id="focus-apply" type="button">Focus</button><button id="focus-next" type="button" aria-label="Next focus target">→</button></div>
-        <footer><button id="focus-release" type="button">Release camera</button><small>F to open · Esc to close or release</small></footer>
+      <aside
+        id="focus-panel"
+        class="focus-panel"
+        aria-label="Observer focus navigator"
+        hidden
+      >
+        <header>
+          <div>
+            <b>Observer focus</b><span id="focus-count">0 targets</span>
+          </div>
+          <button
+            id="focus-close"
+            type="button"
+            aria-label="Close observer focus navigator"
+          >
+            ×
+          </button>
+        </header>
+        <label
+          ><span>Target type</span
+          ><select id="focus-kind" aria-label="Focus target type"></select
+        ></label>
+        <label
+          ><span>Target</span
+          ><select id="focus-target" aria-label="Focus target"></select
+        ></label>
+        <p id="focus-detail" class="focus-panel__detail">
+          Choose a live track or airport location.
+        </p>
+        <div class="focus-panel__controls">
+          <button
+            id="focus-previous"
+            type="button"
+            aria-label="Previous focus target"
+          >
+            ←</button
+          ><button id="focus-apply" type="button">Focus</button
+          ><button id="focus-next" type="button" aria-label="Next focus target">
+            →
+          </button>
+        </div>
+        <footer>
+          <button id="focus-release" type="button">Release camera</button
+          ><small>F to open · Esc to close or release</small>
+        </footer>
       </aside>
 
-      <aside id="radar-panel" class="radar-panel" aria-label="Terminal radar" hidden>
-        <header><b>Terminal radar</b><span id="radar-airport">LOCAL</span><button id="radar-close" type="button" aria-label="Close terminal radar">×</button></header>
-        <canvas id="radar-scope" width="640" height="440" aria-label="Live radar plot of aircraft and runways"></canvas>
-        <footer><span>● ARR</span><span>◆ DEP</span><span id="radar-range">40 NM</span></footer>
+      <aside
+        id="radar-panel"
+        class="radar-panel"
+        aria-label="Terminal radar"
+        hidden
+      >
+        <header>
+          <b>Terminal radar</b><span id="radar-airport">LOCAL</span
+          ><button
+            id="radar-close"
+            type="button"
+            aria-label="Close terminal radar"
+          >
+            ×
+          </button>
+        </header>
+        <canvas
+          id="radar-scope"
+          width="640"
+          height="440"
+          aria-label="Live radar plot of aircraft and runways"
+        ></canvas>
+        <footer>
+          <span>● ARR</span><span>◆ DEP</span
+          ><span id="radar-range">40 NM</span>
+        </footer>
       </aside>
 
-      <aside id="queue-panel" class="queue-panel" aria-label="Operation queue inspector" hidden>
-        <header><div><b>Operation queues</b><span id="queue-count">0 waiting</span></div><button id="queue-close" type="button" aria-label="Close operation queue inspector">×</button></header>
-        <label><span>Blocker type</span><select id="queue-filter"><option value="all">All blockers</option><option value="gate">Gate</option><option value="ramp">Ramp</option><option value="taxi">Taxi</option><option value="crossing">Crossing</option><option value="runway">Runway</option><option value="wake">Wake</option><option value="weather">Weather</option><option value="downstream">Downstream</option></select></label>
-        <div id="queue-list" class="queue-panel__list" role="list" aria-live="polite"><p class="queue-panel__empty">No active operational blockers.</p></div>
-        <footer><span id="queue-longest">Flowing</span><small>Select any queue to follow its live blocker</small></footer>
+      <aside
+        id="queue-panel"
+        class="queue-panel"
+        aria-label="Operation queue inspector"
+        hidden
+      >
+        <header>
+          <div>
+            <b>Operation queues</b><span id="queue-count">0 waiting</span>
+          </div>
+          <button
+            id="queue-close"
+            type="button"
+            aria-label="Close operation queue inspector"
+          >
+            ×
+          </button>
+        </header>
+        <label
+          ><span>Blocker type</span
+          ><select id="queue-filter">
+            <option value="all">All blockers</option>
+            <option value="gate">Gate</option>
+            <option value="ramp">Ramp</option>
+            <option value="taxi">Taxi</option>
+            <option value="crossing">Crossing</option>
+            <option value="runway">Runway</option>
+            <option value="wake">Wake</option>
+            <option value="weather">Weather</option>
+            <option value="downstream">Downstream</option>
+          </select></label
+        >
+        <div
+          id="queue-list"
+          class="queue-panel__list"
+          role="list"
+          aria-live="polite"
+        >
+          <p class="queue-panel__empty">No active operational blockers.</p>
+        </div>
+        <footer>
+          <span id="queue-longest">Flowing</span
+          ><small>Select any queue to follow its live blocker</small>
+        </footer>
       </aside>
 
-      <aside id="operations-lab" class="operations-lab" aria-label="Airport operations data lab" aria-hidden="true" hidden inert>
+      <aside
+        id="operations-lab"
+        class="operations-lab"
+        aria-label="Airport operations data lab"
+        aria-hidden="true"
+        hidden
+        inert
+      >
         <header class="operations-lab__header">
-          <div><span>Local analysis</span><h2>Operations data lab</h2><small data-operations-airport>LOCAL · Airport Auto</small></div>
-          <button data-operations-close type="button" aria-label="Close operations data lab">×</button>
+          <div>
+            <span>Local analysis</span>
+            <h2>Operations data lab</h2>
+            <small data-operations-airport>LOCAL · Airport Auto</small>
+          </div>
+          <button
+            data-operations-close
+            type="button"
+            aria-label="Close operations data lab"
+          >
+            ×
+          </button>
         </header>
         <div class="operations-lab__scroll">
           <section class="operations-lab__summary" aria-label="Shift summary">
-            <header><b>Shift pulse</b><span data-operations-duration>0:00 observed</span></header>
+            <header>
+              <b>Shift pulse</b
+              ><span data-operations-duration>0:00 observed</span>
+            </header>
             <div data-operations-summary></div>
           </section>
-          <section class="operations-lab__recorder" aria-labelledby="operations-recorder-title">
-            <header><div><b id="operations-recorder-title">Flight data recorder</b><span>One-second authoritative samples</span></div><button data-operations-focus type="button">Follow</button></header>
-            <label><span>Aircraft</span><select data-operations-flight aria-label="Flight data recorder aircraft"></select></label>
-            <p data-operations-flight-state>Select an observed aircraft to inspect its recorder trace.</p>
-            <svg data-operations-chart viewBox="0 0 360 92" role="img" aria-label="No flight recorder samples yet." preserveAspectRatio="none">
-              <path class="operations-lab__grid" d="M0 23H360M0 46H360M0 69H360" />
-              <path data-operations-altitude class="operations-lab__chart-altitude" />
+          <section
+            class="operations-lab__recorder"
+            aria-labelledby="operations-recorder-title"
+          >
+            <header>
+              <div>
+                <b id="operations-recorder-title">Flight data recorder</b
+                ><span>One-second authoritative samples</span>
+              </div>
+              <button data-operations-focus type="button">Follow</button>
+            </header>
+            <label
+              ><span>Aircraft</span
+              ><select
+                data-operations-flight
+                aria-label="Flight data recorder aircraft"
+              ></select
+            ></label>
+            <p data-operations-flight-state>
+              Select an observed aircraft to inspect its recorder trace.
+            </p>
+            <svg
+              data-operations-chart
+              viewBox="0 0 360 92"
+              role="img"
+              aria-label="No flight recorder samples yet."
+              preserveAspectRatio="none"
+            >
+              <path
+                class="operations-lab__grid"
+                d="M0 23H360M0 46H360M0 69H360"
+              />
+              <path
+                data-operations-altitude
+                class="operations-lab__chart-altitude"
+              />
               <path data-operations-speed class="operations-lab__chart-speed" />
               <path data-operations-fuel class="operations-lab__chart-fuel" />
             </svg>
-            <footer><span>Altitude</span><span>Speed</span><span>Fuel</span></footer>
+            <footer>
+              <span>Altitude</span><span>Speed</span><span>Fuel</span>
+            </footer>
           </section>
           <div class="operations-lab__utilization">
-            <section aria-labelledby="operations-runways-title"><header><b id="operations-runways-title">Runway utilization</b><span>Occupied time</span></header><div data-operations-runways></div></section>
-            <section aria-labelledby="operations-taxiways-title"><header><b id="operations-taxiways-title">Taxiway utilization</b><span>Top observed routes</span></header><div data-operations-taxiways><p>Taxiway observations will appear as surface traffic moves.</p></div></section>
+            <section aria-labelledby="operations-runways-title">
+              <header>
+                <b id="operations-runways-title">Runway utilization</b
+                ><span>Occupied time</span>
+              </header>
+              <div data-operations-runways></div>
+            </section>
+            <section aria-labelledby="operations-taxiways-title">
+              <header>
+                <b id="operations-taxiways-title">Taxiway utilization</b
+                ><span>Top observed routes</span>
+              </header>
+              <div data-operations-taxiways>
+                <p>
+                  Taxiway observations will appear as surface traffic moves.
+                </p>
+              </div>
+            </section>
           </div>
-          <section class="operations-lab__heatmap" aria-labelledby="operations-heatmap-title">
-            <header><b id="operations-heatmap-title">Conflict forecast heatmap</b><span>Cautions are prevented forecasts—not collisions</span></header>
-            <div><svg data-operations-heatmap role="img" aria-label="Spatial history of conflict forecasts and runway layout"></svg><p data-operations-heatmap-empty>No conflict forecasts recorded. The runway schematic remains visible for context.</p></div>
+          <section
+            class="operations-lab__heatmap"
+            aria-labelledby="operations-heatmap-title"
+          >
+            <header>
+              <b id="operations-heatmap-title">Conflict forecast heatmap</b
+              ><span>Cautions are prevented forecasts—not collisions</span>
+            </header>
+            <div>
+              <svg
+                data-operations-heatmap
+                role="img"
+                aria-label="Spatial history of conflict forecasts and runway layout"
+              ></svg>
+              <p data-operations-heatmap-empty>
+                No conflict forecasts recorded. The runway schematic remains
+                visible for context.
+              </p>
+            </div>
           </section>
-          <section class="operations-lab__exports" aria-labelledby="operations-exports-title">
-            <header><b id="operations-exports-title">Local exports</b><span>Nothing is uploaded</span></header>
-            <label><span>Dataset</span><select data-operations-dataset aria-label="Operations export dataset"></select></label>
-            <div><button data-operations-export-json type="button">Download JSON bundle</button><button data-operations-export-csv type="button">Download CSV</button></div>
-            <small data-operations-disclosure>Exports remain in this browser unless you explicitly download and share them.</small>
+          <section
+            class="operations-lab__exports"
+            aria-labelledby="operations-exports-title"
+          >
+            <header>
+              <b id="operations-exports-title">Local exports</b
+              ><span>Nothing is uploaded</span>
+            </header>
+            <label
+              ><span>Dataset</span
+              ><select
+                data-operations-dataset
+                aria-label="Operations export dataset"
+              ></select
+            ></label>
+            <div>
+              <button data-operations-export-json type="button">
+                Download JSON bundle</button
+              ><button data-operations-export-csv type="button">
+                Download CSV
+              </button>
+            </div>
+            <small data-operations-disclosure
+              >Exports remain in this browser unless you explicitly download and
+              share them.</small
+            >
           </section>
         </div>
       </aside>
@@ -416,94 +1553,219 @@
 
       <section class="status" aria-live="polite">
         <span class="status__pulse" aria-hidden="true"></span>
-        <div><b id="status-label">Airspace is clear</b><small id="status-detail">awaiting first arrival</small></div>
+        <div>
+          <b id="status-label">Airspace is clear</b
+          ><small id="status-detail">awaiting first arrival</small>
+        </div>
       </section>
 
-      <aside id="radio-caption" class="radio-caption" aria-live="polite" aria-atomic="true" hidden>
-        <span id="radio-caption-station">Approach · fictional offline transmission</span>
+      <aside
+        id="radio-caption"
+        class="radio-caption"
+        aria-live="polite"
+        aria-atomic="true"
+        hidden
+      >
+        <span id="radio-caption-station"
+          >Approach · fictional offline transmission</span
+        >
         <b id="radio-caption-copy">Radar contact. Continue the arrival.</b>
       </aside>
 
-      <p class="instruction"><span class="instruction__menu-icon" aria-hidden="true"><i></i><i></i><i></i></span><span id="instruction-copy">The tower routes automatically · <b>open Controls to adjust</b></span></p>
+      <p class="instruction">
+        <span class="instruction__menu-icon" aria-hidden="true"
+          ><i></i><i></i><i></i></span
+        ><span id="instruction-copy"
+          >The tower routes automatically · <b>open Controls to adjust</b></span
+        >
+      </p>
 
-      <aside id="telemetry-panel" class="telemetry" aria-label="Airport telemetry" hidden>
-        <div id="telemetry-controls" class="telemetry__controls" aria-label="Manual surface clearances"></div>
+      <aside
+        id="telemetry-panel"
+        class="telemetry"
+        aria-label="Airport telemetry"
+        hidden
+      >
+        <div
+          id="telemetry-controls"
+          class="telemetry__controls"
+          aria-label="Manual surface clearances"
+        ></div>
         <pre id="telemetry-output"></pre>
       </aside>
 
-      <div id="intro" class="modal modal--intro" role="dialog" aria-labelledby="intro-title" aria-modal="true">
+      <div
+        id="intro"
+        class="modal modal--intro"
+        role="dialog"
+        aria-labelledby="intro-title"
+        aria-modal="true"
+      >
         <div class="modal__panel intro__panel">
           <span class="intro__rule" aria-hidden="true"></span>
           <h1 id="intro-title">Airport Auto.<br />The whole field, alive.</h1>
-          <p>Watch a continuous living airport in Full Auto, or take the frequency in Full Manual. Major hubs use schematic real-world runway patterns, traffic scale, named ground routes, and winter operations.</p>
+          <p>
+            Watch a continuous living airport in Full Auto, or take the
+            frequency in Full Manual. Major hubs use schematic real-world runway
+            patterns, traffic scale, named ground routes, and winter operations.
+          </p>
           <div class="intro-setup" aria-label="Choose your airport and mode">
-            <label><span>Airport</span><select id="intro-airport-select">
-              <option value="LOCAL">Random local airfield</option>
-              <option value="ATL">ATL — Atlanta</option>
-              <option value="DXB">DXB — Dubai</option>
-              <option value="HND">HND — Tokyo Haneda</option>
-              <option value="DFW">DFW — Dallas/Fort Worth</option>
-              <option value="ORD">ORD — Chicago O’Hare</option>
-              <option value="LHR">LHR — London Heathrow</option>
-              <option value="IST">IST — Istanbul</option>
-              <option value="DEN">DEN — Denver</option>
-              <option value="LAX">LAX — Los Angeles</option>
-              <option value="JFK">JFK — New York</option>
-            </select></label>
-            <label><span>Control</span><select id="intro-control-select">
-              <option value="auto">Full auto</option>
-              <option value="assisted">Assisted ATC</option>
-              <option value="manual">Full manual</option>
-              <option value="watch">Watch / ASMR</option>
-            </select></label>
-            <label><span>Traffic</span><select id="intro-density-select" aria-label="Starting traffic density">
-              <option value="quiet">Quiet</option>
-              <option value="realistic" selected>Realistic</option>
-              <option value="busy">Busy</option>
-              <option value="rush">Rush</option>
-              <option value="extreme">Extreme</option>
-            </select></label>
-            <label><span>Rules</span><select id="intro-separation-rules-select" aria-label="Starting separation ruleset">
-              <option value="forgiving" selected>Forgiving ATC</option>
-              <option value="realistic">FAA-inspired terminal</option>
-            </select></label>
+            <label
+              ><span>Airport</span
+              ><select id="intro-airport-select">
+                <option value="LOCAL">Random local airfield</option>
+                <option value="ATL">ATL — Atlanta</option>
+                <option value="DXB">DXB — Dubai</option>
+                <option value="HND">HND — Tokyo Haneda</option>
+                <option value="DFW">DFW — Dallas/Fort Worth</option>
+                <option value="ORD">ORD — Chicago O’Hare</option>
+                <option value="LHR">LHR — London Heathrow</option>
+                <option value="IST">IST — Istanbul</option>
+                <option value="DEN">DEN — Denver</option>
+                <option value="LAX">LAX — Los Angeles</option>
+                <option value="JFK">JFK — New York</option>
+              </select></label
+            >
+            <label
+              ><span>Control</span
+              ><select id="intro-control-select">
+                <option value="auto">Full auto</option>
+                <option value="assisted">Assisted ATC</option>
+                <option value="manual">Full manual</option>
+                <option value="watch">Watch / ASMR</option>
+              </select></label
+            >
+            <label
+              ><span>Traffic</span
+              ><select
+                id="intro-density-select"
+                aria-label="Starting traffic density"
+              >
+                <option value="quiet">Quiet</option>
+                <option value="realistic" selected>Realistic</option>
+                <option value="busy">Busy</option>
+                <option value="rush">Rush</option>
+                <option value="extreme">Extreme</option>
+              </select></label
+            >
+            <label
+              ><span>Rules</span
+              ><select
+                id="intro-separation-rules-select"
+                aria-label="Starting separation ruleset"
+              >
+                <option value="forgiving" selected>Forgiving ATC</option>
+                <option value="realistic">FAA-inspired terminal</option>
+              </select></label
+            >
           </div>
-          <div class="runway-key"><span><i class="key key--rose"></i>Landing threshold</span><span><i class="key key--blue"></i>Departure chevrons</span></div>
-          <button id="enter" class="primary" type="button">Watch the airfield <span aria-hidden="true">→</span></button>
-          <small>Drag or WASD to pan · Q/E to rotate · scroll or pinch to zoom · C opens Controls · gamepad and sound are optional</small>
+          <div class="runway-key">
+            <span><i class="key key--rose"></i>Landing threshold</span
+            ><span><i class="key key--blue"></i>Departure chevrons</span>
+          </div>
+          <button id="enter" class="primary" type="button">
+            Watch the airfield <span aria-hidden="true">→</span>
+          </button>
+          <small
+            >Drag or WASD to pan · Q/E to rotate · scroll or pinch to zoom · C
+            opens Controls · gamepad and sound are optional</small
+          >
         </div>
       </div>
 
-      <div id="game-over" class="modal modal--gameover modal--hidden" role="dialog" aria-labelledby="game-over-title" aria-modal="true" hidden>
+      <div
+        id="game-over"
+        class="modal modal--gameover modal--hidden"
+        role="dialog"
+        aria-labelledby="game-over-title"
+        aria-modal="true"
+        hidden
+      >
         <div class="modal__panel gameover__panel">
           <span>Airspace conflict</span>
           <h2 id="game-over-title">Shift over</h2>
-          <p>You kept <b id="final-airport">the airport</b> moving for <b id="final-time">00:00</b>.</p>
-          <div class="final-score"><span><b id="final-landed">00</b> landed</span><span><b id="final-departed">00</b> departed</span></div>
-          <button id="restart" class="primary" type="button">Restart shift <span aria-hidden="true">↻</span></button>
+          <p>
+            You kept <b id="final-airport">the airport</b> moving for
+            <b id="final-time">00:00</b>.
+          </p>
+          <div class="final-score">
+            <span><b id="final-landed">00</b> landed</span
+            ><span><b id="final-departed">00</b> departed</span>
+          </div>
+          <button id="restart" class="primary" type="button">
+            Restart shift <span aria-hidden="true">↻</span>
+          </button>
         </div>
       </div>
-      <div id="challenge-results" class="modal modal--challenge modal--hidden" role="dialog" aria-labelledby="challenge-result-title" aria-modal="true" hidden>
+      <div
+        id="challenge-results"
+        class="modal modal--challenge modal--hidden"
+        role="dialog"
+        aria-labelledby="challenge-result-title"
+        aria-modal="true"
+        hidden
+      >
         <div class="modal__panel challenge-results__panel">
           <div class="challenge-results__heading">
             <span id="challenge-result-eyebrow">Shift complete</span>
             <h2 id="challenge-result-title">Rush-hour bank</h2>
             <p id="challenge-result-reason">Challenge debrief ready.</p>
           </div>
-          <div class="challenge-results__grade" aria-label="Challenge grade"><strong id="challenge-result-grade">A</strong><span id="challenge-result-score">90 / 100</span></div>
-          <section class="challenge-results__summary" aria-label="Operational summary">
-            <span><b id="challenge-result-throughput">0 ops/hr</b><small>Throughput</small></span>
-            <span><b id="challenge-result-delay">0 sec/op</b><small>Delay</small></span>
-            <span><b id="challenge-result-fuel">0 kg held</b><small>Holding fuel</small></span>
-            <span><b id="challenge-result-safety">100 / 100</b><small>Safety</small></span>
-            <span><b id="challenge-result-operations">0 in · 0 out</b><small>Movements</small></span>
-            <span><b id="challenge-result-emergencies">0 resolved</b><small>Priority / go-arounds</small></span>
+          <div class="challenge-results__grade" aria-label="Challenge grade">
+            <strong id="challenge-result-grade">A</strong
+            ><span id="challenge-result-score">90 / 100</span>
+          </div>
+          <section
+            class="challenge-results__summary"
+            aria-label="Operational summary"
+          >
+            <span
+              ><b id="challenge-result-throughput">0 ops/hr</b
+              ><small>Throughput</small></span
+            >
+            <span
+              ><b id="challenge-result-delay">0 sec/op</b
+              ><small>Delay</small></span
+            >
+            <span
+              ><b id="challenge-result-fuel">0 kg held</b
+              ><small>Holding fuel</small></span
+            >
+            <span
+              ><b id="challenge-result-safety">100 / 100</b
+              ><small>Safety</small></span
+            >
+            <span
+              ><b id="challenge-result-operations">0 in · 0 out</b
+              ><small>Movements</small></span
+            >
+            <span
+              ><b id="challenge-result-emergencies">0 resolved</b
+              ><small>Priority / go-arounds</small></span
+            >
           </section>
-          <details class="challenge-results__objectives" open><summary>Objective breakdown</summary><div id="challenge-result-objectives" class="challenge-objectives"></div></details>
-          <footer><button id="challenge-retry" class="primary" type="button">Retry challenge <span aria-hidden="true">↻</span></button><button id="challenge-continue" type="button">Continue free play</button></footer>
+          <details class="challenge-results__objectives" open>
+            <summary>Objective breakdown</summary>
+            <div
+              id="challenge-result-objectives"
+              class="challenge-objectives"
+            ></div>
+          </details>
+          <footer>
+            <button id="challenge-retry" class="primary" type="button">
+              Retry challenge <span aria-hidden="true">↻</span></button
+            ><button id="challenge-continue" type="button">
+              Continue free play
+            </button>
+          </footer>
         </div>
       </div>
-      <aside id="debug-panel" class="debug-panel" aria-label="Runtime diagnostics" hidden></aside>
+      <aside
+        id="debug-panel"
+        class="debug-panel"
+        aria-label="Runtime diagnostics"
+        hidden
+      ></aside>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>

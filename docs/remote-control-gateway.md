@@ -207,6 +207,20 @@ All responses use `Cache-Control: no-store`. Health and protocol discovery are p
 
 The HTTP API is read-only. It has no command route and cannot promote a spectator.
 
+## Optional live-data relay
+
+When the operator explicitly sets `AIRPORT_LIVE_DATA_ENABLED=1`, the same process can expose three bounded normalization routes. These are the only HTTP routes in the gateway that reach an upstream provider.
+
+| Endpoint                        | Authentication       | Result                                                     |
+| ------------------------------- | -------------------- | ---------------------------------------------------------- |
+| `GET /v1/live/metar/:station`   | host or admin bearer | Normalized official Aviation Weather Center METAR report   |
+| `GET /v1/live/notams/:station`  | host or admin bearer | Normalized operator-configured NOTAM/surface-status report |
+| `GET /v1/live/traffic/:station` | host or admin bearer | Normalized licensed aggregate traffic windows              |
+
+The relay is disabled by default, rejects controller/spectator tokens, accepts a normalized ICAO station rather than a browser-supplied upstream URL, coalesces requests, applies provider-specific minimum caches, times out bounded responses, and returns only schema-versioned not-for-navigation data. NOTAM and traffic providers remain unavailable until their fixed HTTPS/loopback `{station}` URL templates are configured by the operator. Provider credentials remain server-side.
+
+See [Optional live-data adapters](live-data-adapters.md) for environment variables, schemas, licensing, browser review, cache, replay, and privacy behavior.
+
 ## Emergency stop, limits, and audit
 
 An admin emergency stop blocks new remote command routing for one session. It does not pause the simulation, disable local UI, interrupt deterministic Auto, or bypass an in-progress movement. Controllers receive an explicit `emergency-stop` rejection until an admin resumes routing.

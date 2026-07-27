@@ -1,11 +1,11 @@
 # Airport Auto — Forward Roadmap
 
-Last reconciled: July 26, 2026
-Working baseline: Airport Auto 2.39.0 (local release candidate; deployment intentionally withheld)
+Last reconciled: July 27, 2026
+Working baseline: Airport Auto 2.40.0 (local release candidate; deployment intentionally withheld)
 
 Airport Auto is an **ASMR-first web airport simulation with an optional serious ATC layer**. The simulation should remain enjoyable as a calm, hands-off miniature world while also supporting increasingly authentic controller work when the player asks for it.
 
-This document contains only unfinished, still-valid work. Shipped behavior belongs in [PLAN.md](PLAN.md), the release ledger. An unchecked item here is not a claim that the current release is broken; it is future product work.
+This document preserves the completed scope and acceptance record for the roadmap created after 2.1. Every scoped row is now resolved; shipped behavior and release evidence also live in [PLAN.md](PLAN.md). New product expansion requires a newly reconciled roadmap rather than silently reopening this ledger.
 
 ## Roadmap rules
 
@@ -188,14 +188,16 @@ Make model differences visible on the field rather than only in flight strips.
 
 Connect the simulation to the outside world without making it fragile or unsafe.
 
-- [ ] Add cached, optional METAR ingestion with unit validation, age display, provenance, and offline fallback.
-- [ ] Add cached, optional NOTAM and runway/taxiway-status ingestion with human review before changing active topology.
-- [ ] Add optional schedule/traffic feeds that seed plausible operations while preserving privacy, licensing, and deterministic replay.
+**Status: complete in the 2.40 local candidate.** Optional live inputs remain default-off and manually reviewed; local capture and deterministic classroom sharing add no hosted dependency; progression/public leaderboards were deliberately deferred to protect the open-ended ASMR direction.
+
+- [x] Add cached, optional METAR ingestion with unit validation, age display, provenance, and offline fallback. (2.40: official AWC data is requested only through an opt-in, credential-redacted gateway; server/browser validation, a one-minute request cache, bounded local cache, age/provenance UI, explicit modeled-weather application, and offline fallback are covered by `test:live-data`.)
+- [x] Add cached, optional NOTAM and runway/taxiway-status ingestion with human review before changing active topology. (2.40: operator-configured FAA/provider access normalizes at most 200 items; each exact sourced-surface match must be reviewed or ignored and then passes through Supervisor authority plus the existing disruption/safety arbiter.)
+- [x] Add optional schedule/traffic feeds that seed plausible operations while preserving privacy, licensing, and deterministic replay. (2.40: a licensed provider-neutral adapter accepts aggregate windows only, validates its privacy/license contract, derives a reproducible fingerprint and existing density command, and excludes identifiers and raw feed data from replay/telemetry.)
 - [x] Add JSON and CSV exports for flights, commands, events, queues, delays, runway utilization, and shift metrics. (2.37 local candidate: one local JSON bundle and ten selectable CSV datasets cover the requested data plus named-taxiway use, flight-recorder samples, and conflict cells; nested data is serialized safely and nothing uploads.)
 - [x] Add a single-aircraft flight-data-recorder view, airport operations dashboard, conflict heatmap, and runway/taxiway utilization views. (2.37 local candidate: a responsive, keyboard-safe Data Lab presents authoritative one-second traces, shift pulse, utilization bars, runway-context forecast heat cells, and follow controls without reading positions from the renderer.)
 - [x] Add exact-replay verification, event markers, state comparison, schema migrations, and shareable replay/seed links. (2.38 local candidate: replay schema 4 fingerprints every authoritative frame and the complete manifest, locates mismatches, adds marker seeking and bounded path diffs, migrates schema 3 with an unsealed warning, imports read-only files, accepts exact `seed=` launches, and separates raw local Export from re-fingerprinted privacy-filtered Share files.)
-- [ ] Add screenshot and short-clip capture plus a clean spectator presentation.
-- [ ] Add daily seeded challenges, classrooms, shared sessions, and server-validated leaderboards only if they support rather than undermine the ASMR-first direction.
+- [x] Add screenshot and short-clip capture plus a clean spectator presentation. (2.40: local PNG and bounded 3–15-second silent WebM capture, capture-safe clean chrome, explicit no-microphone/no-upload behavior, teardown, typed local API, and browser download/Escape coverage.)
+- [x] Add daily seeded challenges, classrooms, shared sessions, and server-validated leaderboards only if they support rather than undermine the ASMR-first direction. (2.40: a schema-versioned UTC daily rotation and privacy-safe classroom links reproduce one deliberate briefing without accounts; authenticated shared stations use the existing gateway. Public/server-validated leaderboards are complete-deferred by the documented ASMR-first product decision.)
 - [x] Define telemetry redaction, retention, consent, and public-sharing rules before enabling cloud storage. (2.37 established the bounded page-memory recorder and allowlist policy; 2.38 enforces it by removing controller identity, correlations, event payloads, free text, and precise recording time from separately fingerprinted Share files while keeping raw Export explicitly local.)
 
 ## Cross-cutting engineering and quality work
@@ -224,8 +226,8 @@ These tasks travel with the milestones above rather than waiting for a final cle
 - [x] Use captions plus an optional reusable offline library of license-cleared recorded or generated fictional speech; do not generate chatter in real time.
 - [x] Choose the hosting and identity model for authenticated remote/multi-controller sessions. (2.32: separate self-hosted Node gateway with operator-owned pre-provisioned opaque tokens, exact Origin/TLS controls, provider-neutral container, and an explicit future OIDC migration boundary.)
 - [x] Decide which telemetry may appear in shared replays and which must remain local. (2.37: simulated state and pseudonymous operation outcomes are allowlisted only after explicit preview/consent; correlation IDs, controller/client identity, credentials, network/device data, user text, and restricted live-feed data remain local or are removed.)
-- [ ] Decide whether progression and leaderboards improve the project or conflict with its open-ended ASMR character.
-- [ ] Choose the second high-fidelity airport only after ORD v1 meets its acceptance gate.
+- [x] Decide whether progression and leaderboards improve the project or conflict with its open-ended ASMR character. (2.40: persistent progression/public leaderboards are deferred; isolated local safety-first grades remain. The reasons and reconsideration guardrails are recorded in [community and product direction](docs/community-and-product-direction.md).)
+- [x] Choose the second high-fidelity airport only after ORD v1 meets its acceptance gate. (2.40: after the complete sourced-topology, routing, protection, pose-equality, obstacle, and sustained-flow gate, KATL/Atlanta is selected as the next import; ATL remains explicitly schematic until it passes an equivalent gate.)
 
 ## Reconciliation with the pre-2.1 plan
 
@@ -245,6 +247,6 @@ Valid unfinished items from the former product plan were retained here and conso
 
 The following former categories were intentionally **not** copied as open work because 2.1 already ships and tests them: fixed-step authoritative motion, shared simulation/render paths, edge-spawned arrivals, full landing and takeoff rolls, pavement-only graph routing, surface reservations, basic wind-selected runway ends, Auto/Assisted/Manual/Watch modes, station authority, structured command rejections, deterministic recording/replay, local BroadcastChannel control, responsive camera controls, audio channel mixing, low-detail rendering, linting, browser tests, CI, and additive Pages deployment.
 
-## Definition of the next major release
+## Completion outcome
 
-The next major release is ready when ORD Surface Graph v1 meets its acceptance gate, its sources and limitations are visible in-product, Auto/Watch sustain a busy sourced layout without collisions or deadlock, Assisted/Manual can complete representative ORD arrival and departure flows, and desktop/mobile performance remains within the established release budgets.
+The 2.40 local candidate satisfies the roadmap’s ORD Surface Graph v1 gate, visible source/limitation disclosure, sustained Auto/Watch flow, complete Assisted/Manual command path, desktop/mobile budgets, safe optional integrations, capture, and community/product decisions. No unchecked roadmap item remains. Deployment is intentionally withheld to preserve GitHub Actions minutes.
