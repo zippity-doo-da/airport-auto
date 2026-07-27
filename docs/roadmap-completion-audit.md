@@ -4,7 +4,7 @@ This document is the release ledger for every valid item that was still open in 
 
 An item moves to **Complete** only when its implementation or explicit product decision is documented, its focused gate passes, and the relevant full release gate passes. “Foundation,” “partial,” and “candidate” work remains **In progress**. No item is closed merely because adjacent code exists.
 
-Hosted deployment is deliberately outside this effort. The user asked to avoid GitHub Actions deployment; completion evidence is local unless that instruction changes.
+Hosted deployment was deliberately outside the implementation effort while the user asked to avoid GitHub Actions deployment. That instruction changed after the local gates completed; the publication follow-up below records the separately authorized release.
 
 ## Audit ledger
 
@@ -63,4 +63,13 @@ The reconciled 2.40/schema-42 candidate passed its final local release gates on 
 | `npm run build`                                | Passed; Vite completed the production bundle over 129 transformed modules.                                                                                                                                                                                                                          |
 | `AIRPORT_AUTO_E2E_PORT=43135 npm run test:e2e` | Passed in 7.7 minutes: 35 substantive desktop/mobile tests, 27 intentional cross-project skips, and zero failures across all named airport/scenario boots, UI/control paths, capture, community links, sound, replay, remote control, responsive menus, accessibility, and performance diagnostics. |
 
-No GitHub Actions workflow, push, or hosted deployment was invoked. The 2.40 candidate and this evidence remain local until the user explicitly requests publication.
+At the time of this local gate receipt, no GitHub Actions workflow, push, or hosted deployment had been invoked. Publication followed only after the user explicitly requested it.
+
+## Publication follow-up
+
+On July 27, 2026, the user explicitly authorized a source push and deployment:
+
+- Source release head `9da852d` was pushed to `origin/main`; [CI run 30294789277](https://github.com/zippity-doo-da/airport-auto/actions/runs/30294789277) passed static, fixed-step, operations, trajectory-safety, and browser jobs.
+- Additive Pages commit `5cd4b1b` was pushed to the existing menagerie repository; [Pages run 30296371634](https://github.com/zippity-doo-da/random_art_projects/actions/runs/30296371634) completed successfully.
+- [The live Airport Auto 2.40 build](https://zippity-doo-da.github.io/random_art_projects/airport-auto/) returned 200 and exposed API `2.40.0`, snapshot schema `42`, a loaded renderer, viewport ground coverage, six initial ORD Watch flights, and zero aircraft/obstacle collisions in the publication smoke test.
+- The soundscape manifest and sampled WAV asset returned 200; the live browser reported zero console errors and zero failed requests; the existing [menagerie root](https://zippity-doo-da.github.io/random_art_projects/) remained available.

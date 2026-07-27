@@ -2,6 +2,8 @@
 
 Airport Auto is an ASMR-first airport simulation with an optional serious ATC game layer. The fixed-step simulation owns motion and safety; Three.js presents that state; DOM controls and the versioned control API provide human and agent input.
 
+Current publication: Airport Auto 2.40.0 is live at [GitHub Pages](https://zippity-doo-da.github.io/random_art_projects/airport-auto/) as of July 27, 2026. Source release head: `9da852d`; additive Pages commit: `5cd4b1b`.
+
 This file is the status ledger. A checked item is implemented and tested; any release intentionally held locally is labeled as such. Future ideas are kept in a separate, explicitly deferred section so implemented work is never duplicated as an unchecked task.
 
 ## Airport Auto 2.1 — reliability, control, and long-session release
@@ -535,11 +537,11 @@ Deployment remains intentionally withheld to conserve GitHub Actions minutes. Th
 - [x] Measure retained heap growth from garbage-collection low-water samples, with deterministic tests proving that a stable sawtooth passes and a 60 MiB/hour retained leak still fails the unchanged 32 MiB/hour gate.
 - [x] Pass the complete local `npm test` suite, production build, and a two-modeled-hour Extreme-ORD 3× acceptance soak: 52 arrivals, 22 departures, zero collisions/incursions/unexplained pauses, 35 peak aircraft, 48 peak service vehicles, 51 peak queues, 2.672 ms simulation p95, and 20.941 MiB/hour retained heap growth.
 
-The multi-hour roadmap acceptance item is complete locally. Deployment remains intentionally withheld; no GitHub Actions workflow was invoked.
+The multi-hour roadmap acceptance item completed locally before publication. It was subsequently revalidated by the hosted source workflow and released after explicit user authorization.
 
-## Airport Auto 2.40 — roadmap completion (local release candidate)
+## Airport Auto 2.40 — roadmap completion and release
 
-Deployment remains intentionally withheld to conserve GitHub Actions minutes. This candidate is built and tested locally only.
+Published additively on July 27, 2026. The source and Pages workflows passed, the public 2.40/schema-42 runtime loaded without console or request failures, and the existing menagerie remained available.
 
 - [x] Ship 11 project-original, license-manifested PCM ambience beds and 24 detailed operation/weather cues with deterministic variant selection, state-driven mixing, bounded cooldown retention, same-origin decode, and procedural fallback.
 - [x] Ship ten reusable fictional synthetic radio exchanges with four disclosed abstract voice timbres, readable dynamic captions, station/traffic selection, calm repetition budgets, no runtime generation, and a no-voice fallback.
@@ -552,6 +554,8 @@ Deployment remains intentionally withheld to conserve GitHub Actions minutes. Th
 - [x] Select KATL/Atlanta as the second high-fidelity import only after the complete ORD gate; document current FAA/airport sources, five-parallel-runway and surface-operation rationale, importer-reuse value, risks, and the equivalent gate ATL must pass before losing its schematic label.
 - [x] Reconcile `ROADMAP.md`, this release ledger, README, the completion audit, live-data/capture/community documentation, API help, gateway discovery, and focused acceptance commands without adding a deployment step.
 - [x] Pass the complete local deterministic, trajectory/collision, lint, production-build, and desktop/mobile browser release gates after final version/schema reconciliation. (`npm test`, lint, and build passed; Playwright passed 35 tests with 27 intentional cross-viewport skips and zero failures against 2.40/schema 42.)
+- [x] Push source release head `9da852d` to `origin/main`; pass all hosted static, fixed-step, operations, trajectory-safety, and browser jobs.
+- [x] Publish Pages commit `5cd4b1b` additively under `/airport-auto/`; verify the live 2.40/schema-42 API, renderer, audio manifest/asset, zero initial conflicts, clean browser console/network, and an intact menagerie root.
 
 ## Airport fidelity policy
 

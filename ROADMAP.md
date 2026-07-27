@@ -1,7 +1,7 @@
 # Airport Auto — Forward Roadmap
 
 Last reconciled: July 27, 2026
-Working baseline: Airport Auto 2.40.0 (local release candidate; deployment intentionally withheld)
+Working baseline: Airport Auto 2.40.0 (released July 27, 2026)
 
 Airport Auto is an **ASMR-first web airport simulation with an optional serious ATC layer**. The simulation should remain enjoyable as a calm, hands-off miniature world while also supporting increasingly authentic controller work when the player asks for it.
 
@@ -188,7 +188,7 @@ Make model differences visible on the field rather than only in flight strips.
 
 Connect the simulation to the outside world without making it fragile or unsafe.
 
-**Status: complete in the 2.40 local candidate.** Optional live inputs remain default-off and manually reviewed; local capture and deterministic classroom sharing add no hosted dependency; progression/public leaderboards were deliberately deferred to protect the open-ended ASMR direction.
+**Status: complete in the 2.40 release.** Optional live inputs remain default-off and manually reviewed; local capture and deterministic classroom sharing add no hosted dependency; progression/public leaderboards were deliberately deferred to protect the open-ended ASMR direction.
 
 - [x] Add cached, optional METAR ingestion with unit validation, age display, provenance, and offline fallback. (2.40: official AWC data is requested only through an opt-in, credential-redacted gateway; server/browser validation, a one-minute request cache, bounded local cache, age/provenance UI, explicit modeled-weather application, and offline fallback are covered by `test:live-data`.)
 - [x] Add cached, optional NOTAM and runway/taxiway-status ingestion with human review before changing active topology. (2.40: operator-configured FAA/provider access normalizes at most 200 items; each exact sourced-surface match must be reviewed or ignored and then passes through Supervisor authority plus the existing disruption/safety arbiter.)
@@ -249,4 +249,4 @@ The following former categories were intentionally **not** copied as open work b
 
 ## Completion outcome
 
-The 2.40 local candidate satisfies the roadmap’s ORD Surface Graph v1 gate, visible source/limitation disclosure, sustained Auto/Watch flow, complete Assisted/Manual command path, desktop/mobile budgets, safe optional integrations, capture, and community/product decisions. No unchecked roadmap item remains. Deployment is intentionally withheld to preserve GitHub Actions minutes.
+The 2.40 release satisfies the roadmap’s ORD Surface Graph v1 gate, visible source/limitation disclosure, sustained Auto/Watch flow, complete Assisted/Manual command path, desktop/mobile budgets, safe optional integrations, capture, and community/product decisions. No unchecked roadmap item remains. The additive Pages release is live at [Airport Auto](https://zippity-doo-da.github.io/random_art_projects/airport-auto/) and preserves the existing menagerie.

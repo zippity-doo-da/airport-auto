@@ -2,7 +2,7 @@
 
 Airport Auto is a browser-based air-traffic game and hands-off airport simulation. Watch a continuous operation in Full Auto or low-chrome Watch mode, approve explained clearances in Assisted ATC, or work Approach, Tower, Ground, Ramp, and Supervisor positions in Full Manual.
 
-[Open the last deployed build](https://zippity-doo-da.github.io/random_art_projects/airport-auto/). The 2.40 roadmap-completion candidate remains local by request and has not consumed a GitHub Actions deployment.
+[Open the live 2.40 build](https://zippity-doo-da.github.io/random_art_projects/airport-auto/). It was published additively on July 27, 2026, without replacing the existing `random_art_projects` menagerie.
 
 The airport layouts are readable operational schematics inspired by real runway patterns. They are not navigation charts and must not be used for real-world aviation.
 
