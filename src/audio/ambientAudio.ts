@@ -1,5 +1,10 @@
 import type { AirportState } from "../simulation/types";
+import { airportAutoAssetPath } from "../assets/assetManifest";
 import type { SoundscapeChannel, SoundscapeEvent } from "./soundscapeEvents";
+import {
+  OfflineSoundLibrary,
+  type OfflineSoundLibrarySnapshot,
+} from "./offlineSoundLibrary";
 import {
   SpatialAircraftAudio,
   type SoundscapeListenerView,
@@ -28,6 +33,7 @@ export interface AmbientAudioSnapshot {
     apu: number;
   };
   spatialAircraft: SpatialAircraftAudioSnapshot;
+  offlineLibrary: OfflineSoundLibrarySnapshot;
   playedEvents: number;
   suppressedEvents: number;
 }
@@ -39,6 +45,19 @@ const EMPTY_SPATIAL_SNAPSHOT: SpatialAircraftAudioSnapshot = {
   pooledNoiseBuffer: false,
   pooledEmitters: 0,
   emitterPoolCapacity: 14,
+};
+
+const EMPTY_OFFLINE_LIBRARY_SNAPSHOT: OfflineSoundLibrarySnapshot = {
+  schemaVersion: 1,
+  status: "idle",
+  manifestSchemaVersion: null,
+  decodedAssets: 0,
+  totalAssets: 0,
+  activeBeds: 0,
+  playedClips: 0,
+  fallbackClips: 0,
+  lastError: null,
+  syntheticVoicesDisclosed: false,
 };
 
 const PRESET_MIX: Record<AudioPreset, Record<AudioChannel, number>> = {
@@ -66,6 +85,7 @@ export class AmbientAudio {
   private master: GainNode | null = null;
   private buses: Partial<Record<AudioChannel, GainNode>> = {};
   private spatialAircraft: SpatialAircraftAudio | null = null;
+  private offlineLibrary: OfflineSoundLibrary | null = null;
   private noiseBuffer: AudioBuffer | null = null;
   private windGain: GainNode | null = null;
   private rainGain: GainNode | null = null;
@@ -203,6 +223,7 @@ export class AmbientAudio {
       view,
       this.enabled && this.preset !== "silent",
     );
+    this.offlineLibrary?.updateEnvironment(state);
   }
 
   play(event: SoundscapeEvent, delaySeconds = 0): void {
@@ -221,29 +242,40 @@ export class AmbientAudio {
     const now = this.context.currentTime + Math.max(0, delaySeconds);
     const pan = this.eventPan(event);
     const calm = this.preset === "calm" ? 0.62 : 1;
+    const offlinePlayed = this.offlineLibrary?.play(
+      event,
+      now,
+      pan,
+      event.priority === "critical" ? 1 : calm,
+    ) ?? false;
+    const cueScale = calm * (offlinePlayed ? 0.26 : 1);
     switch (event.kind) {
       case "scope-entry":
       case "radio-clearance":
       case "radio-ground":
       case "radio-handoff":
       case "radio-emergency":
-        this.radioCue(now, pan, event.priority === "critical" ? 1 : calm);
+        this.radioCue(
+          now,
+          pan,
+          (event.priority === "critical" ? 1 : calm) * (offlinePlayed ? 0.34 : 1),
+        );
         break;
       case "touchdown":
-        this.noiseBurst("aircraft", now, 0.34, 0.028 * calm, 1_150, pan);
+        this.noiseBurst("aircraft", now, 0.34, 0.028 * cueScale, 1_150, pan);
         this.tone(
           "aircraft",
           now,
           0.24,
           720 + event.variant * 45,
           390,
-          0.009 * calm,
+          0.009 * cueScale,
           pan,
         );
         break;
       case "reverse-thrust":
-        this.noiseBurst("aircraft", now, 1.25, 0.03 * calm, 260, pan);
-        this.tone("aircraft", now, 1.1, 78, 132, 0.012 * calm, pan);
+        this.noiseBurst("aircraft", now, 1.25, 0.03 * cueScale, 260, pan);
+        this.tone("aircraft", now, 1.1, 78, 132, 0.012 * cueScale, pan);
         break;
       case "takeoff-power":
         this.tone(
@@ -252,10 +284,19 @@ export class AmbientAudio {
           1.8,
           58 + event.variant * 5,
           128,
-          0.018 * calm,
+          0.018 * cueScale,
           pan,
         );
-        this.noiseBurst("aircraft", now, 1.7, 0.021 * calm, 420, pan);
+        this.noiseBurst("aircraft", now, 1.7, 0.021 * cueScale, 420, pan);
+        break;
+      case "taxi-whine":
+        this.tone("aircraft", now, 1.2, 360, 520, 0.006 * cueScale, pan);
+        break;
+      case "runway-rumble":
+        this.noiseBurst("aircraft", now, 1.6, 0.018 * cueScale, 180, pan);
+        break;
+      case "flap":
+        this.tone("aircraft", now, 0.74, 188, 132, 0.006 * cueScale, pan);
         break;
       case "engine-start":
         this.tone(
@@ -264,33 +305,34 @@ export class AmbientAudio {
           1.45,
           34,
           112 + event.variant * 8,
-          0.014 * calm,
+          0.014 * cueScale,
           pan,
         );
         break;
+      case "pushback":
       case "tug-movement":
-        this.tone("aircraft", now, 0.48, 126, 92, 0.008 * calm, pan);
+        this.tone("aircraft", now, 0.48, 126, 92, 0.008 * cueScale, pan);
         break;
       case "service-vehicle":
       case "ramp-clatter":
-        this.metallicClatter(now, pan, event.variant, 0.72 * calm);
+        this.metallicClatter(now, pan, event.variant, 0.72 * cueScale);
         break;
       case "deicing-spray":
-        this.noiseBurst("weather", now, 1.5, 0.022 * calm, 1_050, pan);
+        this.noiseBurst("weather", now, 1.5, 0.022 * cueScale, 1_050, pan);
         break;
       case "gear":
-        this.tone("aircraft", now, 0.68, 164, 118, 0.008 * calm, pan);
-        this.metallicClatter(now + 0.16, pan, event.variant, 0.45 * calm);
+        this.tone("aircraft", now, 0.68, 164, 118, 0.008 * cueScale, pan);
+        this.metallicClatter(now + 0.16, pan, event.variant, 0.45 * cueScale);
         break;
       case "weather-shift":
-        this.noiseBurst("weather", now, 1.2, 0.012 * calm, 750, 0);
+        this.noiseBurst("weather", now, 1.2, 0.012 * cueScale, 750, 0);
         break;
       case "weather-gust":
-        this.noiseBurst("weather", now, 2.1, 0.024 * calm, 380, 0);
+        this.noiseBurst("weather", now, 2.1, 0.024 * cueScale, 380, 0);
         break;
       case "thunder":
-        this.noiseBurst("weather", now, 3.8, 0.052 * calm, 145, pan);
-        this.tone("weather", now + 0.18, 2.8, 44, 31, 0.025 * calm, pan);
+        this.noiseBurst("weather", now, 3.8, 0.052 * cueScale, 145, pan);
+        this.tone("weather", now + 0.18, 2.8, 44, 31, 0.025 * cueScale, pan);
         break;
     }
     this.playedEvents += 1;
@@ -316,6 +358,9 @@ export class AmbientAudio {
       environment: { ...this.environment },
       spatialAircraft: this.spatialAircraft?.snapshot() ?? {
         ...EMPTY_SPATIAL_SNAPSHOT,
+      },
+      offlineLibrary: this.offlineLibrary?.snapshot() ?? {
+        ...EMPTY_OFFLINE_LIBRARY_SNAPSHOT,
       },
       playedEvents: this.playedEvents,
       suppressedEvents: this.suppressedEvents,
@@ -344,6 +389,11 @@ export class AmbientAudio {
     this.spatialAircraft = new SpatialAircraftAudio(
       this.context,
       this.buses.aircraft!,
+    );
+    this.offlineLibrary = new OfflineSoundLibrary(this.context, this.buses);
+    void this.offlineLibrary.load(
+      new URL(airportAutoAssetPath("audio.soundscape-manifest"), document.baseURI)
+        .href,
     );
     this.updateMix();
   }

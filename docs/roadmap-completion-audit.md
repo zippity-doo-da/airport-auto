@@ -10,11 +10,11 @@ Hosted deployment is deliberately outside this effort. The user asked to avoid G
 
 | ID | Roadmap requirement | Status | Completion evidence / remaining acceptance |
 | --- | --- | --- | --- |
-| A1 | License-cleared engine, APU, ramp, cabin-area, runway, rain, wind, terminal, and tower-room recordings | Pending | Acquire or create the library, record provenance and licenses, normalize it, and pass offline/audio repetition gates. |
-| A2 | Detailed taxi-whine, power, reverse, runway-rumble, touchdown, flap/gear, pushback, tug, and service-vehicle layers | Pending | Wire persistent and event layers to authoritative state, including independent mixing and deterministic replay decisions. |
-| A3 | Richer weather-specific rain, snow, thunder, gust, and low-visibility ambience | Pending | Extend the existing procedural beds with condition-specific layers that exactly obey weather/wind/high-stakes switches. |
-| A4 | Reusable offline fictional, captioned ATC voice library | Pending | Pre-render or record disclosed fictional voices, add a license/source manifest, and sequence by airport/station/state without runtime generation. |
-| A5 | Long-loop randomization, density-aware mixing, calm alerts, and measured repetition budgets | Pending | Add multi-hour event/repetition measurement and prove bounded, non-fatiguing playback. |
+| A1 | License-cleared engine, APU, ramp, cabin-area, runway, rain, wind, terminal, and tower-room recordings | Complete | Eleven project-original deterministic PCM beds are shipped as CC0-1.0 WAV files with source/hash metadata, same-origin lazy decode, and procedural fallback. |
+| A2 | Detailed taxi-whine, power, reverse, runway-rumble, touchdown, flap/gear, pushback, tug, and service-vehicle layers | Complete | Twenty-four detailed event recordings are selected by authoritative state transitions, spatialized/mixed independently, recorded through existing deterministic sound events, and covered by manifest/browser tests. |
+| A3 | Richer weather-specific rain, snow, thunder, gust, and low-visibility ambience | Complete | Recorded rain/wind/snow/fog beds and gust/spray/thunder clips obey shared weather, wind, precipitation, and high-stakes toggles exactly. |
+| A4 | Reusable offline fictional, captioned ATC voice library | Complete | Ten reusable synthetic fictional exchanges span three stations and four timbres, retain dynamic captions, disclose their origin, require no runtime generation/network/API, and keep a no-voice fallback. |
+| A5 | Long-loop randomization, density-aware mixing, calm alerts, and measured repetition budgets | Complete | State-driven bed levels, global/per-kind cooldowns, no-immediate-repeat selection, bounded 512-key cooldown retention, and `test:audio-repetition` prove a four-hour maximum of ten radio exchanges/minute and one same-variant run. |
 | L1 | Optional cached METAR ingestion | Pending | Unit validation, freshness/provenance display, privacy-safe opt-in, bounded cache, and deterministic offline fallback are required. |
 | L2 | Optional cached NOTAM/runway/taxiway-status ingestion | Pending | Parsed material must require human review before it can alter simulated topology; offline operation must remain complete. |
 | L3 | Optional schedule/traffic feeds | Pending | Add a licensed provider adapter that seeds deterministic operations without exposing restricted raw data in replays or telemetry. |
@@ -41,7 +41,8 @@ The audit uses these focused local gates in addition to the existing full `npm t
 - `npm run test:rule-properties`
 - `npm run test:rule-ownership`
 - `npm run test:renderer-resources`
-- Audio library/repetition gate (to be added with A1–A5)
+- `npm run test:audio-library`
+- `npm run test:audio-repetition`
 - Live-adapter gate (to be added with L1–L3)
 - Capture/spectator gate (to be added with S1)
 - `npm run test:release-matrix`

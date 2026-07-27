@@ -19,7 +19,11 @@ export type SoundscapeEventKind =
   | "touchdown"
   | "reverse-thrust"
   | "takeoff-power"
+  | "taxi-whine"
+  | "runway-rumble"
+  | "flap"
   | "engine-start"
+  | "pushback"
   | "tug-movement"
   | "service-vehicle"
   | "deicing-spray"
@@ -62,6 +66,9 @@ export interface SoundscapeSchedulerSnapshot {
   nextGustEventSeconds: number;
   nextThunderEventSeconds: number;
   highStakesWeatherEnabled: boolean;
+  maximumSameVariantRun: number;
+  retainedVariantKeys: number;
+  retainedCooldownKeys: number;
 }
 
 interface TrackedFlightSoundState {
@@ -286,6 +293,13 @@ function mechanicalDraft(event: AirportEvent): SoundEventDraft | null {
         sourceEventType: event.type,
       };
     case "pushback-start":
+      return {
+        kind: "pushback",
+        channel: "aircraft",
+        flight: event.flight,
+        variantCount: 3,
+        sourceEventType: event.type,
+      };
     case "tug-release":
       return {
         kind: "tug-movement",
@@ -323,11 +337,17 @@ export class SoundscapeEventScheduler {
   private suppressed = 0;
   private readonly trackedFlights = new Map<number, TrackedFlightSoundState>();
   private readonly cooldowns = new Map<string, number>();
+  private readonly cooldownOrder: string[] = [];
   private nextRampEventSeconds = 18;
   private nextGustEventSeconds = 24;
   private nextThunderEventSeconds = 90;
   private previousWeather = "clear";
   private highStakesWeatherEnabled = false;
+  private readonly lastVariants = new Map<
+    string,
+    { variant: number; run: number }
+  >();
+  private maximumSameVariantRun = 0;
 
   constructor(private seed: number) {
     this.reset(seed);
@@ -340,6 +360,9 @@ export class SoundscapeEventScheduler {
     this.suppressed = 0;
     this.trackedFlights.clear();
     this.cooldowns.clear();
+    this.cooldownOrder.length = 0;
+    this.lastVariants.clear();
+    this.maximumSameVariantRun = 0;
     this.nextRampEventSeconds = 14 + hash01(seed, 1) * 18;
     this.nextGustEventSeconds = 20 + hash01(seed, 2) * 20;
     this.nextThunderEventSeconds = 75 + hash01(seed, 3) * 70;
@@ -406,6 +429,19 @@ export class SoundscapeEventScheduler {
             24,
           );
           if (event) result.push(event);
+          const flap = this.emit(
+            {
+              kind: "flap",
+              channel: "aircraft",
+              flight,
+              variantCount: 2,
+              sourceEventType: "motion:landing-flaps",
+            },
+            state.elapsed + 0.45,
+            `flight:${flight.id}:flap`,
+            24,
+          );
+          if (flap) result.push(flap);
         }
         const touchdownTransition =
           flight.phase === "landing" &&
@@ -426,6 +462,19 @@ export class SoundscapeEventScheduler {
             30,
           );
           if (touchdown) result.push(touchdown);
+          const rumble = this.emit(
+            {
+              kind: "runway-rumble",
+              channel: "aircraft",
+              flight,
+              variantCount: 2,
+              sourceEventType: "motion:landing-roll",
+            },
+            state.elapsed + 0.12,
+            `flight:${flight.id}:runway-rumble`,
+            30,
+          );
+          if (rumble) result.push(rumble);
           const reverse = this.emit(
             {
               kind: "reverse-thrust",
@@ -456,6 +505,37 @@ export class SoundscapeEventScheduler {
             30,
           );
           if (event) result.push(event);
+          const rumble = this.emit(
+            {
+              kind: "runway-rumble",
+              channel: "aircraft",
+              flight,
+              variantCount: 2,
+              sourceEventType: "motion:takeoff-roll",
+            },
+            state.elapsed + 0.18,
+            `flight:${flight.id}:runway-rumble`,
+            30,
+          );
+          if (rumble) result.push(rumble);
+        }
+        const taxiTransition =
+          (flight.phase === "taxi-in" || flight.phase === "taxi-out")
+          && previous.phase !== flight.phase;
+        if (taxiTransition) {
+          const taxi = this.emit(
+            {
+              kind: "taxi-whine",
+              channel: "aircraft",
+              flight,
+              variantCount: 2,
+              sourceEventType: "motion:taxi",
+            },
+            state.elapsed,
+            `flight:${flight.id}:taxi-whine`,
+            18,
+          );
+          if (taxi) result.push(taxi);
         }
       }
       this.trackedFlights.set(flight.id, {
@@ -579,6 +659,9 @@ export class SoundscapeEventScheduler {
       nextGustEventSeconds: Number(this.nextGustEventSeconds.toFixed(2)),
       nextThunderEventSeconds: Number(this.nextThunderEventSeconds.toFixed(2)),
       highStakesWeatherEnabled: this.highStakesWeatherEnabled,
+      maximumSameVariantRun: this.maximumSameVariantRun,
+      retainedVariantKeys: this.lastVariants.size,
+      retainedCooldownKeys: this.cooldowns.size,
     };
   }
 
@@ -589,13 +672,42 @@ export class SoundscapeEventScheduler {
     cooldownSeconds: number,
   ): SoundscapeEvent | null {
     const last = this.cooldowns.get(cooldownKey) ?? Number.NEGATIVE_INFINITY;
-    if (elapsed - last < cooldownSeconds) {
+    const radioChannelKey = draft.channel === "radio" ? "channel:radio" : null;
+    const lastRadio = radioChannelKey
+      ? (this.cooldowns.get(radioChannelKey) ?? Number.NEGATIVE_INFINITY)
+      : Number.NEGATIVE_INFINITY;
+    const radioGapSeconds = draft.priority === "critical" ? 0 : 1.8;
+    if (
+      elapsed - last < cooldownSeconds ||
+      (radioChannelKey && elapsed - lastRadio < radioGapSeconds)
+    ) {
       this.suppressed += 1;
       return null;
     }
-    this.cooldowns.set(cooldownKey, elapsed);
+    this.rememberCooldown(cooldownKey, elapsed);
+    if (radioChannelKey) this.rememberCooldown(radioChannelKey, elapsed);
     const sequence = ++this.sequence;
     const variantCount = Math.max(1, draft.variantCount ?? 4);
+    const variantKey = `${draft.channel}:${draft.kind}:${draft.station ?? "any"}`;
+    const previousVariant = this.lastVariants.get(variantKey);
+    let variant = Math.floor(
+      hash01(this.seed, sequence * 17) * variantCount,
+    );
+    if (
+      variantCount > 1 &&
+      previousVariant &&
+      previousVariant.variant === variant
+    ) {
+      variant = (variant + 1) % variantCount;
+    }
+    const variantRun = previousVariant?.variant === variant
+      ? previousVariant.run + 1
+      : 1;
+    this.lastVariants.set(variantKey, { variant, run: variantRun });
+    this.maximumSameVariantRun = Math.max(
+      this.maximumSameVariantRun,
+      variantRun,
+    );
     const flight = draft.flight;
     const event: SoundscapeEvent = {
       schemaVersion: SOUNDSCAPE_EVENT_SCHEMA_VERSION,
@@ -605,7 +717,7 @@ export class SoundscapeEventScheduler {
       kind: draft.kind,
       channel: draft.channel,
       priority: draft.priority ?? "ambient",
-      variant: Math.floor(hash01(this.seed, sequence * 17) * variantCount),
+      variant,
       flightId: flight?.id,
       callsign: flight?.callsign,
       aircraft: flight?.aircraft,
@@ -623,5 +735,15 @@ export class SoundscapeEventScheduler {
     };
     this.emitted += 1;
     return event;
+  }
+
+  private rememberCooldown(key: string, elapsed: number): void {
+    if (!this.cooldowns.has(key)) this.cooldownOrder.push(key);
+    this.cooldowns.set(key, elapsed);
+    while (this.cooldownOrder.length > 512) {
+      const oldest = this.cooldownOrder.shift();
+      if (oldest && oldest !== "channel:radio") this.cooldowns.delete(oldest);
+      else if (oldest) this.cooldownOrder.push(oldest);
+    }
   }
 }

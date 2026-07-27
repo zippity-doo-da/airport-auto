@@ -10,7 +10,7 @@
       "kind": "audio-manifest",
       "path": "audio/soundscape-manifest.json",
       "contentType": "application/json",
-      "sha256": "d3a0d70c576a32400a1951651d87681498ff18d9cd2cece13ee7cef20c810f42",
+      "sha256": "fd936ecae777f4a0098a1f0cff1b78bd862e9abc3987d36682a0a6d45b3bca26",
       "offlineRequired": true,
       "licenseRef": "public/audio/soundscape-manifest.json"
     },

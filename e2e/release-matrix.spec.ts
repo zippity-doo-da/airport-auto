@@ -322,3 +322,30 @@ test("reduced-motion mode suppresses runtime and CSS animation", async ({
   expect(motion.longAnimations).toBe(0);
   expect(motion.maximumTransitionMs).toBeLessThanOrEqual(0.1);
 });
+
+test("offline sound recordings decode from the application origin", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-chromium", "Audio decode gate runs once.");
+  await page.goto("/?airport=ATL&seed=10000&mode=watch&autostart=1&detail=low&renderFps=4");
+  await waitForRuntime(page);
+  await page.locator("#menu-toggle").click();
+  await page.locator("#sound-toggle").click();
+  await page.waitForFunction(
+    () => window.airportControl.snapshot().audio.offlineLibrary.status !== "loading",
+    undefined,
+    { timeout: 20_000 },
+  );
+  const library = await page.evaluate(
+    () => window.airportControl.snapshot().audio.offlineLibrary,
+  );
+  expect(library).toMatchObject({
+    status: "ready",
+    manifestSchemaVersion: 2,
+    decodedAssets: 45,
+    totalAssets: 45,
+    activeBeds: 11,
+    lastError: null,
+    syntheticVoicesDisclosed: true,
+  });
+});
