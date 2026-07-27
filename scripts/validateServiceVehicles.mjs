@@ -113,6 +113,7 @@ assert(maximumServicing >= 2, 'independent services never operated concurrently:
 assert(conflicts === 0, 'service vehicle separation diagnostics reported ' + conflicts + ' conflicts: ' + JSON.stringify(conflictSamples));
 assert(violations === 0, 'service vehicle route diagnostics reported ' + violations + ' protected-area entries');
 const readyVehicles = harness.simulation.state.serviceVehicles.filter((vehicle) => vehicle.flightId === arrival.id);
+assert(!harness.simulation.state.serviceVehicles.some((vehicle) => vehicle.status === 'complete'), 'completed service vehicles were retained after their lifecycle events were recorded');
 const liveBlocker = readyVehicles.find((vehicle) => ['approaching', 'servicing', 'clearing'].includes(vehicle.status));
 if (liveBlocker) {
   harness.simulation.setMode('assisted');
@@ -120,8 +121,10 @@ if (liveBlocker) {
   harness.simulation.setMode('manual');
   assert(!harness.simulation.clearPushback(arrival.id), 'pushback was accepted before stand equipment cleared');
 } else {
-  const probe = readyVehicles[0];
-  assert(probe, 'ready turnaround lost its service fleet');
+  const retainedProbe = readyVehicles[0];
+  const probe = retainedProbe ?? structuredClone(plans[0]);
+  assert(probe, 'service plan did not provide a synthetic stand-clearance probe');
+  if (!retainedProbe) harness.simulation.state.serviceVehicles.push(probe);
   const priorStatus = probe.status;
   probe.status = 'clearing';
   harness.simulation.setMode('assisted');
@@ -129,6 +132,7 @@ if (liveBlocker) {
   harness.simulation.setMode('manual');
   assert(!harness.simulation.clearPushback(arrival.id), 'pushback gate ignored a vehicle in the stand lane');
   probe.status = priorStatus;
+  if (!retainedProbe) harness.simulation.state.serviceVehicles = harness.simulation.state.serviceVehicles.filter((vehicle) => vehicle !== probe);
 }
 assert(harness.runUntil(() => {
   const blockers = harness.simulation.state.serviceVehicles.filter((vehicle) => vehicle.flightId === arrival.id && ['approaching', 'servicing', 'clearing'].includes(vehicle.status));

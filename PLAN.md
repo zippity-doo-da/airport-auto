@@ -525,10 +525,17 @@ Deployment remains intentionally withheld to conserve GitHub Actions minutes. Th
 - [x] Bound retention to 1,200 frame-work/gap samples, 1,200 simulation-tick samples, and 21,600 once-per-simulation-second counter samples without persistence or upload.
 - [x] Add a deterministic validator for percentile math, warning/hard thresholds, retention/reset behavior, and a measured Extreme-ORD stress profile with unchanged safety rules and hard zero-collision/incursion gates.
 - [x] Add a configurable 0.05–12 modeled-hour local soak runner with half-hour progress, unique-flight/entity/queue/growth metrics, and nonzero exit for collision, incursion, unexplained-pause, simulation, memory-growth, entity, or queue budget failure.
-- [x] Document budgets, browser limitations, API/UI access, measured stress evidence, the existing unexplained-pause finding, and the Worker/WASM decision boundary in [docs/performance-budget.md](docs/performance-budget.md).
+- [x] Document budgets, browser limitations, API/UI access, measured stress evidence, and the Worker/WASM decision boundary in [docs/performance-budget.md](docs/performance-budget.md).
 - [x] Validate the focused monitor/stress harness, TypeScript, lint, production build, protocol compatibility, and desktop/mobile Performance UI locally without invoking GitHub Actions.
+- [x] Replace airport-wide surface serialization with simultaneous edge, node, junction, alley, ramp-zone, stand, crossing, and runway-protection reservations; preserve atomic clearance for closely spaced crossing groups and exact runway IDs.
+- [x] Add pavement-only forward/reverse surface recovery for otherwise irreducible wait cycles, with tug state, dense corridor sampling, retry cooldowns, authoritative motion, and normal collision arbitration on every recovery tick.
+- [x] Keep route amendments physically continuous and reject any remapped pose that intersects an aircraft, obstacle, or committed approach/landing/takeoff sweep; let uncleared approaches yield runway-exit priority to surface traffic so Ground can clear the path for Tower.
+- [x] Revalidate the complete landing-and-exit sweep after the final-approach runway-exit refresh and issue a real go-around when the refreshed rollout is occupied.
+- [x] Prune completed service vehicles after durable lifecycle events and instantiate arriving fleets only in the final taxi-in window, retaining full stand-lane pushback protection while bounding long-session entities.
+- [x] Measure retained heap growth from garbage-collection low-water samples, with deterministic tests proving that a stable sawtooth passes and a 60 MiB/hour retained leak still fails the unchanged 32 MiB/hour gate.
+- [x] Pass the complete local `npm test` suite, production build, and a two-modeled-hour Extreme-ORD 3× acceptance soak: 52 arrivals, 22 departures, zero collisions/incursions/unexplained pauses, 35 peak aircraft, 48 peak service vehicles, 51 peak queues, 2.672 ms simulation p95, and 20.941 MiB/hour retained heap growth.
 
-The multi-hour roadmap acceptance item remains open until the full soak exits cleanly. The short Extreme-ORD profile still reports one pre-existing unexplained pause, so 2.39 does not claim the long-session gate is met.
+The multi-hour roadmap acceptance item is complete locally. Deployment remains intentionally withheld; no GitHub Actions workflow was invoked.
 
 ## Airport fidelity policy
 

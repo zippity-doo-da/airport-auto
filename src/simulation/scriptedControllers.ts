@@ -26,7 +26,7 @@ export const SCRIPTED_CONTROLLER_CADENCE_SECONDS = 0.25;
 export const SCRIPTED_CONTROLLER_HISTORY_LIMIT = 64;
 export const SCRIPTED_CONTROLLER_TRANSITION_HISTORY_LIMIT = 32;
 const SCRIPTED_RETRY_SECONDS = 2;
-const CROSSING_CLEARANCE_RANGE_M = 190;
+const CROSSING_CLEARANCE_RANGE_M = 60;
 
 export interface ScriptedControllerPlannedAction {
   station: ControllerStation;
@@ -508,6 +508,7 @@ function supervisorCandidates(
       (flight) =>
         flight.safetyHold &&
         (flight.phase === "approach" || flight.phase === "landing") &&
+        !flight.motion.onGround &&
         flight.progress >= 0.76 &&
         !flight.goAround &&
         !flight.diversion,

@@ -369,6 +369,23 @@ export interface FlightSurfaceRerouteState {
 }
 
 /**
+ * Rare automatic surface-gridlock recovery. The aircraft remains on its
+ * authoritative taxi route while it advances, or a tug moves it backward,
+ * into verified-clear pavement and holds for the conflicting movement.
+ */
+export interface FlightSurfaceYieldState {
+  status: "moving" | "holding";
+  direction: "forward" | "reverse";
+  targetProgress: number;
+  startedAtSeconds: number;
+  releaseAtSeconds?: number;
+  reason: string;
+  blockerFlightIds: number[];
+  previousTugAttached: boolean;
+  previousEngineState: EngineState;
+}
+
+/**
  * Fixed-step winter ground-operation state. Route progress values refer to the
  * aircraft's authoritative taxi-out route, so queueing, treatment, rendering,
  * collision checks, replay, and the agent interface all observe one position.
@@ -442,6 +459,8 @@ export interface ServiceVehicleState {
   dispatchAtSeconds: number;
   /** Keep the vehicle off-map until its stand staging point is physically free. */
   prepositionAtStand?: boolean;
+  /** Deterministic retry window for a future turn waiting on stand access. */
+  prepositionRetryAtSeconds?: number;
   progress: number;
   x: number;
   y: number;
@@ -746,6 +765,8 @@ export interface FlightMotionState {
   onGround: boolean;
   groundBlend: number;
   protectedRunway: boolean;
+  /** Exact runway pavement occupied by this pose; empty off protected pavement. */
+  protectedRunwayIds: number[];
   distanceAlongM: number;
   totalDistanceM: number;
   stage?: string;
@@ -1157,6 +1178,7 @@ export interface Flight {
   runwayExit?: FlightRunwayExitState;
   takeoffPerformance?: RunwayPerformanceAssessment;
   surfaceReroute?: FlightSurfaceRerouteState;
+  surfaceYield?: FlightSurfaceYieldState;
   surfaceRoute?: string[];
   surfaceRouteEdges?: string[];
   surfaceRoutingCost?: number;
@@ -1177,6 +1199,8 @@ export interface Flight {
   requiredCrossings?: number[];
   crossingClearances?: number[];
   crossingClearanceIds?: string[];
+  /** Individual route crossings still ahead and not yet cleared. */
+  pendingCrossingCount?: number;
   crossingHoldRunway?: number;
   crossingHoldPointId?: string;
   controlPace?: number;

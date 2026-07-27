@@ -4,9 +4,11 @@ import type { OperationTrafficClass } from './airportOperationProfiles';
 import { airlineGatePreference } from './airportTrafficPrograms';
 import type { AirportConfig } from './airportConfig';
 import {
-  surfaceRouteForFlight,
+  findSurfaceRoutesFromHub,
+  findSurfaceRoutesToHub,
   surfaceStandSupportsAircraft,
   type SurfaceOperationalZone,
+  type SurfaceRoute,
   type SurfaceRoutePlanning,
   type SurfaceStand,
 } from './surfaceGraph';
@@ -90,13 +92,47 @@ export function planGateAssignment(request: GateAssignmentRequest): FlightGateAs
     .sort((first, second) => first.staticScore - second.staticScore || first.stand.slot - second.stand.slot);
 
   if (!physical.length) return null;
+  const requirements = {
+    wingspanM: profile.wingspanM,
+    minimumWingtipClearanceM: profile.minimumWingtipClearanceM,
+  };
+  const candidateNodeIds = physical.map((candidate) => candidate.stand.nodeId);
+  const arrivalAccess = request.config.surfaceGraph.runwayAccess.find((access) => (
+    access.runwayId === request.arrivalRunway
+    && access.end === (-request.arrivalOperatingEnd as -1 | 1)
+  ));
+  const departureAccess = request.config.surfaceGraph.runwayAccess.find((access) => (
+    access.runwayId === request.departureRunway
+    && access.end === request.departureOperatingEnd
+  ));
+  if (!arrivalAccess || !departureAccess) return null;
+  const arrivalRoutes = findSurfaceRoutesFromHub(
+    request.config.surfaceGraph,
+    arrivalAccess.exitNodeId,
+    candidateNodeIds,
+    requirements,
+    request.planning,
+  );
+  const departureRoutes = findSurfaceRoutesToHub(
+    request.config.surfaceGraph,
+    departureAccess.holdShortNodeId,
+    candidateNodeIds,
+    requirements,
+    request.planning,
+  );
+  const routesByStandId = new Map<string, GateCandidateRoutes>();
+  for (const candidate of physical) {
+    const arrival = arrivalRoutes.get(candidate.stand.nodeId);
+    const departure = departureRoutes.get(candidate.stand.nodeId);
+    if (arrival && departure) routesByStandId.set(candidate.stand.id, { arrival, departure });
+  }
   let best: FlightGateAssignment | null = null;
   for (const candidate of physical) {
     // Static score is a lower bound because route, schedule, load, and tie
     // penalties are all non-negative. Once it exceeds the best complete score,
     // no later candidate can win and expensive graph searches can stop.
     if (best && candidate.staticScore > best.score) break;
-    const decision = evaluateCandidates(request, [candidate])[0];
+    const decision = evaluateCandidates(request, [candidate], routesByStandId)[0];
     if (decision && (!best || decision.score < best.score || (decision.score === best.score && decision.gateSlot < best.gateSlot))) {
       best = decision;
     }
@@ -111,6 +147,11 @@ export function gateReservationsOverlap(
 ): boolean {
   return first.startSeconds < second.endSeconds + bufferSeconds
     && first.endSeconds + bufferSeconds > second.startSeconds;
+}
+
+interface GateCandidateRoutes {
+  arrival: SurfaceRoute;
+  departure: SurfaceRoute;
 }
 
 export function standReservationsConflict(
@@ -145,34 +186,16 @@ export function standServiceArea(
 function evaluateCandidates(
   request: GateAssignmentRequest,
   candidates: StaticGateCandidate[],
+  routesByStandId: ReadonlyMap<string, GateCandidateRoutes>,
 ): FlightGateAssignment[] {
   const profile = aircraftProfile(request.aircraft);
-  const routeRequirements = {
-    wingspanM: profile.wingspanM,
-    minimumWingtipClearanceM: profile.minimumWingtipClearanceM,
-  };
   const taxiMps = Math.max(1, profile.taxiKts * KNOT_TO_MPS);
   const decisions: FlightGateAssignment[] = [];
 
   for (const candidate of candidates) {
-    const arrivalRoute = surfaceRouteForFlight(
-      request.config.surfaceGraph,
-      request.arrivalRunway,
-      request.arrivalOperatingEnd,
-      'taxi-in',
-      candidate.stand.slot,
-      routeRequirements,
-      request.planning,
-    );
-    const departureRoute = surfaceRouteForFlight(
-      request.config.surfaceGraph,
-      request.departureRunway,
-      request.departureOperatingEnd,
-      'taxi-out',
-      candidate.stand.slot,
-      routeRequirements,
-      request.planning,
-    );
+    const routes = routesByStandId.get(candidate.stand.id);
+    const arrivalRoute = routes?.arrival;
+    const departureRoute = routes?.departure;
     if (!arrivalRoute || !departureRoute) continue;
 
     const arrivalTaxiSeconds = arrivalRoute.distance * WORLD_METERS_PER_UNIT / taxiMps;

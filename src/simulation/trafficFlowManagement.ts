@@ -129,11 +129,13 @@ export function markArrivalHolding(
   entry: TrafficFlowEntry,
   nowSeconds: number,
   reason: string,
+  retryAfterSeconds = 0,
 ): void {
   entry.status = 'holding';
   entry.reason = reason;
   entry.updatedAtSeconds = nowSeconds;
   entry.attempts += 1;
+  entry.releaseSlotSeconds = Math.max(entry.releaseSlotSeconds, nowSeconds + Math.max(0, retryAfterSeconds));
   refreshTrafficFlow(state, nowSeconds);
 }
 

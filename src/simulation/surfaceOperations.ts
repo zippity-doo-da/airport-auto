@@ -6,6 +6,7 @@ import {
   type SurfaceRoutePlanning,
   type SurfaceStand,
 } from './surfaceGraph';
+import { WORLD_METERS_PER_UNIT } from './runwayPerformance';
 
 export type SurfaceFlowDirection = 'inbound' | 'outbound';
 export type SurfaceReservationKind = 'edge' | 'node' | 'taxiway-flow' | 'alley' | 'stand' | 'ramp-zone' | 'service-lane' | 'service-bay' | 'service-staging';
@@ -93,17 +94,17 @@ export class SurfaceReservationLedger {
       }
       if (claim.kind === 'edge') {
         const reservation = this.reservedEdges.get(claim.id);
-        const other = reservation ? [...reservation.owners].find((owner) => owner !== ownerId) : undefined;
+        const other = reservation ? otherReservationOwner(reservation.owners, ownerId) : undefined;
         if (reservation && other !== undefined && reservation.direction !== claim.direction) return { claim, ownerId: other };
       }
       if (claim.kind === 'taxiway-flow') {
         const reservation = this.reservedTaxiwayFlows.get(claim.id);
-        const other = reservation ? [...reservation.owners].find((owner) => owner !== ownerId) : undefined;
+        const other = reservation ? otherReservationOwner(reservation.owners, ownerId) : undefined;
         if (reservation && other !== undefined && reservation.direction !== claim.direction) return { claim, ownerId: other };
       }
       if (claim.kind === 'alley') {
         const reservation = this.reservedAlleys.get(claim.id);
-        const other = reservation ? [...reservation.owners].find((owner) => owner !== ownerId) : undefined;
+        const other = reservation ? otherReservationOwner(reservation.owners, ownerId) : undefined;
         if (reservation && other !== undefined && reservation.direction !== claim.direction) return { claim, ownerId: other };
       }
       if (claim.kind === 'stand') {
@@ -112,8 +113,22 @@ export class SurfaceReservationLedger {
       }
       if (claim.kind === 'ramp-zone') {
         const occupants = this.rampZoneOccupants.get(claim.id);
-        const others = occupants ? [...occupants].filter((owner) => owner !== ownerId) : [];
-        if (others.length >= claim.capacity) return { claim, ownerId: others[0] };
+        if (occupants) {
+          // Capacity meters entry into a ramp, not movement out of it. An
+          // aircraft already occupying the zone must retain its slot while it
+          // advances toward an exit, even if actual occupancy temporarily
+          // exceeds the nominal limit. Holding every incumbent at that point
+          // seals the ramp and prevents the traffic that would restore spare
+          // capacity from leaving.
+          if (ownerId !== undefined && occupants.has(ownerId)) continue;
+          let other: SurfaceReservationOwnerId | undefined;
+          let occupantsAtCapacity = 0;
+          for (const occupant of occupants) {
+            other ??= occupant;
+            occupantsAtCapacity += 1;
+            if (occupantsAtCapacity >= claim.capacity) return { claim, ownerId: other };
+          }
+        }
       }
       if (claim.kind === 'service-lane' || claim.kind === 'service-bay' || claim.kind === 'service-staging') {
         const owner = this.exclusiveResources.get(`${claim.kind}:${claim.id}`);
@@ -155,6 +170,16 @@ export class SurfaceReservationLedger {
   }
 }
 
+function otherReservationOwner(
+  owners: ReadonlySet<SurfaceReservationOwnerId>,
+  ownerId: SurfaceReservationOwnerId | undefined,
+): SurfaceReservationOwnerId | undefined {
+  for (const owner of owners) {
+    if (owner !== ownerId) return owner;
+  }
+  return undefined;
+}
+
 interface SurfaceOperationsIndex {
   nodeById: Map<string, AirportSurfaceGraph['nodes'][number]>;
   edgeById: Map<string, SurfaceEdge>;
@@ -174,6 +199,11 @@ interface TaxiwayFlowSectionEdge {
   positiveToNodeId: string;
 }
 
+interface GeometricJunction {
+  id: string;
+  label: string;
+}
+
 const RAMP_ZONE_KINDS = new Set<SurfaceOperationalZone['kind']>([
   'terminal-apron',
   'cargo-ramp',
@@ -182,6 +212,11 @@ const RAMP_ZONE_KINDS = new Set<SurfaceOperationalZone['kind']>([
   'remote-ramp',
 ]);
 const operationsIndexes = new WeakMap<AirportSurfaceGraph, SurfaceOperationsIndex>();
+const reservationClaimCaches = new WeakMap<AirportSurfaceGraph, WeakMap<string[], Map<string, SurfaceReservationClaim[]>>>();
+const geometricJunctionCaches = new WeakMap<AirportSurfaceGraph, Map<string, GeometricJunction[]>>();
+const TAXIWAY_FLOW_SECTION_LENGTH_M = 180;
+const GEOMETRIC_JUNCTION_DISTANCE_M = 15;
+const GEOMETRIC_JUNCTION_CLUSTER_M = 30;
 
 export function surfaceRampControlZones(graph: AirportSurfaceGraph): SurfaceRampControlZone[] {
   return operationsIndex(graph).rampZones.map((zone) => ({
@@ -264,18 +299,45 @@ export function surfaceRouteReservationClaims(
   progress: number,
   phase: 'taxi-in' | 'taxi-out',
   lookaheadEdges = 2,
+  lookaheadDistanceWorld = Infinity,
 ): SurfaceReservationClaim[] {
   const sample = sampleSurfaceRouteWithEdges(graph, nodeIds, edgeIds, progress);
   if (!sample || !nodeIds?.length || !edgeIds?.length || sample.edgeIndex < 0) return [];
+  let graphCache = reservationClaimCaches.get(graph);
+  if (!graphCache) {
+    graphCache = new WeakMap();
+    reservationClaimCaches.set(graph, graphCache);
+  }
+  const routeKey = edgeIds ?? nodeIds;
+  let routeCache = graphCache.get(routeKey);
+  if (!routeCache) {
+    routeCache = new Map();
+    graphCache.set(routeKey, routeCache);
+  }
+  const edgePosition = sample.edgeProgress < 0.36 ? 'entry' : sample.edgeProgress > 0.64 ? 'exit' : 'middle';
+  const cacheKey = `${phase}:${lookaheadEdges}:${lookaheadDistanceWorld}:${sample.edgeIndex}:${edgePosition}`;
+  const cached = routeCache.get(cacheKey);
+  if (cached) return cached;
   const index = operationsIndex(graph);
   const claims = new Map<string, SurfaceReservationClaim>();
   const flowDirection: SurfaceFlowDirection = phase === 'taxi-in' ? 'inbound' : 'outbound';
   const lastEdgeIndex = Math.min(edgeIds.length - 1, sample.edgeIndex + lookaheadEdges);
+  let lookaheadTravel = 0;
   for (let edgeIndex = sample.edgeIndex; edgeIndex <= lastEdgeIndex; edgeIndex += 1) {
+    if (edgeIndex > sample.edgeIndex && lookaheadTravel >= lookaheadDistanceWorld) break;
     const edge = index.edgeById.get(edgeIds[edgeIndex]);
     const from = nodeIds[edgeIndex];
     const to = nodeIds[edgeIndex + 1];
     if (!edge || !from || !to) continue;
+    const fromNode = index.nodeById.get(from);
+    const toNode = index.nodeById.get(to);
+    const edgeDistance = fromNode && toNode
+      ? Math.hypot(toNode.position[0] - fromNode.position[0], toNode.position[1] - fromNode.position[1])
+      : 0;
+    const remainingEdgeDistance = edgeIndex === sample.edgeIndex
+      ? edgeDistance * Math.max(0, 1 - sample.edgeProgress)
+      : edgeDistance;
+    const endWithinLookahead = lookaheadTravel + remainingEdgeDistance <= lookaheadDistanceWorld + 1e-9;
     addClaim(claims, {
       kind: 'edge',
       id: edge.id,
@@ -293,13 +355,21 @@ export function surfaceRouteReservationClaims(
         capacity: Infinity,
       });
     }
+    for (const junction of geometricJunctionsForEdge(graph, edge.id)) {
+      addClaim(claims, {
+        kind: 'node',
+        id: junction.id,
+        label: junction.label,
+        capacity: 1,
+      });
+    }
     // Keep ownership of the junction behind a moving body until it is clear.
     // Paired with the forward claim below, this closes the reservation gap
     // where two movers could meet on opposite sides of a shared node.
     if (edgeIndex === sample.edgeIndex && sample.edgeProgress < 0.36) {
       addClaim(claims, { kind: 'node', id: from, label: `intersection ${from}`, capacity: 1 });
     }
-    if (edgeIndex > sample.edgeIndex || sample.edgeProgress > 0.64) {
+    if ((edgeIndex > sample.edgeIndex && endWithinLookahead) || sample.edgeProgress > 0.64) {
       addClaim(claims, { kind: 'node', id: to, label: `intersection ${to}`, capacity: 1 });
     }
     const leadStand = index.standByLeadEdgeId.get(edge.id);
@@ -331,8 +401,11 @@ export function surfaceRouteReservationClaims(
         capacity: zone.capacity,
       });
     }
+    lookaheadTravel += remainingEdgeDistance;
   }
-  return [...claims.values()];
+  const result = [...claims.values()];
+  routeCache.set(cacheKey, result);
+  return result;
 }
 
 /** Build live edge costs without changing the physical route geometry. */
@@ -422,6 +495,170 @@ function operationsIndex(graph: AirportSurfaceGraph): SurfaceOperationsIndex {
   return index;
 }
 
+function geometricJunctionsForEdge(graph: AirportSurfaceGraph, edgeId: string): GeometricJunction[] {
+  let byEdgeId = geometricJunctionCaches.get(graph);
+  if (!byEdgeId) {
+    byEdgeId = buildGeometricJunctions(graph);
+    geometricJunctionCaches.set(graph, byEdgeId);
+  }
+  return byEdgeId.get(edgeId) ?? [];
+}
+
+/**
+ * Some imported taxiway ways cross geometrically without sharing an OSM node.
+ * Cluster only genuinely nearby contacts, rather than rounding them into a
+ * large grid cell that can accidentally lock separate intersections together.
+ */
+function buildGeometricJunctions(graph: AirportSurfaceGraph): Map<string, GeometricJunction[]> {
+  const nodeById = operationsIndex(graph).nodeById;
+  const maximumDistance = GEOMETRIC_JUNCTION_DISTANCE_M / WORLD_METERS_PER_UNIT;
+  const clusterDistance = GEOMETRIC_JUNCTION_CLUSTER_M / WORLD_METERS_PER_UNIT;
+  const segments = graph.edges
+    .filter((edge) => edge.kind === 'taxiway' && !edge.gradeSeparation)
+    .flatMap((edge) => {
+      const from = nodeById.get(edge.from)?.position;
+      const to = nodeById.get(edge.to)?.position;
+      if (!from || !to || Math.hypot(to[0] - from[0], to[1] - from[1]) <= 1e-9) return [];
+      return [{
+        edge,
+        from,
+        to,
+        minimumX: Math.min(from[0], to[0]),
+        maximumX: Math.max(from[0], to[0]),
+        minimumY: Math.min(from[1], to[1]),
+        maximumY: Math.max(from[1], to[1]),
+      }];
+    })
+    .sort((first, second) => first.minimumX - second.minimumX || first.edge.id.localeCompare(second.edge.id));
+  const contacts: Array<{ midpoint: [number, number]; edgeIds: [string, string] }> = [];
+  for (let firstIndex = 0; firstIndex < segments.length; firstIndex += 1) {
+    const first = segments[firstIndex];
+    for (let secondIndex = firstIndex + 1; secondIndex < segments.length; secondIndex += 1) {
+      const second = segments[secondIndex];
+      if (second.minimumX > first.maximumX + maximumDistance) break;
+      if (
+        second.minimumY > first.maximumY + maximumDistance
+        || first.minimumY > second.maximumY + maximumDistance
+      ) continue;
+      if (
+        first.edge.from === second.edge.from
+        || first.edge.from === second.edge.to
+        || first.edge.to === second.edge.from
+        || first.edge.to === second.edge.to
+      ) continue;
+      if (first.edge.taxiwayId && first.edge.taxiwayId === second.edge.taxiwayId) continue;
+      const proximity = surfaceSegmentProximity(first.from, first.to, second.from, second.to);
+      if (proximity.distance > maximumDistance + 1e-9) continue;
+      contacts.push({ midpoint: proximity.midpoint, edgeIds: [first.edge.id, second.edge.id] });
+    }
+  }
+
+  const clusters: Array<{
+    center: [number, number];
+    samples: number;
+    edgeIds: Set<string>;
+  }> = [];
+  for (const contact of contacts) {
+    const cluster = clusters.find((candidate) => (
+      Math.hypot(candidate.center[0] - contact.midpoint[0], candidate.center[1] - contact.midpoint[1])
+        <= clusterDistance + 1e-9
+    ));
+    if (!cluster) {
+      clusters.push({ center: [...contact.midpoint], samples: 1, edgeIds: new Set(contact.edgeIds) });
+      continue;
+    }
+    cluster.center = [
+      (cluster.center[0] * cluster.samples + contact.midpoint[0]) / (cluster.samples + 1),
+      (cluster.center[1] * cluster.samples + contact.midpoint[1]) / (cluster.samples + 1),
+    ];
+    cluster.samples += 1;
+    for (const edgeId of contact.edgeIds) cluster.edgeIds.add(edgeId);
+  }
+
+  const result = new Map<string, GeometricJunction[]>();
+  clusters.forEach((cluster, index) => {
+    const junction = {
+      id: `geometric:${index + 1}`,
+      label: `derived taxiway junction ${index + 1}`,
+    };
+    for (const edgeId of cluster.edgeIds) {
+      const junctions = result.get(edgeId) ?? [];
+      junctions.push(junction);
+      result.set(edgeId, junctions);
+    }
+  });
+  return result;
+}
+
+function surfaceSegmentProximity(
+  firstFrom: readonly [number, number],
+  firstTo: readonly [number, number],
+  secondFrom: readonly [number, number],
+  secondTo: readonly [number, number],
+): { distance: number; midpoint: [number, number] } {
+  const orientation = (
+    from: readonly [number, number],
+    to: readonly [number, number],
+    point: readonly [number, number],
+  ): number => (to[0] - from[0]) * (point[1] - from[1]) - (to[1] - from[1]) * (point[0] - from[0]);
+  const firstSideA = orientation(firstFrom, firstTo, secondFrom);
+  const firstSideB = orientation(firstFrom, firstTo, secondTo);
+  const secondSideA = orientation(secondFrom, secondTo, firstFrom);
+  const secondSideB = orientation(secondFrom, secondTo, firstTo);
+  if (
+    ((firstSideA > 0 && firstSideB < 0) || (firstSideA < 0 && firstSideB > 0))
+    && ((secondSideA > 0 && secondSideB < 0) || (secondSideA < 0 && secondSideB > 0))
+  ) {
+    const firstDx = firstTo[0] - firstFrom[0];
+    const firstDy = firstTo[1] - firstFrom[1];
+    const secondDx = secondTo[0] - secondFrom[0];
+    const secondDy = secondTo[1] - secondFrom[1];
+    const denominator = firstDx * secondDy - firstDy * secondDx;
+    const amount = Math.abs(denominator) <= 1e-12
+      ? 0.5
+      : ((secondFrom[0] - firstFrom[0]) * secondDy - (secondFrom[1] - firstFrom[1]) * secondDx) / denominator;
+    return {
+      distance: 0,
+      midpoint: [firstFrom[0] + firstDx * amount, firstFrom[1] + firstDy * amount],
+    };
+  }
+  const candidates = [
+    [firstFrom, surfaceClosestPointOnSegment(firstFrom, secondFrom, secondTo)],
+    [firstTo, surfaceClosestPointOnSegment(firstTo, secondFrom, secondTo)],
+    [secondFrom, surfaceClosestPointOnSegment(secondFrom, firstFrom, firstTo)],
+    [secondTo, surfaceClosestPointOnSegment(secondTo, firstFrom, firstTo)],
+  ] as const;
+  let closest = candidates[0];
+  let minimumDistance = Infinity;
+  for (const candidate of candidates) {
+    const distance = Math.hypot(candidate[0][0] - candidate[1][0], candidate[0][1] - candidate[1][1]);
+    if (distance >= minimumDistance) continue;
+    minimumDistance = distance;
+    closest = candidate;
+  }
+  return {
+    distance: minimumDistance,
+    midpoint: [
+      (closest[0][0] + closest[1][0]) / 2,
+      (closest[0][1] + closest[1][1]) / 2,
+    ],
+  };
+}
+
+function surfaceClosestPointOnSegment(
+  point: readonly [number, number],
+  from: readonly [number, number],
+  to: readonly [number, number],
+): [number, number] {
+  const dx = to[0] - from[0];
+  const dy = to[1] - from[1];
+  const lengthSquared = dx * dx + dy * dy;
+  const amount = lengthSquared <= 1e-12
+    ? 0
+    : Math.max(0, Math.min(1, ((point[0] - from[0]) * dx + (point[1] - from[1]) * dy) / lengthSquared));
+  return [from[0] + dx * amount, from[1] + dy * amount];
+}
+
 function directionalTaxiwayFlow(
   index: SurfaceOperationsIndex,
   edge: SurfaceEdge,
@@ -440,9 +677,11 @@ function directionalTaxiwayFlow(
 }
 
 /**
- * Divide a named taxiway at real graph junctions. Each section receives
- * one-way control independently, avoiding both head-on entry and the
- * starvation caused by locking a multi-kilometre taxiway under one owner.
+ * Divide a named taxiway into braking-distance flow blocks. Connector nodes
+ * do not end a block: the reservation lookahead must acquire the next block
+ * before an opposing aircraft can enter it. True branches/endpoints still
+ * split the chain, while the physical length cap avoids locking an entire
+ * multi-kilometre taxiway under one direction.
  */
 function buildTaxiwayFlowSections(graph: AirportSurfaceGraph): Map<string, TaxiwayFlowSectionEdge> {
   const result = new Map<string, TaxiwayFlowSectionEdge>();
@@ -464,11 +703,9 @@ function buildTaxiwayFlowSections(graph: AirportSurfaceGraph): Map<string, Taxiw
       adjacency.set(edge.to, [...(adjacency.get(edge.to) ?? []), edge.id]);
     }
     for (const edgeIds of adjacency.values()) edgeIds.sort();
-    const boundaryNodes = new Set([...adjacency].flatMap(([nodeId, edgeIds]) => {
-      const node = nodeById.get(nodeId);
-      const joinsOtherTaxiway = Boolean(node?.taxiwayIds.some((id) => id !== taxiwayId));
-      return edgeIds.length !== 2 || joinsOtherTaxiway ? [nodeId] : [];
-    }));
+    const boundaryNodes = new Set([...adjacency].flatMap(([nodeId, edgeIds]) => (
+      edgeIds.length !== 2 ? [nodeId] : []
+    )));
     const unvisited = new Set(edges.map((edge) => edge.id));
     while (unvisited.size) {
       const boundaryStart = [...boundaryNodes]
@@ -487,6 +724,7 @@ function buildTaxiwayFlowSections(graph: AirportSurfaceGraph): Map<string, Taxiw
       let currentEdgeId = seedEdgeId;
       const sectionNodes = [currentNodeId];
       const sectionEdgeIds: string[] = [];
+      let sectionLengthM = 0;
       while (unvisited.has(currentEdgeId)) {
         const edge = edgeById.get(currentEdgeId);
         if (!edge) break;
@@ -494,7 +732,16 @@ function buildTaxiwayFlowSections(graph: AirportSurfaceGraph): Map<string, Taxiw
         sectionEdgeIds.push(currentEdgeId);
         const nextNodeId = edge.from === currentNodeId ? edge.to : edge.from;
         sectionNodes.push(nextNodeId);
+        const fromPosition = nodeById.get(currentNodeId)?.position;
+        const toPosition = nodeById.get(nextNodeId)?.position;
+        if (fromPosition && toPosition) {
+          sectionLengthM += Math.hypot(
+            toPosition[0] - fromPosition[0],
+            toPosition[1] - fromPosition[1],
+          ) * WORLD_METERS_PER_UNIT;
+        }
         if (boundaryNodes.has(nextNodeId) && nextNodeId !== sectionNodes[0]) break;
+        if (sectionLengthM >= TAXIWAY_FLOW_SECTION_LENGTH_M) break;
         const nextEdgeId = adjacency.get(nextNodeId)?.find((edgeId) => unvisited.has(edgeId));
         if (!nextEdgeId) break;
         currentNodeId = nextNodeId;

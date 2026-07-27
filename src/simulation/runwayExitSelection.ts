@@ -2,6 +2,7 @@ import type { AirportConfig, RunwayConfig } from './airportConfig';
 import { aircraftProfile, type AircraftModel } from './aircraftProfiles';
 import { WORLD_METERS_PER_UNIT } from './runwayPerformance';
 import {
+  findSurfaceRoutesToHub,
   findSurfaceRoute,
   type AirportSurfaceGraph,
   type SurfaceEdge,
@@ -71,6 +72,7 @@ interface ScoredCandidate {
 const MINIMUM_EXIT_MARGIN_M = 85;
 const CANDIDATE_START_FRACTION = 0.14;
 const CANDIDATE_END_FRACTION = 0.985;
+const runwayExitGeometryCaches = new WeakMap<AirportSurfaceGraph, Map<string, CandidateGeometry[]>>();
 
 /**
  * Choose a reachable runway exit using aircraft stopping performance, surface
@@ -95,8 +97,15 @@ export function selectRunwayExit(input: RunwayExitSelectionInput): RunwayExitSel
     blockedEdgeIds,
   };
   const geometries = runwayExitCandidateGeometry(graph, runway, input.operatingEnd);
+  const routesByExit = findSurfaceRoutesToHub(
+    graph,
+    stand.nodeId,
+    geometries.map((geometry) => geometry.node.id),
+    requirements,
+    planning,
+  );
   const scored = geometries.flatMap((geometry): ScoredCandidate[] => {
-    const route = findSurfaceRoute(graph, geometry.node.id, stand.nodeId, requirements, planning);
+    const route = routesByExit.get(geometry.node.id);
     if (!route || route.nodeIds[0] !== geometry.node.id) return [];
     return [scoreCandidate(input, runway, geometry, route)];
   });
@@ -196,6 +205,14 @@ function runwayExitCandidateGeometry(
   runway: RunwayConfig,
   operatingEnd: -1 | 1,
 ): CandidateGeometry[] {
+  let graphCache = runwayExitGeometryCaches.get(graph);
+  if (!graphCache) {
+    graphCache = new Map();
+    runwayExitGeometryCaches.set(graph, graphCache);
+  }
+  const cacheKey = `${runway.id}:${operatingEnd}`;
+  const cached = graphCache.get(cacheKey);
+  if (cached) return cached;
   const blocking = landingRunwayBlockedEdges(graph, runway.id);
   const edgesByNode = new Map<string, SurfaceEdge[]>();
   for (const edge of graph.edges) {
@@ -231,9 +248,11 @@ function runwayExitCandidateGeometry(
       });
     }
   }
-  return [...candidateByNode.values()].sort((first, second) => (
+  const result = [...candidateByNode.values()].sort((first, second) => (
     first.distanceFromThresholdM - second.distanceFromThresholdM || first.node.id.localeCompare(second.node.id)
   ));
+  graphCache.set(cacheKey, result);
+  return result;
 }
 
 function scoreCandidate(

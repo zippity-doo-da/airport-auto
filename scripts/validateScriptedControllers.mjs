@@ -106,6 +106,21 @@ supervision.update(0.05);
 const supervisorIntervention = supervision.state.scriptedControllers.decisions.find((decision) => decision.station === 'supervisor' && decision.action === 'go-around');
 assert(supervisorIntervention?.accepted && protectedArrival.goAround, 'scripted Supervisor did not execute a safety go-around through the arbiter');
 
+const touchdown = new AirportSimulation(config, 'quiet');
+touchdown.setMode('manual');
+touchdown.setStation('supervisor');
+const landedArrival = arrivalFixture(touchdown);
+landedArrival.phase = 'landing';
+landedArrival.progress = 0.94;
+landedArrival.motion.onGround = true;
+landedArrival.motion.groundBlend = 1;
+landedArrival.safetyHold = true;
+landedArrival.safetyHoldReason = 'validation conflict after touchdown';
+assert(!touchdown.triggerEmergency(landedArrival.id, 'go-around'), 'go-around was accepted after touchdown');
+assert(!landedArrival.goAround && /touched down/.test(touchdown.lastCommandReason()), 'post-touchdown go-around rejection was not explicit');
+touchdown.update(0.05);
+assert(!touchdown.state.scriptedControllers.decisions.some((decision) => decision.flightId === landedArrival.id && decision.action === 'go-around'), 'scripted Supervisor ordered a go-around after touchdown');
+
 const rejection = new AirportSimulation(config, 'quiet');
 rejection.setMode('manual');
 rejection.setStation('supervisor');

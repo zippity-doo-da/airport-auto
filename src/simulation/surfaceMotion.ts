@@ -145,10 +145,11 @@ export function sampleAircraftSurfaceMotion(
         edgeWingtipClearanceM(graph, plan.edges[activeTurn.outgoingEdgeIndex], profile.wingspanM),
       )
     : edgeWingtipClearanceM(graph, currentEdge, profile.wingspanM);
-  const upcomingTurn = activeTurn ?? plan.turns.find((turn) => turn.motionEnd + 1e-8 >= motionDistance);
+  const nextTurnIndex = firstTurnAtOrAfterMotionDistance(plan.turns, motionDistance);
+  const upcomingTurn = activeTurn ?? plan.turns[nextTurnIndex];
   let speedLimitKts = profile.taxiKts;
-  for (const turn of plan.turns) {
-    if (turn.motionEnd < motionDistance - 1e-8) continue;
+  for (let turnIndex = nextTurnIndex; turnIndex < plan.turns.length; turnIndex += 1) {
+    const turn = plan.turns[turnIndex];
     const distanceToTurnM = Math.max(0, turn.motionStart - motionDistance) * WORLD_METERS_PER_UNIT;
     const turnSpeedMps = turn.speedLimitKts * KNOT_TO_MPS;
     const permittedMps = Math.sqrt(
@@ -181,6 +182,81 @@ export function sampleAircraftSurfaceMotion(
     routeClearanceOk: plan.routeClearanceOk,
     limitingEdgeId: plan.limitingEdgeId,
   };
+}
+
+/**
+ * Advance an aircraft-specific surface path by a physical distance without
+ * repeatedly resampling the path. Surface progress is expressed in sourced
+ * graph distance while rounded corners use a different motion distance; both
+ * are piecewise linear inside the prepared plan, so the inverse is exact.
+ */
+export function progressAfterAircraftSurfaceDistance(
+  graph: AirportSurfaceGraph,
+  nodeIds: string[] | undefined,
+  edgeIds: string[] | undefined,
+  progress: number,
+  profile: AircraftProfile,
+  distanceMeters: number,
+): number | null {
+  if (!nodeIds?.length) return null;
+  const amount = clamp(progress, 0, 1);
+  if (distanceMeters <= 0 || amount >= 1) return amount;
+  const plan = aircraftSurfaceMotionPlan(graph, nodeIds, edgeIds, profile);
+  if (!plan || plan.totalSourceDistance <= 0 || plan.totalMotionDistance <= 0 || !plan.pieces.length) return null;
+
+  const sourceDistance = amount * plan.totalSourceDistance;
+  const currentPiece = findMotionPiece(plan.pieces, sourceDistance);
+  const currentAmount = currentPiece.sourceEnd > currentPiece.sourceStart
+    ? clamp((sourceDistance - currentPiece.sourceStart) / (currentPiece.sourceEnd - currentPiece.sourceStart), 0, 1)
+    : 1;
+  const currentMotionDistance = lerp(currentPiece.motionStart, currentPiece.motionEnd, currentAmount);
+  const targetMotionDistance = Math.min(
+    plan.totalMotionDistance,
+    currentMotionDistance + distanceMeters / WORLD_METERS_PER_UNIT,
+  );
+  if (targetMotionDistance >= plan.totalMotionDistance - 1e-9) return 1;
+
+  const targetPiece = findMotionPieceByMotionDistance(plan.pieces, targetMotionDistance);
+  const targetAmount = targetPiece.motionEnd > targetPiece.motionStart
+    ? clamp((targetMotionDistance - targetPiece.motionStart) / (targetPiece.motionEnd - targetPiece.motionStart), 0, 1)
+    : 1;
+  const targetSourceDistance = lerp(targetPiece.sourceStart, targetPiece.sourceEnd, targetAmount);
+  return clamp(targetSourceDistance / plan.totalSourceDistance, amount, 1);
+}
+
+/** Move backward by a physical distance along the same prepared pavement path. */
+export function progressBeforeAircraftSurfaceDistance(
+  graph: AirportSurfaceGraph,
+  nodeIds: string[] | undefined,
+  edgeIds: string[] | undefined,
+  progress: number,
+  profile: AircraftProfile,
+  distanceMeters: number,
+): number | null {
+  if (!nodeIds?.length) return null;
+  const amount = clamp(progress, 0, 1);
+  if (distanceMeters <= 0 || amount <= 0) return amount;
+  const plan = aircraftSurfaceMotionPlan(graph, nodeIds, edgeIds, profile);
+  if (!plan || plan.totalSourceDistance <= 0 || plan.totalMotionDistance <= 0 || !plan.pieces.length) return null;
+
+  const sourceDistance = amount * plan.totalSourceDistance;
+  const currentPiece = findMotionPiece(plan.pieces, sourceDistance);
+  const currentAmount = currentPiece.sourceEnd > currentPiece.sourceStart
+    ? clamp((sourceDistance - currentPiece.sourceStart) / (currentPiece.sourceEnd - currentPiece.sourceStart), 0, 1)
+    : 0;
+  const currentMotionDistance = lerp(currentPiece.motionStart, currentPiece.motionEnd, currentAmount);
+  const targetMotionDistance = Math.max(
+    0,
+    currentMotionDistance - distanceMeters / WORLD_METERS_PER_UNIT,
+  );
+  if (targetMotionDistance <= 1e-9) return 0;
+
+  const targetPiece = findMotionPieceByMotionDistance(plan.pieces, targetMotionDistance);
+  const targetAmount = targetPiece.motionEnd > targetPiece.motionStart
+    ? clamp((targetMotionDistance - targetPiece.motionStart) / (targetPiece.motionEnd - targetPiece.motionStart), 0, 1)
+    : 0;
+  const targetSourceDistance = lerp(targetPiece.sourceStart, targetPiece.sourceEnd, targetAmount);
+  return clamp(targetSourceDistance / plan.totalSourceDistance, 0, amount);
 }
 
 export function surfaceStoppingDistanceM(
@@ -404,8 +480,36 @@ function edgeWingtipClearanceM(
 }
 
 function findMotionPiece(pieces: SurfaceMotionPiece[], sourceDistance: number): SurfaceMotionPiece {
-  return pieces.find((piece) => sourceDistance <= piece.sourceEnd + 1e-8 && sourceDistance >= piece.sourceStart - 1e-8)
-    ?? pieces[pieces.length - 1];
+  let low = 0;
+  let high = pieces.length - 1;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (sourceDistance <= pieces[middle].sourceEnd + 1e-8) high = middle;
+    else low = middle + 1;
+  }
+  return pieces[low];
+}
+
+function findMotionPieceByMotionDistance(pieces: SurfaceMotionPiece[], motionDistance: number): SurfaceMotionPiece {
+  let low = 0;
+  let high = pieces.length - 1;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (motionDistance <= pieces[middle].motionEnd + 1e-8) high = middle;
+    else low = middle + 1;
+  }
+  return pieces[low];
+}
+
+function firstTurnAtOrAfterMotionDistance(turns: SurfaceTurnPiece[], motionDistance: number): number {
+  let low = 0;
+  let high = turns.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (turns[middle].motionEnd + 1e-8 >= motionDistance) high = middle;
+    else low = middle + 1;
+  }
+  return low;
 }
 
 function headingBetween(first: [number, number], second: [number, number]): number {

@@ -3,13 +3,14 @@ import { build } from 'esbuild';
 const validationSource = `
 import { AIRCRAFT_ROSTER, aircraftProfile } from './src/simulation/aircraftProfiles.ts';
 import { generateHubConfig } from './src/simulation/airportConfig.ts';
-import { runwaySupportsAircraft } from './src/simulation/runwayPerformance.ts';
+import { runwaySupportsAircraft, WORLD_METERS_PER_UNIT } from './src/simulation/runwayPerformance.ts';
 import {
   findSurfaceRoute,
   surfaceRouteForFlight,
   surfaceStandSupportsAircraft,
 } from './src/simulation/surfaceGraph.ts';
 import {
+  progressAfterAircraftSurfaceDistance,
   sampleAircraftSurfaceMotion,
   surfaceStoppingDistanceM,
 } from './src/simulation/surfaceMotion.ts';
@@ -89,6 +90,25 @@ assert(Math.abs(minimumTurnRadius - a320.taxiTurnRadiusM) < 0.05, 'turn did not 
 assert(maximumStep < 0.01, 'surface position is discontinuous at a turn: ' + maximumStep);
 assert(maximumHeadingStep < 0.01, 'surface heading snaps at a turn: ' + maximumHeadingStep);
 assert(previous.totalDistance < route.distance && previous.totalDistance > route.distance * 0.9, 'fillet path length is implausible');
+
+for (let index = 0; index < 100; index += 1) {
+  const startProgress = index / 100;
+  const start = sampleAircraftSurfaceMotion(synthetic, route.nodeIds, route.edgeIds, startProgress, a320);
+  const advancedProgress = progressAfterAircraftSurfaceDistance(
+    synthetic,
+    route.nodeIds,
+    route.edgeIds,
+    startProgress,
+    a320,
+    37,
+  );
+  assert(start && advancedProgress !== null && advancedProgress >= startProgress, 'physical surface advance did not remain monotonic');
+  const advanced = sampleAircraftSurfaceMotion(synthetic, route.nodeIds, route.edgeIds, advancedProgress, a320);
+  assert(advanced, 'physical surface advance produced no motion sample');
+  const expectedDistanceM = Math.min(37, Math.max(0, (start.totalDistance - start.distanceAlong) * WORLD_METERS_PER_UNIT));
+  const actualDistanceM = (advanced.distanceAlong - start.distanceAlong) * WORLD_METERS_PER_UNIT;
+  assert(Math.abs(actualDistanceM - expectedDistanceM) < 0.001, 'physical surface advance drifted by ' + Math.abs(actualDistanceM - expectedDistanceM) + ' m');
+}
 
 const a320Stop = surfaceStoppingDistanceM(a320, a320.taxiKts);
 assert(a320Stop > 55 && a320Stop < 80, 'A320 taxi stopping distance is implausible: ' + a320Stop);

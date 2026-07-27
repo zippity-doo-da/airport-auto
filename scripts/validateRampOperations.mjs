@@ -28,6 +28,8 @@ const synthetic = {
     { id: 'B', kind: 'taxiway', position: [3, 1], taxiwayIds: ['NORTH'] },
     { id: 'C', kind: 'taxiway', position: [3, -1], taxiwayIds: ['SOUTH'] },
     { id: 'D', kind: 'taxiway', position: [4, 0], taxiwayIds: ['NORTH', 'SOUTH'] },
+    { id: 'X', kind: 'taxiway', position: [2.49, 0.49], taxiwayIds: ['CROSS'] },
+    { id: 'Y', kind: 'taxiway', position: [2.51, 0.51], taxiwayIds: ['CROSS'] },
   ],
   edges: [
     { id: 'SR', from: 'R', to: 'S', kind: 'stand-lead-in', name: 'Stand S1 lead-in', direction: 'both', width: 0.7, taxiwayId: 'RAMP-ALPHA' },
@@ -36,11 +38,13 @@ const synthetic = {
     { id: 'BD', from: 'B', to: 'D', kind: 'taxiway', name: 'North exit', direction: 'both', width: 2.4, taxiwayId: 'NORTH' },
     { id: 'AC', from: 'A', to: 'C', kind: 'taxiway', name: 'South entry', direction: 'both', width: 2.4, taxiwayId: 'SOUTH' },
     { id: 'CD', from: 'C', to: 'D', kind: 'taxiway', name: 'South exit', direction: 'both', width: 2.4, taxiwayId: 'SOUTH' },
+    { id: 'XY', from: 'X', to: 'Y', kind: 'taxiway', name: 'Disconnected crossing', direction: 'both', width: 2.4, taxiwayId: 'CROSS' },
   ],
   taxiways: [
     { id: 'RAMP-ALPHA', name: 'Alpha alley', edgeIds: ['SR', 'RA'], sourceKind: 'taxilane' },
     { id: 'NORTH', name: 'North route', edgeIds: ['AB', 'BD'], sourceKind: 'taxiway' },
     { id: 'SOUTH', name: 'South route', edgeIds: ['AC', 'CD'], sourceKind: 'taxiway' },
+    { id: 'CROSS', name: 'Disconnected crossing', edgeIds: ['XY'], sourceKind: 'taxiway' },
   ],
   stands: [{
     id: 'S1', slot: 0, nodeId: 'S', apronTaxiwayId: 'RAMP-ALPHA', terminal: 'Test', position: [0, 0], heading: 0,
@@ -88,12 +92,22 @@ const taxiwayFlowLedger = new SurfaceReservationLedger();
 taxiwayFlowLedger.reserve(1, southboundFlow);
 assert(!taxiwayFlowLedger.firstConflict(southboundFlow, 2), 'same-direction named taxiway flow was blocked');
 assert(taxiwayFlowLedger.firstConflict(northboundFlow, 2)?.kind === 'taxiway-flow', 'opposing named taxiway flow was not blocked');
+const crossingClaims = surfaceRouteReservationClaims(synthetic, ['X', 'Y'], ['XY'], 0.1, 'taxi-in', 0);
+const disconnectedClaims = surfaceRouteReservationClaims(synthetic, ['A', 'B'], ['AB'], 0.1, 'taxi-out', 0);
+const geometricClaims = disconnectedClaims.filter((claim) => claim.kind === 'node' && claim.id.startsWith('geometric:'));
+const crossingGeometricClaims = crossingClaims.filter((claim) => claim.kind === 'node' && claim.id.startsWith('geometric:'));
+assert(geometricClaims.length > 0 && crossingGeometricClaims.length > 0, 'disconnected geometric junction produced no reservation claim');
+const geometricLedger = new SurfaceReservationLedger();
+geometricLedger.reserve(1, geometricClaims);
+assert(geometricLedger.firstConflict(crossingGeometricClaims, 2)?.kind === 'node', 'disconnected geometric junction admitted conflicting traffic');
 const zoneClaim = outboundClaims.find((claim) => claim.kind === 'ramp-zone');
 assert(zoneClaim, 'synthetic route has no zone claim');
 const zoneLedger = new SurfaceReservationLedger();
 zoneLedger.reserve(1, [zoneClaim]);
 zoneLedger.reserve(2, [zoneClaim]);
 assert(zoneLedger.firstConflict([zoneClaim])?.kind === 'ramp-zone', 'ramp-control capacity was not enforced');
+assert(!zoneLedger.firstConflict([zoneClaim], 1), 'an incumbent was prevented from clearing a full ramp-control zone');
+assert(zoneLedger.firstConflict([zoneClaim], 3)?.kind === 'ramp-zone', 'a new entrant was admitted into a full ramp-control zone');
 const standClaim = outboundClaims.find((claim) => claim.kind === 'stand');
 assert(standClaim, 'synthetic route has no stand claim');
 const standLedger = new SurfaceReservationLedger();

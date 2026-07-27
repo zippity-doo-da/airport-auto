@@ -137,7 +137,7 @@ const baseEnvelope = {
   kind: 'aircraft', altitude: 12, heading: 0,
   halfLength: 4, halfWidth: 4, bodyRadius: 4,
   minimumAltitude: 10, maximumAltitude: 14,
-  airborne: true, surface: false, protectedSurface: false,
+  airborne: true, surface: false, parked: false, protectedSurface: false,
   runway: 0,
 };
 const physicalOverlap = detectFlightConflict(
@@ -164,6 +164,18 @@ const physicalSurfaceCollision = detectFlightConflict(
 );
 assert(operationalSurfaceSpacing?.type === 'surface', 'prospective taxi separation buffer was not detected');
 assert(!physicalSurfaceCollision, 'a clear, safely diverging taxi pair was reported as a physical collision');
+const parkedSurfaceSpacing = detectFlightConflict(
+  { ...baseEnvelope, id: 1, x: 0, y: 0, altitude: 2, minimumAltitude: 1, maximumAltitude: 3, airborne: false, surface: true, parked: true, taxiway: 'TWY-A' },
+  { ...baseEnvelope, id: 2, x: 9, y: 0, altitude: 2, minimumAltitude: 1, maximumAltitude: 3, airborne: false, surface: true, taxiway: 'TWY-A' },
+  'medium', 'medium', false,
+);
+assert(!parkedSurfaceSpacing, 'a physically clear parked aircraft imposed active taxi spacing');
+const parkedPhysicalOverlap = detectFlightConflict(
+  { ...baseEnvelope, id: 1, x: 0, y: 0, altitude: 2, minimumAltitude: 1, maximumAltitude: 3, airborne: false, surface: true, parked: true, taxiway: 'TWY-A' },
+  { ...baseEnvelope, id: 2, x: 8, y: 0, altitude: 2, minimumAltitude: 1, maximumAltitude: 3, airborne: false, surface: true, taxiway: 'TWY-A' },
+  'medium', 'medium', false,
+);
+assert(parkedPhysicalOverlap?.detail === 'physical aircraft envelopes overlap', 'parked aircraft physical envelope was not protected');
 
 for (const config of configs) {
   const harness = new FixedStepSimulationHarness(config, { stepSeconds: 0.1, pace: 3, scenario: 'rush', density: 'rush' });

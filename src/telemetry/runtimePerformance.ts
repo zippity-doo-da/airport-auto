@@ -109,6 +109,15 @@ const MAX_COUNTER_SAMPLES = 21_600;
 const MIN_GROWTH_OBSERVATION_SECONDS = 300;
 const MIB = 1_048_576;
 
+function lowestHeapSample(samples: readonly RuntimeCounterSample[]): RuntimeCounterSample | null {
+  let lowest: RuntimeCounterSample | null = null;
+  for (const sample of samples) {
+    if (sample.heapBytes === null) continue;
+    if (lowest?.heapBytes === null || lowest === null || sample.heapBytes < lowest.heapBytes) lowest = sample;
+  }
+  return lowest;
+}
+
 export class RuntimePerformanceMonitor {
   private readonly frameWorkSamples: number[] = [];
   private readonly frameGapSamples: number[] = [];
@@ -253,10 +262,33 @@ export class RuntimePerformanceMonitor {
       latest.elapsedSeconds - baseline.elapsedSeconds,
     );
     const scale = observedSeconds > 0 ? 3_600 / observedSeconds : 0;
+    // Browser heaps are a sawtooth: the final sample can be tens of MiB above
+    // the retained set simply because a collection has not run yet. Compare
+    // low-water samples near each end of the observation window instead. A
+    // genuine leak still raises successive troughs, while GC timing no longer
+    // turns an otherwise identical soak red or green at random.
+    const growthWindow = this.counterSamples.filter((sample) => (
+      sample.elapsedSeconds >= baseline.elapsedSeconds
+    ));
+    const heapBandSeconds = Math.min(300, observedSeconds / 4);
+    const retainedBaseline = lowestHeapSample(growthWindow.filter((sample) => (
+      sample.elapsedSeconds <= baseline.elapsedSeconds + heapBandSeconds
+    )));
+    const retainedLatest = lowestHeapSample(growthWindow.filter((sample) => (
+      sample.elapsedSeconds >= latest.elapsedSeconds - heapBandSeconds
+    )));
+    const retainedObservedSeconds = retainedBaseline && retainedLatest
+      ? retainedLatest.elapsedSeconds - retainedBaseline.elapsedSeconds
+      : 0;
     const heapMiBPerHour =
-      baseline.heapBytes === null || latest.heapBytes === null
+      retainedBaseline?.heapBytes === null
+      || retainedBaseline?.heapBytes === undefined
+      || retainedLatest?.heapBytes === null
+      || retainedLatest?.heapBytes === undefined
+      || retainedObservedSeconds <= 0
         ? null
-        : ((latest.heapBytes - baseline.heapBytes) / MIB) * scale;
+        : ((retainedLatest.heapBytes - retainedBaseline.heapBytes) / MIB)
+          * 3_600 / retainedObservedSeconds;
     return {
       observedSeconds: Number(observedSeconds.toFixed(2)),
       sampleCount: this.counterSamples.length,

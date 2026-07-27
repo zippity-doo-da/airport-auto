@@ -1,9 +1,9 @@
 import type { AirportConfig } from './airportConfig';
 import { aircraftProfile, type AircraftModel } from './aircraftProfiles';
 import type { Flight, FlightPhase, WakeClass } from './types';
-import { sampleSurfaceRouteWithEdges } from './surfaceGraph';
+import { sampleSurfaceRouteWithEdges, surfaceNodeIndex, surfaceStandBySlot } from './surfaceGraph';
 import { distanceToObstacleBoundary, type AirportObstacleEnvelope } from './airportObstacles';
-import { sampleFlightTrajectory } from './flightTrajectory';
+import { phaseUsesFlightTrajectory } from './flightTrajectory';
 import { runwaysConflict } from './runwayConflict';
 import { sampleFlightMotion } from './flightMotion';
 import { WORLD_METERS_PER_UNIT } from './runwayPerformance';
@@ -30,6 +30,8 @@ export interface AircraftCollisionEnvelope {
   maximumAltitude: number;
   airborne: boolean;
   surface: boolean;
+  /** Parked at a stand: protect the physical aircraft, not active-mover spacing. */
+  parked: boolean;
   protectedSurface: boolean;
   runway: number;
   taxiway?: string;
@@ -73,13 +75,105 @@ const AIR_SURFACE_ALTITUDE = 8;
 const SURFACE_GAP = 1.4;
 export const PHYSICAL_GAP = 0.35;
 const COMMITTED_SWEEP_SEGMENTS = 96;
+// Reuse the earliest remaining committed trajectory inside a small monotonic
+// progress bucket. A cached sweep can include pavement already vacated but can
+// never omit future movement, so the lower rebuild rate is conservative.
+const COMMITTED_SWEEP_PROGRESS_BUCKETS = 64;
 
 interface CommittedSweepCache {
   key: string;
+  sweep: CommittedRunwaySweep;
+}
+
+interface CommittedRunwaySweep {
   envelopes: AircraftCollisionEnvelope[];
+  minimumX: number;
+  maximumX: number;
+  minimumY: number;
+  maximumY: number;
+  maximumBodyRadius: number;
 }
 
 const committedSweepCaches = new WeakMap<Flight, CommittedSweepCache>();
+
+interface ObstacleConflictCache {
+  config: AirportConfig;
+  x: number;
+  y: number;
+  minimumAltitude: number;
+  maximumAltitude: number;
+  bodyRadius: number;
+  conflicts: AircraftObstacleConflict[];
+}
+
+const obstacleConflictCaches = new WeakMap<Flight, ObstacleConflictCache>();
+const obstacleBoundsCaches = new WeakMap<AirportObstacleEnvelope, {
+  minimumX: number;
+  maximumX: number;
+  minimumY: number;
+  maximumY: number;
+}>();
+
+interface CollisionEnvelopeSampleCache {
+  epoch: number;
+  samples: Map<number, AircraftCollisionEnvelope>;
+}
+
+const collisionEnvelopeSampleCaches = new WeakMap<Flight, CollisionEnvelopeSampleCache>();
+let collisionSamplingEpoch = 0;
+let collisionSamplingActive = false;
+
+export interface CollisionPerformanceTrace {
+  envelopeRequests: number;
+  envelopeCacheHits: number;
+  envelopeComputations: number;
+  proposedCalls: number;
+  obstacleCandidateChecks: number;
+  committedSweepRequests: number;
+  committedSweepCacheHits: number;
+  committedSweepBuilds: number;
+  committedSweepEnvelopeSamples: number;
+  committedSweepEnvelopeChecks: number;
+  flightPairChecks: number;
+  mergeEscapeCalls: number;
+  mergeEscapeEnvelopeSamples: number;
+}
+
+let collisionPerformanceTrace: CollisionPerformanceTrace | null = null;
+
+export function beginCollisionPerformanceTrace(): void {
+  collisionPerformanceTrace = {
+    envelopeRequests: 0,
+    envelopeCacheHits: 0,
+    envelopeComputations: 0,
+    proposedCalls: 0,
+    obstacleCandidateChecks: 0,
+    committedSweepRequests: 0,
+    committedSweepCacheHits: 0,
+    committedSweepBuilds: 0,
+    committedSweepEnvelopeSamples: 0,
+    committedSweepEnvelopeChecks: 0,
+    flightPairChecks: 0,
+    mergeEscapeCalls: 0,
+    mergeEscapeEnvelopeSamples: 0,
+  };
+}
+
+export function endCollisionPerformanceTrace(): CollisionPerformanceTrace | null {
+  const trace = collisionPerformanceTrace;
+  collisionPerformanceTrace = null;
+  return trace ? { ...trace } : null;
+}
+
+/** Share immutable pose envelopes inside one collision-arbitration pass. */
+export function beginAircraftCollisionSamplingFrame(): void {
+  collisionSamplingEpoch += 1;
+  collisionSamplingActive = true;
+}
+
+export function endAircraftCollisionSamplingFrame(): void {
+  collisionSamplingActive = false;
+}
 
 export function parkedAircraftBodyRadius(scope: AirportConfig['scope'], model: AircraftModel): number {
   const visual = aircraftProfile(model).visual;
@@ -92,9 +186,21 @@ export function parkedAircraftBodyRadius(scope: AirportConfig['scope'], model: A
 }
 
 export function aircraftCollisionEnvelope(config: AirportConfig, flight: Flight, progress = flight.progress): AircraftCollisionEnvelope {
+  if (collisionPerformanceTrace) collisionPerformanceTrace.envelopeRequests += 1;
+  const p = clamp(progress, 0, 1);
+  if (collisionSamplingActive) {
+    const cached = collisionEnvelopeSampleCaches.get(flight);
+    const result = cached?.epoch === collisionSamplingEpoch
+      ? cached.samples.get(p)
+      : undefined;
+    if (result) {
+      if (collisionPerformanceTrace) collisionPerformanceTrace.envelopeCacheHits += 1;
+      return result;
+    }
+  }
+  if (collisionPerformanceTrace) collisionPerformanceTrace.envelopeComputations += 1;
   const runway = config.runways[flight.runway] ?? config.runways[0];
   const aircraft = aircraftProfile(flight.aircraft);
-  const p = clamp(progress, 0, 1);
   const landingSign = flight.operatingEnd;
   const takeoffSign = -landingSign as -1 | 1;
   const baseScale = config.scope === 'center' ? 0.17 : 0.92;
@@ -125,9 +231,18 @@ export function aircraftCollisionEnvelope(config: AirportConfig, flight: Flight,
     maximumAltitude: values.altitude + Math.max(config.scope === 'center' ? 0.32 : 1.2, aircraft.visual.tailHeight * presentationScale),
     ...values,
   });
+  const sampled = (result: AircraftCollisionEnvelope): AircraftCollisionEnvelope => {
+    if (!collisionSamplingActive) return result;
+    const cached = collisionEnvelopeSampleCaches.get(flight);
+    if (cached?.epoch === collisionSamplingEpoch) cached.samples.set(p, result);
+    else collisionEnvelopeSampleCaches.set(flight, {
+      epoch: collisionSamplingEpoch,
+      samples: new Map([[p, result]]),
+    });
+    return result;
+  };
 
-  const trajectory = sampleFlightTrajectory(config, flight, p);
-  if (trajectory) {
+  if (phaseUsesFlightTrajectory(flight.phase)) {
     // The orthographic renderer compresses altitude for readability. Expand
     // airborne Z for safety math so an aircraft hundreds of feet above an
     // apron is not treated as physically touching ground traffic below it.
@@ -135,34 +250,36 @@ export function aircraftCollisionEnvelope(config: AirportConfig, flight: Flight,
       ? flight.motion
       : sampleFlightMotion(config, flight, p);
     const safetyAltitude = motion.onGround ? motion.z : 2 + (motion.z - 2) * 3;
-    return envelope({
+    return sampled(envelope({
       x: motion.x,
       y: motion.y,
       altitude: safetyAltitude,
       heading: motion.heading,
       airborne: !motion.onGround,
       surface: motion.onGround,
+      parked: false,
       protectedSurface: motion.protectedRunway,
       runway: flight.runway,
-    });
+    }));
   }
 
-  const stand = config.surfaceGraph.stands.find((item) => item.slot === flight.gateSlot);
-  const standNode = stand ? config.surfaceGraph.nodes.find((node) => node.id === stand.nodeId) : undefined;
+  const stand = surfaceStandBySlot(config.surfaceGraph, flight.gateSlot);
+  const standNode = stand ? surfaceNodeIndex(config.surfaceGraph).get(stand.nodeId) : undefined;
   const gate = standNode ? { x: standNode.position[0], y: standNode.position[1] } : gatePoint(config, flight.gateSlot);
   if (flight.phase === 'resting') {
-    return envelope({
+    return sampled(envelope({
       x: gate.x,
       y: gate.y,
       altitude: 2.1,
       heading: stand?.heading ?? 0,
       airborne: false,
       surface: true,
+      parked: true,
       protectedSurface: false,
       runway: flight.runway,
       taxiway: stand?.apronTaxiwayId ?? 'APRON',
       surfaceNode: standNode?.id,
-    });
+    }));
   }
 
   const routeSample = sampleSurfaceRouteWithEdges(config.surfaceGraph, flight.surfaceRoute, flight.surfaceRouteEdges, p);
@@ -171,19 +288,20 @@ export function aircraftCollisionEnvelope(config: AirportConfig, flight: Flight,
       ? flight.motion
       : sampleFlightMotion(config, flight, p);
     const protectedSurface = routeSample.edge?.kind === 'runway' || routeSample.edge?.kind === 'runway-access';
-    return envelope({
+    return sampled(envelope({
       x: motion.x,
       y: motion.y,
       altitude: 2.1,
       heading: motion.heading,
       airborne: false,
       surface: true,
+      parked: false,
       protectedSurface,
       runway: routeSample.edge?.runwayId ?? flight.runway,
       taxiway: routeSample.edge?.taxiwayId ?? flight.taxiway,
       surfaceNode: routeSample.nearestNodeId,
       surfaceEdge: routeSample.edge?.id,
-    });
+    }));
   }
 
   const runwayAnchor = flight.phase === 'taxi-in'
@@ -194,17 +312,18 @@ export function aircraftCollisionEnvelope(config: AirportConfig, flight: Flight,
   const taxiway = flight.taxiway === 'APRON'
     ? 'APRON'
     : `${flight.taxiway ?? `RUNWAY-${flight.runway}`}#${flight.runway}`;
-  return envelope({
+  return sampled(envelope({
     x: lerp(from.x, to.x, p),
     y: lerp(from.y, to.y, p),
     altitude: 2.1,
     heading: Math.atan2(to.y - from.y, to.x - from.x),
     airborne: false,
     surface: true,
+    parked: false,
     protectedSurface: flight.phase === 'taxi-in' ? p < 0.3 : p > 0.7,
     runway: flight.runway,
     taxiway,
-  });
+  }));
 }
 
 export const flightProxy = aircraftCollisionEnvelope;
@@ -289,12 +408,17 @@ export function detectFlightConflict(
   // a gate. Treat it as a shared runway only while both surface proxies are
   // actually inside the protected runway envelope.
   const sameRunway = first.runway === second.runway && first.protectedSurface && second.protectedSurface;
-  const sameTaxiway = Boolean(first.taxiway && second.taxiway && first.taxiway === second.taxiway);
-  const sharedApron = first.taxiway === 'APRON' && second.taxiway === 'APRON';
+  const bothActiveMovers = !first.parked && !second.parked;
+  const sameTaxiway = bothActiveMovers
+    && Boolean(first.taxiway && second.taxiway && first.taxiway === second.taxiway);
+  const sharedApron = bothActiveMovers && first.taxiway === 'APRON' && second.taxiway === 'APRON';
   const requiredHorizontal = Math.max(SURFACE_GAP, first.bodyRadius + second.bodyRadius + SURFACE_GAP);
   // Different taxiway routes can visually converge near a terminal without
-  // being a collision. Only apply the aircraft envelope when the flights share
-  // a runway, named taxiway, or apron stand area.
+  // being a collision. Only apply active-mover spacing when the flights share
+  // a runway, named taxiway, or apron movement area. A parked aircraft is a
+  // static obstacle: the physical test above still protects its complete
+  // presentation envelope, but it must not behave like a taxiing predecessor
+  // and hold an adjacent ramp lane indefinitely.
   if (includeOperationalSurfaceSeparation && (sameRunway || sameTaxiway || sharedApron) && horizontalDistance < requiredHorizontal) {
     return {
       type: sameRunway ? 'runway-incursion' : 'surface',
@@ -336,6 +460,45 @@ export function detectCommittedRunwaySweepConflict(
   };
 }
 
+/**
+ * Close the space between sampled committed-trajectory envelopes. A fast
+ * runway roll can travel farther than one presentation radius between sweep
+ * samples; point-only tests can then stop a taxiing aircraft inside that
+ * narrow gap even though the continuous centerline later passes through it.
+ */
+export function detectCommittedRunwaySweepSegmentConflict(
+  surface: FlightProxy,
+  from: FlightProxy,
+  to: FlightProxy,
+): FlightConflict | null {
+  if (!surface.surface || (!from.protectedSurface && !to.protectedSurface)) return null;
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const lengthSquared = dx * dx + dy * dy;
+  const amount = lengthSquared <= 1e-12
+    ? 0
+    : clamp(((surface.x - from.x) * dx + (surface.y - from.y) * dy) / lengthSquared, 0, 1);
+  const nearestX = from.x + dx * amount;
+  const nearestY = from.y + dy * amount;
+  const horizontalDistance = Math.hypot(surface.x - nearestX, surface.y - nearestY);
+  // Using the larger endpoint is conservative through scale transitions and
+  // keeps the swept tube continuous when an aircraft flares or rotates.
+  const requiredHorizontal = surface.bodyRadius + Math.max(from.bodyRadius, to.bodyRadius) + PHYSICAL_GAP;
+  if (horizontalDistance >= requiredHorizontal) return null;
+  return {
+    type: 'runway-incursion',
+    first: surface.id,
+    second: from.id,
+    horizontalDistance,
+    verticalDistance: Math.min(
+      Math.abs(surface.altitude - from.altitude),
+      Math.abs(surface.altitude - to.altitude),
+    ),
+    requiredHorizontal,
+    detail: 'surface aircraft would enter the continuous committed runway wing sweep',
+  };
+}
+
 export function detectAircraftObstacleConflict(
   aircraft: AircraftCollisionEnvelope,
   obstacle: AirportObstacleEnvelope,
@@ -343,6 +506,14 @@ export function detectAircraftObstacleConflict(
   const verticalOverlap = aircraft.minimumAltitude < obstacle.maximumAltitude
     && aircraft.maximumAltitude > obstacle.minimumAltitude;
   if (!verticalOverlap) return null;
+  const bounds = obstacleBounds(obstacle);
+  const broadPhaseRadius = aircraft.bodyRadius + obstacle.clearance;
+  if (
+    aircraft.x < bounds.minimumX - broadPhaseRadius
+    || aircraft.x > bounds.maximumX + broadPhaseRadius
+    || aircraft.y < bounds.minimumY - broadPhaseRadius
+    || aircraft.y > bounds.maximumY + broadPhaseRadius
+  ) return null;
   const horizontalDistance = distanceToObstacleBoundary([aircraft.x, aircraft.y], obstacle);
   const requiredHorizontal = aircraft.bodyRadius + obstacle.clearance;
   if (horizontalDistance >= requiredHorizontal) return null;
@@ -385,12 +556,70 @@ export function findObstacleConflicts(config: AirportConfig, flights: Flight[]):
   const conflicts: AircraftObstacleConflict[] = [];
   for (const flight of flights) {
     const aircraft = aircraftCollisionEnvelope(config, flight);
+    const cached = obstacleConflictCaches.get(flight);
+    if (
+      cached?.config === config
+      && cached.x === aircraft.x
+      && cached.y === aircraft.y
+      && cached.minimumAltitude === aircraft.minimumAltitude
+      && cached.maximumAltitude === aircraft.maximumAltitude
+      && cached.bodyRadius === aircraft.bodyRadius
+    ) {
+      conflicts.push(...cached.conflicts);
+      continue;
+    }
+    const flightConflicts: AircraftObstacleConflict[] = [];
     for (const obstacle of config.obstacles) {
       const conflict = detectAircraftObstacleConflict(aircraft, obstacle);
-      if (conflict) conflicts.push(conflict);
+      if (conflict) flightConflicts.push(conflict);
     }
+    obstacleConflictCaches.set(flight, {
+      config,
+      x: aircraft.x,
+      y: aircraft.y,
+      minimumAltitude: aircraft.minimumAltitude,
+      maximumAltitude: aircraft.maximumAltitude,
+      bodyRadius: aircraft.bodyRadius,
+      conflicts: flightConflicts,
+    });
+    conflicts.push(...flightConflicts);
   }
   return conflicts;
+}
+
+function obstacleBounds(obstacle: AirportObstacleEnvelope): {
+  minimumX: number;
+  maximumX: number;
+  minimumY: number;
+  maximumY: number;
+} {
+  const cached = obstacleBoundsCaches.get(obstacle);
+  if (cached) return cached;
+  let result: { minimumX: number; maximumX: number; minimumY: number; maximumY: number };
+  if (obstacle.shape === 'circle') {
+    result = {
+      minimumX: obstacle.center[0] - obstacle.radius,
+      maximumX: obstacle.center[0] + obstacle.radius,
+      minimumY: obstacle.center[1] - obstacle.radius,
+      maximumY: obstacle.center[1] + obstacle.radius,
+    };
+  } else if (obstacle.shape === 'box') {
+    result = {
+      minimumX: obstacle.center[0] - obstacle.halfExtents[0],
+      maximumX: obstacle.center[0] + obstacle.halfExtents[0],
+      minimumY: obstacle.center[1] - obstacle.halfExtents[1],
+      maximumY: obstacle.center[1] + obstacle.halfExtents[1],
+    };
+  } else {
+    result = {
+      minimumX: Math.min(...obstacle.points.map((point) => point[0])),
+      maximumX: Math.max(...obstacle.points.map((point) => point[0])),
+      minimumY: Math.min(...obstacle.points.map((point) => point[1])),
+      maximumY: Math.max(...obstacle.points.map((point) => point[1])),
+    };
+  }
+  obstacleBoundsCaches.set(obstacle, result);
+  return result;
 }
 
 export function findProposedConflict(
@@ -402,6 +631,7 @@ export function findProposedConflict(
   resolvedFlightIds?: ReadonlySet<number>,
   surfaceMergeYieldById?: Map<number, number>,
 ): CollisionConflict | null {
+  if (collisionPerformanceTrace) collisionPerformanceTrace.proposedCalls += 1;
   const proposed = aircraftCollisionEnvelope(config, flight, proposedProgress);
   const current = aircraftCollisionEnvelope(config, flight, flight.progress);
   const mergeWinnerId = surfaceMergeYieldById?.get(flight.id);
@@ -422,6 +652,7 @@ export function findProposedConflict(
     }
   }
   for (const obstacle of config.obstacles) {
+    if (collisionPerformanceTrace) collisionPerformanceTrace.obstacleCandidateChecks += 1;
     const conflict = detectAircraftObstacleConflict(proposed, obstacle);
     if (!conflict) continue;
     const existing = detectAircraftObstacleConflict(current, obstacle);
@@ -437,8 +668,39 @@ export function findProposedConflict(
   // it until the landing or departure has passed.
   if (flight.phase === 'taxi-in' || flight.phase === 'taxi-out') {
     for (const other of otherFlights) {
-      if (other.id === flight.id || (other.phase !== 'approach' && other.phase !== 'landing' && other.phase !== 'takeoff')) continue;
-      for (const protectedFutureEnvelope of committedRunwaySweep(config, other)) {
+      const committedApproach = other.phase === 'approach' && other.cleared;
+      if (other.id === flight.id || (!committedApproach && other.phase !== 'landing' && other.phase !== 'takeoff')) continue;
+      const protectedSweep = committedRunwaySweep(config, other);
+      const sweepRadius = Math.max(
+        AIR_SURFACE_HORIZONTAL,
+        proposed.bodyRadius + protectedSweep.maximumBodyRadius + PHYSICAL_GAP,
+      );
+      if (
+        proposed.x < protectedSweep.minimumX - sweepRadius
+        || proposed.x > protectedSweep.maximumX + sweepRadius
+        || proposed.y < protectedSweep.minimumY - sweepRadius
+        || proposed.y > protectedSweep.maximumY + sweepRadius
+      ) continue;
+      let previousProtectedEnvelope: AircraftCollisionEnvelope | undefined;
+      for (const protectedFutureEnvelope of protectedSweep.envelopes) {
+        if (collisionPerformanceTrace) collisionPerformanceTrace.committedSweepEnvelopeChecks += 1;
+        const segmentConflict = previousProtectedEnvelope
+          ? detectCommittedRunwaySweepSegmentConflict(
+              proposed,
+              previousProtectedEnvelope,
+              protectedFutureEnvelope,
+            )
+          : null;
+        previousProtectedEnvelope = protectedFutureEnvelope;
+        if (segmentConflict) return segmentConflict;
+        const pairRadius = Math.max(
+          AIR_SURFACE_HORIZONTAL,
+          proposed.bodyRadius + protectedFutureEnvelope.bodyRadius + PHYSICAL_GAP,
+        );
+        if (
+          Math.abs(proposed.x - protectedFutureEnvelope.x) >= pairRadius
+          || Math.abs(proposed.y - protectedFutureEnvelope.y) >= pairRadius
+        ) continue;
         const conflict = detectFlightConflict(
           proposed,
           protectedFutureEnvelope,
@@ -457,6 +719,7 @@ export function findProposedConflict(
   for (const other of otherFlights) {
     const otherProgress = proposedProgressById.get(other.id) ?? other.progress;
     if (other.id === flight.id) continue;
+    if (collisionPerformanceTrace) collisionPerformanceTrace.flightPairChecks += 1;
     const conflict = detectFlightConflict(
       proposed,
       aircraftCollisionEnvelope(config, other, otherProgress),
@@ -554,10 +817,18 @@ export function findProposedConflict(
  * buffer avoids over-inflating a parallel runway sweep, while sharing it
  * removes the former surface-mover × trajectory recomputation cost.
  */
-function committedRunwaySweep(config: AirportConfig, flight: Flight): AircraftCollisionEnvelope[] {
+function committedRunwaySweep(config: AirportConfig, flight: Flight): CommittedRunwaySweep {
+  if (collisionPerformanceTrace) collisionPerformanceTrace.committedSweepRequests += 1;
+  // Reuse the first (and therefore longest) remaining trajectory seen inside
+  // each progress bucket. Aircraft progress is monotonic within a phase, so a
+  // cached sweep can retain a few already-travelled metres but can never omit
+  // the current or future protected runway path. This removes hundreds of
+  // identical high-resolution motion samples from adjacent fixed ticks without
+  // narrowing the collision envelope.
+  const progressBucket = Math.floor(clamp(flight.progress, 0, 1) * COMMITTED_SWEEP_PROGRESS_BUCKETS);
   const key = [
     flight.phase,
-    flight.progress,
+    progressBucket,
     flight.runway,
     flight.operatingEnd,
     flight.goAround?.startedAt ?? '',
@@ -565,7 +836,11 @@ function committedRunwaySweep(config: AirportConfig, flight: Flight): AircraftCo
     flight.navigation.routeFixIds.join(','),
   ].join(':');
   const cached = committedSweepCaches.get(flight);
-  if (cached?.key === key) return cached.envelopes;
+  if (cached?.key === key) {
+    if (collisionPerformanceTrace) collisionPerformanceTrace.committedSweepCacheHits += 1;
+    return cached.sweep;
+  }
+  if (collisionPerformanceTrace) collisionPerformanceTrace.committedSweepBuilds += 1;
   const landingPreview: Flight | undefined = flight.phase === 'approach'
     ? {
         ...flight,
@@ -579,16 +854,36 @@ function committedRunwaySweep(config: AirportConfig, flight: Flight): AircraftCo
   if (landingPreview) landingPreview.motion = sampleFlightMotion(config, landingPreview, 0);
   const controllerBuffer = config.scope === 'center' ? 0.35 : 1.2;
   const envelopes: AircraftCollisionEnvelope[] = [];
+  let minimumX = Infinity;
+  let maximumX = -Infinity;
+  let minimumY = Infinity;
+  let maximumY = -Infinity;
+  let maximumBodyRadius = 0;
   for (const trajectory of landingPreview ? [flight, landingPreview] : [flight]) {
     const startProgress = trajectory === flight ? flight.progress : 0;
     for (let sampleIndex = 0; sampleIndex <= COMMITTED_SWEEP_SEGMENTS; sampleIndex += 1) {
+      if (collisionPerformanceTrace) collisionPerformanceTrace.committedSweepEnvelopeSamples += 1;
       const futureProgress = startProgress + (1 - startProgress) * sampleIndex / COMMITTED_SWEEP_SEGMENTS;
       const envelope = aircraftCollisionEnvelope(config, trajectory, futureProgress);
-      envelopes.push({ ...envelope, bodyRadius: envelope.bodyRadius + controllerBuffer });
+      const protectedEnvelope = { ...envelope, bodyRadius: envelope.bodyRadius + controllerBuffer };
+      envelopes.push(protectedEnvelope);
+      minimumX = Math.min(minimumX, protectedEnvelope.x);
+      maximumX = Math.max(maximumX, protectedEnvelope.x);
+      minimumY = Math.min(minimumY, protectedEnvelope.y);
+      maximumY = Math.max(maximumY, protectedEnvelope.y);
+      maximumBodyRadius = Math.max(maximumBodyRadius, protectedEnvelope.bodyRadius);
     }
   }
-  committedSweepCaches.set(flight, { key, envelopes });
-  return envelopes;
+  const sweep = {
+    envelopes,
+    minimumX,
+    maximumX,
+    minimumY,
+    maximumY,
+    maximumBodyRadius,
+  };
+  committedSweepCaches.set(flight, { key, sweep });
+  return sweep;
 }
 
 function surfaceMergeEscapeIsClear(
@@ -599,6 +894,7 @@ function surfaceMergeEscapeIsClear(
   stationary: AircraftCollisionEnvelope,
   currentDistance: number,
 ): boolean {
+  if (collisionPerformanceTrace) collisionPerformanceTrace.mergeEscapeCalls += 1;
   if (
     current.protectedSurface
     || stationary.protectedSurface
@@ -614,6 +910,7 @@ function surfaceMergeEscapeIsClear(
   let endDistance = currentDistance;
   const samples = 48;
   for (let index = 1; index <= samples; index += 1) {
+    if (collisionPerformanceTrace) collisionPerformanceTrace.mergeEscapeEnvelopeSamples += 1;
     const progress = proposedProgress + (endProgress - proposedProgress) * index / samples;
     const candidate = aircraftCollisionEnvelope(config, flight, progress);
     if (candidate.protectedSurface) return false;

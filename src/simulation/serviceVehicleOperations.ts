@@ -1,7 +1,7 @@
 import type { AirportConfig } from './airportConfig';
 import { aircraftProfile } from './aircraftProfiles';
 import { aircraftCollisionEnvelope } from './collisionDetection';
-import { findSurfaceRoute, sampleSurfaceRouteWithEdges, surfaceEdgeIndex, surfaceNodeIndex, type AirportSurfaceGraph, type SurfaceRoute, type SurfaceRoutePlanning, type SurfaceStand } from './surfaceGraph';
+import { findSurfaceHubRoutes, sampleSurfaceRouteWithEdges, surfaceEdgeIndex, surfaceNodeIndex, type AirportSurfaceGraph, type SurfaceRoute, type SurfaceRoutePlanning, type SurfaceStand } from './surfaceGraph';
 import { surfaceRouteReservationClaims, type SurfaceReservationClaim } from './surfaceOperations';
 import { WORLD_METERS_PER_UNIT } from './runwayPerformance';
 import type { Flight, ServiceVehicleState, ServiceVehicleStatus, ServiceVehicleType, TurnaroundServiceType } from './types';
@@ -21,6 +21,8 @@ interface ServiceVehicleRouteGeometry {
 }
 
 const serviceVehicleRouteGeometryCache = new WeakMap<ServiceVehicleState, ServiceVehicleRouteGeometry>();
+const SERVICE_DEPOT_CANDIDATE_LIMIT = 48;
+const SERVICE_GRAPH_BOUNDARY_RESERVATION_WORLD = 0.8;
 
 interface VehicleSpec {
   type: ServiceVehicleType;
@@ -103,12 +105,13 @@ export function createServiceVehiclePlans(config: AirportConfig, flight: Flight,
   const stand = config.surfaceGraph.stands.find((candidate) => candidate.id === flight.standId);
   if (!stand) return [];
   const allocatedDepotNodeIds = new Set(reservedDepotNodeIds);
+  const routePool = serviceDepotRoutePool(config.surfaceGraph, stand, planning);
   return flight.turnaround.tasks
     .filter((task) => task.required)
     .flatMap((task) => {
       const spec = vehicleSpecForService(task.type, flight);
       if (!spec) return [];
-      const routes = serviceDepotRoutes(config.surfaceGraph, stand, task.type, flight.id, allocatedDepotNodeIds, presentationScale(config) * 1.8, planning);
+      const routes = serviceDepotRoutes(config.surfaceGraph, stand, routePool, task.type, flight.id, allocatedDepotNodeIds, presentationScale(config) * 1.8);
       allocatedDepotNodeIds.add(routes.depotNodeId);
       const standPath = serviceStandPath(config, flight, stand, spec);
       const outboundTravelSeconds = (routes.outbound.distance * WORLD_METERS_PER_UNIT) / spec.maximumSpeedMps;
@@ -120,7 +123,7 @@ export function createServiceVehiclePlans(config: AirportConfig, flight: Flight,
         + task.scheduledStartOffsetSeconds
         - outboundTravelSeconds
         - localTravelSeconds;
-      const depot = config.surfaceGraph.nodes.find((node) => node.id === routes.depotNodeId)?.position ?? standPath[0];
+      const depot = surfaceNodeIndex(config.surfaceGraph).get(routes.depotNodeId)?.position ?? standPath[0];
       const sideCode = spec.side === 'left' ? 'L' : 'R';
       return [
         {
@@ -208,28 +211,33 @@ export function serviceVehicleReservationClaims(graph: AirportSurfaceGraph, vehi
     const edgeIds = vehicle.status === 'dispatching' ? vehicle.outboundRouteEdges : vehicle.returnRouteEdges;
     const graphProgress = serviceVehicleGraphProgress(graph, vehicle);
     if (graphProgress === null) {
+      const boundaryDistance = serviceVehicleGraphBoundaryDistance(graph, vehicle);
       const boundaryEdgeId = vehicle.status === 'dispatching'
         ? vehicle.outboundRouteEdges[vehicle.outboundRouteEdges.length - 1]
         : vehicle.returnRouteEdges[0];
       const boundaryEdge = surfaceEdgeIndex(graph).get(boundaryEdgeId);
-      const claims: SurfaceReservationClaim[] = [
-        {
+      const claims: SurfaceReservationClaim[] = [{
+        kind: 'service-lane',
+        // The graph-to-stand connector and the stand-side path share one
+        // directional service lane. A vehicle cannot be released into that
+        // connector while another is still clearing toward it.
+        id: `${vehicle.standId}-${vehicle.standSide}`,
+        label: `${vehicle.standId} ${vehicle.standSide} staging lane`,
+        capacity: 1,
+      }];
+      // A vehicle still parked at staging must not reserve a graph junction
+      // or taxiway boundary it has not reached. Acquire (or retain) those
+      // resources only inside a physical merge buffer; exact envelope checks
+      // remain authoritative throughout the connector.
+      if (boundaryDistance <= SERVICE_GRAPH_BOUNDARY_RESERVATION_WORLD) {
+        claims.unshift({
           kind: 'node',
           id: vehicle.status === 'dispatching' ? (vehicle.outboundRoute[vehicle.outboundRoute.length - 1] ?? vehicle.depotNodeId) : (vehicle.returnRoute[0] ?? vehicle.depotNodeId),
           label: `${vehicle.standId} ramp service junction`,
           capacity: 1,
-        },
-        {
-          kind: 'service-lane',
-          // The graph-to-stand connector and the stand-side path share one
-          // directional service lane. A vehicle cannot be released into that
-          // connector while another is still clearing toward it.
-          id: `${vehicle.standId}-${vehicle.standSide}`,
-          label: `${vehicle.standId} ${vehicle.standSide} staging lane`,
-          capacity: 1,
-        },
-      ];
-      if (boundaryEdge) {
+        });
+      }
+      if (boundaryEdge && boundaryDistance <= SERVICE_GRAPH_BOUNDARY_RESERVATION_WORLD) {
         claims.push({
           kind: 'edge',
           id: boundaryEdge.id,
@@ -448,7 +456,17 @@ export function serviceVehicleRadius(config: Pick<AirportConfig, 'scope'>, vehic
   return presentationScale(config) * (large ? 0.8 : 0.62);
 }
 
-function serviceDepotRoutes(graph: AirportSurfaceGraph, stand: SurfaceStand, service: TurnaroundServiceType, flightId: number, reservedDepotNodeIds: ReadonlySet<string>, minimumDepotSeparation: number, planning?: SurfaceRoutePlanning): { depotNodeId: string; outbound: SurfaceRoute; returning: SurfaceRoute } {
+interface ServiceDepotRouteCandidate {
+  nodeId: string;
+  outbound: SurfaceRoute;
+  returning: SurfaceRoute;
+}
+
+function serviceDepotRoutePool(
+  graph: AirportSurfaceGraph,
+  stand: SurfaceStand,
+  planning?: SurfaceRoutePlanning,
+): ServiceDepotRouteCandidate[] {
   const blockedEdgeIds = new Set([...serviceVehicleProtectedEdgeIds(graph), ...(planning?.blockedEdgeIds ?? [])]);
   const edgeById = surfaceEdgeIndex(graph);
   const nodeById = surfaceNodeIndex(graph);
@@ -464,34 +482,55 @@ function serviceDepotRoutes(graph: AirportSurfaceGraph, stand: SurfaceStand, ser
   const candidateIds = [...new Set([...zoneEdges, ...nearbyEdges].flatMap((edge) => (edge ? [edge.from, edge.to] : [])))]
     .filter((nodeId) => nodeId !== stand.nodeId && nodeId !== stand.rampNodeId)
     .filter((nodeId) => {
-      const position = nodeById.get(nodeId)?.position;
-      if (!position) return false;
-      return [...reservedDepotNodeIds].every((reservedNodeId) => {
-        const reservedPosition = nodeById.get(reservedNodeId)?.position;
-        return !reservedPosition || distance(position, reservedPosition) >= minimumDepotSeparation;
-      });
-    })
-    .filter((nodeId) => {
       const kind = nodeById.get(nodeId)?.kind;
       return kind !== 'stand' && kind !== 'runway-threshold' && kind !== 'runway-exit' && kind !== 'hold-short';
-    });
-  const targetDistance = 2.8 + positiveModulo(stringHash(`${service}:${flightId}`), 6) * 0.62;
-  const candidates = candidateIds
-    .flatMap((nodeId) => {
-      const routePlanning: SurfaceRoutePlanning = { edgePenaltyById: planning?.edgePenaltyById, blockedEdgeIds };
-      const outbound = findSurfaceRoute(graph, nodeId, stand.rampNodeId, undefined, routePlanning);
-      const returning = findSurfaceRoute(graph, stand.rampNodeId, nodeId, undefined, routePlanning);
-      if (!outbound || !returning) return [];
-      const jitter = positiveModulo(stringHash(`${service}:${nodeId}`), 101) / 1_000;
-      return [
-        {
-          nodeId,
-          outbound,
-          returning,
-          score: Math.abs(outbound.distance - targetDistance) + returning.distance * 0.08 + jitter,
-        },
-      ];
     })
+    // A depot is local ramp equipment, not an airport-wide route choice.
+    // Limiting the shared route tree to the nearest viable ramp nodes avoids
+    // exploring an entire imported field merely to prove a distant candidate
+    // is reachable, while leaving ample room for simultaneous gate turns.
+    .sort((firstId, secondId) => {
+      const first = nodeById.get(firstId)?.position ?? stand.position;
+      const second = nodeById.get(secondId)?.position ?? stand.position;
+      return distance(first, stand.position) - distance(second, stand.position)
+        || firstId.localeCompare(secondId);
+    })
+    .slice(0, SERVICE_DEPOT_CANDIDATE_LIMIT);
+  const routePlanning: SurfaceRoutePlanning = { edgePenaltyById: planning?.edgePenaltyById, blockedEdgeIds };
+  const routesByDepot = findSurfaceHubRoutes(graph, stand.rampNodeId, candidateIds, undefined, routePlanning);
+  return candidateIds.flatMap((nodeId) => {
+    const routes = routesByDepot.get(nodeId);
+    return routes ? [{ nodeId, outbound: routes.toHub, returning: routes.fromHub }] : [];
+  });
+}
+
+function serviceDepotRoutes(
+  graph: AirportSurfaceGraph,
+  stand: SurfaceStand,
+  routePool: readonly ServiceDepotRouteCandidate[],
+  service: TurnaroundServiceType,
+  flightId: number,
+  reservedDepotNodeIds: ReadonlySet<string>,
+  minimumDepotSeparation: number,
+): { depotNodeId: string; outbound: SurfaceRoute; returning: SurfaceRoute } {
+  const nodeById = surfaceNodeIndex(graph);
+  const targetDistance = 2.8 + positiveModulo(stringHash(`${service}:${flightId}`), 6) * 0.62;
+  const candidates = routePool
+    .filter((candidate) => {
+      const position = nodeById.get(candidate.nodeId)?.position;
+      if (!position) return false;
+      for (const reservedNodeId of reservedDepotNodeIds) {
+        const reservedPosition = nodeById.get(reservedNodeId)?.position;
+        if (reservedPosition && distance(position, reservedPosition) < minimumDepotSeparation) return false;
+      }
+      return true;
+    })
+    .map((candidate) => ({
+      ...candidate,
+      score: Math.abs(candidate.outbound.distance - targetDistance)
+        + candidate.returning.distance * 0.08
+        + positiveModulo(stringHash(`${service}:${candidate.nodeId}`), 101) / 1_000,
+    }))
     .sort((first, second) => first.score - second.score || first.nodeId.localeCompare(second.nodeId));
   const selected = candidates[0];
   if (selected)
@@ -561,6 +600,17 @@ function serviceVehicleGraphProgress(graph: AirportSurfaceGraph, vehicle: Servic
   }
   if (travelled > graphDistance + 1e-7) return null;
   return clamp(travelled / graphDistance, 0, 1);
+}
+
+function serviceVehicleGraphBoundaryDistance(graph: AirportSurfaceGraph, vehicle: ServiceVehicleState): number {
+  const geometry = serviceVehicleRouteGeometry(graph, vehicle);
+  if (vehicle.status === 'returning') {
+    const connectorDistance = Math.max(0, geometry.returnDistance - geometry.returnGraphDistance);
+    const travelled = clamp(vehicle.progress, 0, 1) * geometry.returnDistance;
+    return Math.abs(connectorDistance - travelled);
+  }
+  const travelled = clamp(vehicle.progress, 0, 1) * geometry.dispatchDistance;
+  return Math.abs(travelled - geometry.outboundGraphDistance);
 }
 
 function routeDistance(graph: AirportSurfaceGraph, nodeIds: string[]): number {

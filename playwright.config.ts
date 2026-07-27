@@ -28,7 +28,10 @@ export default defineConfig({
   webServer: {
     command: `npm run dev -- --host 127.0.0.1 --port ${testPort}`,
     url: testBaseUrl,
-    reuseExistingServer: !process.env.CI,
+    // Never trust an arbitrary process already bound to the test port. Reusing
+    // it can make the suite exercise an unrelated local app while every test
+    // waits for Airport Auto's control surface to appear.
+    reuseExistingServer: false,
     timeout: 60_000,
   },
 });

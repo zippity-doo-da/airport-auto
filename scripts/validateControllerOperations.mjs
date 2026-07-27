@@ -46,8 +46,13 @@ assert(requiredControllerStation(sample) === 'tower', 'landing aircraft was not 
 sample.phase = 'taxi-in';
 sample.progress = 0.4;
 sample.rampControlZoneId = undefined;
+sample.pendingCrossingCount = 0;
 assert(requiredControllerStation(sample) === 'ground', 'movement-area arrival was not assigned to Ground');
 sample.progress = 0.9;
+sample.pendingCrossingCount = 1;
+assert(requiredControllerStation(sample) === 'ground', 'arrival with a remaining runway crossing was handed to Ramp');
+assert(!controllerStationIsAhead(sample, 'ramp', 'ground'), 'Ramp retained an amended arrival that still needed Ground crossing authority');
+sample.pendingCrossingCount = 0;
 assert(requiredControllerStation(sample) === 'ramp', 'ramp-bound arrival was not assigned to Ramp');
 sample.phase = 'resting';
 assert(requiredControllerStation(sample) === 'ramp', 'aircraft at a stand was not assigned to Ramp');

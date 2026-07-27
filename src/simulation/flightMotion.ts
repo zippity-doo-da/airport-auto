@@ -2,15 +2,58 @@ import type { AirportConfig } from './airportConfig';
 import { aircraftProfile } from './aircraftProfiles';
 import { sampleFlightTrajectory } from './flightTrajectory';
 import { WORLD_METERS_PER_UNIT } from './runwayPerformance';
-import { surfacePushbackPlan } from './surfaceGraph';
-import { sampleAircraftSurfaceMotion } from './surfaceMotion';
+import { surfaceNodeIndex, surfacePushbackPlan, surfaceRouteCrossingWindows, surfaceStandBySlot } from './surfaceGraph';
+import { progressAfterAircraftSurfaceDistance, progressBeforeAircraftSurfaceDistance, sampleAircraftSurfaceMotion } from './surfaceMotion';
 import type { Flight, FlightMotionState } from './types';
+
+type FlightMotionSampleCache = {
+  epoch: number;
+  samples: Map<number, FlightMotionState>;
+};
+
+const motionSampleCache = new WeakMap<Flight, FlightMotionSampleCache>();
+let motionSamplingEpoch = 0;
+let motionSamplingActive = false;
+
+export function beginFlightMotionSamplingFrame(): void {
+  motionSamplingEpoch += 1;
+  motionSamplingActive = true;
+}
+
+export function endFlightMotionSamplingFrame(): void {
+  motionSamplingActive = false;
+}
 
 /** Convert the shared path definition into the simulation-owned world pose. */
 export function sampleFlightMotion(
   config: AirportConfig,
   flight: Flight,
   progress = flight.progress,
+): FlightMotionState {
+  const amount = clamp(progress, 0, 1);
+  if (motionSamplingActive) {
+    const cached = motionSampleCache.get(flight);
+    const motion = cached?.epoch === motionSamplingEpoch
+      ? cached.samples.get(amount)
+      : undefined;
+    if (motion) return motion;
+  }
+  const motion = computeFlightMotion(config, flight, amount);
+  if (motionSamplingActive) {
+    const cached = motionSampleCache.get(flight);
+    if (cached?.epoch === motionSamplingEpoch) cached.samples.set(amount, motion);
+    else motionSampleCache.set(flight, {
+      epoch: motionSamplingEpoch,
+      samples: new Map([[amount, motion]]),
+    });
+  }
+  return motion;
+}
+
+function computeFlightMotion(
+  config: AirportConfig,
+  flight: Flight,
+  progress: number,
 ): FlightMotionState {
   const amount = clamp(progress, 0, 1);
   const trajectory = sampleFlightTrajectory(config, flight, amount);
@@ -25,6 +68,7 @@ export function sampleFlightMotion(
       onGround: trajectory.onGround,
       groundBlend: trajectory.groundBlend,
       protectedRunway: trajectory.protectedRunway,
+      protectedRunwayIds: trajectory.protectedRunway ? [flight.runway] : [],
       distanceAlongM: trajectory.distanceAlong * WORLD_METERS_PER_UNIT,
       totalDistanceM: trajectory.totalDistance * WORLD_METERS_PER_UNIT,
       stage: trajectory.stage,
@@ -32,7 +76,7 @@ export function sampleFlightMotion(
     };
   }
 
-  const stand = config.surfaceGraph.stands.find((item) => item.slot === flight.gateSlot);
+  const stand = surfaceStandBySlot(config.surfaceGraph, flight.gateSlot);
   const surface = sampleAircraftSurfaceMotion(
     config.surfaceGraph,
     flight.surfaceRoute,
@@ -55,6 +99,26 @@ export function sampleFlightMotion(
         stageProgress = clamp((amount - pushback.releaseProgress) / (1 - pushback.releaseProgress), 0, 1);
       }
     }
+    const protectedRunwayIds = new Set<number>();
+    if (surface.edge?.kind === 'runway') protectedRunwayIds.add(surface.edge.runwayId ?? flight.runway);
+    if (
+      surface.edge?.kind === 'runway-access'
+      && surface.edge.runwayId === flight.runway
+      && (flight.phase === 'taxi-in' || (flight.phase === 'taxi-out' && flight.runwayEntryCleared))
+    ) protectedRunwayIds.add(flight.runway);
+    if (flight.phase === 'taxi-in' || flight.phase === 'taxi-out') {
+      for (const crossing of surfaceRouteCrossingWindows(
+        config.surfaceGraph,
+        flight.surfaceRoute,
+        amount,
+        flight.runway,
+        flight.surfaceRouteEdges,
+      )) {
+        if (amount + 1e-6 < crossing.entryProgress || amount > crossing.exitProgress + 1e-6) continue;
+        protectedRunwayIds.add(crossing.runwayId);
+      }
+    }
+    const occupiedRunwayIds = [...protectedRunwayIds].sort((first, second) => first - second);
     return {
       x: surface.x,
       y: surface.y,
@@ -64,7 +128,8 @@ export function sampleFlightMotion(
       bank: 0,
       onGround: true,
       groundBlend: 1,
-      protectedRunway: surface.edge?.kind === 'runway' || surface.edge?.kind === 'runway-access',
+      protectedRunway: occupiedRunwayIds.length > 0,
+      protectedRunwayIds: occupiedRunwayIds,
       distanceAlongM: surface.distanceAlong * WORLD_METERS_PER_UNIT,
       totalDistanceM: surface.totalDistance * WORLD_METERS_PER_UNIT,
       stage,
@@ -72,7 +137,7 @@ export function sampleFlightMotion(
     };
   }
 
-  const standNode = stand ? config.surfaceGraph.nodes.find((node) => node.id === stand.nodeId) : undefined;
+  const standNode = stand ? surfaceNodeIndex(config.surfaceGraph).get(stand.nodeId) : undefined;
   return {
     x: standNode?.position[0] ?? config.terminal[0],
     y: standNode?.position[1] ?? config.terminal[1],
@@ -83,6 +148,7 @@ export function sampleFlightMotion(
     onGround: true,
     groundBlend: 1,
     protectedRunway: false,
+    protectedRunwayIds: [],
     distanceAlongM: 0,
     totalDistanceM: 0,
     stage: flight.phase,
@@ -91,6 +157,7 @@ export function sampleFlightMotion(
 }
 
 export function syncFlightMotion(config: AirportConfig, flight: Flight): FlightMotionState {
+  motionSampleCache.delete(flight);
   const motion = sampleFlightMotion(config, flight);
   flight.motion = motion;
   return motion;
@@ -106,10 +173,29 @@ export function progressAfterDistance(
   distanceMeters: number,
 ): number {
   if (distanceMeters <= 0 || flight.progress >= 1) return flight.progress;
+  if (flight.phase === 'taxi-in' || flight.phase === 'taxi-out') {
+    const surfaceProgress = progressAfterAircraftSurfaceDistance(
+      config.surfaceGraph,
+      flight.surfaceRoute,
+      flight.surfaceRouteEdges,
+      flight.progress,
+      aircraftProfile(flight.aircraft),
+      distanceMeters,
+    );
+    if (surfaceProgress !== null) return surfaceProgress;
+  }
   const current = sampleFlightMotion(config, flight, flight.progress);
   if (current.totalDistanceM <= 0) return flight.progress;
   const target = Math.min(current.totalDistanceM, current.distanceAlongM + distanceMeters);
   if (target >= current.totalDistanceM - 0.0001) return 1;
+  // Prepared approach, vector, hold, diversion, and ordinary go-around paths
+  // are parameterized by arc length. Their authoritative distance is exactly
+  // progress × total distance, so no iterative inverse is necessary. A
+  // wind-shear escape has a distinct straight-ahead segment and retains the
+  // general solver below.
+  if (flight.phase === 'approach' && !flight.goAround?.weatherEscape) {
+    return clamp(target / current.totalDistanceM, flight.progress, 1);
+  }
   let low = flight.progress;
   let high = 1;
   for (let iteration = 0; iteration < 22; iteration += 1) {
@@ -119,6 +205,27 @@ export function progressAfterDistance(
     else high = middle;
   }
   return (low + high) / 2;
+}
+
+/** Move a surface aircraft backward by physical distance on its authoritative route. */
+export function progressBeforeDistance(
+  config: AirportConfig,
+  flight: Flight,
+  distanceMeters: number,
+): number {
+  if (distanceMeters <= 0 || flight.progress <= 0) return flight.progress;
+  if (flight.phase === 'taxi-in' || flight.phase === 'taxi-out') {
+    const surfaceProgress = progressBeforeAircraftSurfaceDistance(
+      config.surfaceGraph,
+      flight.surfaceRoute,
+      flight.surfaceRouteEdges,
+      flight.progress,
+      aircraftProfile(flight.aircraft),
+      distanceMeters,
+    );
+    if (surfaceProgress !== null) return surfaceProgress;
+  }
+  return flight.progress;
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {

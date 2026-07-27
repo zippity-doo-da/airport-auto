@@ -3579,7 +3579,7 @@ function renderFlightActions(): void {
     if (handoffTarget && flight.phase !== 'resting') add('handoff-offer', `Request ${controllerStationLabel(handoffTarget)}`, !ownsFlight);
   }
   if (flight.phase === 'approach' && !flight.cleared && !flight.goAround && !flight.diversion) add('clear', `Land ${runwayDesignation(flight.runway)}`, !simulation.canIssue('tower') || !ownsFlight);
-  if ((flight.phase === 'approach' || flight.phase === 'landing') && !flight.goAround && !flight.diversion) add('go-around', 'Go around', (!simulation.canIssue('approach') && !simulation.canIssue('tower')) || !ownsFlight);
+  if ((flight.phase === 'approach' || flight.phase === 'landing') && !flight.motion.onGround && !flight.goAround && !flight.diversion) add('go-around', 'Go around', (!simulation.canIssue('approach') && !simulation.canIssue('tower')) || !ownsFlight);
   if (flight.phase === 'resting' && flight.turnaround.status === 'ready' && !flight.pushbackCleared && !serviceVehiclesBlockingPush(flight.id).length) add('pushback', `Push ${flight.pushbackDirection}`, !simulation.canIssue('ramp') || !ownsFlight || flight.deicing.status === 'unavailable');
   if (flight.emergency === 'disabled' && recovery?.status !== 'recovering') add('recover', 'Dispatch recovery', !simulation.canIssue('ground') || !ownsFlight);
   const surfaceAuthority = requiredControllerStation(flight) === 'ramp' ? 'ramp' : 'ground';
@@ -4018,7 +4018,7 @@ function renderTelemetryControls(): void {
       ...(surface ? [`<button data-action="${flight.controlHold ? 'resume' : 'hold'}" data-flight="${flight.id}">${flight.controlHold ? 'Release' : 'Hold'}</button>`] : []),
       ...(flight.phase === 'approach' && !flight.cleared ? [`<button data-action="clear" data-flight="${flight.id}">Clear ${runwayDesignation(flight.runway)}</button>`] : []),
       ...(flight.phase === 'resting' && flight.turnaround.status === 'ready' && !flight.pushbackCleared ? [`<button data-action="pushback" data-flight="${flight.id}">Push ${flight.pushbackDirection}</button>`] : []),
-      ...(flight.phase === 'approach' || flight.phase === 'landing' ? [`<button data-action="go-around" data-flight="${flight.id}">Go around</button>`] : []),
+      ...((flight.phase === 'approach' || flight.phase === 'landing') && !flight.motion.onGround ? [`<button data-action="go-around" data-flight="${flight.id}">Go around</button>`] : []),
       ...(flight.emergency ? [`<button data-action="medical" data-flight="${flight.id}">Medical</button>`] : [`<button data-action="emergency" data-flight="${flight.id}">Emergency</button>`]),
     ].join('');
     const crossings = (flight.crossingHoldRunway === undefined ? [] : [flight.crossingHoldRunway])
@@ -6698,6 +6698,7 @@ function flightTrajectorySnapshot(flight: Flight) {
     bankDegrees: Number((trajectory.bank * 180 / Math.PI).toFixed(2)),
     onGround: trajectory.onGround,
     protectedRunway: trajectory.protectedRunway,
+    protectedRunwayIds: [...trajectory.protectedRunwayIds],
     distanceAlongMeters: Number(trajectory.distanceAlongM.toFixed(2)),
     totalDistanceMeters: Number(trajectory.totalDistanceM.toFixed(2)),
   };

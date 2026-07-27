@@ -84,6 +84,7 @@ export function requiredControllerStation(flight: Flight): OperationalController
   if (flight.phase === 'landing') return 'tower';
   if (flight.phase === 'resting') return 'ramp';
   if (flight.phase === 'taxi-in') {
+    if (hasPendingRunwayCrossing(flight)) return 'ground';
     if (flight.progress >= 0.82 || Boolean(flight.rampControlZoneId)) return 'ramp';
     return 'ground';
   }
@@ -113,6 +114,11 @@ export function controllerStationIsAhead(
   required: OperationalControllerStation,
 ): boolean {
   if (current === 'supervisor') return false;
+  // A route amendment can add a protected runway crossing after Ramp has
+  // accepted an inbound aircraft. Ramp is ordinarily downstream of Ground,
+  // but it cannot retain ownership while a Ground-only crossing clearance is
+  // still required; force explicit coordination back to Ground instead.
+  if (current === 'ramp' && required === 'ground' && hasPendingRunwayCrossing(flight)) return false;
   const sequence = controllerFlowSequence(flight);
   return sequence.indexOf(current) === sequence.indexOf(required) + 1;
 }
@@ -151,7 +157,11 @@ export function suggestedHandoffStation(flight: Flight): OperationalControllerSt
     return flight.phase === 'landing' || (flight.phase === 'taxi-in' && flight.progress >= 0.08) ? 'ground' : null;
   }
   if (owner === 'ground' && flight.flightPlan.direction === 'arrival') {
-    return flight.phase === 'taxi-in' && (flight.progress >= 0.72 || Boolean(flight.rampControlZoneId)) ? 'ramp' : null;
+    return flight.phase === 'taxi-in'
+      && !hasPendingRunwayCrossing(flight)
+      && (flight.progress >= 0.72 || Boolean(flight.rampControlZoneId))
+      ? 'ramp'
+      : null;
   }
   if (owner === 'ramp') {
     return flight.phase === 'taxi-out'
@@ -163,6 +173,12 @@ export function suggestedHandoffStation(flight: Flight): OperationalControllerSt
   if (owner === 'ground') return flight.phase === 'taxi-out' && flight.progress >= 0.94 ? 'tower' : null;
   if (owner === 'tower') return flight.phase === 'takeoff' && !flight.motion.onGround ? 'approach' : null;
   return null;
+}
+
+function hasPendingRunwayCrossing(flight: Flight): boolean {
+  if (flight.pendingCrossingCount !== undefined) return flight.pendingCrossingCount > 0;
+  const clearedRunways = new Set(flight.crossingClearances ?? []);
+  return Boolean(flight.requiredCrossings?.some((runwayId) => !clearedRunways.has(runwayId)));
 }
 
 export function controllerWorkloadSnapshots(
