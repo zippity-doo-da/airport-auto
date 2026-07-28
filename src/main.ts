@@ -742,6 +742,9 @@ clearanceAdvisor.replaceChildren(
 const zoomInButton = $<HTMLButtonElement>("#zoom-in");
 const zoomOutButton = $<HTMLButtonElement>("#zoom-out");
 const cameraResetButton = $<HTMLButtonElement>("#camera-reset");
+const touchCameraButtons = [
+  ...document.querySelectorAll<HTMLButtonElement>("[data-touch-camera]"),
+];
 const runwayLabelButton = $<HTMLButtonElement>("#runway-label-toggle");
 const runwayLabelLabel = $<HTMLElement>("#runway-label-label");
 const mapOrientationToggle = $<HTMLInputElement>("#map-orientation-toggle");
@@ -1356,6 +1359,54 @@ cameraResetButton.addEventListener("click", () => {
   clearFlightFocus();
   world.resetCamera();
 });
+const touchCameraAxes: InputAxes = {
+  panX: 0,
+  panY: 0,
+  rotate: 0,
+  zoom: 0,
+};
+const touchCameraAxisByControl: Record<string, keyof InputAxes> = {
+  "pan-up": "panY",
+  "pan-down": "panY",
+  "pan-left": "panX",
+  "pan-right": "panX",
+  "rotate-left": "rotate",
+  "rotate-right": "rotate",
+};
+const touchCameraValueByControl: Record<string, number> = {
+  "pan-up": -1,
+  "pan-down": 1,
+  "pan-left": -1,
+  "pan-right": 1,
+  "rotate-left": -1,
+  "rotate-right": 1,
+};
+for (const button of touchCameraButtons) {
+  const control = button.dataset.touchCamera ?? "";
+  const axis = touchCameraAxisByControl[control];
+  const value = touchCameraValueByControl[control];
+  if (!axis || value === undefined) continue;
+  const release = () => {
+    touchCameraAxes[axis] = 0;
+    button.classList.remove("touch-camera-controls__held");
+  };
+  button.addEventListener("pointerdown", (event) => {
+    if (inputContext() !== "gameplay") return;
+    event.preventDefault();
+    yieldCameraDirector("Touch camera control");
+    if (activeFocusRef !== null) clearFlightFocus();
+    touchCameraAxes[axis] = value;
+    button.classList.add("touch-camera-controls__held");
+    try {
+      button.setPointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture is unavailable for some synthetic touch events.
+    }
+  });
+  button.addEventListener("pointerup", release);
+  button.addEventListener("pointercancel", release);
+  button.addEventListener("lostpointercapture", release);
+}
 runwayLabelButton.addEventListener("click", () =>
   setRunwayLabelsVisible(!runwayLabelsVisible),
 );
@@ -2462,6 +2513,13 @@ function frame(now: number): void {
   status.dataset.queueDepth = String(statusSnapshot.queued.length);
   radioCaptions.advance(now);
   inputLayer.update(delta);
+  if (
+    inputContext() === "gameplay" &&
+    (touchCameraAxes.panX !== 0 ||
+      touchCameraAxes.panY !== 0 ||
+      touchCameraAxes.rotate !== 0)
+  )
+    handleInputAxes(touchCameraAxes, delta);
   worldDeltaAccumulator = Math.min(0.25, worldDeltaAccumulator + delta);
   const renderWorld =
     minimumRenderInterval === 0 ||

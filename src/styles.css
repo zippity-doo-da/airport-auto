@@ -2614,6 +2614,66 @@ summary:focus-visible {
   color: #d9f4f4;
   background: rgba(78, 142, 158, 0.32);
 }
+.touch-camera-controls {
+  position: absolute;
+  left: max(14px, env(safe-area-inset-left));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  z-index: 6;
+  display: none;
+  gap: 7px;
+  align-items: end;
+  pointer-events: auto;
+}
+.touch-camera-controls__pad {
+  display: grid;
+  grid-template-columns: repeat(3, 46px);
+  grid-template-areas:
+    ". up ."
+    "left down right";
+  gap: 4px;
+}
+.touch-camera-controls__pad button:nth-child(1) { grid-area: up; }
+.touch-camera-controls__pad button:nth-child(2) { grid-area: left; }
+.touch-camera-controls__pad button:nth-child(3) { grid-area: down; }
+.touch-camera-controls__pad button:nth-child(4) { grid-area: right; }
+.touch-camera-controls__orbit {
+  display: grid;
+  grid-template-columns: repeat(2, 46px);
+  gap: 4px;
+}
+.touch-camera-controls button {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  place-items: center;
+  border: 1px solid rgba(244, 232, 206, 0.42);
+  border-radius: 50%;
+  color: var(--ivory);
+  background: rgba(9, 33, 36, 0.82);
+  box-shadow: 0 8px 18px rgba(3, 16, 18, 0.22);
+  font: 22px/1 Georgia, serif;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.touch-camera-controls button:active,
+.touch-camera-controls button.touch-camera-controls__held {
+  border-color: var(--amber);
+  color: var(--ink);
+  background: var(--amber);
+  transform: scale(0.94);
+}
+@media (hover: none) and (pointer: coarse) {
+  .touch-camera-controls { display: flex; }
+}
+@media (max-width: 520px) {
+  .touch-camera-controls {
+    left: max(10px, env(safe-area-inset-left));
+    bottom: max(12px, env(safe-area-inset-bottom));
+  }
+  .touch-camera-controls__pad { grid-template-columns: repeat(3, 42px); }
+  .touch-camera-controls__orbit { grid-template-columns: repeat(2, 42px); }
+  .touch-camera-controls button { width: 42px; height: 42px; }
+}
 
 .advanced-tools {
   margin-top: 12px;
