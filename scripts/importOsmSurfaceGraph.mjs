@@ -19,15 +19,19 @@ const MINIMUM_STAND_REFERENCE_CLEARANCE_METERS = 42;
 const MINIMUM_STAND_REFERENCE_OFFSET_METERS = 24;
 const STAND_LEAD_IN_WIDTH_WORLD = 0.7;
 const graphNodeIndexes = new WeakMap();
-const CDA_FACILITY_REFERENCE = Object.freeze({
-  provider: "Chicago Department of Aviation",
-  url: "https://www.flychicago.com/business/CDA/factsfigures/Pages/facility.aspx",
-  retrievedOn: "2026-07-24",
-  totalPassengerGates: 199,
-  terminals: [
+const FACILITY_REFERENCES = Object.freeze({
+  KORD: {
+    airportCode: "ORD",
+    provider: "Chicago Department of Aviation",
+    url: "https://www.flychicago.com/business/CDA/factsfigures/Pages/facility.aspx",
+    retrievedOn: "2026-07-24",
+    totalPassengerGates: 199,
+    gateReferencePattern: /^([BCEFGHKLM])\d/i,
+    terminals: [
     {
       id: "T1",
       name: "Terminal 1",
+      osmNamePattern: /^Terminal\s*1(?:\b|\s|-)/i,
       concourses: [
         { id: "B", publishedGateCount: 22 },
         { id: "C", publishedGateCount: 29 },
@@ -36,6 +40,7 @@ const CDA_FACILITY_REFERENCE = Object.freeze({
     {
       id: "T2",
       name: "Terminal 2",
+      osmNamePattern: /^Terminal\s*2(?:\b|\s|-)/i,
       concourses: [
         { id: "E", publishedGateCount: 16 },
         { id: "F", publishedGateCount: 27 },
@@ -44,6 +49,7 @@ const CDA_FACILITY_REFERENCE = Object.freeze({
     {
       id: "T3",
       name: "Terminal 3",
+      osmNamePattern: /^Terminal\s*3(?:\b|\s|-)/i,
       concourses: [
         { id: "G", publishedGateCount: 17 },
         { id: "H", publishedGateCount: 17 },
@@ -54,18 +60,64 @@ const CDA_FACILITY_REFERENCE = Object.freeze({
     {
       id: "T5",
       name: "Terminal 5",
+      osmNamePattern: /^Terminal\s*5(?:\b|\s|-)/i,
       concourses: [{ id: "M", publishedGateCount: 30 }],
     },
-  ],
+    ],
+  },
+  KATL: {
+    airportCode: "ATL",
+    provider: "Hartsfield-Jackson Atlanta International Airport",
+    url: "https://www.atl.com/maps-3/",
+    retrievedOn: "2026-07-28",
+    // The official terminal maps identify seven concourses. Gate totals are
+    // deliberately not asserted here: the imported OSM gate/stand data is
+    // authoritative for this simulation surface graph until a stable ATL
+    // facility-gate source is added to the asset pipeline.
+    totalPassengerGates: 0,
+    gateReferencePattern: /^([TABCDEF])\d/i,
+    terminals: [
+      {
+        id: "DOM",
+        name: "Domestic Terminal",
+        osmNamePattern: /^Domestic Terminal/i,
+        concourses: [
+          { id: "T", publishedGateCount: 0 },
+          { id: "A", publishedGateCount: 0 },
+          { id: "B", publishedGateCount: 0 },
+          { id: "C", publishedGateCount: 0 },
+          { id: "D", publishedGateCount: 0 },
+        ],
+      },
+      {
+        id: "INTL",
+        name: "International Terminal",
+        osmNamePattern: /^International Terminal/i,
+        concourses: [
+          { id: "E", publishedGateCount: 0 },
+          { id: "F", publishedGateCount: 0 },
+        ],
+      },
+    ],
+  },
 });
-const CONCOURSE_TO_TERMINAL = new Map(
-  CDA_FACILITY_REFERENCE.terminals.flatMap((terminal) =>
-    terminal.concourses.map((concourse) => [concourse.id, terminal]),
-  ),
-);
+let activeFacilityReference = FACILITY_REFERENCES.KORD;
+let activeConcourseToTerminal = new Map();
+
+function setActiveFacilityReference(icaoId) {
+  const reference = FACILITY_REFERENCES[icaoId];
+  if (!reference) throw new Error(`No passenger-facility profile exists for ${icaoId}`);
+  activeFacilityReference = reference;
+  activeConcourseToTerminal = new Map(
+    reference.terminals.flatMap((terminal) =>
+      terminal.concourses.map((concourse) => [concourse.id, terminal]),
+    ),
+  );
+}
 
 async function main() {
   const options = parseArguments(process.argv.slice(2));
+  setActiveFacilityReference(options.icaoId);
   const [faaText, faaManifestText] = await Promise.all([
     readFile(options.faaAsset, "utf8"),
     readFile(options.faaManifest, "utf8"),
@@ -407,7 +459,7 @@ function normalizeOverpass(response, faa, options, query) {
     parkingPositions,
     gates,
     passengerFacilities,
-    passengerFacilityReference: structuredClone(CDA_FACILITY_REFERENCE),
+    passengerFacilityReference: structuredClone(activeFacilityReference),
     source: {
       provider: "OpenStreetMap",
       endpoint: options.endpoint,
@@ -441,10 +493,12 @@ function normalizedReference(value) {
 }
 
 function passengerIdentityForReference(reference) {
-  const match = String(reference ?? "").match(/^([BCEFGHKLM])\d/i);
+  const match = String(reference ?? "").match(
+    activeFacilityReference.gateReferencePattern,
+  );
   if (!match) return null;
   const concourse = match[1].toUpperCase();
-  const terminal = CONCOURSE_TO_TERMINAL.get(concourse);
+  const terminal = activeConcourseToTerminal.get(concourse);
   if (!terminal) return null;
   return {
     terminalId: terminal.id,
@@ -473,12 +527,11 @@ function buildPassengerFacilities(elements, rawNodes, gates, faa) {
     const name = cleanTag(element.tags?.name);
     const centerMeters = osmElementCenter(element, rawNodes, faa.coordinateSystem);
     if (!name || !centerMeters) continue;
-    const terminalMatch = name.match(/^Terminal\s*([1235])(?:\b|\s|-)/i);
-    const concourseMatch = name.match(/^Concourse\s+([BCEFGHKL])(?:\s+Stinger|\s*\(|$)/i);
-    if (terminalMatch) {
-      const terminal = CDA_FACILITY_REFERENCE.terminals.find(
-        (item) => item.id === `T${terminalMatch[1]}`,
-      );
+    const terminal = activeFacilityReference.terminals.find((item) =>
+      item.osmNamePattern?.test(name),
+    );
+    const concourseMatch = name.match(/^Concourse\s+([A-Z])(?:\s+Stinger|\s*\(|$)/i);
+    if (terminal) {
       if (terminal)
         candidates.push({
           kind: "terminal",
@@ -490,7 +543,7 @@ function buildPassengerFacilities(elements, rawNodes, gates, faa) {
         });
     } else if (concourseMatch) {
       const concourse = concourseMatch[1].toUpperCase();
-      const terminal = CONCOURSE_TO_TERMINAL.get(concourse);
+      const terminal = activeConcourseToTerminal.get(concourse);
       if (terminal)
         candidates.push({
           kind: "concourse",
@@ -505,7 +558,7 @@ function buildPassengerFacilities(elements, rawNodes, gates, faa) {
   }
 
   const facilities = [];
-  for (const terminal of CDA_FACILITY_REFERENCE.terminals) {
+  for (const terminal of activeFacilityReference.terminals) {
     const terminalCandidates = candidates.filter(
       (candidate) => candidate.kind === "terminal" && candidate.terminal.id === terminal.id,
     );
@@ -517,7 +570,7 @@ function buildPassengerFacilities(elements, rawNodes, gates, faa) {
       );
     if (!terminalCenter) continue;
     facilities.push({
-      id: `ORD-${terminal.id}`,
+      id: `${activeFacilityReference.airportCode}-${terminal.id}`,
       kind: "terminal",
       name: terminal.name,
       terminalId: terminal.id,
@@ -533,7 +586,7 @@ function buildPassengerFacilities(elements, rawNodes, gates, faa) {
     });
   }
 
-  for (const terminal of CDA_FACILITY_REFERENCE.terminals) {
+  for (const terminal of activeFacilityReference.terminals) {
     for (const officialConcourse of terminal.concourses) {
       const concourseCandidates = candidates.filter(
         (candidate) =>
@@ -547,7 +600,7 @@ function buildPassengerFacilities(elements, rawNodes, gates, faa) {
         ?? averagePoint(matchingGates.map((gate) => gate.positionMeters));
       if (!center) continue;
       facilities.push({
-        id: `ORD-CONCOURSE-${officialConcourse.id}`,
+        id: `${activeFacilityReference.airportCode}-CONCOURSE-${officialConcourse.id}`,
         kind: "concourse",
         name: `Concourse ${officialConcourse.id}`,
         terminalId: terminal.id,
@@ -890,7 +943,7 @@ function buildSurfaceGraph(surface, faa) {
     excludedSegments,
     graph: {
       schemaVersion: SCHEMA_VERSION,
-      airportCode: "ORD",
+      airportCode: activeFacilityReference.airportCode,
       seed: 10_004,
       source: {
         kind: "imported",
@@ -1155,7 +1208,7 @@ function buildOperationalZones(faa, nodeMap, edges, surface) {
     if (!terminalIds.size) continue;
     zone.kind = "terminal-apron";
     zone.name = terminalIds.size === 1
-      ? `${CDA_FACILITY_REFERENCE.terminals.find((terminal) => terminal.id === [...terminalIds][0])?.name ?? [...terminalIds][0]} apron`
+      ? `${activeFacilityReference.terminals.find((terminal) => terminal.id === [...terminalIds][0])?.name ?? [...terminalIds][0]} apron`
       : `Terminals ${[...terminalIds].map((id) => id.slice(1)).sort().join("–")} aprons`;
   }
 
@@ -1526,7 +1579,7 @@ function selectStands(nodeMap, edges, degree, surface, faa, zones, maximum) {
       if (selected.filter(predicate).length >= requested) return;
     }
   };
-  for (const terminal of CDA_FACILITY_REFERENCE.terminals)
+  for (const terminal of activeFacilityReference.terminals)
     for (const concourse of terminal.concourses)
       addCandidates(
         (candidate) =>
@@ -1556,7 +1609,7 @@ function selectStands(nodeMap, edges, degree, surface, faa, zones, maximum) {
         first.node.position[0] - second.node.position[0],
     )
     .map((candidate, slot) => {
-      const standId = `ORD-${String(slot + 1).padStart(2, "0")}`;
+      const standId = `${activeFacilityReference.airportCode}-${String(slot + 1).padStart(2, "0")}`;
       candidate.node.kind = "stand";
       candidate.node.standId = standId;
       const neighborId =

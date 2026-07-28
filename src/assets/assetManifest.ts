@@ -5,6 +5,9 @@ export const ASSET_MANIFEST_SCHEMA_VERSION = 1 as const;
 
 export type AirportAutoAssetKey =
   | "audio.soundscape-manifest"
+  | "airport.ATL.vector"
+  | "airport.ATL.surface-source"
+  | "airport.ATL.context"
   | "airport.ORD.vector"
   | "airport.ORD.surface-source"
   | "airport.ORD.context";

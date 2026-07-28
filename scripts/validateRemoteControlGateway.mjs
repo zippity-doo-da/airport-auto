@@ -269,7 +269,12 @@ try {
   ]);
   const consolePage = await response(address.httpUrl, "/console");
   assert.equal(consolePage.status, 200);
-  assert.match(await consolePage.text(), /Controller desk/);
+  const consoleHtml = await consolePage.text();
+  assert.match(consoleHtml, /Controller desk/);
+  assert.match(consoleHtml, /Station handoff/);
+  assert.match(consoleHtml, /Accept station/);
+  assert.match(consoleHtml, /Decline/);
+  assert.match(consoleHtml, /Shared shift review/);
   assert.equal((await response(address.httpUrl, "/v1/sessions")).status, 401);
 
   await assert.rejects(async () => {

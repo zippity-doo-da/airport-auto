@@ -14,6 +14,7 @@ import {
   verticalSurfaceMesh,
   type LoftSection,
 } from "./detailedModelUtils";
+import { addModernJetDetailKit } from "./modernJetDetailKit";
 
 export interface F22Visual {
   root: THREE.Group;
@@ -73,6 +74,17 @@ export function createF22Visual(
   addVectoringNozzles(root, materials, lowDetail, nozzles);
   addLandingGear(root, materials, lowDetail);
   addExternalDetails(root, materials, lowDetail);
+  addModernJetDetailKit(
+    root,
+    {
+      id: "f22a",
+      cockpit: [0, 2.18, 4.25],
+      canopyWidth: 1.08,
+      fuselageLength: F22_LENGTH_M,
+      fuselageWidth: 3.9,
+    },
+    lowDetail,
+  );
 
   root.scale.set(
     fighter.wingspanM / F22_SPAN_M,

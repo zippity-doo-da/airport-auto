@@ -10,7 +10,7 @@
       "kind": "audio-manifest",
       "path": "audio/soundscape-manifest.json",
       "contentType": "application/json",
-      "sha256": "fd936ecae777f4a0098a1f0cff1b78bd862e9abc3987d36682a0a6d45b3bca26",
+      "sha256": "c4fb32fb95f56ebe23e5a3aac6e273901ae010d7a67ecb7579c359c049c65c99",
       "offlineRequired": true,
       "licenseRef": "public/audio/soundscape-manifest.json"
     },
@@ -22,6 +22,33 @@
       "sha256": "93c0a55b78d5a151de2425435f7d0955926c56c92ccf246368cbdb7cb3f57431",
       "offlineRequired": true,
       "licenseRef": "src/data/airports/KORD.manifest.json"
+    },
+    {
+      "key": "airport.ATL.vector",
+      "kind": "airport-vector",
+      "path": "data/airports/KATL.vector.json",
+      "contentType": "application/json",
+      "sha256": "575fdcd26acf900cfafecd64d3ad4b1d8a97efbf028e63703b7c29b2ec2c0d8a",
+      "offlineRequired": true,
+      "licenseRef": "src/data/airports/KATL.manifest.json"
+    },
+    {
+      "key": "airport.ATL.surface-source",
+      "kind": "airport-surface-source",
+      "path": "data/airports/KATL.osm-surface.json",
+      "contentType": "application/json",
+      "sha256": "ffbcd72dc08243fa4589fd9cdd1e5c076e51708da8c60ef3aa663a34936a8979",
+      "offlineRequired": true,
+      "licenseRef": "src/data/airports/KATL.surface.manifest.json"
+    },
+    {
+      "key": "airport.ATL.context",
+      "kind": "airport-context",
+      "path": "data/airports/KATL.context.json",
+      "contentType": "application/json",
+      "sha256": "1470717d6a665efaab102f702752ece7292a03aa08658be24ddb702ae7fb65d2",
+      "offlineRequired": true,
+      "licenseRef": "src/data/airports/KATL.context.manifest.json"
     },
     {
       "key": "airport.ORD.surface-source",

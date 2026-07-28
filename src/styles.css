@@ -1471,7 +1471,9 @@ body.center-scope .brand__mark {
   text-transform: uppercase;
   cursor: pointer;
 }
-.runway-configuration-control {
+.runway-configuration-control,
+.ambient-program-control,
+.watch-preset-control {
   grid-column: 1 / -1;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -1479,13 +1481,19 @@ body.center-scope .brand__mark {
   gap: 8px;
   margin-top: 4px;
 }
-.runway-configuration-control span {
+.watch-preset-control {
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
+}
+.runway-configuration-control span,
+.ambient-program-control span,
+.watch-preset-control span {
   color: rgba(244, 232, 206, 0.55);
   font-size: 7px;
   font-weight: 800;
   letter-spacing: 0.12em;
 }
-.runway-configuration-control select {
+.runway-configuration-control select,
+.ambient-program-control select {
   min-width: 0;
   height: 28px;
   border: 1px solid rgba(244, 232, 206, 0.28);
@@ -1498,11 +1506,29 @@ body.center-scope .brand__mark {
   letter-spacing: 0.04em;
   cursor: pointer;
 }
-.runway-configuration-control select:disabled {
+.watch-preset-control button {
+  min-width: 0;
+  height: 28px;
+  border: 1px solid rgba(244, 232, 206, 0.28);
+  color: var(--ivory);
+  background: rgba(16, 46, 48, 0.72);
+  padding: 0 7px;
+  font: 800 8px/1 "Segoe UI", sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.watch-preset-control button:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+.runway-configuration-control select:disabled,
+.ambient-program-control select:disabled {
   cursor: not-allowed;
   opacity: 0.52;
 }
-.runway-configuration-control select:focus-visible {
+.runway-configuration-control select:focus-visible,
+.ambient-program-control select:focus-visible {
   outline: 2px solid var(--amber);
   outline-offset: 2px;
 }
@@ -3024,10 +3050,16 @@ body.capture-clean #capture-clean-exit {
   min-height: 36px;
   font-size: 9px;
 }
-.runway-configuration-control span {
+.runway-configuration-control span,
+.ambient-program-control span {
   font-size: 9px;
 }
-.runway-configuration-control select {
+.runway-configuration-control select,
+.ambient-program-control select {
+  min-height: 36px;
+  font-size: 10px;
+}
+.watch-preset-control button {
   min-height: 36px;
   font-size: 10px;
 }
@@ -4267,6 +4299,285 @@ body.capture-clean #capture-clean-exit {
   margin-left: auto;
 }
 
+.surface-safety {
+  position: absolute;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: max(145px, calc(env(safe-area-inset-bottom) + 120px));
+  z-index: 5;
+  display: flex;
+  width: min(336px, calc(100vw - 36px));
+  min-width: 280px;
+  min-height: 260px;
+  max-height: min(570px, calc(100vh - 220px));
+  flex-direction: column;
+  gap: 9px;
+  overflow: auto;
+  resize: both;
+  border: 1px solid rgba(239, 199, 117, 0.55);
+  padding: 10px;
+  color: var(--ivory);
+  background: rgba(5, 24, 25, 0.93);
+  box-shadow: 0 22px 54px rgba(2, 13, 14, 0.38);
+  backdrop-filter: blur(14px);
+  clip-path: polygon(
+    8px 0,
+    100% 0,
+    100% calc(100% - 8px),
+    calc(100% - 8px) 100%,
+    0 100%,
+    0 8px
+  );
+}
+.surface-safety header,
+.surface-safety header > div,
+.surface-safety__summary,
+.surface-safety__summary span,
+.surface-safety__track {
+  display: flex;
+  align-items: center;
+}
+.surface-safety header {
+  justify-content: space-between;
+  gap: 8px;
+}
+.surface-safety header > div {
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.surface-safety__filter {
+  display: grid;
+  gap: 2px;
+  margin-left: auto;
+  color: rgba(188, 232, 216, 0.62);
+  font-size: 6px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.surface-safety__filter select {
+  min-width: 60px;
+  min-height: 32px;
+  border: 1px solid rgba(188, 232, 216, 0.25);
+  padding: 3px 4px;
+  color: #d9f4f4;
+  background: rgba(3, 20, 19, 0.92);
+  font: 800 8px/1 sans-serif;
+}
+.surface-safety header b {
+  font:
+    400 13px/1 Georgia,
+    serif;
+  letter-spacing: 0.04em;
+}
+.surface-safety header span,
+.surface-safety footer,
+.surface-safety h2,
+.surface-safety__summary small {
+  color: rgba(188, 232, 216, 0.62);
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.surface-safety header button {
+  width: 32px;
+  min-height: 32px;
+  border: 1px solid rgba(188, 232, 216, 0.28);
+  padding: 0 0 2px;
+  color: #bce8d8;
+  background: rgba(121, 200, 232, 0.08);
+  font: 700 14px/1 sans-serif;
+  cursor: pointer;
+}
+.surface-safety header button:hover,
+.surface-safety header button:focus-visible,
+.surface-safety__track:hover,
+.surface-safety__track:focus-visible {
+  border-color: rgba(242, 200, 75, 0.84);
+  outline: none;
+}
+.surface-safety__summary {
+  justify-content: stretch;
+  border: 1px solid rgba(188, 232, 216, 0.15);
+  background: rgba(121, 200, 232, 0.06);
+}
+.surface-safety__summary span {
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 4px;
+  text-align: center;
+}
+.surface-safety__summary span + span {
+  border-left: 1px solid rgba(188, 232, 216, 0.15);
+}
+.surface-safety__summary b {
+  color: #f2c84b;
+  font:
+    700 17px/1 Georgia,
+    serif;
+}
+.surface-safety section {
+  min-height: 0;
+}
+.surface-safety h2 {
+  margin: 0 0 4px;
+  font-size: 7px;
+}
+.surface-safety__advisories,
+.surface-safety__tracks,
+.surface-safety__vehicles {
+  display: grid;
+  gap: 4px;
+}
+.surface-safety__advisory,
+.surface-safety__clear {
+  border-left: 2px solid rgba(128, 221, 199, 0.72);
+  padding: 4px 6px;
+  color: rgba(217, 244, 244, 0.82);
+  background: rgba(121, 200, 232, 0.07);
+  font-size: 8px;
+  font-weight: 750;
+  line-height: 1.3;
+}
+.surface-safety__advisory {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.surface-safety__advisory > span {
+  min-width: 0;
+  flex: 1;
+}
+.surface-safety__acknowledge,
+.surface-safety__acknowledged {
+  flex: 0 0 auto;
+  border: 1px solid rgba(242, 200, 75, 0.55);
+  padding: 2px 4px;
+  color: #f2c84b;
+  background: rgba(242, 200, 75, 0.08);
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.surface-safety__acknowledge {
+  min-height: 32px;
+  cursor: pointer;
+}
+.surface-safety__acknowledge:hover,
+.surface-safety__acknowledge:focus-visible {
+  border-color: #f2c84b;
+  color: #fff6d9;
+  background: rgba(242, 200, 75, 0.2);
+  outline: none;
+}
+.surface-safety__acknowledged {
+  color: rgba(188, 232, 216, 0.78);
+  border-color: rgba(188, 232, 216, 0.34);
+  background: rgba(188, 232, 216, 0.08);
+}
+.surface-safety__advisory[data-severity="warning"] {
+  border-left-color: #f2c84b;
+}
+.surface-safety__advisory[data-severity="critical"] {
+  border-left-color: #ef937f;
+  color: #ffd9cd;
+}
+.surface-safety__advisory[data-status="resolved"] {
+  border-left-color: rgba(188, 232, 216, 0.35);
+  color: rgba(188, 232, 216, 0.5);
+  background: rgba(121, 200, 232, 0.025);
+}
+.surface-safety__track {
+  width: 100%;
+  min-height: 44px;
+  flex-wrap: wrap;
+  gap: 5px;
+  border: 1px solid rgba(188, 232, 216, 0.18);
+  padding: 5px 6px;
+  color: #d9f4f4;
+  background: rgba(121, 200, 232, 0.045);
+  cursor: pointer;
+  text-align: left;
+}
+.surface-safety__track[aria-pressed="true"] {
+  border-color: rgba(255, 255, 255, 0.9);
+  background: rgba(242, 200, 75, 0.13);
+}
+.surface-safety__track[data-state="safety-hold"] {
+  border-left: 2px solid #ef937f;
+}
+.surface-safety__track[data-state="hold-short"] {
+  border-left: 2px solid #f2c84b;
+}
+.surface-safety__track[data-state="protected-runway"] {
+  border-left: 2px solid #80ddc7;
+}
+.surface-safety__track b {
+  width: 76px;
+  flex: 0 0 auto;
+  font-size: 9px;
+}
+.surface-safety__track span {
+  width: 100%;
+  color: rgba(217, 244, 244, 0.68);
+  font-size: 7px;
+  font-weight: 750;
+}
+.surface-safety__track i {
+  margin-left: auto;
+  color: #f2c84b;
+  font-size: 7px;
+  font-style: normal;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+.surface-safety__track small {
+  width: 100%;
+  color: rgba(188, 232, 216, 0.62);
+  font-size: 6px;
+  font-weight: 750;
+  letter-spacing: 0.03em;
+  line-height: 1.25;
+}
+.surface-safety__vehicle {
+  border-left: 2px solid rgba(121, 200, 232, 0.72);
+  padding: 4px 6px;
+  color: rgba(217, 244, 244, 0.76);
+  background: rgba(121, 200, 232, 0.045);
+  font-size: 7px;
+  font-weight: 800;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+.surface-safety__vehicle[data-state="held"] {
+  border-left-color: #f2c84b;
+}
+.surface-safety footer {
+  padding-top: 1px;
+}
+
+@media (max-width: 760px), (max-height: 520px) {
+  .surface-safety {
+    right: max(10px, env(safe-area-inset-right));
+    bottom: max(74px, calc(env(safe-area-inset-bottom) + 58px));
+    width: min(336px, calc(100vw - 20px));
+    min-width: 0;
+    min-height: 0;
+    max-height: calc(100dvh - 88px);
+    resize: none;
+  }
+  .surface-safety__filter select,
+  .surface-safety header button,
+  .surface-safety__acknowledge {
+    min-height: 44px;
+  }
+}
+
 .queue-panel {
   position: absolute;
   top: 130px;
@@ -4325,6 +4636,64 @@ body.capture-clean #capture-clean-exit {
   background: rgba(239, 199, 117, 0.08);
   font: 700 16px/1 sans-serif;
   cursor: pointer;
+}
+.queue-panel__meter {
+  display: grid;
+  gap: 6px;
+  margin-top: 9px;
+  border: 1px solid rgba(121, 200, 232, 0.22);
+  padding: 7px;
+  background: rgba(121, 200, 232, 0.055);
+}
+.queue-panel__meter > div:first-child {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.queue-panel__meter b {
+  color: #bce8d8;
+  font-size: 9px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.queue-panel__meter small {
+  color: rgba(244, 232, 206, 0.55);
+  font-size: 8px;
+}
+.queue-panel__meter-list {
+  display: grid;
+  gap: 3px;
+  max-height: 124px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.queue-meter-slot {
+  display: grid;
+  gap: 2px;
+  border-left: 3px solid #bce8d8;
+  padding: 4px 6px;
+  background: rgba(244, 232, 206, 0.035);
+}
+.queue-meter-slot[data-direction="arr"] {
+  border-left-color: var(--amber);
+}
+.queue-meter-slot b,
+.queue-meter-slot small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.queue-meter-slot b {
+  color: rgba(244, 232, 206, 0.9);
+  font:
+    400 10px/1.1 Georgia,
+    serif;
+}
+.queue-meter-slot small,
+.queue-panel__meter-empty {
+  color: rgba(244, 232, 206, 0.52);
+  font-size: 8px;
 }
 .queue-panel > label {
   display: grid;
@@ -4432,6 +4801,128 @@ button.queue-entry:focus-visible,
 .queue-panel footer small {
   color: rgba(244, 232, 206, 0.38);
   font-size: 7px;
+}
+
+.digital-clearance {
+  position: absolute;
+  top: 130px;
+  right: max(18px, env(safe-area-inset-right));
+  z-index: 5;
+  display: grid;
+  width: min(352px, calc(100vw - 36px));
+  max-height: min(560px, calc(100vh - 300px));
+  gap: 9px;
+  border: 1px solid rgba(121, 200, 232, 0.48);
+  padding: 10px;
+  color: var(--ivory);
+  background: rgba(5, 24, 25, 0.94);
+  box-shadow: 0 22px 54px rgba(2, 13, 14, 0.34);
+  backdrop-filter: blur(14px);
+}
+.digital-clearance header,
+.digital-clearance header > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.digital-clearance header > div {
+  display: grid;
+  justify-items: start;
+}
+.digital-clearance header b {
+  font:
+    400 14px/1 Georgia,
+    serif;
+}
+.digital-clearance header span,
+.digital-clearance__disclosure,
+.digital-clearance__message small {
+  color: rgba(244, 232, 206, 0.56);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.digital-clearance header button {
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(244, 232, 206, 0.24);
+  color: var(--ivory);
+  background: rgba(121, 200, 232, 0.08);
+  font: 700 16px/1 sans-serif;
+  cursor: pointer;
+}
+.digital-clearance__disclosure,
+.digital-clearance__empty {
+  margin: 0;
+  font-size: 8px;
+  line-height: 1.35;
+}
+.digital-clearance__list {
+  display: grid;
+  min-height: 0;
+  gap: 5px;
+  overflow-y: auto;
+}
+.digital-clearance__message {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  border-left: 3px solid #bce8d8;
+  padding: 7px;
+  color: inherit;
+  background: rgba(244, 232, 206, 0.04);
+  text-align: left;
+  cursor: pointer;
+}
+.digital-clearance__message:hover,
+.digital-clearance__message:focus-visible {
+  outline: 1px solid rgba(121, 200, 232, 0.8);
+  background: rgba(121, 200, 232, 0.11);
+}
+.digital-clearance__message[data-status="delivered"] {
+  border-left-color: var(--amber);
+}
+.digital-clearance__message[data-status="unable"] {
+  border-left-color: var(--rose);
+}
+.digital-clearance__message > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.digital-clearance__message b {
+  font:
+    400 11px/1.1 Georgia,
+    serif;
+}
+.digital-clearance__message > div span {
+  color: #bce8d8;
+  font-size: 8px;
+  font-weight: 900;
+}
+.digital-clearance__message p {
+  margin: 0;
+  color: rgba(244, 232, 206, 0.84);
+  font-size: 9px;
+  line-height: 1.25;
+}
+.digital-clearance__message small {
+  font-size: 7px;
+  line-height: 1.25;
+}
+
+@media (max-width: 760px), (max-height: 520px) {
+  .digital-clearance {
+    right: max(10px, env(safe-area-inset-right));
+    bottom: max(74px, calc(env(safe-area-inset-bottom) + 58px));
+    width: min(336px, calc(100vw - 20px));
+    max-height: calc(100dvh - 88px);
+  }
+  .digital-clearance header button {
+    min-height: 44px;
+  }
 }
 
 .operations-lab {
@@ -5185,12 +5676,18 @@ body.watch-mode .brand {
     white-space: nowrap;
   }
   .weather-readout__switches,
-  .runway-configuration-control {
+  .runway-configuration-control,
+  .ambient-program-control,
+  .watch-preset-control {
     grid-column: 1 / -1;
   }
   .weather-readout__switches button,
   .weather-readout__switches select,
-  .runway-configuration-control select {
+  .runway-configuration-control select,
+  .ambient-program-control select {
+    min-height: 32px;
+  }
+  .watch-preset-control button {
     min-height: 32px;
   }
   .control-panel > .controls {

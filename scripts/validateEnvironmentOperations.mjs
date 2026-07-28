@@ -22,6 +22,8 @@ import {
   isAccessibilityPalette,
 } from './src/presentation/accessibilityPalette.ts';
 import { CameraDirector } from './src/presentation/cameraDirector.ts';
+import { AMBIENT_PROGRAM_IDS, AMBIENT_PROGRAMS } from './src/simulation/ambientPrograms.ts';
+import { FixedStepSimulationHarness } from './src/simulation/fixedStepHarness.ts';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -79,6 +81,12 @@ assert(accessibilityPaletteDefinition('cvd-safe').description.includes('avoids r
 const ord = generateHubConfig(HUB_AIRPORTS.findIndex((airport) => airport.code === 'ORD'));
 const simulation = new AirportSimulation(ord);
 simulation.setPaused(false);
+const initialOperation = simulation.operationProfileSnapshot().current;
+assert(simulation.setOperationTimeOffsetMinutes(360), 'operation clock offset was rejected');
+const shiftedOperation = simulation.operationProfileSnapshot().current;
+assert(shiftedOperation.localMinute === (initialOperation.localMinute + 360) % 1440, 'operation clock offset did not shift the serializable operation state');
+assert(simulation.state.environment.localMinute === shiftedOperation.localMinute, 'environment clock did not follow the operation clock offset');
+for (const flight of simulation.state.flights.slice(3)) flight.phase = 'resting';
 const flights = simulation.state.flights.slice(0, 3);
 assert(flights.length === 3, 'camera director fixture needs three aircraft');
 flights[0].phase = 'landing';
@@ -88,18 +96,44 @@ flights[1].phase = 'takeoff';
 flights[1].progress = 0.7;
 flights[2].phase = 'approach';
 flights[2].progress = 0.6;
+// Keep the camera timing fixture within its 90-second no-repeat window.
+flights[0].id = 100;
+flights[1].id = 101;
+flights[2].id = 102;
 const director = new CameraDirector();
 assert(director.setEnabled(true, 0), 'camera director did not enable');
 const firstDecision = director.update(simulation.state, 0);
 assert(firstDecision?.flightId === flights[0].id, 'director did not prefer the live landing operation');
+assert(firstDecision?.shotFamily === 'runway-close' && firstDecision.focusScale < 1, 'landing director decision did not request a close runway composition');
 const heldDecision = director.update(simulation.state, firstDecision.dwellSeconds - 1);
 assert(heldDecision === null, 'director cut before its dwell completed');
 const secondDecision = director.update(simulation.state, firstDecision.dwellSeconds + 1);
 assert(secondDecision && secondDecision.flightId !== firstDecision.flightId, 'director repeated a target despite alternatives');
+assert(secondDecision?.shotFamily === 'departure-track' && secondDecision.focusScale < 1, 'takeoff director decision did not request a departure composition');
+const thirdDecision = director.update(simulation.state, firstDecision.dwellSeconds + secondDecision.dwellSeconds + 2);
+assert(thirdDecision && thirdDecision.flightId !== firstDecision.flightId && thirdDecision.flightId !== secondDecision.flightId, 'director did not use the remaining fresh subject');
+const repeatedTooSoon = director.update(simulation.state, firstDecision.dwellSeconds + secondDecision.dwellSeconds + thirdDecision.dwellSeconds + 3);
+assert(repeatedTooSoon === null, 'director repeated a camera subject inside its no-repeat window');
+assert(director.snapshot(80).noRepeatWindowSeconds >= 90, 'director no-repeat window is not exposed');
 assert(director.yieldToManualInput('test pointer gesture', 40), 'director did not yield to manual input');
 assert(director.update(simulation.state, 100) === null, 'yielded director kept selecting aircraft');
 const yielded = director.snapshot(100);
 assert(!yielded.enabled && yielded.status === 'yielded' && yielded.reason === 'test pointer gesture', 'director did not report manual yield');
+
+assert(AMBIENT_PROGRAM_IDS.length === 7, 'ambient program catalog count changed unexpectedly');
+assert(new Set(AMBIENT_PROGRAM_IDS).size === AMBIENT_PROGRAM_IDS.length, 'ambient program IDs are not unique');
+assert(simulation.applyAmbientProgram('quiet-overnight'), 'quiet overnight ambient program was rejected');
+const quietOvernight = AMBIENT_PROGRAMS['quiet-overnight'];
+const quietOperation = simulation.operationProfileSnapshot().current;
+assert(quietOperation.localMinute === quietOvernight.localMinute, 'ambient program did not set the serialized operation clock');
+assert(simulation.state.trafficFlow.density === quietOvernight.density, 'ambient program did not set traffic density');
+assert(simulation.state.trafficFlow.objective === quietOvernight.flowObjective, 'ambient program did not set flow objective');
+assert(simulation.state.environment.lightingMode === quietOvernight.lightingMode && simulation.state.environment.seasonMode === quietOvernight.seasonMode, 'ambient program did not set environment presentation');
+assert(simulation.state.weather.condition === quietOvernight.weather && simulation.state.weather.hazardsEnabled === false, 'ambient program did not set safe weather posture');
+const fixedStepHarness = new FixedStepSimulationHarness(ord, { stepSeconds: 0.1 });
+assert(fixedStepHarness.simulation.setOperationTimeOffsetMinutes(180), 'fixed-step operation offset was rejected');
+const fixedStepSnapshot = fixedStepHarness.snapshot();
+assert(fixedStepSnapshot.schemaVersion === 14 && fixedStepSnapshot.state.operationTimeOffsetMinutes === 180, 'fixed-step snapshot omitted the operation clock offset');
 
 console.log(JSON.stringify({
   lightingModes: ENVIRONMENT_LIGHTING_MODES.length,
@@ -107,7 +141,10 @@ console.log(JSON.stringify({
   palettes: ACCESSIBILITY_PALETTES.length,
   deterministicDay: second.dayOfYear,
   snowAccumulated: snowView.snowCover,
-  directorSelections: 2,
+  directorSelections: 3,
+  operationTimeOffsetMinutes: simulation.state.operationTimeOffsetMinutes,
+  ambientProgram: quietOvernight.id,
+  fixedStepSnapshotSchema: fixedStepSnapshot.schemaVersion,
   manualYield: true,
 }));
 `;

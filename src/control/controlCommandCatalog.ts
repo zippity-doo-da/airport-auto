@@ -7,6 +7,7 @@ import type { AirspaceLayer } from "../render/airspaceOverlay";
 import type { SurfaceLayer } from "../render/createWorld";
 import type { SeparationRulesetId } from "../simulation/separationRules";
 import type { TrafficDensity } from "../simulation/trafficDensity";
+import type { TrafficFlowObjective } from "../simulation/types";
 import type {
   ChallengeId,
   ControlMode,
@@ -25,6 +26,7 @@ import type {
   TrainingLessonId,
   WeatherCondition,
 } from "../simulation/types";
+import { AMBIENT_PROGRAM_IDS, type AmbientProgramId } from "../simulation/ambientPrograms";
 import {
   ENVIRONMENT_LIGHTING_MODES,
   ENVIRONMENT_SEASON_MODES,
@@ -54,10 +56,17 @@ export interface AirportControlCommandParameters {
   setNightMode: { enabled: boolean };
   setEnvironmentLightingMode: { mode: EnvironmentLightingMode };
   setEnvironmentSeasonMode: { mode: EnvironmentSeasonMode };
+  setOperationTimeOffset: { minutes: number };
+  applyAmbientProgram: { id: AmbientProgramId };
   setAccessibilityPalette: { palette: AccessibilityPalette };
   setCameraDirectorEnabled: { enabled: boolean };
   setRadarVisible: { enabled: boolean };
   setQueueInspectorVisible: { enabled: boolean };
+  setSurfaceSafetyVisible: { enabled: boolean };
+  setSurfaceSafetyFilter: {
+    filter: "all" | "tower" | "ground" | "ramp" | "supervisor" | "watch";
+  };
+  acknowledgeSurfaceAdvisory: { advisoryId: string };
   setRunwayLabelsVisible: { enabled: boolean };
   setSurfaceLayerVisible: { layer: SurfaceLayer; enabled: boolean };
   setAirspaceLayerVisible: { layer: AirspaceLayer; enabled: boolean };
@@ -114,6 +123,7 @@ export interface AirportControlCommandParameters {
   focusTarget: { target: FocusTargetRef | null };
   setScenario: { scenario: TrafficScenario };
   setTrafficDensity: { density: TrafficDensity };
+  setTrafficFlowObjective: { objective: TrafficFlowObjective };
   setSeparationRuleset: { ruleset: SeparationRulesetId };
   setStation: { station: ControllerStation };
   setStationAutomation: {
@@ -136,6 +146,10 @@ export interface AirportControlCommandParameters {
     targetId: string;
     enabled: boolean;
     durationSeconds?: number;
+  };
+  triggerSurfaceIncident: {
+    kind: "runway-inspection" | "bird-activity" | "foreign-object-debris";
+    targetId: string;
   };
   clearSurfaceDisruption: { disruptionId: string };
   recoverDisabledAircraft: { flightId: number };
@@ -680,6 +694,20 @@ const COMMAND_SPECS = {
     },
     { mode: "winter" },
   ),
+  setOperationTimeOffset: command(
+    "presentation",
+    "Set the serialized local operation clock offset used by Watch programs.",
+    AUTHORITY.public,
+    { minutes: numberSchema("Offset from the airport profile start, in local minutes.") },
+    { minutes: 360 },
+  ),
+  applyAmbientProgram: command(
+    "presentation",
+    "Apply a deterministic Watch/ambient program to the local clock, weather, and flow posture.",
+    AUTHORITY.public,
+    { id: stringSchema("Named ambient program.", AMBIENT_PROGRAM_IDS) },
+    { id: "quiet-overnight" },
+  ),
   setAccessibilityPalette: command(
     "presentation",
     "Select the UI and map semantic-color palette.",
@@ -695,6 +723,34 @@ const COMMAND_SPECS = {
   setRadarVisible: visibility("Show or hide the inset radar."),
   setQueueInspectorVisible: visibility(
     "Show or hide the operations queue inspector.",
+  ),
+  setSurfaceSafetyVisible: visibility(
+    "Show or hide the authoritative surface-safety picture.",
+  ),
+  setSurfaceSafetyFilter: command(
+    "presentation",
+    "Select the surface-safety station view.",
+    AUTHORITY.public,
+    {
+      filter: stringSchema("Surface-safety station view.", [
+        "all",
+        "tower",
+        "ground",
+        "ramp",
+        "supervisor",
+        "watch",
+      ]),
+    },
+    { filter: "tower" },
+  ),
+  acknowledgeSurfaceAdvisory: command(
+    "presentation",
+    "Record acknowledgement of a noncritical active surface advisory without changing protection.",
+    AUTHORITY.public,
+    {
+      advisoryId: stringSchema("Active noncritical surface advisory ID."),
+    },
+    { advisoryId: "runway:1-2:0" },
   ),
   setRunwayLabelsVisible: visibility("Show or hide runway designations."),
   setSurfaceLayerVisible: command(
@@ -1129,6 +1185,21 @@ const COMMAND_SPECS = {
     },
     { density: "busy" },
   ),
+  setTrafficFlowObjective: command(
+    "operations",
+    "Select the strategic airport-wide arrival and departure flow objective.",
+    AUTHORITY.supervisor,
+    {
+      objective: stringSchema("Traffic-flow objective.", [
+        "balanced",
+        "minimum-holding",
+        "minimum-taxi-delay",
+        "weather-recovery",
+        "watch-calm",
+      ]),
+    },
+    { objective: "minimum-holding" },
+  ),
   setSeparationRuleset: command(
     "session",
     "Select forgiving or realistic separation minima.",
@@ -1270,6 +1341,20 @@ const COMMAND_SPECS = {
       durationSeconds: 180,
     },
     { optionalParameters: ["durationSeconds"] },
+  ),
+  triggerSurfaceIncident: command(
+    "operations",
+    "Start a named runway or taxiway inspection through the shared surface safety arbiter.",
+    AUTHORITY.supervisor,
+    {
+      kind: stringSchema("Named airport incident.", [
+        "runway-inspection",
+        "bird-activity",
+        "foreign-object-debris",
+      ]),
+      targetId: stringSchema("Runway or taxiway target for the inspection."),
+    },
+    { kind: "runway-inspection", targetId: "0" },
   ),
   clearSurfaceDisruption: command(
     "operations",

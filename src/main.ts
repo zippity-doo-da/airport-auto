@@ -29,7 +29,11 @@ import {
   trafficDensityProfile,
   type TrafficDensity,
 } from "./simulation/trafficDensity";
-import { cloneTrafficFlowState } from "./simulation/trafficFlowManagement";
+import {
+  cloneTrafficFlowState,
+  isTrafficFlowObjective,
+  trafficFlowObjectiveProfile,
+} from "./simulation/trafficFlowManagement";
 import {
   cloneWeatherState,
   isWeatherCondition,
@@ -40,6 +44,11 @@ import {
   isEnvironmentLightingMode,
   isEnvironmentSeasonMode,
 } from "./simulation/environmentOperations";
+import {
+  AMBIENT_PROGRAM_IDS,
+  AMBIENT_PROGRAMS,
+  type AmbientProgramId,
+} from "./simulation/ambientPrograms";
 import {
   separationRuleset,
   type SeparationRulesetId,
@@ -76,6 +85,7 @@ import type {
   SandboxTrafficDirection,
   SurfaceDisruptionKind,
   TrafficScenario,
+  TrafficFlowObjective,
   TrainingLessonId,
   TurnaroundServiceType,
   WeatherCondition,
@@ -97,6 +107,12 @@ import {
 } from "./render/createWorld";
 import { drawRadarInset } from "./render/radarInset";
 import {
+  SurfaceSafetyAdvisoryTracker,
+  surfaceSafetySnapshot,
+} from "./simulation/surfaceSafety";
+import { SurfaceSafetyAcknowledgements } from "./simulation/surfaceSafetyAcknowledgements";
+import { digitalClearanceSnapshot } from "./simulation/digitalClearances";
+import {
   createFocusTargetRegistry,
   focusTargetKey,
   isFocusTargetKind,
@@ -110,6 +126,13 @@ import {
   type StatusMessageView,
 } from "./presentation/statusMessages";
 import { RadioCaptionCoordinator } from "./presentation/radioCaptions";
+import { createAtisBriefing } from "./presentation/atisBriefing";
+import {
+  loadWatchPreset,
+  saveWatchPreset,
+  type WatchPreset,
+} from "./presentation/watchPreset";
+import { SurfaceSafetyAnnouncementTracker } from "./presentation/surfaceSafetyAnnouncements";
 import { CameraDirector } from "./presentation/cameraDirector";
 import {
   accessibilityPaletteDefinition,
@@ -124,10 +147,20 @@ import {
   type OperationQueueFilter,
 } from "./ui/queueInspector";
 import {
+  digitalClearancePanelKey,
+  renderDigitalClearancePanel,
+} from "./ui/digitalClearancePanel";
+import {
   renderSurfaceDisruptionPanel,
   surfaceDisruptionPanelKey,
   updateSurfaceDisruptionTargetOptions,
 } from "./ui/surfaceDisruptionPanel";
+import { surfaceIncidentDefinition } from "./simulation/surfaceIncidentProgram";
+import {
+  renderSurfaceSafetyPanel,
+  surfaceSafetyPanelKey,
+  type SurfaceSafetyFilter,
+} from "./ui/surfaceSafetyPanel";
 import {
   coordinationInboxKey,
   renderCoordinationInbox,
@@ -441,14 +474,36 @@ const radarScope = $<HTMLCanvasElement>("#radar-scope");
 const radarAirport = $<HTMLElement>("#radar-airport");
 const radarClose = $<HTMLButtonElement>("#radar-close");
 const radarRange = $<HTMLElement>("#radar-range");
+const surfaceSafetyButton = $<HTMLButtonElement>("#surface-safety-toggle");
+const surfaceSafetyLabel = $<HTMLElement>("#surface-safety-label");
+const surfaceSafetyPanel = $<HTMLElement>("#surface-safety-panel");
+const surfaceSafetyClose = $<HTMLButtonElement>("#surface-safety-close");
+const surfaceSafetyFilter = $<HTMLSelectElement>("#surface-safety-filter");
+const surfaceSafetyTracks = $<HTMLElement>("#surface-safety-tracks");
+const surfaceSafetyVehicles = $<HTMLElement>("#surface-safety-vehicles");
+const surfaceSafetyAdvisories = $<HTMLElement>("#surface-safety-advisories");
+const surfaceSafetyMovers = $<HTMLElement>("#surface-safety-movers");
+const surfaceSafetyProtected = $<HTMLElement>("#surface-safety-protected");
+const surfaceSafetyHolds = $<HTMLElement>("#surface-safety-holds");
 const queueButton = $<HTMLButtonElement>("#queue-toggle");
 const queueLabel = $<HTMLElement>("#queue-label");
 const queuePanel = $<HTMLElement>("#queue-panel");
 const queueClose = $<HTMLButtonElement>("#queue-close");
 const queueCount = $<HTMLElement>("#queue-count");
 const queueFilter = $<HTMLSelectElement>("#queue-filter");
+const queueFlowObjective = $<HTMLSelectElement>("#queue-flow-objective");
 const queueList = $<HTMLElement>("#queue-list");
 const queueLongest = $<HTMLElement>("#queue-longest");
+const queueMeter = $<HTMLElement>("#queue-meter");
+const queueMeterSummary = $<HTMLElement>("#queue-meter-summary");
+const digitalClearanceButton = $<HTMLButtonElement>(
+  "#digital-clearance-toggle",
+);
+const digitalClearanceLabel = $<HTMLElement>("#digital-clearance-label");
+const digitalClearancePanel = $<HTMLElement>("#digital-clearance-panel");
+const digitalClearanceClose = $<HTMLButtonElement>("#digital-clearance-close");
+const digitalClearanceCount = $<HTMLElement>("#digital-clearance-count");
+const digitalClearanceList = $<HTMLElement>("#digital-clearance-list");
 const operationsLabButton = $<HTMLButtonElement>("#operations-lab-toggle");
 const operationsLabPanel = $<HTMLElement>("#operations-lab");
 const performanceButton = $<HTMLButtonElement>("#performance-toggle");
@@ -584,8 +639,12 @@ const runwayConfiguration = $<HTMLElement>("#runway-configuration");
 const runwayConfigurationSelect = $<HTMLSelectElement>(
   "#runway-configuration-select",
 );
+const ambientProgramSelect = $<HTMLSelectElement>("#ambient-program-select");
+const watchPresetSave = $<HTMLButtonElement>("#watch-preset-save");
+const watchPresetRestore = $<HTMLButtonElement>("#watch-preset-restore");
 const weatherToggle = $<HTMLButtonElement>("#weather-toggle");
 const windToggle = $<HTMLButtonElement>("#wind-toggle");
+const atisButton = $<HTMLButtonElement>("#atis-button");
 const weatherConditionSelect = $<HTMLSelectElement>(
   "#weather-condition-select",
 );
@@ -806,12 +865,20 @@ let activeFlightId: number | null = null;
 let routePoints: Array<{ x: number; y: number }> = [];
 let simulationSpeed = 1;
 let radarVisible = false;
+let surfaceSafetyVisible = false;
+let surfaceSafetyUiKey = "";
+let surfaceSafetyFilterValue: SurfaceSafetyFilter = "all";
+const surfaceSafetyAdvisoryTracker = new SurfaceSafetyAdvisoryTracker();
+const surfaceSafetyAcknowledgements = new SurfaceSafetyAcknowledgements();
+const surfaceSafetyAnnouncements = new SurfaceSafetyAnnouncementTracker();
 let queueInspectorVisible = false;
 const compactOverlayMedia = window.matchMedia(
   "(max-width: 760px), (max-height: 520px)",
 );
 let queueInspectorFilter: OperationQueueFilter = "all";
 let queueInspectorUiKey = "";
+let digitalClearanceVisible = false;
+let digitalClearanceUiKey = "";
 let windOverlayVisible = false;
 let serviceVehiclesVisible = true;
 let airportLifeVisible = false;
@@ -824,6 +891,7 @@ const reducedMotionMedia = window.matchMedia(
 let telemetrySequence = 0;
 let lastWeatherCondition: WeatherCondition | null = null;
 let weatherSelection: "auto" | WeatherCondition = "auto";
+let selectedAmbientProgramId: AmbientProgramId | null = null;
 let runwayConfigurationOptionsKey = "";
 let surfaceDisruptionUiKey = "";
 let lastPredictionKey = "";
@@ -1121,15 +1189,18 @@ refreshInputSettings();
 let lastWorldRender = -Infinity;
 let worldDeltaAccumulator = 0;
 updatePerformancePanelControl();
+renderAmbientProgramOptions();
 updateAirportUi();
 updateNightControl();
 updateCameraDirectorUi();
 updateRadarControl();
+updateSurfaceSafetyPanelControl();
 updateQueueInspectorControl();
 renderFocusNavigator(true);
 compactOverlayMedia.addEventListener("change", (event) => {
   if (event.matches && focusNavigator.visible()) {
     if (radarVisible) setRadarPanelVisible(false);
+    if (surfaceSafetyVisible) setSurfaceSafetyPanelVisible(false);
     if (queueInspectorVisible) setQueuePanelVisible(false);
   } else if (event.matches && radarVisible && queueInspectorVisible)
     setRadarPanelVisible(false);
@@ -1318,6 +1389,7 @@ airportLifeToggle.addEventListener("change", () =>
 );
 lightingModeSelect.addEventListener("change", () => {
   if (!isEnvironmentLightingMode(lightingModeSelect.value)) return;
+  clearAmbientProgramSelection();
   simulation.setEnvironmentLightingMode(lightingModeSelect.value);
   updateNightControl();
   setStatus(
@@ -1327,6 +1399,7 @@ lightingModeSelect.addEventListener("change", () => {
 });
 seasonModeSelect.addEventListener("change", () => {
   if (!isEnvironmentSeasonMode(seasonModeSelect.value)) return;
+  clearAmbientProgramSelection();
   simulation.setEnvironmentSeasonMode(seasonModeSelect.value);
   updateNightControl();
   setStatus(
@@ -1749,7 +1822,7 @@ introControlSelect.addEventListener("change", () =>
 );
 introDensitySelect.addEventListener("change", () => {
   const density = introDensitySelect.value as TrafficDensity;
-  simulation.setTrafficDensity(density);
+  if (!setTrafficDensity(density)) return;
   newSession(true, config);
   setStatus(
     `${trafficDensityProfile(density).label} traffic selected`,
@@ -1763,6 +1836,7 @@ speedControl.addEventListener("input", () =>
   setSimulationSpeed(Number(speedControl.value)),
 );
 weatherToggle.addEventListener("click", () => {
+  clearAmbientProgramSelection();
   const enabling = !simulation.state.weather.weatherEnabled;
   if (!enabling || weatherSelection === "auto")
     simulation.setWeatherEnabled(enabling);
@@ -1778,6 +1852,7 @@ weatherToggle.addEventListener("click", () => {
   updateWeatherUi();
 });
 weatherConditionSelect.addEventListener("change", () => {
+  clearAmbientProgramSelection();
   const selection = weatherConditionSelect.value as "auto" | WeatherCondition;
   weatherSelection = selection;
   if (selection === "auto") simulation.setWeatherEnabled(true);
@@ -1794,9 +1869,71 @@ weatherConditionSelect.addEventListener("change", () => {
   renderFlightStrip();
 });
 windToggle.addEventListener("click", () => {
+  clearAmbientProgramSelection();
   simulation.setWindEnabled(!simulation.state.weather.windEnabled);
   updateWeatherUi();
 });
+atisButton.addEventListener("click", () => {
+  const briefing = createAtisBriefing(displayState(), config);
+  if (radioCaptionsEnabled) {
+    radioCaptions.enqueue({
+      id: briefing.id,
+      station: briefing.station,
+      copy: briefing.copy,
+      priority: "ambient",
+      dwellMs: 12_000,
+    });
+  }
+  audio.play({
+    schemaVersion: 1,
+    id: `${briefing.id}-cue`,
+    sequence: 0,
+    elapsed: displayState().elapsed,
+    kind: "radio-clearance",
+    channel: "radio",
+    priority: "ambient",
+    variant: 0,
+    caption: briefing.copy,
+    sourceEventType: "atis:modeled-briefing",
+  });
+  setStatus(
+    radioCaptionsEnabled ? briefing.headline : "ATIS summary",
+    radioCaptionsEnabled
+      ? "modeled fictional briefing shown in captions"
+      : briefing.summary,
+  );
+});
+ambientProgramSelect.addEventListener("change", () => {
+  const id = ambientProgramSelect.value;
+  if (!id) {
+    selectedAmbientProgramId = null;
+    return;
+  }
+  if (!AMBIENT_PROGRAM_IDS.includes(id as AmbientProgramId)) return;
+  const result = executeAirportRequest({
+    action: "applyAmbientProgram",
+    id: id as AmbientProgramId,
+  });
+  if (!result.accepted) {
+    ambientProgramSelect.value = selectedAmbientProgramId ?? "";
+    setStatus("Watch scene unchanged", result.reason);
+    return;
+  }
+  selectedAmbientProgramId = id as AmbientProgramId;
+  const program = AMBIENT_PROGRAMS[selectedAmbientProgramId];
+  updateWeatherUi();
+  setStatus(`${program.label} active`, program.description);
+});
+watchPresetSave.addEventListener("click", () => {
+  const saved = saveWatchPreset(windowStorage(), currentWatchPreset());
+  setStatus(
+    saved ? "Watch preset saved" : "Watch preset unavailable",
+    saved
+      ? "saved locally: no traffic, flight identity, controller, or replay data"
+      : "this browser does not permit local preference storage",
+  );
+});
+watchPresetRestore.addEventListener("click", () => restoreWatchPreset());
 runwayConfigurationSelect.addEventListener("change", () => {
   const requested =
     runwayConfigurationSelect.value === "auto"
@@ -1847,21 +1984,35 @@ surfaceDisruptionKind.addEventListener("change", () => {
   renderSurfaceDisruptionControls();
 });
 surfaceDisruptionApply.addEventListener("click", () => {
+  const selectedIncident = surfaceIncidentDefinition(
+    surfaceDisruptionKind.value,
+  );
   const result = executeAirportRequest({
-    action: "setSurfaceDisruption",
-    kind: surfaceDisruptionKind.value as Exclude<
-      SurfaceDisruptionKind,
-      "disabled-aircraft"
-    >,
-    targetId: surfaceDisruptionTarget.value,
-    enabled: true,
-    durationSeconds: Number(surfaceDisruptionDuration.value) || undefined,
+    ...(selectedIncident
+      ? {
+          action: "triggerSurfaceIncident" as const,
+          kind: surfaceDisruptionKind.value as
+            "runway-inspection" | "bird-activity" | "foreign-object-debris",
+          targetId: surfaceDisruptionTarget.value,
+        }
+      : {
+          action: "setSurfaceDisruption" as const,
+          kind: surfaceDisruptionKind.value as Exclude<
+            SurfaceDisruptionKind,
+            "disabled-aircraft"
+          >,
+          targetId: surfaceDisruptionTarget.value,
+          enabled: true,
+          durationSeconds: Number(surfaceDisruptionDuration.value) || undefined,
+        }),
   });
   surfaceDisruptionUiKey = "";
   renderSurfaceDisruptionControls();
   setStatus(
     result.accepted
-      ? "Surface restriction active"
+      ? selectedIncident
+        ? "Incident response dispatched"
+        : "Surface restriction active"
       : "Surface restriction rejected",
     result.reason,
   );
@@ -2025,6 +2176,7 @@ modeButton.addEventListener("click", () => {
   setStatus(modeName(mode), modeDescription(mode));
 });
 nightButton.addEventListener("click", () => {
+  clearAmbientProgramSelection();
   const modes: EnvironmentLightingMode[] = ["automatic", "night", "day"];
   const current = simulation.state.environment.lightingMode;
   const mode = modes[(modes.indexOf(current) + 1) % modes.length];
@@ -2050,6 +2202,58 @@ radarClose.addEventListener("click", () => {
   setStatus("Terminal radar closed", "unobstructed map view restored");
 });
 
+surfaceSafetyButton.addEventListener("click", () => {
+  setSurfaceSafetyPanelVisible(!surfaceSafetyVisible);
+  setStatus(
+    surfaceSafetyVisible ? "Surface safety open" : "Surface safety closed",
+    surfaceSafetyVisible
+      ? "authoritative movement-area tracks and forecasts enabled"
+      : "unobstructed map view restored",
+  );
+});
+
+surfaceSafetyClose.addEventListener("click", () => {
+  setSurfaceSafetyPanelVisible(false);
+  setStatus("Surface safety closed", "unobstructed map view restored");
+});
+
+surfaceSafetyFilter.addEventListener("change", () => {
+  surfaceSafetyFilterValue = surfaceSafetyFilter.value as SurfaceSafetyFilter;
+  surfaceSafetyUiKey = "";
+  if (surfaceSafetyVisible) renderSurfaceSafety();
+});
+
+surfaceSafetyTracks.addEventListener("click", (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
+    "[data-flight-id]",
+  );
+  if (!button) return;
+  const flightId = Number(button.dataset.flightId);
+  if (!Number.isFinite(flightId)) return;
+  const result = focusObserverTarget(
+    { kind: "flight", id: String(flightId) },
+    false,
+  );
+  if (result.accepted) setStatus("Surface track selected", result.reason);
+});
+
+surfaceSafetyAdvisories.addEventListener("click", (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
+    "[data-advisory-id]",
+  );
+  if (!button) return;
+  const result = executeAirportRequest({
+    action: "acknowledgeSurfaceAdvisory",
+    advisoryId: button.dataset.advisoryId ?? "",
+  });
+  setStatus(
+    result.accepted
+      ? "Surface advisory acknowledged"
+      : "Acknowledgement refused",
+    result.reason,
+  );
+});
+
 queueButton.addEventListener("click", () => {
   setQueuePanelVisible(!queueInspectorVisible);
   setStatus(
@@ -2063,6 +2267,27 @@ queueButton.addEventListener("click", () => {
 queueClose.addEventListener("click", () => {
   setQueuePanelVisible(false);
   setStatus("Operation queues closed", "unobstructed map view restored");
+});
+
+digitalClearanceButton.addEventListener("click", () => {
+  setDigitalClearancePanelVisible(!digitalClearanceVisible);
+});
+digitalClearanceClose.addEventListener("click", () => {
+  setDigitalClearancePanelVisible(false);
+});
+digitalClearanceList.addEventListener("click", (event) => {
+  const row = (event.target as HTMLElement).closest<HTMLButtonElement>(
+    "[data-clearance-flight-id]",
+  );
+  if (!row) return;
+  const flightId = Number(row.dataset.clearanceFlightId);
+  if (!Number.isFinite(flightId)) return;
+  const result = focusObserverTarget({ kind: "flight", id: String(flightId) });
+  if (!result.accepted) {
+    setStatus("Clearance message unavailable", result.reason, "warning");
+    return;
+  }
+  setStatus("Clearance message selected", result.reason);
 });
 
 performanceButton.addEventListener("click", () => {
@@ -2082,6 +2307,21 @@ performanceButton.addEventListener("click", () => {
 queueFilter.addEventListener("change", () => {
   if (!isOperationQueueFilter(queueFilter.value)) return;
   queueInspectorFilter = queueFilter.value;
+  queueInspectorUiKey = "";
+  renderQueueInspector();
+});
+
+queueFlowObjective.addEventListener("change", () => {
+  if (!isTrafficFlowObjective(queueFlowObjective.value)) return;
+  const result = executeAirportRequest({
+    action: "setTrafficFlowObjective",
+    objective: queueFlowObjective.value,
+  });
+  if (!result.accepted) {
+    queueFlowObjective.value = simulation.state.trafficFlow.objective;
+    setStatus("Flow objective unchanged", result.reason, "warning");
+    return;
+  }
   queueInspectorUiKey = "";
   renderQueueInspector();
 });
@@ -2326,6 +2566,15 @@ function frame(now: number): void {
         replayVerificationStale = true;
     }
     updateSafetyUi(predictions);
+    if (!replayMode) {
+      for (const advisory of surfaceSafetyAnnouncements.select(
+        currentSurfaceSafetySnapshot(),
+      )) {
+        setStatus(advisory.label, advisory.detail, advisory.priority);
+      }
+    }
+    if (surfaceSafetyVisible) renderSurfaceSafety();
+    if (digitalClearanceVisible) renderDigitalClearanceMessages();
     refreshFocusTargets(displayedState, predictions);
     updateReplayUi();
     const renderer = world.diagnostics();
@@ -4782,11 +5031,16 @@ function renderFocusNavigator(force = false): void {
   focusNavigator.render(focusTargetCatalog, activeFocusTarget);
 }
 
-function focusObserverTarget(ref: FocusTargetRef): {
+function focusObserverTarget(
+  ref: FocusTargetRef,
+  follow = true,
+  focusScale = 1,
+): {
   accepted: boolean;
   reason: string;
 } {
-  if (!cameraDirectorApplying) yieldCameraDirector("Manual observer selection");
+  if (follow && !cameraDirectorApplying)
+    yieldCameraDirector("Manual observer selection");
   let target = focusTargetCatalog.targets.find(
     (candidate) => candidate.key === focusTargetKey(ref),
   );
@@ -4810,7 +5064,11 @@ function focusObserverTarget(ref: FocusTargetRef): {
   focusedFlightId =
     target.selectableFlightId ??
     (target.kind === "flight" ? Number(target.id) : null);
-  world.focusTarget(target);
+  if (follow)
+    world.focusTarget({
+      ...target,
+      suggestedZoom: target.suggestedZoom * focusScale,
+    });
   renderFlightStrip();
   renderFlightActions();
   queueInspectorUiKey = "";
@@ -4818,7 +5076,9 @@ function focusObserverTarget(ref: FocusTargetRef): {
   renderFocusNavigator(true);
   return {
     accepted: true,
-    reason: `following ${target.label} — ${target.detail}`,
+    reason: follow
+      ? `following ${target.label} — ${target.detail}`
+      : `selected ${target.label} — camera unchanged`,
   };
 }
 
@@ -4910,18 +5170,27 @@ function setServiceVehiclesVisible(visible: boolean): void {
   serviceVehiclesVisible = visible;
   serviceVehiclesToggle.checked = visible;
   world.setServiceVehiclesVisible(visible);
+  audio.setServiceVehicleAudioEnabled(visible);
 }
 
 function updateSurfaceDisruptionTargets(): void {
+  const incident = surfaceIncidentDefinition(surfaceDisruptionKind.value);
   updateSurfaceDisruptionTargetOptions(
     config,
-    surfaceDisruptionKind,
+    incident?.surfaceDisruptionKind ??
+      (surfaceDisruptionKind.value as Exclude<
+        SurfaceDisruptionKind,
+        "disabled-aircraft"
+      >),
     surfaceDisruptionTarget,
   );
 }
 
 function renderSurfaceDisruptionControls(): void {
   const disruptions = displayState().surfaceDisruptions;
+  const namedIncidentSelected = Boolean(
+    surfaceIncidentDefinition(surfaceDisruptionKind.value),
+  );
   const panelState = {
     airportCode: config.code,
     elapsed: displayState().elapsed,
@@ -4929,6 +5198,7 @@ function renderSurfaceDisruptionControls(): void {
     replayMode,
     disruptions,
     canRecover: simulation.canIssue("ground"),
+    namedIncidentSelected,
   };
   const key = surfaceDisruptionPanelKey(
     panelState,
@@ -6629,11 +6899,103 @@ function updateNightControl(): void {
         : "Day";
   lightingModeSelect.value = environment.lightingMode;
   seasonModeSelect.value = environment.seasonMode;
+  ambientProgramSelect.value = selectedAmbientProgramId ?? "";
   environmentReadout.textContent = `${environment.localTime} · ${environment.lightingMode === "automatic" ? "auto" : "forced"} ${environment.phase} · ${environment.season} · ${Math.round(environment.daylight * 100)}% light`;
   document.body.classList.toggle("night-mode", night);
   document
     .querySelector('meta[name="theme-color"]')
     ?.setAttribute("content", night ? "#071827" : "#183638");
+}
+
+function renderAmbientProgramOptions(): void {
+  const liveSettings = document.createElement("option");
+  liveSettings.value = "";
+  liveSettings.textContent = "Live settings";
+  const options = AMBIENT_PROGRAM_IDS.map((id) => {
+    const option = document.createElement("option");
+    option.value = id;
+    option.textContent = AMBIENT_PROGRAMS[id].label;
+    option.title = AMBIENT_PROGRAMS[id].description;
+    return option;
+  });
+  ambientProgramSelect.replaceChildren(liveSettings, ...options);
+}
+
+function clearAmbientProgramSelection(): void {
+  selectedAmbientProgramId = null;
+  ambientProgramSelect.value = "";
+}
+
+function currentWatchPreset(): WatchPreset {
+  return {
+    schemaVersion: 1,
+    ambientProgramId: selectedAmbientProgramId,
+    audioPreset: audioPreset.value as AudioPreset,
+    radioChatterEnabled,
+    radioCaptionsEnabled,
+    cameraDirectorEnabled: cameraDirector.snapshot(performance.now() / 1_000)
+      .enabled,
+    windOverlayVisible,
+    serviceVehiclesVisible,
+    airportLifeVisible,
+  };
+}
+
+function restoreWatchPreset(): void {
+  const preset = loadWatchPreset(windowStorage());
+  if (!preset) {
+    setStatus(
+      "No Watch preset found",
+      "save one locally to restore its calm presentation settings",
+    );
+    return;
+  }
+  if (simulation.state.challenge.status !== "inactive") {
+    setStatus(
+      "Watch preset unavailable",
+      "end the active challenge before changing its protected conditions",
+    );
+    return;
+  }
+  if (preset.ambientProgramId) {
+    const result = executeAirportRequest({
+      action: "applyAmbientProgram",
+      id: preset.ambientProgramId,
+    });
+    if (!result.accepted) {
+      setStatus("Watch preset unchanged", result.reason);
+      return;
+    }
+    selectedAmbientProgramId = preset.ambientProgramId;
+  } else clearAmbientProgramSelection();
+  selectControl("watch");
+  audioPreset.value = preset.audioPreset;
+  audio.setPreset(preset.audioPreset);
+  radioChatterEnabled = preset.radioChatterEnabled;
+  radioChatterEnabledControl.checked = radioChatterEnabled;
+  audio.setRadioEnabled(radioChatterEnabled);
+  radioCaptionsEnabled = preset.radioCaptionsEnabled;
+  radioCaptionsEnabledControl.checked = radioCaptionsEnabled;
+  audio.setCaptionsEnabled(radioCaptionsEnabled);
+  if (!radioCaptionsEnabled) radioCaptions.reset();
+  setCameraDirectorEnabled(preset.cameraDirectorEnabled);
+  setWindOverlayVisible(preset.windOverlayVisible);
+  setServiceVehiclesVisible(preset.serviceVehiclesVisible);
+  setAirportLifeVisible(preset.airportLifeVisible);
+  updateNightControl();
+  updateWeatherUi();
+  setStatus(
+    "Watch preset restored",
+    "local presentation preferences applied; live traffic was not stored",
+  );
+}
+
+function windowStorage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
 }
 
 function environmentLightingDescription(mode: EnvironmentLightingMode): string {
@@ -6711,7 +7073,7 @@ function updateCameraDirector(nowSeconds: number): void {
   const decision = cameraDirector.update(simulation.state, nowSeconds);
   if (!decision) return;
   cameraDirectorApplying = true;
-  const result = focusObserverTarget(decision.target);
+  const result = focusObserverTarget(decision.target, true, decision.focusScale);
   cameraDirectorApplying = false;
   if (!result.accepted) cameraDirector.reset(nowSeconds + 1);
   updateCameraDirectorUi();
@@ -6754,6 +7116,76 @@ function setRadarPanelVisible(visible: boolean): void {
   updateRadarControl();
 }
 
+function updateSurfaceSafetyPanelControl(): void {
+  surfaceSafetyButton.setAttribute(
+    "aria-pressed",
+    String(surfaceSafetyVisible),
+  );
+  surfaceSafetyButton.setAttribute(
+    "aria-label",
+    surfaceSafetyVisible
+      ? "Hide surface safety picture"
+      : "Show surface safety picture",
+  );
+  surfaceSafetyButton.classList.toggle("control--active", surfaceSafetyVisible);
+  surfaceSafetyLabel.textContent = surfaceSafetyVisible
+    ? "Safety on"
+    : "Safety";
+  document.body.classList.toggle(
+    "surface-safety-visible",
+    surfaceSafetyVisible,
+  );
+  surfaceSafetyPanel.hidden = !surfaceSafetyVisible;
+  surfaceSafetyUiKey = "";
+}
+
+function setSurfaceSafetyPanelVisible(visible: boolean): void {
+  surfaceSafetyVisible = visible;
+  if (visible && operationsLab.visible())
+    operationsLab.setVisible(false, false);
+  if (visible && focusNavigator.visible()) focusNavigator.setVisible(false);
+  if (visible && compactOverlayMedia.matches && queueInspectorVisible) {
+    queueInspectorVisible = false;
+    updateQueueInspectorControl();
+  }
+  updateSurfaceSafetyPanelControl();
+  if (visible) renderSurfaceSafety();
+}
+
+function renderSurfaceSafety(): void {
+  const snapshot = currentSurfaceSafetySnapshot();
+  const key = `${surfaceSafetyPanelKey(snapshot)}|${surfaceSafetyFilterValue}|${focusedFlightId ?? "none"}`;
+  if (key === surfaceSafetyUiKey) return;
+  surfaceSafetyUiKey = key;
+  renderSurfaceSafetyPanel(
+    {
+      panel: surfaceSafetyPanel,
+      tracks: surfaceSafetyTracks,
+      vehicles: surfaceSafetyVehicles,
+      advisories: surfaceSafetyAdvisories,
+      movers: surfaceSafetyMovers,
+      protectedRunways: surfaceSafetyProtected,
+      holds: surfaceSafetyHolds,
+    },
+    snapshot,
+    focusedFlightId,
+    surfaceSafetyFilterValue,
+  );
+}
+
+function currentSurfaceSafetySnapshot() {
+  const baseSnapshot = surfaceSafetySnapshot(
+    config,
+    displayState(),
+    currentDisplayPredictions(),
+    simulation.shiftMetrics(),
+  );
+  const snapshot = replayMode
+    ? baseSnapshot
+    : surfaceSafetyAdvisoryTracker.update(baseSnapshot);
+  return surfaceSafetyAcknowledgements.apply(snapshot);
+}
+
 function updateQueueInspectorControl(): void {
   queueButton.setAttribute("aria-pressed", String(queueInspectorVisible));
   queueButton.setAttribute(
@@ -6782,29 +7214,77 @@ function setQueuePanelVisible(visible: boolean): void {
   renderQueueInspector();
 }
 
+function setDigitalClearancePanelVisible(visible: boolean): void {
+  digitalClearanceVisible = visible;
+  if (visible && queueInspectorVisible) setQueuePanelVisible(false);
+  if (visible && radarVisible) setRadarPanelVisible(false);
+  if (visible && operationsLab.visible())
+    operationsLab.setVisible(false, false);
+  if (visible && focusNavigator.visible()) focusNavigator.setVisible(false);
+  digitalClearanceButton.setAttribute("aria-pressed", String(visible));
+  digitalClearanceButton.classList.toggle("control--active", visible);
+  digitalClearanceLabel.textContent = visible ? "Data on" : "Data Comm";
+  digitalClearancePanel.hidden = !visible;
+  digitalClearanceUiKey = "";
+  if (visible) renderDigitalClearanceMessages();
+}
+
+function renderDigitalClearanceMessages(): void {
+  const snapshot = digitalClearanceSnapshot(displayState());
+  const key = digitalClearancePanelKey(snapshot);
+  if (key === digitalClearanceUiKey) return;
+  digitalClearanceUiKey = key;
+  renderDigitalClearancePanel(
+    { count: digitalClearanceCount, list: digitalClearanceList },
+    snapshot,
+  );
+}
+
 function renderQueueInspector(): void {
   const snapshot = simulation.queueSnapshot(displayState());
+  const flow = simulation.trafficFlowSnapshot(displayState());
+  updateQueueFlowObjectiveControl(flow.objective.id);
   const focusedQueueId =
     activeFocusTarget?.kind === "queue" ? activeFocusTarget.id : null;
   const key = operationQueueRenderKey(
     snapshot,
     queueInspectorFilter,
     focusedQueueId,
+    flow,
   );
   if (key === queueInspectorUiKey) return;
   queueInspectorUiKey = key;
   renderOperationQueueInspector(
-    { count: queueCount, longest: queueLongest, list: queueList },
+    {
+      count: queueCount,
+      longest: queueLongest,
+      list: queueList,
+      meter: queueMeter,
+      meterSummary: queueMeterSummary,
+    },
     snapshot,
     queueInspectorFilter,
     focusedQueueId,
+    flow,
   );
+}
+
+function updateQueueFlowObjectiveControl(
+  objective: TrafficFlowObjective,
+): void {
+  queueFlowObjective.value = objective;
+  const supervisor = simulation.state.station === "supervisor";
+  queueFlowObjective.disabled = !supervisor;
+  queueFlowObjective.title = supervisor
+    ? trafficFlowObjectiveProfile(objective).description
+    : "Select the Supervisor workstation to change the airport flow objective.";
 }
 
 function newSession(
   paused: boolean,
   nextConfig = generateAirportConfig(),
 ): void {
+  clearAmbientProgramSelection();
   const mode = simulation.state.mode;
   const lightingMode = simulation.state.environment.lightingMode;
   const seasonMode = simulation.state.environment.seasonMode;
@@ -6841,6 +7321,9 @@ function newSession(
   lastArrivals = -1;
   lastDepartures = -1;
   lastPredictionKey = "";
+  surfaceSafetyAdvisoryTracker.reset();
+  surfaceSafetyAcknowledgements.reset();
+  surfaceSafetyAnnouncements.reset();
   updateSafetyUi([]);
   world = createWorld(canvas, config);
   world.setRunwayLabelsVisible(runwayLabelsVisible);
@@ -6890,6 +7373,7 @@ function newSession(
   updateNightControl();
   updateCameraDirectorUi();
   updateRadarControl();
+  updateSurfaceSafetyPanelControl();
   updateQueueInspectorControl();
   renderQueueInspector();
   renderFocusNavigator(true);
@@ -7160,6 +7644,7 @@ function setScenario(scenario: TrafficScenario): boolean {
 
 function setTrafficDensity(density: TrafficDensity): boolean {
   if (!isTrafficDensity(density)) return false;
+  clearAmbientProgramSelection();
   const accepted = simulation.setTrafficDensity(density);
   if (!accepted) {
     densitySelect.value = simulation.state.trafficFlow.density;
@@ -7174,6 +7659,19 @@ function setTrafficDensity(density: TrafficDensity): boolean {
     `${profile.label} traffic`,
     `${profile.description} · holding capacity ${profile.holdingCapacity}`,
   );
+  renderQueueInspector();
+  updateWeatherUi();
+  return true;
+}
+
+function setTrafficFlowObjective(objective: TrafficFlowObjective): boolean {
+  if (!isTrafficFlowObjective(objective)) return false;
+  clearAmbientProgramSelection();
+  const accepted = simulation.setTrafficFlowObjective(objective);
+  if (!accepted) return false;
+  const profile = trafficFlowObjectiveProfile(objective);
+  setStatus(profile.label, profile.description);
+  queueInspectorUiKey = "";
   renderQueueInspector();
   updateWeatherUi();
   return true;
@@ -7356,8 +7854,8 @@ function updateWeatherUi(): void {
   operationBank.textContent = `${operation.localTime} local · ${operation.periodLabel} · ${density.label} ${operation.demandMultiplier.toFixed(2)}× bank`;
   trafficFlowReadout.textContent =
     flow.backPressure.arrivalsHolding || flow.backPressure.departuresWaiting
-      ? `${density.label} · ARR ${flow.backPressure.arrivalsHolding} metered · DEP ${flow.backPressure.departuresWaiting} queued`
-      : `${density.label} · metering clear`;
+      ? `${flow.objective.label} · ARR ${flow.backPressure.arrivalsHolding} metered · DEP ${flow.backPressure.departuresWaiting} queued`
+      : `${flow.objective.label} · metering clear`;
   const activeConfiguration = config.runwayConfigurations.find(
     (configuration) =>
       configuration.id === simulation.state.runwayConfigurationId,
@@ -7835,6 +8333,12 @@ function airportSnapshot() {
     traffic: diagnostics,
     trafficManagement: diagnostics.trafficManagement,
     queues: diagnostics.queues,
+    digitalClearances: digitalClearanceSnapshot(displayState()),
+    surfaceSafety: {
+      visible: surfaceSafetyVisible,
+      filter: surfaceSafetyFilterValue,
+      ...structuredClone(currentSurfaceSafetySnapshot()),
+    },
     surfaceDisruptions: simulation.state.surfaceDisruptions.map(
       (disruption) => ({
         ...disruption,
@@ -8788,6 +9292,20 @@ function executeAirportRequest(
       context.compatibility.reason,
     );
   }
+  if (
+    [
+      "setNightMode",
+      "setEnvironmentLightingMode",
+      "setEnvironmentSeasonMode",
+      "setOperationTimeOffset",
+      "setTrafficDensity",
+      "setTrafficFlowObjective",
+      "setWeather",
+      "setWeatherEnabled",
+      "setWindEnabled",
+    ].includes(command.action)
+  )
+    clearAmbientProgramSelection();
   if (context.authority && context.authority.station !== effectiveStation) {
     const reason = `asserted ${context.authority.station} authority does not match selected ${effectiveStation} station`;
     return finalizeAirportRequest(
@@ -8874,6 +9392,18 @@ function executeAirportRequest(
       : "season mode must be automatic, spring, summer, autumn, or winter";
     updateNightControl();
   }
+  if (command.action === "setOperationTimeOffset") {
+    accepted = Number.isFinite(command.minutes) && simulation.setOperationTimeOffsetMinutes(command.minutes);
+    reason = accepted
+      ? simulation.lastCommandReason()
+      : "operation time offset must be a finite number";
+    updateNightControl();
+  }
+  if (command.action === "applyAmbientProgram") {
+    accepted = simulation.applyAmbientProgram(command.id);
+    reason = simulation.lastCommandReason();
+    updateNightControl();
+  }
   if (command.action === "setAccessibilityPalette") {
     accepted = isAccessibilityPalette(command.palette);
     if (accepted) {
@@ -8894,6 +9424,27 @@ function executeAirportRequest(
   }
   if (command.action === "setQueueInspectorVisible") {
     setQueuePanelVisible(command.enabled);
+  }
+  if (command.action === "setSurfaceSafetyVisible") {
+    setSurfaceSafetyPanelVisible(command.enabled);
+  }
+  if (command.action === "setSurfaceSafetyFilter") {
+    surfaceSafetyFilterValue = command.filter;
+    surfaceSafetyFilter.value = command.filter;
+    surfaceSafetyUiKey = "";
+    if (surfaceSafetyVisible) renderSurfaceSafety();
+  }
+  if (command.action === "acknowledgeSurfaceAdvisory") {
+    const acknowledgement = surfaceSafetyAcknowledgements.acknowledge(
+      currentSurfaceSafetySnapshot(),
+      command.advisoryId,
+      displayState().elapsed,
+    );
+    accepted = acknowledgement.accepted;
+    reason = acknowledgement.reason;
+    if (accepted) {
+      surfaceSafetyUiKey = "";
+    }
   }
   if (command.action === "setRunwayLabelsVisible")
     setRunwayLabelsVisible(command.enabled);
@@ -9280,6 +9831,13 @@ function executeAirportRequest(
       ? simulation.lastCommandReason()
       : "traffic density must be quiet, realistic, busy, rush, or extreme";
   }
+  if (command.action === "setTrafficFlowObjective") {
+    const valid = isTrafficFlowObjective(command.objective);
+    accepted = valid && setTrafficFlowObjective(command.objective);
+    reason = valid
+      ? simulation.lastCommandReason()
+      : "unknown traffic-flow objective";
+  }
   if (command.action === "setSeparationRuleset") {
     const valid =
       command.ruleset === "forgiving" || command.ruleset === "realistic";
@@ -9375,6 +9933,20 @@ function executeAirportRequest(
     reason = valid
       ? simulation.lastCommandReason()
       : "surface restriction requires a valid kind, target, and positive duration";
+    surfaceDisruptionUiKey = "";
+    renderSurfaceDisruptionControls();
+  }
+  if (command.action === "triggerSurfaceIncident") {
+    const valid =
+      Boolean(surfaceIncidentDefinition(command.kind)) &&
+      typeof command.targetId === "string" &&
+      command.targetId.length > 0;
+    accepted =
+      valid &&
+      simulation.triggerSurfaceIncident(command.kind, command.targetId);
+    reason = valid
+      ? simulation.lastCommandReason()
+      : "incident requires a valid kind and surface target";
     surfaceDisruptionUiKey = "";
     renderSurfaceDisruptionControls();
   }
@@ -10044,6 +10616,11 @@ if (launchOptions.get("night") === "1") {
 if (launchOptions.get("radar") === "1") {
   radarVisible = true;
   updateRadarControl();
+}
+if (launchOptions.get("surface-safety") === "1") {
+  surfaceSafetyVisible = true;
+  updateSurfaceSafetyPanelControl();
+  renderSurfaceSafety();
 }
 if (launchOptions.get("queues") === "1") {
   queueInspectorVisible = true;

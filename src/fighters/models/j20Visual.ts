@@ -15,6 +15,7 @@ import {
   verticalSurfaceMesh,
   type LoftSection,
 } from "./detailedModelUtils";
+import { addModernJetDetailKit } from "./modernJetDetailKit";
 
 export interface J20Visual {
   root: THREE.Group;
@@ -80,6 +81,17 @@ export function createJ20Visual(
   addTwinNozzles(root, materials, lowDetail, nozzles);
   addLandingGear(root, materials, lowDetail);
   addMarkingsAndLights(root, materials, lowDetail);
+  addModernJetDetailKit(
+    root,
+    {
+      id: "j20",
+      cockpit: [0, 2.16, 5.3],
+      canopyWidth: 1.12,
+      fuselageLength: J20_LENGTH_M,
+      fuselageWidth: 3.7,
+    },
+    lowDetail,
+  );
 
   root.scale.set(
     fighter.wingspanM / J20_SPAN_M,

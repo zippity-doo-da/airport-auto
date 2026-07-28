@@ -169,6 +169,28 @@ function cargoAirline(
   };
 }
 
+function internationalPassengerAirline(
+  airline: AirlineCode,
+  baseWeight: number,
+  markets: string[],
+): AirlineBankProfile {
+  return {
+    airline,
+    baseWeight,
+    classWeights: { passenger: 1 },
+    fleets: { passenger: INTERNATIONAL_FLEET },
+    markets: { passenger: markets },
+    // E and F are the imported International Terminal concourses. This is a
+    // terminal-type preference for the simulation, not a claimed live gate
+    // lease or a substitute for an airline's published daily operation.
+    gate: {
+      concourses: ["E", "F"],
+      label: "International Terminal E/F schematic allocation",
+    },
+    bankMultipliers: HUB_BANKS.secondary,
+  };
+}
+
 function source(
   title: string,
   url?: string,
@@ -230,41 +252,62 @@ const PROGRAMS: Record<string, AirportTrafficProgram> = {
     [
       passengerAirline(
         "DL",
-        0.7,
-        { standSector: [0, 0.58], label: "Delta hub gate bank" },
+        0.62,
+        { standSector: [0, 0.58], label: "Delta domestic hub gate bank" },
         DOMESTIC_FLEET,
         true,
         1,
       ),
+      internationalPassengerAirline("DL", 0.075, ["LHR", "CDG", "AMS", "ICN", "FRA", "JNB", "GRU"]),
       passengerAirline(
         "WN",
-        0.12,
+        0.105,
         { standSector: [0.58, 0.74], label: "Southwest gate bank" },
         [{ model: "B738", weight: 1 }],
       ),
       passengerAirline(
         "AA",
-        0.055,
+        0.05,
         { standSector: [0.74, 0.84], label: "north/common-use bank" },
         DOMESTIC_FLEET,
       ),
       passengerAirline(
         "UA",
-        0.05,
+        0.045,
         { standSector: [0.84, 0.93], label: "north/common-use bank" },
         DOMESTIC_FLEET,
       ),
       passengerAirline(
         "F9",
-        0.035,
+        0.03,
         { standSector: [0.93, 1], label: "common-use bank" },
         [{ model: "A320", weight: 1 }],
       ),
-      cargoAirline("5X", 0.025, {
+      passengerAirline(
+        "B6",
+        0.018,
+        { standSector: [0.74, 1], label: "common-use domestic bank" },
+        [{ model: "A320", weight: 0.55 }, { model: "A21N", weight: 0.45 }],
+      ),
+      passengerAirline(
+        "AS",
+        0.012,
+        { standSector: [0.74, 1], label: "common-use domestic bank" },
+        [{ model: "B738", weight: 1 }],
+      ),
+      internationalPassengerAirline("AF", 0.009, ["CDG"]),
+      internationalPassengerAirline("BA", 0.009, ["LHR"]),
+      internationalPassengerAirline("KL", 0.009, ["AMS"]),
+      internationalPassengerAirline("KE", 0.009, ["ICN"]),
+      internationalPassengerAirline("LH", 0.009, ["FRA"]),
+      internationalPassengerAirline("QR", 0.009, ["DOH"]),
+      internationalPassengerAirline("TK", 0.009, ["IST"]),
+      internationalPassengerAirline("VS", 0.009, ["LHR"]),
+      cargoAirline("5X", 0.022, {
         zoneNames: ["Cargo Ramp"],
         label: "cargo ramp",
       }),
-      cargoAirline("FX", 0.025, {
+      cargoAirline("FX", 0.022, {
         zoneNames: ["Cargo Ramp"],
         label: "cargo ramp",
       }),
@@ -292,6 +335,15 @@ const PROGRAMS: Record<string, AirportTrafficProgram> = {
       source(
         "ATL official airport fact sheet and airline directory",
         "https://www.atl.com/about-atl/atl-factsheet/",
+      ),
+      source(
+        "ATL official passenger-airline directory",
+        "https://www.atl.com/passenger-information/airlines-at-atl/",
+      ),
+      source(
+        "ATL official terminal and concourse map",
+        "https://www.atl.com/maps-3/",
+        "terminal-allocation",
       ),
     ],
   ),

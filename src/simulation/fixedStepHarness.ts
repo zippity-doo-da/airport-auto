@@ -149,7 +149,7 @@ export interface FixedStepFlightSnapshot {
 }
 
 export interface FixedStepSimulationSnapshot {
-  schemaVersion: 13;
+  schemaVersion: 14;
   seed: number;
   airportCode: string;
   stepSeconds: number;
@@ -164,6 +164,7 @@ export interface FixedStepSimulationSnapshot {
     paused: boolean;
     mode: ControlMode;
     scenario: TrafficScenario;
+    operationTimeOffsetMinutes: number;
     trafficDensity: TrafficDensity;
     trafficFlow: TrafficFlowSnapshot;
     runwayConfigurationId: string;
@@ -339,7 +340,7 @@ export class FixedStepSimulationHarness {
   snapshot(): FixedStepSimulationSnapshot {
     const diagnostics = this.simulation.diagnostics();
     return {
-      schemaVersion: 13,
+      schemaVersion: 14,
       seed: this.config.seed,
       airportCode: this.config.code,
       stepSeconds: round(this.stepSeconds),
@@ -354,6 +355,7 @@ export class FixedStepSimulationHarness {
         paused: this.simulation.state.paused,
         mode: this.simulation.state.mode,
         scenario: this.simulation.state.scenario,
+        operationTimeOffsetMinutes: this.simulation.state.operationTimeOffsetMinutes,
         trafficDensity: this.simulation.state.trafficFlow.density,
         trafficFlow: this.simulation.trafficFlowSnapshot(),
         runwayConfigurationId: this.simulation.state.runwayConfigurationId,

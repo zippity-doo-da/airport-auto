@@ -7,6 +7,8 @@ import { createF86FVisual } from "./models/f86FVisual";
 import { createJ20Visual } from "./models/j20Visual";
 import { createMig35Visual } from "./models/mig35Visual";
 import { createP51DVisual } from "./models/p51DVisual";
+import { addGenericJetDetailKit } from "./models/genericJetDetailKit";
+import { collectRenderStats } from "./models/detailedModelUtils";
 
 export interface FighterVisual {
   root: THREE.Group;
@@ -127,6 +129,13 @@ export function createFighterVisual(
   );
   addLandingGearHint(root, fighter, bodyY, materials, lowDetail);
   addArchiveMarkings(root, fighter, bodyY, materials, lowDetail);
+  addGenericJetDetailKit(
+    root,
+    fighter,
+    materials,
+    { bodyY, radius: bodyRadius },
+    lowDetail,
+  );
 
   root.traverse((object) => {
     if (object instanceof THREE.Mesh) {
@@ -139,12 +148,17 @@ export function createFighterVisual(
     const geometries = new Set<THREE.BufferGeometry>();
     const usedMaterials = new Set<THREE.Material>();
     root.traverse((object) => {
-      if (!(object instanceof THREE.Mesh)) return;
-      geometries.add(object.geometry);
-      if (Array.isArray(object.material)) {
-        object.material.forEach((material) => usedMaterials.add(material));
-      } else {
-        usedMaterials.add(object.material);
+      if (
+        object instanceof THREE.Mesh ||
+        object instanceof THREE.Line ||
+        object instanceof THREE.LineSegments
+      ) {
+        geometries.add(object.geometry);
+        if (Array.isArray(object.material)) {
+          object.material.forEach((material) => usedMaterials.add(material));
+        } else {
+          usedMaterials.add(object.material);
+        }
       }
     });
     geometries.forEach((geometry) => geometry.dispose());
@@ -152,6 +166,7 @@ export function createFighterVisual(
     root.clear();
   };
 
+  root.userData.renderStats = collectRenderStats(root);
   return { root, propellers, nozzles, dispose };
 }
 

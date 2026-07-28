@@ -1,0 +1,72 @@
+import { build } from "esbuild";
+
+const source = `
+import { generateHubConfig, HUB_AIRPORTS } from './src/simulation/airportConfig.ts';
+import { AirportSimulation } from './src/simulation/airportSimulation.ts';
+import { digitalClearanceSnapshot } from './src/simulation/digitalClearances.ts';
+
+function assert(condition, message) { if (!condition) throw new Error(message); }
+
+const simulation = new AirportSimulation(generateHubConfig(HUB_AIRPORTS.findIndex((airport) => airport.code === 'ORD')));
+const flight = simulation.state.flights[0];
+assert(flight, 'ORD needs an initial flight for digital-clearance validation');
+flight.navigation.routeClearance = {
+  schemaVersion: 1, revision: 4, status: 'pending-readback', routeFixIds: ['FIX-A', 'FIX-B'], routeFixNames: ['NORTH', 'LAKE'], previousRouteFixIds: ['OLD'],
+  previewedAtSeconds: 3, issuedAtSeconds: 4, readbackDueSeconds: 6, issuedBy: 'approach', distanceNm: 18, estimatedSeconds: 440, initialTurnDegrees: 14, safeToIssue: true, warnings: [], reason: 'awaiting pilot readback',
+};
+let snapshot = digitalClearanceSnapshot(simulation.state);
+const message = snapshot.messages[0];
+assert(snapshot.schemaVersion === 1 && message?.status === 'delivered' && message.route.join('>') === 'NORTH>LAKE', 'pending readback did not project as a delivered route message');
+message.route[0] = 'MUTATED';
+assert(flight.navigation.routeClearance.routeFixNames[0] === 'NORTH', 'digital-clearance snapshot shared route references with state');
+flight.navigation.frequencyOwner = 'tower';
+simulation.update(0.1);
+assert(flight.navigation.routeClearance.status === 'cancelled', 'pending route readback survived an authority transfer');
+assert(flight.navigation.routeClearance.reason.includes('control transferred to tower'), 'authority-transfer cancellation was not explained');
+snapshot = digitalClearanceSnapshot(simulation.state);
+assert(snapshot.messages[0]?.status === 'cancelled', 'authority-transferred route readback did not project as cancelled');
+flight.navigation.frequencyOwner = 'approach';
+flight.navigation.routeClearance = {
+  ...flight.navigation.routeClearance,
+  status: 'pending-readback',
+  issuedBy: 'approach',
+  readbackDueSeconds: simulation.state.elapsed + 30,
+  reason: 'awaiting pilot readback',
+};
+simulation.setStation('supervisor');
+assert(!simulation.acceptRouteReadback(flight.id), 'a receiving controller accepted a route issued by another desk');
+assert(simulation.lastCommandReason().includes('belongs to approach'), 'receiving-controller route rejection was not explained');
+flight.navigation.routeClearance = { ...flight.navigation.routeClearance, status: 'cancelled', respondedAtSeconds: 7, reason: 'superseded by go-around clearance' };
+snapshot = digitalClearanceSnapshot(simulation.state);
+assert(snapshot.messages[0]?.status === 'superseded', 'superseded route clearance did not keep its explicit status');
+flight.navigation.routeClearance = { ...flight.navigation.routeClearance, status: 'rejected', reason: 'predicted loss of separation' };
+snapshot = digitalClearanceSnapshot(simulation.state);
+assert(snapshot.messages[0]?.status === 'unable' && snapshot.counts.unable === 1, 'rejected route clearance did not project as unable');
+console.log(JSON.stringify({ messages: snapshot.messages.length, status: snapshot.messages[0]?.status }));
+`;
+
+const result = await build({
+  absWorkingDir: process.cwd(),
+  stdin: {
+    contents: source,
+    loader: "ts",
+    resolveDir: process.cwd(),
+    sourcefile: "digital-clearances-validation.ts",
+  },
+  bundle: true,
+  format: "esm",
+  platform: "node",
+  target: "node22",
+  write: false,
+  logLevel: "silent",
+});
+const bundled = result.outputFiles[0]?.text;
+if (!bundled) throw new Error("Digital-clearance validation bundle was empty.");
+try {
+  await import(
+    "data:text/javascript;base64," + Buffer.from(bundled).toString("base64")
+  );
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
+}

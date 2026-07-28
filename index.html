@@ -136,6 +136,8 @@
               <option value="tower">Tower</option>
               <option value="ground">Ground</option>
               <option value="ramp">Ramp</option>
+              <option value="supervisor">Supervisor</option>
+              <option value="watch">Watch</option>
             </select></label
           >
           <fieldset class="station-automation" id="station-automation">
@@ -366,6 +368,7 @@
                 WX OFF</button
               ><button id="wind-toggle" type="button" aria-pressed="false">
                 WIND OFF</button
+              ><button id="atis-button" type="button">ATIS</button
               ><select
                 id="weather-condition-select"
                 aria-label="Weather condition"
@@ -388,6 +391,20 @@
                 <option value="auto">Automatic</option>
               </select></label
             >
+            <label class="ambient-program-control"
+              ><span>Watch scene</span
+              ><select
+                id="ambient-program-select"
+                aria-label="Watch ambient program"
+              >
+                <option value="">Live settings</option>
+              </select></label
+            >
+            <div class="watch-preset-control">
+              <span>Watch preset</span>
+              <button id="watch-preset-save" type="button">Save</button>
+              <button id="watch-preset-restore" type="button">Restore</button>
+            </div>
           </div>
           <label class="audio-preset"
             ><span>Soundscape</span
@@ -396,6 +413,7 @@
               <option value="calm">Calm</option>
               <option value="radio">Radio focus</option>
               <option value="engines">Engines only</option>
+              <option value="sleep">Sleep / background</option>
               <option value="silent">Silent simulation</option>
             </select></label
           >
@@ -470,6 +488,17 @@
             ><small id="radar-label">Radar off</small>
           </button>
           <button
+            id="surface-safety-toggle"
+            class="control"
+            type="button"
+            aria-label="Show surface safety picture"
+            aria-pressed="false"
+            aria-controls="surface-safety-panel"
+          >
+            <span aria-hidden="true">▦</span
+            ><small id="surface-safety-label">Safety</small>
+          </button>
+          <button
             id="queue-toggle"
             class="control"
             type="button"
@@ -478,6 +507,17 @@
           >
             <span aria-hidden="true">≡</span
             ><small id="queue-label">Queues off</small>
+          </button>
+          <button
+            id="digital-clearance-toggle"
+            class="control"
+            type="button"
+            aria-label="Show digital clearance messages"
+            aria-pressed="false"
+            aria-controls="digital-clearance-panel"
+          >
+            <span aria-hidden="true">✉</span
+            ><small id="digital-clearance-label">Data Comm</small>
           </button>
           <button
             id="operations-lab-toggle"
@@ -870,6 +910,16 @@
                 value="1"
             /></label>
             <label
+              ><span>Terminal / landside</span
+              ><input
+                data-audio-level="terminal"
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value="1"
+            /></label>
+            <label
               ><span>Radio</span
               ><input
                 data-audio-level="radio"
@@ -1006,6 +1056,9 @@
                 <option value="taxiway-closure">Taxiway closure</option>
                 <option value="construction">Construction zone</option>
                 <option value="runway-closure">Runway closure</option>
+                <option value="runway-inspection">Runway inspection</option>
+                <option value="bird-activity">Bird-activity check</option>
+                <option value="foreign-object-debris">FOD inspection</option>
               </select>
               <select
                 id="surface-disruption-target"
@@ -1358,6 +1411,66 @@
       </aside>
 
       <aside
+        id="surface-safety-panel"
+        class="surface-safety"
+        aria-label="Surface safety picture"
+        hidden
+      >
+        <header>
+          <div><b>Surface safety</b><span>authoritative tracks</span></div>
+          <label class="surface-safety__filter"
+            ><span>View</span
+            ><select
+              id="surface-safety-filter"
+              aria-label="Surface safety station view"
+            >
+              <option value="all">All</option>
+              <option value="tower">Tower</option>
+              <option value="ground">Ground</option>
+              <option value="ramp">Ramp</option>
+            </select></label
+          >
+          <button
+            id="surface-safety-close"
+            type="button"
+            aria-label="Close surface safety picture"
+          >
+            ×
+          </button>
+        </header>
+        <div
+          class="surface-safety__summary"
+          aria-label="Surface safety summary"
+        >
+          <span><b id="surface-safety-movers">0</b><small>Movers</small></span>
+          <span
+            ><b id="surface-safety-protected">0</b
+            ><small>Protected</small></span
+          >
+          <span><b id="surface-safety-holds">0</b><small>Holds</small></span>
+        </div>
+        <section aria-label="Active surface forecasts">
+          <h2>Forecasts</h2>
+          <div
+            id="surface-safety-advisories"
+            class="surface-safety__advisories"
+          ></div>
+        </section>
+        <section aria-label="Live surface tracks">
+          <h2>Live tracks</h2>
+          <div id="surface-safety-tracks" class="surface-safety__tracks"></div>
+        </section>
+        <section aria-label="Authorized service vehicles">
+          <h2>Service vehicles</h2>
+          <div
+            id="surface-safety-vehicles"
+            class="surface-safety__vehicles"
+          ></div>
+        </section>
+        <footer><small>Select a track to focus it on the field.</small></footer>
+      </aside>
+
+      <aside
         id="queue-panel"
         class="queue-panel"
         aria-label="Operation queue inspector"
@@ -1375,6 +1488,28 @@
             ×
           </button>
         </header>
+        <section
+          class="queue-panel__meter"
+          aria-label="Traffic flow meter plan"
+        >
+          <div>
+            <b>Meter plan</b><small id="queue-meter-summary">Flow clear</small>
+          </div>
+          <div id="queue-meter" class="queue-panel__meter-list"></div>
+        </section>
+        <label
+          ><span>Flow objective</span
+          ><select
+            id="queue-flow-objective"
+            aria-label="Traffic flow objective"
+          >
+            <option value="balanced">Balanced</option>
+            <option value="minimum-holding">Minimum holding</option>
+            <option value="minimum-taxi-delay">Minimum taxi delay</option>
+            <option value="weather-recovery">Weather recovery</option>
+            <option value="watch-calm">Watch / calm</option>
+          </select></label
+        >
         <label
           ><span>Blocker type</span
           ><select id="queue-filter">
@@ -1401,6 +1536,36 @@
           <span id="queue-longest">Flowing</span
           ><small>Select any queue to follow its live blocker</small>
         </footer>
+      </aside>
+
+      <aside
+        id="digital-clearance-panel"
+        class="digital-clearance"
+        aria-label="Digital clearance messages"
+        hidden
+      >
+        <header>
+          <div>
+            <b>Digital clearances</b
+            ><span id="digital-clearance-count">No active messages</span>
+          </div>
+          <button
+            id="digital-clearance-close"
+            type="button"
+            aria-label="Close digital clearance messages"
+          >
+            ×
+          </button>
+        </header>
+        <p class="digital-clearance__disclosure">
+          Fictional, local Data Comm-style route workflow. Messages remain
+          non-navigational.
+        </p>
+        <div
+          id="digital-clearance-list"
+          class="digital-clearance__list"
+          aria-live="polite"
+        ></div>
       </aside>
 
       <aside

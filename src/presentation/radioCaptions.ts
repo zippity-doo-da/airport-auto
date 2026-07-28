@@ -5,6 +5,7 @@ export interface RadioCaptionInput {
   station: string;
   copy: string;
   priority: SoundscapeEventPriority;
+  dwellMs?: number;
 }
 
 export interface RadioCaptionView extends RadioCaptionInput {
@@ -60,6 +61,7 @@ export class RadioCaptionCoordinator {
         station: this.current.station,
         copy: this.current.copy,
         priority: this.current.priority,
+        dwellMs: this.current.dwellMs,
       });
       this.show(input, nowMs);
       this.trim();
@@ -99,7 +101,12 @@ export class RadioCaptionCoordinator {
     this.current = {
       ...input,
       shownAtMs: nowMs,
-      visibleUntilMs: nowMs + CAPTION_DWELL_MS[input.priority],
+      visibleUntilMs:
+        nowMs +
+        Math.max(
+          CAPTION_DWELL_MS[input.priority],
+          Math.min(16_000, Math.round(input.dwellMs ?? 0)),
+        ),
     };
     this.transitions += 1;
     this.present({ ...this.current });

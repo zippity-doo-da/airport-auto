@@ -15,6 +15,7 @@ import {
   verticalSurfaceMesh,
   type LoftSection,
 } from "./detailedModelUtils";
+import { addModernJetDetailKit } from "./modernJetDetailKit";
 
 export interface Mig35Visual {
   root: THREE.Group;
@@ -78,6 +79,17 @@ export function createMig35Visual(
   addNozzles(root, materials, lowDetail, nozzles);
   addLandingGear(root, materials, lowDetail);
   addMarkingsAndLights(root, materials, lowDetail);
+  addModernJetDetailKit(
+    root,
+    {
+      id: "mig35",
+      cockpit: [0, 2.18, 4.05],
+      canopyWidth: 1.02,
+      fuselageLength: MIG35_LENGTH_M,
+      fuselageWidth: 2.78,
+    },
+    lowDetail,
+  );
 
   root.scale.set(
     fighter.wingspanM / MIG35_SPAN_M,

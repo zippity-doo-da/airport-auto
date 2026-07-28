@@ -25,7 +25,7 @@ async function main() {
     throw new Error(`FAA manifest is for ${faaManifest.airport?.icaoId}, not ${options.icaoId}`);
   }
   const bounds = contextBounds(faaManifest.coordinateSystem, options.radiusX, options.radiusY);
-  const queries = buildQueries(bounds);
+  const queries = buildQueries(bounds, options.icaoId);
   process.stdout.write(`Fetching ${options.icaoId} roads, rail, water, land use, and boundary from OpenStreetMap... `);
   const queryList = Object.values(queries);
   const responses = options.input
@@ -113,7 +113,8 @@ function parseArguments(arguments_) {
     else throw new Error(`Unknown option ${argument}`);
     index += 1;
   }
-  if (!/^KORD$/.test(icaoId)) throw new Error('Only KORD is currently configured');
+  if (!/^(KORD|KATL)$/.test(icaoId))
+    throw new Error('Supported context airports: KORD, KATL');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(retrievedOn)) throw new Error('--retrieved-on must use YYYY-MM-DD');
   if (!Number.isFinite(radiusX) || !Number.isFinite(radiusY) || radiusX < 5_000 || radiusY < 5_000) {
     throw new Error('Context radii must be finite and at least 5 km');
@@ -145,7 +146,7 @@ function contextBounds(coordinateSystem, radiusX, radiusY) {
   };
 }
 
-function buildQueries(bounds) {
+function buildQueries(bounds, icaoId) {
   const bbox = [bounds.south, bounds.west, bounds.north, bounds.east].map((value) => value.toFixed(7)).join(',');
   return {
     roads: `[out:json][timeout:180];(`
@@ -156,7 +157,7 @@ function buildQueries(bounds) {
     transport: `[out:json][timeout:180];(`
       + `way(${bbox})["railway"~"^(rail|light_rail)$"];`
       + `way(${bbox})["waterway"~"^(river|canal)$"];`
-      + `nwr(${bbox})["aeroway"="aerodrome"]["icao"="KORD"];`
+      + `nwr(${bbox})["aeroway"="aerodrome"]["icao"="${icaoId}"];`
       + ');out body geom;',
     areas: `[out:json][timeout:180];(`
       + `nwr(${bbox})["landuse"~"^(industrial|commercial|retail|railway|cemetery)$"];`
@@ -214,7 +215,7 @@ function normalizeContext(response, faaManifest, bounds, queries, options) {
   for (const element of response.elements ?? []) {
     const tags = element.tags ?? {};
     if (element.type !== 'way' && element.type !== 'relation') continue;
-    if (tags.aeroway === 'aerodrome' && tags.icao === 'KORD') {
+    if (tags.aeroway === 'aerodrome' && tags.icao === options.icaoId) {
       for (const rings of polygonSets(element, coordinateSystem, 8)) {
         const area = Math.abs(polygonArea(rings[0]));
         if (area > 100_000) boundaryCandidates.push({ sourceId: `${element.type}/${element.id}`, rings, area });
@@ -262,7 +263,8 @@ function normalizeContext(response, faaManifest, bounds, queries, options) {
     }
   }
   const airportBoundary = boundaryCandidates.sort((first, second) => second.area - first.area)[0];
-  if (!airportBoundary) throw new Error('No usable KORD aerodrome boundary was returned by OpenStreetMap');
+  if (!airportBoundary)
+    throw new Error(`No usable ${options.icaoId} aerodrome boundary was returned by OpenStreetMap`);
   roads.sort((first, second) => first.id.localeCompare(second.id));
   rails.sort((first, second) => first.id.localeCompare(second.id));
   waterways.sort((first, second) => first.id.localeCompare(second.id));

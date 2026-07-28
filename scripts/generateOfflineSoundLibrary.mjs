@@ -7,12 +7,12 @@ const OUTPUT_ROOT = 'public/audio/library';
 
 const specifications = [
   { id: 'engine-turbofan', family: 'bed', channel: 'aircraft', duration: 6.4, seed: 101, synthesis: 'engine', triggers: ['engine'], states: ['moving'] },
-  { id: 'apu-ramp', family: 'bed', channel: 'ambience', duration: 7.1, seed: 102, synthesis: 'apu', triggers: ['apu'], states: ['gate-active'] },
-  { id: 'ramp-bed', family: 'bed', channel: 'ambience', duration: 8.2, seed: 103, synthesis: 'ramp', triggers: ['ramp'], states: ['service-active'] },
-  { id: 'cabin-area', family: 'bed', channel: 'ambience', duration: 8.6, seed: 104, synthesis: 'room', triggers: ['cabin'], states: ['gate-active'] },
+  { id: 'apu-ramp', family: 'bed', channel: 'terminal', duration: 7.1, seed: 102, synthesis: 'apu', triggers: ['apu'], states: ['gate-active'] },
+  { id: 'ramp-bed', family: 'bed', channel: 'terminal', duration: 8.2, seed: 103, synthesis: 'ramp', triggers: ['ramp'], states: ['service-active'] },
+  { id: 'cabin-area', family: 'bed', channel: 'terminal', duration: 8.6, seed: 104, synthesis: 'room', triggers: ['cabin'], states: ['gate-active'] },
   { id: 'runway-distance', family: 'bed', channel: 'ambience', duration: 7.8, seed: 105, synthesis: 'runway', triggers: ['runway'], states: ['moving'] },
-  { id: 'terminal-room', family: 'bed', channel: 'ambience', duration: 9.4, seed: 106, synthesis: 'terminal', triggers: ['terminal'], states: ['always'] },
-  { id: 'tower-room', family: 'bed', channel: 'ambience', duration: 9.1, seed: 107, synthesis: 'room', triggers: ['tower'], states: ['always'] },
+  { id: 'terminal-room', family: 'bed', channel: 'terminal', duration: 9.4, seed: 106, synthesis: 'terminal', triggers: ['terminal'], states: ['always'] },
+  { id: 'tower-room', family: 'bed', channel: 'terminal', duration: 9.1, seed: 107, synthesis: 'room', triggers: ['tower'], states: ['always'] },
   { id: 'rain-field', family: 'bed', channel: 'weather', duration: 9.7, seed: 108, synthesis: 'rain', triggers: ['rain'], states: ['rain'] },
   { id: 'wind-field', family: 'bed', channel: 'weather', duration: 9.3, seed: 109, synthesis: 'wind', triggers: ['wind'], states: ['wind'] },
   { id: 'snow-field', family: 'bed', channel: 'weather', duration: 10.1, seed: 110, synthesis: 'snow', triggers: ['snow'], states: ['snow'] },
@@ -33,8 +33,8 @@ const specifications = [
   { id: 'gear-motion-2', family: 'event', channel: 'aircraft', duration: 2.4, seed: 214, synthesis: 'mechanical', triggers: ['gear'] },
   { id: 'pushback-1', family: 'event', channel: 'aircraft', duration: 2.7, seed: 215, synthesis: 'tug', triggers: ['pushback', 'tug-movement'] },
   { id: 'pushback-2', family: 'event', channel: 'aircraft', duration: 3.0, seed: 216, synthesis: 'tug', triggers: ['pushback', 'tug-movement'] },
-  { id: 'service-vehicle-1', family: 'event', channel: 'ambience', duration: 2.5, seed: 217, synthesis: 'vehicle', triggers: ['service-vehicle', 'ramp-clatter'] },
-  { id: 'service-vehicle-2', family: 'event', channel: 'ambience', duration: 2.9, seed: 218, synthesis: 'vehicle', triggers: ['service-vehicle', 'ramp-clatter'] },
+  { id: 'service-vehicle-1', family: 'event', channel: 'terminal', duration: 2.5, seed: 217, synthesis: 'vehicle', triggers: ['service-vehicle', 'ramp-clatter'] },
+  { id: 'service-vehicle-2', family: 'event', channel: 'terminal', duration: 2.9, seed: 218, synthesis: 'vehicle', triggers: ['service-vehicle', 'ramp-clatter'] },
   { id: 'deicing-1', family: 'event', channel: 'weather', duration: 3.4, seed: 219, synthesis: 'spray', triggers: ['deicing-spray'] },
   { id: 'deicing-2', family: 'event', channel: 'weather', duration: 3.8, seed: 220, synthesis: 'spray', triggers: ['deicing-spray'] },
   { id: 'gust-1', family: 'event', channel: 'weather', duration: 3.3, seed: 221, synthesis: 'gust', triggers: ['weather-gust', 'weather-shift'] },
@@ -51,6 +51,18 @@ const specifications = [
   { id: 'handoff-2', family: 'radio', channel: 'radio', duration: 3.1, seed: 308, synthesis: 'voice-high', triggers: ['radio-handoff'], station: 'tower', speaker: 'controller-b', captionTemplate: '{callsign}, frequency change approved.' },
   { id: 'emergency-1', family: 'radio', channel: 'radio', duration: 3.0, seed: 309, synthesis: 'voice-low', triggers: ['radio-emergency'], station: 'tower', speaker: 'controller-c', captionTemplate: '{callsign}, go around. Fly the missed approach.' },
   { id: 'emergency-2', family: 'radio', channel: 'radio', duration: 3.4, seed: 310, synthesis: 'voice-high', triggers: ['radio-emergency'], station: 'approach', speaker: 'controller-d', captionTemplate: '{callsign}, emergency acknowledged. Priority handling is active.' },
+  { id: 'approach-arrival-3', family: 'radio', channel: 'radio', duration: 3.5, seed: 311, synthesis: 'voice-mid', triggers: ['scope-entry'], station: 'approach', speaker: 'controller-e', captionTemplate: '{callsign}, identified. Expect the planned arrival.' },
+  { id: 'approach-arrival-4', family: 'radio', channel: 'radio', duration: 3.2, seed: 312, synthesis: 'voice-soft', triggers: ['scope-entry'], station: 'approach', speaker: 'controller-f', captionTemplate: '{callsign}, radar service is available. Continue inbound.' },
+  { id: 'tower-landing-3', family: 'radio', channel: 'radio', duration: 3.3, seed: 313, synthesis: 'voice-mid', triggers: ['radio-clearance'], station: 'tower', speaker: 'controller-e', captionTemplate: '{callsign}, landing clearance issued for the assigned runway.' },
+  { id: 'tower-landing-4', family: 'radio', channel: 'radio', duration: 3.5, seed: 314, synthesis: 'voice-soft', triggers: ['radio-clearance'], station: 'tower', speaker: 'controller-f', captionTemplate: '{callsign}, runway is available. Continue as cleared.' },
+  { id: 'ground-taxi-3', family: 'radio', channel: 'radio', duration: 3.6, seed: 315, synthesis: 'voice-mid', triggers: ['radio-ground'], station: 'ground', speaker: 'controller-e', captionTemplate: '{callsign}, use the cleared taxi route and monitor ground.' },
+  { id: 'ground-taxi-4', family: 'radio', channel: 'radio', duration: 3.4, seed: 316, synthesis: 'voice-soft', triggers: ['radio-ground'], station: 'ground', speaker: 'controller-f', captionTemplate: '{callsign}, continue taxi with the current clearance.' },
+  { id: 'ramp-pushback-1', family: 'radio', channel: 'radio', duration: 3.1, seed: 317, synthesis: 'voice-low', triggers: ['radio-ground'], station: 'ramp', speaker: 'ramp-a', captionTemplate: '{callsign}, pushback window is approved. Release when ready.' },
+  { id: 'ramp-pushback-2', family: 'radio', channel: 'radio', duration: 3.3, seed: 318, synthesis: 'voice-mid', triggers: ['radio-ground'], station: 'ramp', speaker: 'ramp-b', captionTemplate: '{callsign}, ramp route is clear. Contact ground when ready.' },
+  { id: 'handoff-3', family: 'radio', channel: 'radio', duration: 3.2, seed: 319, synthesis: 'voice-mid', triggers: ['radio-handoff'], station: 'ground', speaker: 'controller-e', captionTemplate: '{callsign}, switch to the next control position.' },
+  { id: 'handoff-4', family: 'radio', channel: 'radio', duration: 3.0, seed: 320, synthesis: 'voice-soft', triggers: ['radio-handoff'], station: 'ramp', speaker: 'ramp-b', captionTemplate: '{callsign}, handoff complete. Continue with the next controller.' },
+  { id: 'emergency-3', family: 'radio', channel: 'radio', duration: 3.3, seed: 321, synthesis: 'voice-mid', triggers: ['radio-emergency'], station: 'tower', speaker: 'controller-e', captionTemplate: '{callsign}, go around now. Maintain the assigned missed approach.' },
+  { id: 'emergency-4', family: 'radio', channel: 'radio', duration: 3.6, seed: 322, synthesis: 'voice-soft', triggers: ['radio-emergency'], station: 'approach', speaker: 'controller-f', captionTemplate: '{callsign}, priority handling acknowledged. Follow the escape procedure.' },
 ];
 
 function randomFactory(seed) {
@@ -112,8 +124,11 @@ function synthesize(specification) {
       case 'gust': value = noise[index] * Math.sin(Math.PI * progress) * 0.3; break;
       case 'thunder': value = noise[index] * Math.exp(-time * 0.5) * 0.32 + Math.sin(time * Math.PI * 2 * 36) * Math.exp(-time * 0.7) * 0.2; break;
       case 'voice-low':
-      case 'voice-high': {
-        const base = specification.synthesis === 'voice-low' ? 92 : 128;
+      case 'voice-high':
+      case 'voice-mid':
+      case 'voice-soft': {
+        const baseByVoice = { 'voice-low': 92, 'voice-mid': 110, 'voice-high': 128, 'voice-soft': 146 };
+        const base = baseByVoice[specification.synthesis];
         const syllable = Math.floor(time * 4.6);
         const gate = Math.sin(Math.PI * ((time * 4.6) % 1)) ** 0.55;
         const pitch = base + (syllable % 5) * 7 + Math.sin(time * 9) * 2.5;

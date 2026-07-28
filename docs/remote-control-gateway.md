@@ -127,7 +127,14 @@ airportControl.remote.disconnect();
 The gateway serves a compact human desk at `http://127.0.0.1:8787/console` (or the HTTPS deployment URL). It supports:
 
 - in-memory authentication and station claim/release;
-- live exclusive-claim and host status;
+- live exclusive-claim, host status, and host-projected station workload/track
+  pressure when the game is connected;
+- a visible consent-based station-handoff desk: the current controller offers
+  only to an idle controller, and the recipient can explicitly accept or decline
+  during the 15-second lease-transfer window;
+- a collapsed shared-shift review of the host-projected safety, flow, holding
+  fuel, coordination, command-quality, and per-station results; it is
+  read-only and never changes a clearance or compensates for a safety event;
 - a bounded traffic list with phase, altitude, ground speed, and fuel;
 - contextual landing, go-around, hold/resume, and takeoff command templates;
 - arbitrary typed command JSON for the complete catalog;
@@ -159,6 +166,7 @@ The optional `station` requests a claim during authentication. A successful `wel
 { "type": "release", "requestId": "release-1" }
 { "type": "offer-station", "toClientId": "tower-agent-b" }
 { "type": "accept-station", "station": "tower" }
+{ "type": "decline-station", "station": "tower" }
 ```
 
 Operational request:

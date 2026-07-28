@@ -30,7 +30,7 @@
     {
       "id": "apu-ramp",
       "family": "bed",
-      "channel": "ambience",
+      "channel": "terminal",
       "path": "audio/library/apu-ramp.wav",
       "durationSeconds": 7.1,
       "sampleRate": 16000,
@@ -48,7 +48,7 @@
     {
       "id": "ramp-bed",
       "family": "bed",
-      "channel": "ambience",
+      "channel": "terminal",
       "path": "audio/library/ramp-bed.wav",
       "durationSeconds": 8.2,
       "sampleRate": 16000,
@@ -66,7 +66,7 @@
     {
       "id": "cabin-area",
       "family": "bed",
-      "channel": "ambience",
+      "channel": "terminal",
       "path": "audio/library/cabin-area.wav",
       "durationSeconds": 8.6,
       "sampleRate": 16000,
@@ -102,7 +102,7 @@
     {
       "id": "terminal-room",
       "family": "bed",
-      "channel": "ambience",
+      "channel": "terminal",
       "path": "audio/library/terminal-room.wav",
       "durationSeconds": 9.4,
       "sampleRate": 16000,
@@ -120,7 +120,7 @@
     {
       "id": "tower-room",
       "family": "bed",
-      "channel": "ambience",
+      "channel": "terminal",
       "path": "audio/library/tower-room.wav",
       "durationSeconds": 9.1,
       "sampleRate": 16000,
@@ -470,7 +470,7 @@
     {
       "id": "service-vehicle-1",
       "family": "event",
-      "channel": "ambience",
+      "channel": "terminal",
       "path": "audio/library/service-vehicle-1.wav",
       "durationSeconds": 2.5,
       "sampleRate": 16000,
@@ -487,7 +487,7 @@
     {
       "id": "service-vehicle-2",
       "family": "event",
-      "channel": "ambience",
+      "channel": "terminal",
       "path": "audio/library/service-vehicle-2.wav",
       "durationSeconds": 2.9,
       "sampleRate": 16000,
@@ -786,6 +786,234 @@
       "station": "approach",
       "speaker": "controller-d",
       "captionTemplate": "{callsign}, emergency acknowledged. Priority handling is active.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "approach-arrival-3",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/approach-arrival-3.wav",
+      "durationSeconds": 3.5,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "b164c9f654bdc455294b8b1fff42a4e60d9782a7bbf0c9a9056bb3c56c293631",
+      "triggers": [
+        "scope-entry"
+      ],
+      "states": [],
+      "station": "approach",
+      "speaker": "controller-e",
+      "captionTemplate": "{callsign}, identified. Expect the planned arrival.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "approach-arrival-4",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/approach-arrival-4.wav",
+      "durationSeconds": 3.2,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "89a62c5303cbd9b991b7df36b2399ae51e38178f3d55105d05508670cfd6610f",
+      "triggers": [
+        "scope-entry"
+      ],
+      "states": [],
+      "station": "approach",
+      "speaker": "controller-f",
+      "captionTemplate": "{callsign}, radar service is available. Continue inbound.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "tower-landing-3",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/tower-landing-3.wav",
+      "durationSeconds": 3.3,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "32f946bb96b6f8014c4843db25267c7064aef2cdd7f233d6bba4c2435d03483f",
+      "triggers": [
+        "radio-clearance"
+      ],
+      "states": [],
+      "station": "tower",
+      "speaker": "controller-e",
+      "captionTemplate": "{callsign}, landing clearance issued for the assigned runway.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "tower-landing-4",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/tower-landing-4.wav",
+      "durationSeconds": 3.5,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "bce5b4a6784ac935043c411953e5133e4d31fe61bd84c1f0aa71f9b1dda6de8d",
+      "triggers": [
+        "radio-clearance"
+      ],
+      "states": [],
+      "station": "tower",
+      "speaker": "controller-f",
+      "captionTemplate": "{callsign}, runway is available. Continue as cleared.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "ground-taxi-3",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/ground-taxi-3.wav",
+      "durationSeconds": 3.6,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "b4fd144fc56e00f6d4246291d01d2f2d9201f59605e2e45f1259a155168ab36f",
+      "triggers": [
+        "radio-ground"
+      ],
+      "states": [],
+      "station": "ground",
+      "speaker": "controller-e",
+      "captionTemplate": "{callsign}, use the cleared taxi route and monitor ground.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "ground-taxi-4",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/ground-taxi-4.wav",
+      "durationSeconds": 3.4,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "9ce2f1f4f8438edc82c8273e1c8fc3c7ae606b72eecf307646d44114181a9d2e",
+      "triggers": [
+        "radio-ground"
+      ],
+      "states": [],
+      "station": "ground",
+      "speaker": "controller-f",
+      "captionTemplate": "{callsign}, continue taxi with the current clearance.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "ramp-pushback-1",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/ramp-pushback-1.wav",
+      "durationSeconds": 3.1,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "eef0da55e080d7ea80f1765ae75c943fe60d9d94df02481a3209545eb78299b6",
+      "triggers": [
+        "radio-ground"
+      ],
+      "states": [],
+      "station": "ramp",
+      "speaker": "ramp-a",
+      "captionTemplate": "{callsign}, pushback window is approved. Release when ready.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "ramp-pushback-2",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/ramp-pushback-2.wav",
+      "durationSeconds": 3.3,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "96257cbd8a6d8e942511b13ff818a5793fad9345adbd20bc168f9732228a8cb5",
+      "triggers": [
+        "radio-ground"
+      ],
+      "states": [],
+      "station": "ramp",
+      "speaker": "ramp-b",
+      "captionTemplate": "{callsign}, ramp route is clear. Contact ground when ready.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "handoff-3",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/handoff-3.wav",
+      "durationSeconds": 3.2,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "edb8377ff9e54ce4688d7523728d9b6ced86a685e94ca074e77fd1974600168d",
+      "triggers": [
+        "radio-handoff"
+      ],
+      "states": [],
+      "station": "ground",
+      "speaker": "controller-e",
+      "captionTemplate": "{callsign}, switch to the next control position.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "handoff-4",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/handoff-4.wav",
+      "durationSeconds": 3,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "7afac0ac1736f770e61fbff5a78c6f7e73865afe7749fe5455f5ca02a00efcf4",
+      "triggers": [
+        "radio-handoff"
+      ],
+      "states": [],
+      "station": "ramp",
+      "speaker": "ramp-b",
+      "captionTemplate": "{callsign}, handoff complete. Continue with the next controller.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "emergency-3",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/emergency-3.wav",
+      "durationSeconds": 3.3,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "1cfa251589cc8e2a6433c1a006f8d4139aaf7e2f282d40d0f2e3e1b45107dcce",
+      "triggers": [
+        "radio-emergency"
+      ],
+      "states": [],
+      "station": "tower",
+      "speaker": "controller-e",
+      "captionTemplate": "{callsign}, go around now. Maintain the assigned missed approach.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "emergency-4",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/emergency-4.wav",
+      "durationSeconds": 3.6,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "38a08a9f0ecc3505bfda590079377ee2f91da62ea9cbebd510502e0ab4814766",
+      "triggers": [
+        "radio-emergency"
+      ],
+      "states": [],
+      "station": "approach",
+      "speaker": "controller-f",
+      "captionTemplate": "{callsign}, priority handling acknowledged. Follow the escape procedure.",
       "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
       "license": "CC0-1.0"
     }

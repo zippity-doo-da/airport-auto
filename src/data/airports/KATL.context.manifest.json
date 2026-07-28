@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "airport": {
+    "faaId": "ATL",
+    "icaoId": "KATL",
+    "name": "Hartsfield-Jackson Atlanta International",
+    "fidelity": "faa-airport-mapping",
+    "navigationUse": false
+  },
+  "assetPath": "data/airports/KATL.context.json",
+  "assetSha256": "1470717d6a665efaab102f702752ece7292a03aa08658be24ddb702ae7fb65d2",
+  "retrievedOn": "2026-07-28",
+  "coordinateSystem": {
+    "source": "EPSG:4326",
+    "local": "local-tangent-plane",
+    "originWgs84": [
+      -84.4267407,
+      33.6349124
+    ],
+    "axes": {
+      "x": "east",
+      "y": "north"
+    },
+    "unit": "meter",
+    "earthRadiusMeters": 6378137,
+    "coordinatePrecisionMeters": 0.1
+  },
+  "boundsMeters": {
+    "min": [
+      -11999.999999999796,
+      -9999.99999999966
+    ],
+    "max": [
+      11999.999999999796,
+      9999.99999999966
+    ]
+  },
+  "source": {
+    "provider": "OpenStreetMap",
+    "endpoint": "https://overpass.kumi.systems/api/interpreter",
+    "queries": {
+      "roads": "[out:json][timeout:180];(way(33.5450809,-84.5562145,33.7247439,-84.2972669)[\"highway\"~\"^(motorway|motorway_link|trunk|trunk_link|primary|primary_link)$\"];way(33.5450809,-84.5562145,33.7247439,-84.2972669)[\"highway\"=\"secondary\"][\"name\"];way(33.5450809,-84.5562145,33.7247439,-84.2972669)[\"highway\"=\"secondary\"][\"ref\"];);out tags geom;",
+      "transport": "[out:json][timeout:180];(way(33.5450809,-84.5562145,33.7247439,-84.2972669)[\"railway\"~\"^(rail|light_rail)$\"];way(33.5450809,-84.5562145,33.7247439,-84.2972669)[\"waterway\"~\"^(river|canal)$\"];nwr(33.5450809,-84.5562145,33.7247439,-84.2972669)[\"aeroway\"=\"aerodrome\"][\"icao\"=\"KATL\"];);out body geom;",
+      "areas": "[out:json][timeout:180];(nwr(33.5450809,-84.5562145,33.7247439,-84.2972669)[\"landuse\"~\"^(industrial|commercial|retail|railway|cemetery)$\"];nwr(33.5450809,-84.5562145,33.7247439,-84.2972669)[\"leisure\"~\"^(park|golf_course)$\"];nwr(33.5450809,-84.5562145,33.7247439,-84.2972669)[\"natural\"=\"water\"];);out body geom;"
+    },
+    "osmBaseTimestamp": "2026-06-12T12:14:17Z",
+    "license": "Open Data Commons Open Database License 1.0",
+    "attribution": "© OpenStreetMap contributors",
+    "copyrightUrl": "https://www.openstreetmap.org/copyright"
+  },
+  "counts": {
+    "roads": 2846,
+    "roadPoints": 6724,
+    "rails": 306,
+    "railPoints": 1177,
+    "waterways": 10,
+    "waterwayPoints": 305,
+    "areas": 582,
+    "areaPoints": 7847,
+    "boundaryRings": 1,
+    "boundaryPoints": 463
+  },
+  "license": "Open Data Commons Open Database License 1.0",
+  "attribution": "© OpenStreetMap contributors",
+  "copyrightUrl": "https://www.openstreetmap.org/copyright"
+}

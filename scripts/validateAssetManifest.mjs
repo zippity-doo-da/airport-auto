@@ -68,16 +68,21 @@ import { airportSurfaceDataManifest } from './src/simulation/importedAirportData
 import { airportContextDataManifest } from './src/simulation/airportContextData.ts';
 
 const manifest = airportAutoAssetManifest();
-if (manifest.assets.length !== 4) throw new Error('typed asset manifest is incomplete');
+if (manifest.assets.length !== 7) throw new Error('typed asset manifest is incomplete');
 manifest.assets.pop();
-if (airportAutoAssetManifest().assets.length !== 4) throw new Error('asset manifest leaked mutable state');
+if (airportAutoAssetManifest().assets.length !== 7) throw new Error('asset manifest leaked mutable state');
 if (airportAutoAsset('airport.ORD.vector').kind !== 'airport-vector') throw new Error('typed asset lookup returned the wrong entry');
+if (airportAutoAsset('airport.ATL.vector').kind !== 'airport-vector') throw new Error('Atlanta vector asset is missing');
+if (airportAutoAsset('airport.ATL.surface-source').kind !== 'airport-surface-source') throw new Error('Atlanta surface asset is missing');
 if (airportAutoAssetPath('audio.soundscape-manifest') !== 'audio/soundscape-manifest.json') throw new Error('stable soundscape key drifted');
 if (airportAutoAssetUrl('airport.ORD.context', 'https://example.test/airport-auto/').href !== 'https://example.test/airport-auto/data/airports/KORD.context.json') throw new Error('relative deployment URL resolution drifted');
 if (airportVectorManifest('ORD')?.assetPath !== airportAutoAssetPath('airport.ORD.vector')) throw new Error('vector metadata bypasses stable asset key');
+if (airportVectorManifest('ATL')?.assetPath !== airportAutoAssetPath('airport.ATL.vector')) throw new Error('Atlanta vector metadata bypasses stable asset key');
+if (airportSurfaceDataManifest('ATL')?.assetPath !== airportAutoAssetPath('airport.ATL.surface-source')) throw new Error('Atlanta surface metadata bypasses stable asset key');
 if (airportSurfaceDataManifest('ORD')?.assetPath !== airportAutoAssetPath('airport.ORD.surface-source')) throw new Error('surface metadata bypasses stable asset key');
 if (airportContextDataManifest('ORD')?.assetPath !== airportAutoAssetPath('airport.ORD.context')) throw new Error('context metadata bypasses stable asset key');
-console.log(JSON.stringify({ schemaVersion: manifest.schemaVersion, assets: 4 }));
+if (airportContextDataManifest('ATL')?.assetPath !== airportAutoAssetPath('airport.ATL.context')) throw new Error('Atlanta context metadata bypasses stable asset key');
+console.log(JSON.stringify({ schemaVersion: manifest.schemaVersion, assets: 7 }));
 `;
 
 const result = await build({

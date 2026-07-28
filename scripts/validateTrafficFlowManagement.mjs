@@ -1,4 +1,4 @@
-import { build } from 'esbuild';
+import { build } from "esbuild";
 
 const validationSource = `
 import { generateHubConfig, HUB_AIRPORTS } from './src/simulation/airportConfig.ts';
@@ -10,14 +10,21 @@ import {
   createTrafficFlowState,
   enqueueArrivalDemand,
   expireTrafficFlow,
+  markArrivalHolding,
   registerDepartureDemand,
   releaseArrivalDemand,
   releaseDepartureDemand,
+  TRAFFIC_FLOW_OBJECTIVES,
+  isTrafficFlowObjective,
+  setTrafficFlowObjective,
+  trafficFlowObjectiveProfile,
   trafficFlowSnapshot,
 } from './src/simulation/trafficFlowManagement.ts';
 import { amendFlightPlan, createFlightPlan } from './src/simulation/flightPlanning.ts';
 import { createHubSimulationHarness } from './src/simulation/fixedStepHarness.ts';
+import { AirportSimulation } from './src/simulation/airportSimulation.ts';
 import { selectTerminalProcedure } from './src/simulation/airspaceProcedures.ts';
+import { trafficFlowMeterRows } from './src/ui/queueInspector.ts';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -37,6 +44,8 @@ const totals = {
 };
 
 assert(JSON.stringify(TRAFFIC_DENSITIES) === JSON.stringify(['quiet', 'realistic', 'busy', 'rush', 'extreme']), 'traffic-density order changed');
+assert(JSON.stringify(TRAFFIC_FLOW_OBJECTIVES) === JSON.stringify(['balanced', 'minimum-holding', 'minimum-taxi-delay', 'weather-recovery', 'watch-calm']), 'traffic-flow objective order changed');
+assert(TRAFFIC_FLOW_OBJECTIVES.every((objective) => isTrafficFlowObjective(objective) && trafficFlowObjectiveProfile(objective).arrivalDemandIntervalMultiplier > 0 && trafficFlowObjectiveProfile(objective).arrivalSpacingMultiplier > 0 && trafficFlowObjectiveProfile(objective).departureSpacingMultiplier > 0), 'traffic-flow objective profiles are incomplete');
 let previousDemand = 0;
 for (const density of TRAFFIC_DENSITIES) {
   const profile = TRAFFIC_DENSITY_PROFILES[density];
@@ -112,8 +121,15 @@ assert(plan.revision === 2 && plan.amendments.at(-1)?.kind === 'runway-change' &
 totals.completePlans += 1;
 
 const flow = createTrafficFlowState('realistic', 0, 0);
+setTrafficFlowObjective(flow, 'weather-recovery', 0);
+assert(trafficFlowSnapshot(flow, 0).objective.id === 'weather-recovery' && trafficFlowObjectiveProfile('weather-recovery').arrivalSpacingMultiplier > trafficFlowObjectiveProfile('balanced').arrivalSpacingMultiplier, 'weather recovery objective did not persist its reduced-rate pacing');
 const arrivals = Array.from({ length: 5 }, (_, index) => enqueueArrivalDemand(flow, index, 'test arrival ' + index));
 assert(flow.arrivalQueue.length === 4 && arrivals.at(-1).status === 'diverted' && flow.totals.diversions === 1, 'holding capacity did not divert excess invisible demand');
+markArrivalHolding(flow, flow.arrivalQueue[0], 3, 'synthetic approach saturation', 2);
+assert(flow.arrivalQueue[0].slotRevisions.length === 2 && flow.arrivalQueue[0].slotRevisions.at(-1)?.reason === 'synthetic approach saturation', 'arrival holding did not retain a slot-revision cause');
+const revisionSnapshot = trafficFlowSnapshot(flow, 3);
+revisionSnapshot.arrivalQueue[0].slotRevisions[0].reason = 'mutated snapshot';
+assert(flow.arrivalQueue[0].slotRevisions[0].reason !== 'mutated snapshot', 'traffic-flow snapshot shared slot-revision references with state');
 const fakeArrival = { id: 11, callsign: 'TEST 11', runway: 1 };
 releaseArrivalDemand(flow, flow.arrivalQueue[0], 10, fakeArrival, 5);
 assert(flow.totals.arrivalReleases === 1 && flow.arrivalQueue.length === 3, 'arrival meter did not release its head entry');
@@ -122,13 +138,25 @@ const departureB = { id: 22, callsign: 'TEST 22', departureRunway: 2 };
 const slotA = registerDepartureDemand(flow, departureA, 10, 12, 6);
 const slotB = registerDepartureDemand(flow, departureB, 10, 12, 6);
 assert(slotB.releaseSlotSeconds >= slotA.releaseSlotSeconds + 6 && flow.departureQueue[0] === slotA, 'departure slots are not ordered');
+registerDepartureDemand(flow, departureB, 11, 24, 6);
+assert(slotB.slotRevisions.length === 2 && slotB.slotRevisions.at(-1)?.reason === 'departure readiness revised', 'departure slot revision did not retain its cause');
 releaseDepartureDemand(flow, slotA, slotA.releaseSlotSeconds, 6);
 assert(flow.totals.departureReleases === 1 && flow.departureQueue[0] === slotB, 'departure release did not advance the queue');
+const meterSnapshot = trafficFlowSnapshot(flow, 20);
+const meterRows = trafficFlowMeterRows(meterSnapshot);
+assert(meterRows.length === 4 && meterRows.filter((row) => row.direction === 'arrival').length === 3 && meterRows.filter((row) => row.direction === 'departure').length === 1, 'meter plan did not expose the pending arrival and departure slots');
+assert(meterRows.every((row) => row.slotInSeconds >= 0 && row.label.length > 0 && row.reason.length > 0), 'meter plan contains incomplete slot context');
 const expiry = expireTrafficFlow(flow, 500);
 assert(expiry.diverted.length === 3 && expiry.cancelled.length === 1, 'capacity expiry did not divert/cancel blocked demand');
 const flowSnapshot = trafficFlowSnapshot(flow, 500);
 assert(flowSnapshot.history.length === 7 && flowSnapshot.backPressure.arrivalsHolding === 0 && flowSnapshot.backPressure.departuresWaiting === 0, 'flow snapshot is incomplete');
 totals.flowTransitions += 8;
+
+const objectiveSimulation = new AirportSimulation(ordConfig);
+objectiveSimulation.setStation('ground');
+assert(!objectiveSimulation.setTrafficFlowObjective('watch-calm'), 'non-supervisor station changed the airport flow objective');
+objectiveSimulation.setStation('supervisor');
+assert(objectiveSimulation.setTrafficFlowObjective('minimum-taxi-delay') && objectiveSimulation.state.trafficFlow.objective === 'minimum-taxi-delay', 'supervisor could not set the traffic-flow objective');
 
 const hub = createHubSimulationHarness('ORD', { stepSeconds: 0.1, pace: 3, mode: 'auto', density: 'extreme' });
 const initialIds = new Set(hub.simulation.state.flights.map((flight) => flight.id));
@@ -176,22 +204,25 @@ const result = await build({
   absWorkingDir: process.cwd(),
   stdin: {
     contents: validationSource,
-    loader: 'ts',
+    loader: "ts",
     resolveDir: process.cwd(),
-    sourcefile: 'traffic-flow-management-validation.ts',
+    sourcefile: "traffic-flow-management-validation.ts",
   },
   bundle: true,
-  format: 'esm',
-  platform: 'node',
-  target: 'node22',
+  format: "esm",
+  platform: "node",
+  target: "node22",
   write: false,
-  logLevel: 'silent',
+  logLevel: "silent",
 });
 
 const bundled = result.outputFiles[0]?.text;
-if (!bundled) throw new Error('Traffic-flow management validation bundle was empty.');
+if (!bundled)
+  throw new Error("Traffic-flow management validation bundle was empty.");
 try {
-  await import('data:text/javascript;base64,' + Buffer.from(bundled).toString('base64'));
+  await import(
+    "data:text/javascript;base64," + Buffer.from(bundled).toString("base64")
+  );
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;

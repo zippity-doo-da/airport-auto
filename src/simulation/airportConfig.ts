@@ -445,6 +445,79 @@ function buildRunwayConfigurations(code: string, runways: RunwayConfig[]): Airpo
       ),
     ];
   }
+  if (code === 'ATL') {
+    const source: RunwayConfigurationSource = {
+      title: 'FAA KATL terminal procedures and ATL airport fact sheet',
+      url: 'https://www.faa.gov/air_traffic/flight_info/aeronav/digital_products/dtpp/search/results/?cycle=2603&dir=asc&page=8&sort=airport&state=GA',
+      published: 'terminal procedures cycle 2603, retrieved 2026-07-28',
+    };
+    const atlConfiguration = (
+      id: string,
+      name: string,
+      description: string,
+      end: -1 | 1,
+      arrivalRunwayIds: number[],
+      departureRunwayIds: number[],
+      procedure: RunwayProcedureClass,
+      restrictions: RunwayConfigurationRestrictions,
+      selectionPriority = 0,
+    ): AirportRunwayConfiguration => {
+      const arrivalsSet = new Set(arrivalRunwayIds);
+      const departuresSet = new Set(departureRunwayIds);
+      return {
+        id,
+        name,
+        description,
+        procedure,
+        arrivalRunwayIds: [...arrivalRunwayIds],
+        departureRunwayIds: [...departureRunwayIds],
+        operatingEnds: Object.fromEntries(runways.map((runway) => [runway.id, end])) as Record<number, -1 | 1>,
+        runwayRoles: Object.fromEntries(runways.map((runway) => {
+          const arrival = arrivalsSet.has(runway.id);
+          const departure = departuresSet.has(runway.id);
+          return [runway.id, arrival && departure ? 'mixed' : arrival ? 'arrival' : departure ? 'departure' : 'inactive'];
+        })) as Record<number, RunwayOperationalRole>,
+        restrictions,
+        selectionPriority,
+        source,
+      };
+    };
+    return [
+      atlConfiguration(
+        'ATL-EAST-PARALLEL',
+        'East parallel',
+        'Schematic east-flow bank: arrivals 08L, 09L, and 10; departures 08R and 09R.',
+        -1,
+        [0, 2, 4],
+        [1, 3],
+        'parallel',
+        { conditions: ['clear', 'haze', 'rain', 'fog', 'snow', 'thunderstorm'], autoSelectable: true, note: 'Schematic configuration informed by published KATL runway procedures; not a live or operational runway-use plan.' },
+        0.08,
+      ),
+      atlConfiguration(
+        'ATL-WEST-PARALLEL',
+        'West parallel',
+        'Schematic west-flow bank: arrivals 26R, 27R, and 28; departures 26L and 27L.',
+        1,
+        [0, 2, 4],
+        [1, 3],
+        'parallel',
+        { conditions: ['clear', 'haze', 'rain', 'fog', 'snow', 'thunderstorm'], autoSelectable: true, note: 'Schematic reciprocal configuration informed by published KATL runway procedures; not a live or operational runway-use plan.' },
+        0.09,
+      ),
+      atlConfiguration(
+        'ATL-EAST-INSTRUMENT',
+        'East instrument',
+        'Lower-visibility east-flow variant using published instrument-capable runway ends; departure capacity is reduced.',
+        -1,
+        [0, 2, 4],
+        [1],
+        'instrument-parallel',
+        { conditions: ['haze', 'rain', 'fog', 'thunderstorm'], autoSelectable: true, note: 'Game-scale instrument configuration based on published KATL approach availability, not ATC authorization.' },
+        0.12,
+      ),
+    ];
+  }
   const defaultEnd = runways.find((runway) => runway.role !== 'inactive')?.landingEnd ?? 1;
   return [
     configuration(`${code}-PRIMARY`, 'Primary flow', 'Published schematic runway roles and their primary operating ends.', defaultEnd),

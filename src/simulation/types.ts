@@ -16,12 +16,7 @@ import type { RouteDistanceSource } from "./routeDistances";
 
 export type ControlMode = "auto" | "assisted" | "manual" | "watch";
 export type WeatherCondition =
-  | "clear"
-  | "haze"
-  | "rain"
-  | "fog"
-  | "snow"
-  | "thunderstorm";
+  "clear" | "haze" | "rain" | "fog" | "snow" | "thunderstorm";
 export type EnvironmentLightingMode = "automatic" | "day" | "night";
 export type EnvironmentSeason = "spring" | "summer" | "autumn" | "winter";
 export type EnvironmentSeasonMode = "automatic" | EnvironmentSeason;
@@ -330,6 +325,8 @@ export type SurfaceDisruptionKind =
   "runway-closure" | "taxiway-closure" | "construction" | "disabled-aircraft";
 export type SurfaceDisruptionStatus = "pending" | "active" | "recovering";
 export type SurfaceDisruptionSource = "scenario" | "controller" | "incident";
+export type SurfaceIncidentResponsePhase =
+  "en-route" | "inspecting" | "ready-to-reopen";
 
 /**
  * A topology-changing surface restriction. edgeIds are the authoritative
@@ -340,6 +337,9 @@ export interface SurfaceDisruptionState {
   kind: SurfaceDisruptionKind;
   status: SurfaceDisruptionStatus;
   source: SurfaceDisruptionSource;
+  /** Optional named incident layered on the common surface-restriction model. */
+  incidentKind?:
+    "runway-inspection" | "bird-activity" | "foreign-object-debris";
   targetId: string;
   label: string;
   edgeIds: string[];
@@ -353,6 +353,13 @@ export interface SurfaceDisruptionState {
   recoveryStartedAtSeconds?: number;
   recoveryDurationSeconds?: number;
   recoveryProgress: number;
+  /** Named-inspection lifecycle; absent for ordinary closures and towing. */
+  responseVehicleLabel?: string;
+  responsePhase?: SurfaceIncidentResponsePhase;
+  responseStartedAtSeconds?: number;
+  responseArrivalAtSeconds?: number;
+  responseInspectionStartedAtSeconds?: number;
+  responseInspectionDurationSeconds?: number;
   reroutedFlightIds: number[];
   reason: string;
 }
@@ -439,6 +446,8 @@ export type ServiceVehicleStatus =
  */
 export interface ServiceVehicleState {
   id: string;
+  /** Named surface-incident response; absent for ordinary turnaround equipment. */
+  incidentResponseId?: string;
   flightId: number;
   callsign: string;
   service: TurnaroundServiceType;
@@ -556,12 +565,7 @@ export interface FlightGateAssignment {
 }
 
 export type RunwayBrakingAction =
-  | "good"
-  | "good-to-medium"
-  | "medium"
-  | "medium-to-poor"
-  | "poor"
-  | "nil";
+  "good" | "good-to-medium" | "medium" | "medium-to-poor" | "poor" | "nil";
 
 export type RunwayConditionCode = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 export type RunwayContaminant =
@@ -1095,6 +1099,20 @@ export interface ControllerPerformanceSnapshot {
 export type TrafficFlowStatus =
   "scheduled" | "metered" | "holding" | "released" | "diverted" | "cancelled";
 
+/** A bounded, authoritative explanation for one metering-slot change. */
+export interface TrafficFlowSlotRevision {
+  atSeconds: number;
+  releaseSlotSeconds: number;
+  reason: string;
+}
+
+export type TrafficFlowObjective =
+  | "balanced"
+  | "minimum-holding"
+  | "minimum-taxi-delay"
+  | "weather-recovery"
+  | "watch-calm";
+
 export interface TrafficFlowEntry {
   id: string;
   direction: "arrival" | "departure";
@@ -1106,6 +1124,7 @@ export interface TrafficFlowEntry {
   delaySeconds: number;
   attempts: number;
   reason: string;
+  slotRevisions: TrafficFlowSlotRevision[];
   flightId?: number;
   callsign?: string;
   runwayId?: number;
@@ -1114,6 +1133,7 @@ export interface TrafficFlowEntry {
 export interface TrafficFlowState {
   schemaVersion: 1;
   density: TrafficDensity;
+  objective: TrafficFlowObjective;
   nextDemandId: number;
   nextArrivalDemandSeconds: number;
   nextArrivalReleaseSeconds: number;
@@ -1320,6 +1340,8 @@ export interface RunwayConfigurationTransition {
 
 export interface AirportState {
   elapsed: number;
+  /** Serialized local-clock offset used by named ambient/Watch programs. */
+  operationTimeOffsetMinutes: number;
   flights: Flight[];
   serviceVehicles: ServiceVehicleState[];
   surfaceDisruptions: SurfaceDisruptionState[];

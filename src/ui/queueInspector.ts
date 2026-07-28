@@ -2,35 +2,64 @@ import {
   OPERATION_QUEUE_CATEGORIES,
   type OperationQueueCategory,
   type OperationQueueSnapshot,
-} from '../simulation/operationQueues';
+} from "../simulation/operationQueues";
+import type { TrafficFlowSnapshot } from "../simulation/trafficFlowManagement";
+import type { TrafficFlowEntry } from "../simulation/types";
 
-export type OperationQueueFilter = 'all' | OperationQueueCategory;
+export type OperationQueueFilter = "all" | OperationQueueCategory;
 
 export interface QueueInspectorElements {
   count: HTMLElement;
   longest: HTMLElement;
   list: HTMLElement;
+  meter: HTMLElement;
+  meterSummary: HTMLElement;
+}
+
+export interface TrafficFlowMeterRow {
+  id: string;
+  direction: "arrival" | "departure";
+  label: string;
+  slotInSeconds: number;
+  delaySeconds: number;
+  revisionCount: number;
+  status: TrafficFlowEntry["status"];
+  reason: string;
 }
 
 export function operationQueueRenderKey(
   snapshot: OperationQueueSnapshot,
   filter: OperationQueueFilter,
   focusedQueueId: string | null,
+  flow: TrafficFlowSnapshot,
 ): string {
   return [
     filter,
-    focusedQueueId ?? 'none',
+    focusedQueueId ?? "none",
     snapshot.total,
     Math.floor(snapshot.longestWaitSeconds),
-    ...snapshot.entries.map((entry) => [
-      entry.id,
-      entry.priority,
-      Math.floor(entry.waitSeconds),
-      entry.position,
-      entry.queueLength,
-      entry.detail,
-    ].join(':')),
-  ].join('|');
+    flow.backPressure.arrivalsHolding,
+    flow.backPressure.departuresWaiting,
+    ...trafficFlowMeterRows(flow).map((row) =>
+      [
+        row.id,
+        row.status,
+        Math.floor(row.slotInSeconds),
+        Math.floor(row.delaySeconds),
+        row.reason,
+      ].join(":"),
+    ),
+    ...snapshot.entries.map((entry) =>
+      [
+        entry.id,
+        entry.priority,
+        Math.floor(entry.waitSeconds),
+        entry.position,
+        entry.queueLength,
+        entry.detail,
+      ].join(":"),
+    ),
+  ].join("|");
 }
 
 export function renderOperationQueueInspector(
@@ -38,48 +67,58 @@ export function renderOperationQueueInspector(
   snapshot: OperationQueueSnapshot,
   filter: OperationQueueFilter,
   focusedQueueId: string | null,
+  flow: TrafficFlowSnapshot,
 ): void {
-  const entries = filter === 'all'
-    ? snapshot.entries
-    : snapshot.entries.filter((entry) => entry.category === filter);
+  const entries =
+    filter === "all"
+      ? snapshot.entries
+      : snapshot.entries.filter((entry) => entry.category === filter);
   elements.count.textContent = `${entries.length} waiting`;
-  elements.longest.textContent = snapshot.longestWaitSeconds > 0
-    ? `Longest ${formatWait(snapshot.longestWaitSeconds)}`
-    : 'Flowing';
+  elements.longest.textContent =
+    snapshot.longestWaitSeconds > 0
+      ? `Longest ${formatWait(snapshot.longestWaitSeconds)}`
+      : "Flowing";
+  renderMeterPlan(elements, flow);
 
   if (!entries.length) {
-    const empty = document.createElement('p');
-    empty.className = 'queue-panel__empty';
-    empty.textContent = filter === 'all'
-      ? 'No active operational blockers.'
-      : `No ${filter} blockers right now.`;
+    const empty = document.createElement("p");
+    empty.className = "queue-panel__empty";
+    empty.textContent =
+      filter === "all"
+        ? "No active operational blockers."
+        : `No ${filter} blockers right now.`;
     elements.list.replaceChildren(empty);
     return;
   }
 
   const rows = entries.slice(0, 14).map((entry) => {
-    const row = document.createElement('button');
-    row.type = 'button';
+    const row = document.createElement("button");
+    row.type = "button";
     row.dataset.queueFocus = entry.id;
     row.className = `queue-entry queue-entry--${entry.priority}`;
-    row.classList.toggle('queue-entry--selected', entry.id === focusedQueueId);
-    row.setAttribute('aria-label', `Focus ${entry.label}. ${entry.detail}`);
+    row.classList.toggle("queue-entry--selected", entry.id === focusedQueueId);
+    row.setAttribute("aria-label", `Focus ${entry.label}. ${entry.detail}`);
 
-    const category = document.createElement('span');
-    category.className = 'queue-entry__category';
+    const category = document.createElement("span");
+    category.className = "queue-entry__category";
     category.textContent = shortCategory(entry.category);
-    const copy = document.createElement('span');
-    copy.className = 'queue-entry__copy';
-    const title = document.createElement('b');
+    const copy = document.createElement("span");
+    copy.className = "queue-entry__copy";
+    const title = document.createElement("b");
     title.textContent = entry.label;
-    const detail = document.createElement('small');
+    const detail = document.createElement("small");
     detail.textContent = entry.detail;
     copy.append(title, detail);
-    const timing = document.createElement('span');
-    timing.className = 'queue-entry__timing';
-    timing.textContent = entry.waitSeconds > 0 ? formatWait(entry.waitSeconds) : entry.entity === 'system' ? 'metered' : 'queued';
+    const timing = document.createElement("span");
+    timing.className = "queue-entry__timing";
+    timing.textContent =
+      entry.waitSeconds > 0
+        ? formatWait(entry.waitSeconds)
+        : entry.entity === "system"
+          ? "metered"
+          : "queued";
     if (entry.queueLength > 1) {
-      const position = document.createElement('small');
+      const position = document.createElement("small");
       position.textContent = `${entry.position}/${entry.queueLength}`;
       timing.append(position);
     }
@@ -89,26 +128,104 @@ export function renderOperationQueueInspector(
   elements.list.replaceChildren(...rows);
 }
 
-export function isOperationQueueFilter(value: string): value is OperationQueueFilter {
-  return value === 'all' || OPERATION_QUEUE_CATEGORIES.includes(value as OperationQueueCategory);
+export function trafficFlowMeterRows(
+  flow: TrafficFlowSnapshot,
+): TrafficFlowMeterRow[] {
+  return [
+    ...flow.arrivalQueue.slice(0, 3).map((entry) => meterRow("arrival", entry)),
+    ...flow.departureQueue
+      .slice(0, 3)
+      .map((entry) => meterRow("departure", entry)),
+  ];
+}
+
+export function isOperationQueueFilter(
+  value: string,
+): value is OperationQueueFilter {
+  return (
+    value === "all" ||
+    OPERATION_QUEUE_CATEGORIES.includes(value as OperationQueueCategory)
+  );
 }
 
 function shortCategory(category: OperationQueueCategory): string {
   const labels: Record<OperationQueueCategory, string> = {
-    gate: 'GATE',
-    ramp: 'RAMP',
-    taxi: 'TAXI',
-    crossing: 'XING',
-    runway: 'RWY',
-    wake: 'WAKE',
-    weather: 'WX',
-    downstream: 'NEXT',
+    gate: "GATE",
+    ramp: "RAMP",
+    taxi: "TAXI",
+    crossing: "XING",
+    runway: "RWY",
+    wake: "WAKE",
+    weather: "WX",
+    downstream: "NEXT",
   };
   return labels[category];
+}
+
+function renderMeterPlan(
+  elements: QueueInspectorElements,
+  flow: TrafficFlowSnapshot,
+): void {
+  const rows = trafficFlowMeterRows(flow);
+  if (!rows.length) {
+    elements.meterSummary.textContent = "Flow clear";
+    const empty = document.createElement("small");
+    empty.className = "queue-panel__meter-empty";
+    empty.textContent = "No arrival or departure slots pending.";
+    elements.meter.replaceChildren(empty);
+    return;
+  }
+
+  const nextArrival = flow.arrivalQueue[0];
+  const nextDeparture = flow.departureQueue[0];
+  const summary = [
+    nextArrival ? `ARR ${formatWait(slotInSeconds(nextArrival))}` : null,
+    nextDeparture ? `DEP ${formatWait(slotInSeconds(nextDeparture))}` : null,
+  ].filter(Boolean);
+  elements.meterSummary.textContent = summary.join(" · ");
+
+  const slots = rows.map((row) => {
+    const slot = document.createElement("div");
+    slot.className = "queue-meter-slot";
+    slot.dataset.direction = row.direction === "arrival" ? "arr" : "dep";
+    const label = document.createElement("b");
+    label.textContent = `${row.direction === "arrival" ? "ARR" : "DEP"} · ${row.label}`;
+    const timing = document.createElement("small");
+    timing.textContent = `${row.status} · slot ${formatWait(row.slotInSeconds)}${row.delaySeconds > 0 ? ` · delay ${formatWait(row.delaySeconds)}` : ""}`;
+    const reason = document.createElement("small");
+    reason.textContent = row.reason;
+    reason.title =
+      row.revisionCount > 1
+        ? `${row.revisionCount} slot revisions`
+        : "Initial slot reason";
+    slot.append(label, timing, reason);
+    return slot;
+  });
+  elements.meter.replaceChildren(...slots);
+}
+
+function meterRow(
+  direction: TrafficFlowMeterRow["direction"],
+  entry: TrafficFlowEntry,
+): TrafficFlowMeterRow {
+  return {
+    id: entry.id,
+    direction,
+    label: entry.callsign ?? entry.id,
+    slotInSeconds: slotInSeconds(entry),
+    delaySeconds: entry.delaySeconds,
+    revisionCount: entry.slotRevisions.length,
+    status: entry.status,
+    reason: entry.reason,
+  };
+}
+
+function slotInSeconds(entry: TrafficFlowEntry): number {
+  return Math.max(0, entry.releaseSlotSeconds - entry.updatedAtSeconds);
 }
 
 function formatWait(seconds: number): string {
   const rounded = Math.max(0, Math.floor(seconds));
   if (rounded < 60) return `${rounded}s`;
-  return `${Math.floor(rounded / 60)}:${String(rounded % 60).padStart(2, '0')}`;
+  return `${Math.floor(rounded / 60)}:${String(rounded % 60).padStart(2, "0")}`;
 }

@@ -1,5 +1,7 @@
 import kordSurfaceGraphJson from '../data/airports/KORD.surfaceGraph.mjs';
 import kordSurfaceManifestJson from '../data/airports/KORD.surface.manifest.json';
+import katlSurfaceGraphJson from '../data/airports/KATL.surfaceGraph.mjs';
+import katlSurfaceManifestJson from '../data/airports/KATL.surface.manifest.json';
 import { airportAutoAssetPath } from '../assets/assetManifest';
 import { requireCurrentAirportAsset } from '../assets/airportAssetMigrations';
 import type { AirportSurfaceGraph } from './surfaceGraph';
@@ -66,34 +68,53 @@ const KORD_SURFACE_GRAPH = requireCurrentAirportAsset(
   kordSurfaceGraphJson,
 ) as unknown as AirportSurfaceGraph;
 
+const KATL_SURFACE_MANIFEST = {
+  ...(requireCurrentAirportAsset(
+    'surface-manifest',
+    katlSurfaceManifestJson,
+  ) as unknown as AirportSurfaceDataManifest),
+  assetPath: airportAutoAssetPath('airport.ATL.surface-source'),
+};
+const KATL_SURFACE_GRAPH = requireCurrentAirportAsset(
+  'surface-graph',
+  katlSurfaceGraphJson,
+) as unknown as AirportSurfaceGraph;
+
 export function airportSurfaceDataManifest(airportCode: string): AirportSurfaceDataManifest | undefined {
-  return airportCode === 'ORD' ? KORD_SURFACE_MANIFEST : undefined;
+  if (airportCode === 'ORD') return KORD_SURFACE_MANIFEST;
+  if (airportCode === 'ATL') return KATL_SURFACE_MANIFEST;
+  return undefined;
 }
 
 export function importedAirportSurfaceGraph(airportCode: string, seed: number): AirportSurfaceGraph | undefined {
-  if (airportCode !== 'ORD') return undefined;
+  const source = airportCode === 'ORD'
+    ? KORD_SURFACE_GRAPH
+    : airportCode === 'ATL'
+      ? KATL_SURFACE_GRAPH
+      : undefined;
+  if (!source) return undefined;
   return {
-    ...KORD_SURFACE_GRAPH,
+    ...source,
     seed,
-    source: KORD_SURFACE_GRAPH.source ? { ...KORD_SURFACE_GRAPH.source } : undefined,
-    nodes: KORD_SURFACE_GRAPH.nodes.map((node) => ({
+    source: source.source ? { ...source.source } : undefined,
+    nodes: source.nodes.map((node) => ({
       ...node,
       position: [...node.position] as [number, number],
       taxiwayIds: [...node.taxiwayIds],
     })),
-    edges: KORD_SURFACE_GRAPH.edges.map((edge) => ({
+    edges: source.edges.map((edge) => ({
       ...edge,
       crossedRunwayIds: edge.crossedRunwayIds ? [...edge.crossedRunwayIds] : undefined,
       sourceWayIds: edge.sourceWayIds ? [...edge.sourceWayIds] : undefined,
       crossingIds: edge.crossingIds ? [...edge.crossingIds] : undefined,
     })),
-    taxiways: KORD_SURFACE_GRAPH.taxiways.map((taxiway) => ({ ...taxiway, edgeIds: [...taxiway.edgeIds] })),
-    stands: KORD_SURFACE_GRAPH.stands.map((stand) => ({
+    taxiways: source.taxiways.map((taxiway) => ({ ...taxiway, edgeIds: [...taxiway.edgeIds] })),
+    stands: source.stands.map((stand) => ({
       ...stand,
       position: [...stand.position] as [number, number],
       supportedCategories: [...stand.supportedCategories],
     })),
-    passengerFacilities: KORD_SURFACE_GRAPH.passengerFacilities.map((facility) => ({
+    passengerFacilities: source.passengerFacilities.map((facility) => ({
       ...facility,
       center: [...facility.center] as [number, number],
       concourses: facility.concourses ? [...facility.concourses] : undefined,
@@ -101,10 +122,10 @@ export function importedAirportSurfaceGraph(airportCode: string, seed: number): 
       sourceElementIds: [...facility.sourceElementIds],
       standIds: [...facility.standIds],
     })),
-    passengerFacilityReference: KORD_SURFACE_GRAPH.passengerFacilityReference
+    passengerFacilityReference: source.passengerFacilityReference
       ? {
-          ...KORD_SURFACE_GRAPH.passengerFacilityReference,
-          terminals: KORD_SURFACE_GRAPH.passengerFacilityReference.terminals.map((terminal) => ({
+          ...source.passengerFacilityReference,
+          terminals: source.passengerFacilityReference.terminals.map((terminal) => ({
             ...terminal,
             concourses: terminal.concourses.map((concourse) => ({
               ...concourse,
@@ -113,16 +134,16 @@ export function importedAirportSurfaceGraph(airportCode: string, seed: number): 
           })),
         }
       : undefined,
-    runwayAccess: KORD_SURFACE_GRAPH.runwayAccess.map((access) => ({ ...access })),
-    controlPoints: KORD_SURFACE_GRAPH.controlPoints.map((point) => ({ ...point, position: [...point.position] as [number, number] })),
-    zones: KORD_SURFACE_GRAPH.zones.map((zone) => ({
+    runwayAccess: source.runwayAccess.map((access) => ({ ...access })),
+    controlPoints: source.controlPoints.map((point) => ({ ...point, position: [...point.position] as [number, number] })),
+    zones: source.zones.map((zone) => ({
       ...zone,
       sourceFeatureIds: [...zone.sourceFeatureIds],
       rings: zone.rings.map((ring) => ring.map((point) => [...point] as [number, number])),
       edgeIds: [...zone.edgeIds],
       standIds: [...zone.standIds],
     })),
-    hotspots: KORD_SURFACE_GRAPH.hotspots.map((hotspot) => ({
+    hotspots: source.hotspots.map((hotspot) => ({
       ...hotspot,
       rings: hotspot.rings.map((ring) => ring.map((point) => [...point] as [number, number])),
       nodeIds: [...hotspot.nodeIds],

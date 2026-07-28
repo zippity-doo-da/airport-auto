@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 3,
+  "airport": {
+    "faaId": "ATL",
+    "icaoId": "KATL",
+    "name": "Hartsfield-Jackson Atlanta International",
+    "fidelity": "faa-airport-mapping",
+    "navigationUse": false
+  },
+  "assetPath": "data/airports/KATL.osm-surface.json",
+  "graphPath": "src/data/airports/KATL.surfaceGraph.json",
+  "assetSha256": "ffbcd72dc08243fa4589fd9cdd1e5c076e51708da8c60ef3aa663a34936a8979",
+  "graphSha256": "be848f05cf1434400d5dcefe63b24968992c94fd27bc039b217d4e8349b423a4",
+  "retrievedOn": "2026-07-28",
+  "coordinateSystem": {
+    "source": "EPSG:4326",
+    "local": "local-tangent-plane",
+    "originWgs84": [
+      -84.4267407,
+      33.6349124
+    ],
+    "axes": {
+      "x": "east",
+      "y": "north"
+    },
+    "unit": "meter",
+    "earthRadiusMeters": 6378137,
+    "coordinatePrecisionMeters": 0.1
+  },
+  "source": {
+    "provider": "OpenStreetMap",
+    "endpoint": "https://overpass-api.de/api/interpreter",
+    "query": "[out:json][timeout:180];(way(33.6109831,-84.4638091,33.6661944,-84.3934217)[\"aeroway\"~\"^(taxiway|taxilane|runway)$\"];nwr(33.6109831,-84.4638091,33.6661944,-84.3934217)[\"aeroway\"=\"parking_position\"];node(33.6109831,-84.4638091,33.6661944,-84.3934217)[\"aeroway\"=\"gate\"];nwr(33.6109831,-84.4638091,33.6661944,-84.3934217)[\"aeroway\"=\"terminal\"];);out body center;>;out skel qt;",
+    "osmBaseTimestamp": "2026-07-28T19:12:04Z",
+    "license": "Open Data Commons Open Database License 1.0",
+    "attribution": "© OpenStreetMap contributors",
+    "copyrightUrl": "https://www.openstreetmap.org/copyright"
+  },
+  "passengerFacilityReference": {
+    "provider": "Hartsfield-Jackson Atlanta International Airport",
+    "url": "https://www.atl.com/maps-3/",
+    "retrievedOn": "2026-07-28",
+    "totalPassengerGates": 0
+  },
+  "validationRules": {
+    "minimumBuildingClearanceMeters": 51,
+    "minimumStandReferenceClearanceMeters": 42,
+    "minimumStandReferenceOffsetMeters": 24,
+    "standLeadInWidthWorld": 0.7
+  },
+  "counts": {
+    "sourceNodes": 7608,
+    "sourceWays": 443,
+    "parkingPositions": 576,
+    "passengerParkingPositions": 421,
+    "gates": 201,
+    "passengerFacilities": 9,
+    "passengerTerminals": 2,
+    "passengerConcourses": 7,
+    "excludedWays": 8,
+    "excludedSegments": 27,
+    "graphNodes": 1934,
+    "graphEdges": 2276,
+    "taxiways": 369,
+    "stands": 40,
+    "passengerStands": 33,
+    "runwayAccess": 10,
+    "controlPoints": 156,
+    "operationalZones": 29,
+    "hotspots": 2,
+    "gradeSeparatedEdges": 0,
+    "runwayCrossingEdges": 168
+  },
+  "license": "Open Data Commons Open Database License 1.0",
+  "attribution": "© OpenStreetMap contributors",
+  "copyrightUrl": "https://www.openstreetmap.org/copyright"
+}

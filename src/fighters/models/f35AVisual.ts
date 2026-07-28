@@ -15,6 +15,7 @@ import {
   verticalSurfaceMesh,
   type LoftSection,
 } from "./detailedModelUtils";
+import { addModernJetDetailKit } from "./modernJetDetailKit";
 
 export interface F35AVisual {
   root: THREE.Group;
@@ -77,6 +78,17 @@ export function createF35AVisual(
   addEngineNozzle(root, materials, lowDetail, nozzles);
   addLandingGear(root, materials, lowDetail);
   addNavigationAndFormationLights(root, materials, lowDetail);
+  addModernJetDetailKit(
+    root,
+    {
+      id: "f35a",
+      cockpit: [0, 2.16, 3.7],
+      canopyWidth: 1.02,
+      fuselageLength: F35A_LENGTH_M,
+      fuselageWidth: 3.35,
+    },
+    lowDetail,
+  );
 
   root.scale.set(
     fighter.wingspanM / F35A_SPAN_M,

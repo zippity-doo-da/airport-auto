@@ -168,7 +168,11 @@ export const AIRPORT_AIRLINES: Record<string, AirlineCode[]> = {
     "TK",
     "5X",
     "WN",],
-  ATL: ["DL", "DL", "WN", "F9", "5X"],
+  ATL: [
+    "DL", "DL", "WN", "AA", "UA", "F9", "B6", "AS",
+    "AF", "BA", "KL", "KE", "LH", "QR", "TK", "VS",
+    "5X", "FX",
+  ],
   DXB: ["EK", "EK", "FZ", "BA", "TK", "FX"],
   HND: ["NH", "JL", "NH", "JL", "DL", "UA", "AA"],
   DFW: ["AA", "AA", "WN", "FX", "5X"],

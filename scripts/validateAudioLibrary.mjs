@@ -65,8 +65,8 @@ for (const asset of manifest.assets) {
 
 if (requiredStates.size) throw new Error(`missing offline beds: ${[...requiredStates].join(', ')}`);
 if (requiredTriggers.size) throw new Error(`missing detailed event recordings: ${[...requiredTriggers].join(', ')}`);
-if (stations.size < 3 || speakers.size < 4) throw new Error('offline fictional radio library lacks station or voice variety');
-if (manifest.assets.filter((asset) => asset.family === 'radio').length < 10) throw new Error('offline fictional radio library is too small');
+if (stations.size < 4 || speakers.size < 8) throw new Error('offline fictional radio library lacks station or voice variety');
+if (manifest.assets.filter((asset) => asset.family === 'radio').length < 20) throw new Error('offline fictional radio library is too small');
 if (bytesTotal > 8 * 1024 * 1024) throw new Error(`offline sound library exceeds the 8 MiB shipping budget (${bytesTotal})`);
 
 console.log(JSON.stringify({

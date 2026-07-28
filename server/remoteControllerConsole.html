@@ -179,12 +179,90 @@
       .claim {
         display: flex;
         justify-content: space-between;
+        align-items: center;
         gap: 0.75rem;
         padding: 0.55rem 0.65rem;
         border-radius: 0.45rem;
         background: #1b2927;
       }
       .claim b {
+        text-transform: capitalize;
+      }
+      .claim-meta {
+        display: grid;
+        justify-items: end;
+        gap: 0.12rem;
+        text-align: right;
+      }
+      .claim-meta small:last-child {
+        color: #9aaca2;
+        font-size: 0.7rem;
+      }
+      .handoff-copy {
+        margin: 0 0 0.7rem;
+        color: #9aaca2;
+        font-size: 0.8rem;
+        line-height: 1.4;
+      }
+      .handoff-actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: end;
+        gap: 0.55rem;
+      }
+      .handoff-actions label {
+        flex: 1 1 12rem;
+      }
+      .handoff-status {
+        min-height: 2.3rem;
+        margin-top: 0.65rem;
+        padding: 0.55rem 0.65rem;
+        border-radius: 0.45rem;
+        background: #1b2927;
+        color: #b9c7be;
+        font-size: 0.8rem;
+        line-height: 1.35;
+      }
+      .shift-review {
+        display: grid;
+        gap: 0.7rem;
+      }
+      .shift-review summary {
+        cursor: pointer;
+        color: #e5dccd;
+        font-weight: 700;
+      }
+      .shift-review__intro {
+        margin: 0.7rem 0 0;
+        color: #9aaca2;
+        font-size: 0.78rem;
+        line-height: 1.4;
+      }
+      .shift-review__metrics,
+      .shift-review__stations {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.45rem;
+        margin-top: 0.7rem;
+      }
+      .shift-review__metrics span,
+      .shift-review__station {
+        display: grid;
+        gap: 0.12rem;
+        padding: 0.5rem 0.55rem;
+        border-radius: 0.4rem;
+        background: #1b2927;
+      }
+      .shift-review__metrics small,
+      .shift-review__station small {
+        color: #9aaca2;
+        font-size: 0.7rem;
+      }
+      .shift-review__station {
+        grid-template-columns: 1fr auto;
+        align-items: center;
+      }
+      .shift-review__station b {
         text-transform: capitalize;
       }
       .flight-list {
@@ -353,6 +431,34 @@
               <p class="muted">Connect to inspect station leases.</p>
             </div>
           </section>
+          <section class="panel" aria-labelledby="handoff-title">
+            <div class="panel-head">
+              <h2 id="handoff-title">Station handoff</h2>
+              <small class="muted">15-second offer window</small>
+            </div>
+            <p class="handoff-copy">
+              Transfer only after the next controller accepts. Traffic remains
+              governed by the same safety arbiter throughout the shift change.
+            </p>
+            <div id="handoff" aria-live="polite">
+              <p class="muted">Connect as a controller to manage a handoff.</p>
+            </div>
+          </section>
+          <section class="panel" aria-labelledby="review-title">
+            <div class="panel-head">
+              <h2 id="review-title">Shared shift review</h2>
+              <small id="review-status" class="muted">Waiting for host</small>
+            </div>
+            <details class="shift-review">
+              <summary>Read-only operations debrief</summary>
+              <p class="shift-review__intro">
+                Flow never offsets a safety event or rejected clearance. This
+                uses the same bounded host projection seen by every desk.
+              </p>
+              <div id="review-metrics" class="shift-review__metrics"></div>
+              <div id="review-stations" class="shift-review__stations"></div>
+            </details>
+          </section>
           <section class="panel" aria-labelledby="composer-title">
             <div class="panel-head">
               <h2 id="composer-title">Typed command</h2>
@@ -434,6 +540,10 @@
         const token = $("#token");
         const status = $("#status");
         const claims = $("#claims");
+        const handoff = $("#handoff");
+        const reviewStatus = $("#review-status");
+        const reviewMetrics = $("#review-metrics");
+        const reviewStations = $("#review-stations");
         const sessionState = $("#session-state");
         const flights = $("#flights");
         const trafficState = $("#traffic-state");
@@ -516,6 +626,202 @@
           station.disabled = role.value !== "controller" || Boolean(claimed);
         }
 
+        function stationOfferForClient(session, client) {
+          return session?.stationOffers?.find(
+            (offer) => offer.toClientId === client,
+          );
+        }
+
+        function workloadForStation(name) {
+          const source = latestSnapshot?.controllerWorkloads;
+          if (!Array.isArray(source)) return null;
+          return source.find((workload) => workload?.station === name) ?? null;
+        }
+
+        function reviewMetric(label, value, detail) {
+          const node = document.createElement("span");
+          const small = document.createElement("small");
+          small.textContent = label;
+          const strong = document.createElement("b");
+          strong.textContent = value;
+          const note = document.createElement("small");
+          note.textContent = detail;
+          node.append(small, strong, note);
+          return node;
+        }
+
+        function renderShiftReview() {
+          const evaluation = latestSnapshot?.controllerEvaluation;
+          if (!evaluation || typeof evaluation !== "object") {
+            reviewStatus.textContent = "Waiting for host";
+            reviewMetrics.replaceChildren(
+              Object.assign(document.createElement("small"), {
+                className: "muted",
+                textContent: "The host publishes a bounded evaluation after connecting.",
+              }),
+            );
+            reviewStations.replaceChildren();
+            return;
+          }
+          const safety = evaluation.safety ?? {};
+          const operations = evaluation.operations ?? {};
+          const fuel = evaluation.fuel ?? {};
+          const commands = evaluation.commands ?? {};
+          const stations = Array.isArray(evaluation.stations)
+            ? evaluation.stations
+            : [];
+          const coordination = stations.reduce(
+            (total, item) => total + Number(item?.overdueHandoffs ?? 0),
+            0,
+          );
+          reviewStatus.textContent = `${operations.completed ?? 0} complete · read-only`;
+          reviewMetrics.replaceChildren(
+            reviewMetric(
+              "Safety",
+              `${safety.activeConflictWarnings ?? 0} warnings`,
+              `${safety.collisionAlerts ?? 0} collisions · ${safety.runwayIncursions ?? 0} incursions`,
+            ),
+            reviewMetric(
+              "Flow",
+              `${Number(operations.throughputPerHour ?? 0).toFixed(1)} ops/h`,
+              `${Math.round(operations.delayPerOperationSeconds ?? 0)}s delay per operation`,
+            ),
+            reviewMetric(
+              "Fuel",
+              `${Number(fuel.holdingBurnPercent ?? 0).toFixed(1)}% holding`,
+              `${Math.round(fuel.holdingBurnKg ?? 0)} kg modeled burn`,
+            ),
+            reviewMetric(
+              "Coordination",
+              `${coordination} late handoffs`,
+              `${commands.accepted ?? 0}/${commands.attempts ?? 0} accepted · ${commands.rejected ?? 0} rejected`,
+            ),
+          );
+          reviewStations.replaceChildren(
+            ...stations.map((item) => {
+              const row = document.createElement("div");
+              row.className = "shift-review__station";
+              const label = document.createElement("b");
+              label.textContent = item.station ?? "station";
+              const score = document.createElement("strong");
+              score.textContent =
+                item.commandQualityScore == null
+                  ? "not rated"
+                  : `${item.commandQualityScore}/100`;
+              const detail = document.createElement("small");
+              detail.textContent = `${item.accepted ?? 0}/${item.attempts ?? 0} accepted · ${item.overdueHandoffs ?? 0} late handoffs`;
+              const left = document.createElement("span");
+              left.append(label, detail);
+              row.append(left, score);
+              return row;
+            }),
+          );
+        }
+
+        function renderHandoff() {
+          const connected = Boolean(
+            welcome && socket?.readyState === WebSocket.OPEN,
+          );
+          const claimed = claimedStation();
+          const incoming = stationOfferForClient(currentSession, clientId.value);
+          const fragment = document.createDocumentFragment();
+          const status = document.createElement("div");
+          status.className = "handoff-status";
+
+          if (!connected || welcome?.role !== "controller") {
+            status.textContent = "Connect as a controller to manage a handoff.";
+            fragment.append(status);
+            handoff.replaceChildren(fragment);
+            return;
+          }
+
+          if (incoming) {
+            const expiry = new Date(incoming.expiresAt).getTime();
+            const seconds = Math.max(0, Math.ceil((expiry - Date.now()) / 1000));
+            status.textContent = `Incoming ${incoming.station} handoff from ${incoming.fromClientId}. ${seconds}s remain.`;
+            const actions = document.createElement("div");
+            actions.className = "desk-actions";
+            const accept = document.createElement("button");
+            accept.type = "button";
+            accept.className = "primary";
+            accept.textContent = "Accept station";
+            accept.disabled = Boolean(claimed) || seconds === 0;
+            accept.addEventListener("click", () =>
+              send({ type: "accept-station", station: incoming.station }),
+            );
+            const decline = document.createElement("button");
+            decline.type = "button";
+            decline.textContent = "Decline";
+            decline.disabled = seconds === 0;
+            decline.addEventListener("click", () =>
+              send({ type: "decline-station", station: incoming.station }),
+            );
+            actions.append(accept, decline);
+            fragment.append(status, actions);
+            handoff.replaceChildren(fragment);
+            return;
+          }
+
+          if (!claimed) {
+            status.textContent = "Claim a station before offering a handoff.";
+            fragment.append(status);
+            handoff.replaceChildren(fragment);
+            return;
+          }
+
+          const pending = currentSession?.stationOffers?.find(
+            (offer) => offer.station === claimed && offer.fromClientId === clientId.value,
+          );
+          if (pending) {
+            const seconds = Math.max(
+              0,
+              Math.ceil((new Date(pending.expiresAt).getTime() - Date.now()) / 1000),
+            );
+            status.textContent = `Awaiting ${pending.toClientId} to accept ${claimed}. ${seconds}s remain.`;
+            fragment.append(status);
+            handoff.replaceChildren(fragment);
+            return;
+          }
+
+          const targets = (currentSession?.clients ?? []).filter(
+            (candidate) =>
+              candidate.role === "controller" &&
+              candidate.clientId !== clientId.value &&
+              !candidate.station,
+          );
+          if (!targets.length) {
+            status.textContent = `You hold ${claimed}. No idle controller is available for a handoff.`;
+            fragment.append(status);
+            handoff.replaceChildren(fragment);
+            return;
+          }
+
+          const actions = document.createElement("div");
+          actions.className = "handoff-actions";
+          const label = document.createElement("label");
+          label.textContent = `Offer ${claimed} to`;
+          const target = document.createElement("select");
+          for (const candidate of targets) {
+            const option = document.createElement("option");
+            option.value = candidate.clientId;
+            option.textContent = `${candidate.displayName} (${candidate.clientId})`;
+            target.append(option);
+          }
+          label.append(target);
+          const offer = document.createElement("button");
+          offer.type = "button";
+          offer.className = "primary";
+          offer.textContent = "Offer handoff";
+          offer.addEventListener("click", () => {
+            send({ type: "offer-station", toClientId: target.value });
+            commandFeedback.textContent = `Handoff offer sent for ${claimed}.`;
+          });
+          actions.append(label, offer);
+          status.textContent = `You hold ${claimed}. Select an idle controller for a consent-based handoff.`;
+          fragment.append(actions, status);
+          handoff.replaceChildren(fragment);
+        }
+
         function renderSession(session) {
           currentSession = session;
           if (!session) {
@@ -526,6 +832,8 @@
                 textContent: "Connect to inspect station leases.",
               }),
             );
+            renderHandoff();
+            renderShiftReview();
             updateControls();
             return;
           }
@@ -545,14 +853,26 @@
             row.className = "claim";
             const title = document.createElement("b");
             title.textContent = name;
+            const meta = document.createElement("div");
+            meta.className = "claim-meta";
             const detail = document.createElement("small");
             detail.textContent = claim
-              ? `${claim.displayName} · ${claim.connected ? "online" : "reconnecting"}`
+              ? `${claim.displayName} · remote controller · ${claim.connected ? "online" : "reconnecting"}`
               : "available";
-            row.append(title, detail);
+            meta.append(detail);
+            const workload = workloadForStation(name);
+            if (workload) {
+              const capacity = document.createElement("small");
+              const state = String(workload.workload ?? "idle").toUpperCase();
+              capacity.textContent = `${state} · ${workload.activeTracks ?? 0}/${workload.trackLimit ?? "—"} tracks · ${workload.queuedActions ?? 0} queued`;
+              meta.append(capacity);
+            }
+            row.append(title, meta);
             fragment.append(row);
           }
           claims.replaceChildren(fragment);
+          renderHandoff();
+          renderShiftReview();
           updateControls();
         }
 
@@ -575,6 +895,8 @@
                 textContent: "No aircraft in the published operations view.",
               }),
             );
+            if (currentSession) renderSession(currentSession);
+            renderShiftReview();
             return;
           }
           const fragment = document.createDocumentFragment();
@@ -617,6 +939,8 @@
             fragment.append(button);
           }
           flights.replaceChildren(fragment);
+          if (currentSession) renderSession(currentSession);
+          renderShiftReview();
         }
 
         function selectFlight(id) {
@@ -751,7 +1075,8 @@
               commandFeedback.textContent = `${message.code}: ${message.reason}`;
               addEvent(`${message.code}: ${message.reason}`);
             } else if (message.type === "station-offer") {
-              addEvent(`${message.fromClientId} offered ${message.station}`);
+              addEvent(`${message.fromClientId} offered ${message.station} · accept or decline in Station handoff`);
+              renderHandoff();
             }
           });
           socket.addEventListener("close", (event) => {
@@ -828,6 +1153,7 @@
           events.replaceChildren(),
         );
         role.addEventListener("change", updateControls);
+        setInterval(renderHandoff, 1000);
         updateControls();
       })();
     </script>

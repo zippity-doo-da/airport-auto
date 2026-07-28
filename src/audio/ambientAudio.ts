@@ -11,8 +11,40 @@ import {
   type SpatialAircraftAudioSnapshot,
 } from "./spatialAircraftAudio";
 
-export type AudioPreset = "full" | "calm" | "radio" | "engines" | "silent";
+export const AUDIO_PRESET_IDS = [
+  "full",
+  "calm",
+  "radio",
+  "engines",
+  "sleep",
+  "silent",
+] as const;
+export type AudioPreset = (typeof AUDIO_PRESET_IDS)[number];
 export type AudioChannel = SoundscapeChannel;
+export const AUDIO_CHANNELS = [
+  "ambience",
+  "aircraft",
+  "weather",
+  "terminal",
+  "radio",
+  "ui",
+] as const satisfies readonly AudioChannel[];
+
+export interface PresentationAudioVisibility {
+  serviceVehicles: boolean;
+}
+
+export function isPresentationAudioEventEnabled(
+  event: Pick<SoundscapeEvent, "kind">,
+  visibility: PresentationAudioVisibility,
+): boolean {
+  if (
+    (event.kind === "service-vehicle" || event.kind === "ramp-clatter") &&
+    !visibility.serviceVehicles
+  )
+    return false;
+  return true;
+}
 
 export interface AmbientAudioSnapshot {
   schemaVersion: 1;
@@ -22,6 +54,7 @@ export interface AmbientAudioSnapshot {
   levels: Record<AudioChannel, number>;
   radioEnabled: boolean;
   captionsEnabled: boolean;
+  presentationAudio: PresentationAudioVisibility;
   environment: {
     wind: number;
     rain: number;
@@ -60,12 +93,26 @@ const EMPTY_OFFLINE_LIBRARY_SNAPSHOT: OfflineSoundLibrarySnapshot = {
   syntheticVoicesDisclosed: false,
 };
 
-const PRESET_MIX: Record<AudioPreset, Record<AudioChannel, number>> = {
-  full: { ambience: 1, aircraft: 1, weather: 1, radio: 0.72, ui: 0.72 },
+/**
+ * Pure mix definitions shared by the runtime and validation. Sleep is a
+ * genuinely low-interruption background mix: radio and UI are silent.
+ */
+export const AUDIO_PRESET_MIX: Readonly<
+  Record<AudioPreset, Readonly<Record<AudioChannel, number>>>
+> = {
+  full: {
+    ambience: 1,
+    aircraft: 1,
+    weather: 1,
+    terminal: 1,
+    radio: 0.72,
+    ui: 0.72,
+  },
   calm: {
     ambience: 0.74,
     aircraft: 0.56,
     weather: 0.68,
+    terminal: 0.52,
     radio: 0.24,
     ui: 0.16,
   },
@@ -73,11 +120,34 @@ const PRESET_MIX: Record<AudioPreset, Record<AudioChannel, number>> = {
     ambience: 0.16,
     aircraft: 0.24,
     weather: 0.2,
+    terminal: 0.12,
     radio: 1,
     ui: 0.3,
   },
-  engines: { ambience: 0, aircraft: 1, weather: 0, radio: 0, ui: 0 },
-  silent: { ambience: 0, aircraft: 0, weather: 0, radio: 0, ui: 0 },
+  engines: {
+    ambience: 0,
+    aircraft: 1,
+    weather: 0,
+    terminal: 0,
+    radio: 0,
+    ui: 0,
+  },
+  sleep: {
+    ambience: 0.18,
+    aircraft: 0.08,
+    weather: 0.16,
+    terminal: 0.12,
+    radio: 0,
+    ui: 0,
+  },
+  silent: {
+    ambience: 0,
+    aircraft: 0,
+    weather: 0,
+    terminal: 0,
+    radio: 0,
+    ui: 0,
+  },
 };
 
 export class AmbientAudio {
@@ -98,6 +168,9 @@ export class AmbientAudio {
   private preset: AudioPreset = "full";
   private radioEnabled = true;
   private captionsEnabled = true;
+  private readonly presentationAudio: PresentationAudioVisibility = {
+    serviceVehicles: true,
+  };
   private playedEvents = 0;
   private suppressedEvents = 0;
   private lastView: SoundscapeListenerView = {
@@ -120,6 +193,7 @@ export class AmbientAudio {
     ambience: 1,
     aircraft: 1,
     weather: 1,
+    terminal: 1,
     radio: 1,
     ui: 0.7,
   };
@@ -155,6 +229,10 @@ export class AmbientAudio {
 
   setRadioEnabled(enabled: boolean): void {
     this.radioEnabled = enabled;
+  }
+
+  setServiceVehicleAudioEnabled(enabled: boolean): void {
+    this.presentationAudio.serviceVehicles = enabled;
   }
 
   setCaptionsEnabled(enabled: boolean): void {
@@ -235,7 +313,15 @@ export class AmbientAudio {
       this.suppressedEvents += 1;
       return;
     }
-    if (PRESET_MIX[this.preset][event.channel] <= 0) {
+    if (!isPresentationAudioEventEnabled(event, this.presentationAudio)) {
+      this.suppressedEvents += 1;
+      return;
+    }
+    if (this.preset === "sleep" && event.priority !== "ambient") {
+      this.suppressedEvents += 1;
+      return;
+    }
+    if (AUDIO_PRESET_MIX[this.preset][event.channel] <= 0) {
       this.suppressedEvents += 1;
       return;
     }
@@ -315,14 +401,26 @@ export class AmbientAudio {
         break;
       case "service-vehicle":
       case "ramp-clatter":
-        this.metallicClatter(now, pan, event.variant, 0.72 * cueScale);
+        this.metallicClatter(
+          "terminal",
+          now,
+          pan,
+          event.variant,
+          0.72 * cueScale,
+        );
         break;
       case "deicing-spray":
         this.noiseBurst("weather", now, 1.5, 0.022 * cueScale, 1_050, pan);
         break;
       case "gear":
         this.tone("aircraft", now, 0.68, 164, 118, 0.008 * cueScale, pan);
-        this.metallicClatter(now + 0.16, pan, event.variant, 0.45 * cueScale);
+        this.metallicClatter(
+          "aircraft",
+          now + 0.16,
+          pan,
+          event.variant,
+          0.45 * cueScale,
+        );
         break;
       case "weather-shift":
         this.noiseBurst("weather", now, 1.2, 0.012 * cueScale, 750, 0);
@@ -355,6 +453,7 @@ export class AmbientAudio {
       levels: { ...this.levels },
       radioEnabled: this.radioEnabled,
       captionsEnabled: this.captionsEnabled,
+      presentationAudio: { ...this.presentationAudio },
       environment: { ...this.environment },
       spatialAircraft: this.spatialAircraft?.snapshot() ?? {
         ...EMPTY_SPATIAL_SNAPSHOT,
@@ -372,13 +471,7 @@ export class AmbientAudio {
     this.master = this.context.createGain();
     this.master.gain.value = 0.0001;
     this.master.connect(this.context.destination);
-    for (const channel of [
-      "ambience",
-      "aircraft",
-      "weather",
-      "radio",
-      "ui",
-    ] as AudioChannel[]) {
+    for (const channel of AUDIO_CHANNELS) {
       const bus = this.context.createGain();
       bus.gain.value = this.levels[channel];
       bus.connect(this.master);
@@ -404,7 +497,7 @@ export class AmbientAudio {
     this.rainGain = this.noiseBed("weather", "highpass", 1_650, 0.84, 0.5);
     this.snowGain = this.noiseBed("weather", "bandpass", 760, 0.6, 0.42);
     this.fieldGain = this.noiseBed("ambience", "bandpass", 1_080, 0.52, 0.34);
-    this.rampGain = this.noiseBed("ambience", "bandpass", 420, 0.62, 0.8);
+    this.rampGain = this.noiseBed("terminal", "bandpass", 420, 0.62, 0.8);
 
     this.roomGain = this.context.createGain();
     this.roomGain.gain.value = 0;
@@ -416,7 +509,7 @@ export class AmbientAudio {
     roomHigh.frequency.value = 110.3;
     roomLow.connect(this.roomGain);
     roomHigh.connect(this.roomGain);
-    this.roomGain.connect(this.buses.ambience!);
+    this.roomGain.connect(this.buses.terminal!);
     roomLow.start();
     roomHigh.start();
 
@@ -428,7 +521,7 @@ export class AmbientAudio {
     apu.frequency.value = 94;
     apuFilter.type = "lowpass";
     apuFilter.frequency.value = 330;
-    apu.connect(apuFilter).connect(this.apuGain).connect(this.buses.ambience!);
+    apu.connect(apuFilter).connect(this.apuGain).connect(this.buses.terminal!);
     apu.start();
   }
 
@@ -463,7 +556,7 @@ export class AmbientAudio {
     const now = this.context.currentTime;
     for (const channel of Object.keys(this.levels) as AudioChannel[]) {
       this.buses[channel]?.gain.setTargetAtTime(
-        this.levels[channel] * PRESET_MIX[this.preset][channel],
+        this.levels[channel] * AUDIO_PRESET_MIX[this.preset][channel],
         now,
         0.3,
       );
@@ -487,6 +580,7 @@ export class AmbientAudio {
   }
 
   private metallicClatter(
+    channel: AudioChannel,
     now: number,
     pan: number,
     variant: number,
@@ -495,7 +589,7 @@ export class AmbientAudio {
     const base = 420 + variant * 53;
     for (let index = 0; index < 3; index += 1) {
       this.tone(
-        "ambience",
+        channel,
         now + index * 0.085,
         0.19,
         base + index * 117,

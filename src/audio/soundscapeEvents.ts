@@ -8,7 +8,12 @@ import type {
 export const SOUNDSCAPE_EVENT_SCHEMA_VERSION = 1 as const;
 
 export type SoundscapeChannel =
-  "ambience" | "aircraft" | "weather" | "radio" | "ui";
+  | "ambience"
+  | "aircraft"
+  | "weather"
+  | "terminal"
+  | "radio"
+  | "ui";
 
 export type SoundscapeEventKind =
   | "scope-entry"
@@ -313,7 +318,7 @@ function mechanicalDraft(event: AirportEvent): SoundEventDraft | null {
     case "service-vehicle-return":
       return {
         kind: "service-vehicle",
-        channel: "ambience",
+        channel: "terminal",
         flight: event.flight,
         variantCount: 4,
         sourceEventType: event.type,
@@ -577,7 +582,7 @@ export class SoundscapeEventScheduler {
         const event = this.emit(
           {
             kind: "ramp-clatter",
-            channel: "ambience",
+            channel: "terminal",
             variantCount: 6,
             sourceEventType: "soundscape:ramp",
           },

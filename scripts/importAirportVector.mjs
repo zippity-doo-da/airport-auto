@@ -15,10 +15,32 @@ const SERVICE_ROOT =
 const ITEM_ROOT = "https://www.arcgis.com/sharing/rest/content/items";
 
 const AIRPORTS = {
+  KATL: {
+    faaId: "ATL",
+    icaoId: "KATL",
+    name: "Hartsfield-Jackson Atlanta International",
+    runtimeRunways: [
+      ["08L/26R", "arrival"],
+      ["08R/26L", "departure"],
+      ["09L/27R", "arrival"],
+      ["09R/27L", "departure"],
+      ["10/28", "mixed"],
+    ],
+  },
   KORD: {
     faaId: "ORD",
     icaoId: "KORD",
     name: "Chicago O'Hare International",
+    runtimeRunways: [
+      ["09L/27R", "arrival"],
+      ["09C/27C", "arrival"],
+      ["09R/27L", "departure"],
+      ["10L/28R", "departure"],
+      ["10C/28C", "arrival"],
+      ["10R/28L", "arrival"],
+      ["04L/22R", "inactive"],
+      ["04R/22L", "inactive"],
+    ],
   },
 };
 
@@ -144,12 +166,14 @@ async function main() {
   const effectiveWindows = sources
     .map((source) => source.effective)
     .filter(Boolean);
-  const runtimeReference = deriveRuntimeReference(layers);
+  const runtimeReference = deriveRuntimeReference(layers, airport);
   const asset = {
     schemaVersion: SCHEMA_VERSION,
     importerVersion: IMPORTER_VERSION,
     airport: {
-      ...airport,
+      faaId: airport.faaId,
+      icaoId: airport.icaoId,
+      name: airport.name,
       fidelity: "faa-airport-mapping",
       navigationUse: false,
     },
@@ -538,27 +562,9 @@ function commonEffectiveWindow(windows) {
     : null;
 }
 
-function deriveRuntimeReference(layers) {
-  const runwayOrder = [
-    "09L/27R",
-    "09C/27C",
-    "09R/27L",
-    "10L/28R",
-    "10C/28C",
-    "10R/28L",
-    "04L/22R",
-    "04R/22L",
-  ];
-  const roles = new Map([
-    ["09L/27R", "arrival"],
-    ["09C/27C", "arrival"],
-    ["09R/27L", "departure"],
-    ["10L/28R", "departure"],
-    ["10C/28C", "arrival"],
-    ["10R/28L", "arrival"],
-    ["04L/22R", "inactive"],
-    ["04R/22L", "inactive"],
-  ]);
+function deriveRuntimeReference(layers, airport) {
+  const runwayOrder = airport.runtimeRunways.map(([runwayId]) => runwayId);
+  const roles = new Map(airport.runtimeRunways);
   const runwayByName = new Map(
     layers.runways.map((feature) => [feature.properties.runwayId, feature]),
   );
@@ -623,9 +629,9 @@ function deriveRuntimeReference(layers) {
         kind,
         label:
           kind === "terminal"
-            ? "O'Hare terminal complex"
+            ? `${airport.faaId} terminal complex`
             : kind === "control-tower"
-              ? "O'Hare control tower"
+              ? `${airport.faaId} control tower`
               : feature.properties.designator || "Airport building",
         shape: "polygon",
         center: roundPoint(
