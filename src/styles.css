@@ -156,6 +156,7 @@ body.night-mode #app::after {
 .status,
 .instruction,
 .menu-toggle,
+.combat-transition,
 .control-panel,
 .flight-strip {
   position: absolute;
@@ -1129,6 +1130,66 @@ body.center-scope .brand__mark {
   transform: translateY(-4px) rotate(-45deg);
 }
 
+.combat-transition {
+  top: 94px;
+  left: clamp(22px, 4vw, 54px);
+  display: flex;
+  height: 42px;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid rgba(239, 199, 117, 0.58);
+  padding: 0 13px;
+  color: var(--amber);
+  background: rgba(16, 46, 48, 0.72);
+  text-decoration: none;
+  transform: translateX(116px);
+  backdrop-filter: blur(16px);
+  clip-path: polygon(7px 0, 100% 0, calc(100% - 7px) 100%, 0 100%);
+  transition:
+    color 180ms ease,
+    background 180ms ease,
+    border-color 180ms ease;
+}
+.combat-transition:hover,
+.combat-transition:focus-visible {
+  border-color: var(--amber);
+  color: var(--ink);
+  background: var(--amber);
+}
+.combat-transition:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 3px;
+}
+.combat-transition small {
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.combat-transition i {
+  position: relative;
+  display: block;
+  width: 15px;
+  height: 15px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+}
+.combat-transition i::before,
+.combat-transition i::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: block;
+  width: 7px;
+  height: 1px;
+  background: currentColor;
+  content: "";
+  transform: translate(-50%, -50%);
+}
+.combat-transition i::after {
+  transform: translate(-50%, -50%) rotate(90deg);
+}
+
 .control-panel {
   top: 145px;
   left: clamp(22px, 4vw, 54px);
@@ -1214,6 +1275,23 @@ body.center-scope .brand__mark {
 .intro-setup select:focus-visible {
   outline: 2px solid var(--amber);
   outline-offset: 2px;
+}
+
+.intro-archive-link {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  margin: 0.8rem auto 0;
+  color: var(--amber, #d7aa62);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.intro-archive-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 0.24rem;
 }
 .station-automation {
   grid-column: 1 / -1;
@@ -1914,7 +1992,8 @@ body.center-scope .brand__mark {
     left: 16px;
     max-width: none;
   }
-  .menu-toggle {
+  .menu-toggle,
+  .combat-transition {
     top: 116px;
     left: 16px;
     height: 38px;
@@ -2926,6 +3005,7 @@ body.capture-clean #capture-clean-exit {
 .quick-setup label > span,
 .intro-setup label > span,
 .menu-toggle small,
+.combat-transition small,
 .control small,
 .weather-readout span,
 .weather-readout small {
@@ -3006,7 +3086,8 @@ body.capture-clean #capture-clean-exit {
   .status {
     top: 96px;
   }
-  .menu-toggle {
+  .menu-toggle,
+  .combat-transition {
     top: 150px;
   }
   .control-panel,
@@ -3081,7 +3162,8 @@ body.capture-clean #capture-clean-exit {
     top: 56px;
     right: 20px;
   }
-  .menu-toggle {
+  .menu-toggle,
+  .combat-transition {
     top: 72px;
     left: 20px;
     height: 38px;
@@ -3146,7 +3228,8 @@ body.capture-clean #capture-clean-exit {
   .status small {
     display: none;
   }
-  .menu-toggle {
+  .menu-toggle,
+  .combat-transition {
     top: 64px;
   }
   .control-panel,
@@ -5220,6 +5303,12 @@ body.watch-mode .brand {
     top: 52px;
     left: 12px;
     height: 38px;
+  }
+  .combat-transition {
+    top: 10px;
+    left: clamp(54px, 25vw, 148px);
+    height: 32px;
+    transform: none;
   }
   .control-panel,
   .flight-strip {

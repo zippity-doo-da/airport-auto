@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="A cinematic, fictional AI dogfight with selectable combat rules, pilot skill, G limits, and named air-combat maneuvers."
+    />
+    <meta name="theme-color" content="#10262c" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%23e2bd77' d='M4 29l24-5L38 5l6 1-3 19 16 5v5l-16 4 3 19-6 1-10-19-24-5z'/%3E%3C/svg%3E"
+    />
+    <title>Dogfight Lab · Airport Auto</title>
+  </head>
+  <body>
+    <canvas
+      id="combat-canvas"
+      aria-label="Three-dimensional fictional AI dogfight with selectable fighter aircraft. Drag to orbit and scroll or pinch to zoom."
+    ></canvas>
+
+    <main class="playground-shell dogfight-shell">
+      <header class="playground-header">
+        <div class="playground-identity">
+          <span>Airport Auto · Research Annex</span>
+          <h1>Dogfight Lab</h1>
+        </div>
+        <nav class="playground-links" aria-label="Related views">
+          <a href="./flight-playground.html">Peaceful flight</a>
+          <a href="./heritage-flight.html">Heritage</a>
+          <a href="./fighters.html">Archive</a>
+          <a href="./">Airport</a>
+        </nav>
+      </header>
+
+      <section class="flight-status combat-status" aria-label="Round status">
+        <span class="status-kicker">AI versus AI · fictional systems</span>
+        <strong id="combat-phase">Closing for the merge</strong>
+        <span id="round-status">Round 1 · 0:00 · Tactical overview</span>
+        <div class="scoreline" aria-label="Score">
+          <b class="scoreline-blue"
+            ><span id="score-name-f35">F-35A</span><i id="score-f35">0</i></b
+          >
+          <em>—</em>
+          <b class="scoreline-red"
+            ><i id="score-j20">0</i><span id="score-name-j20">J-20</span></b
+          >
+        </div>
+      </section>
+
+      <section
+        class="aircraft-roster combat-roster"
+        aria-label="Combat telemetry"
+      >
+        <article class="combat-card combat-card--blue" id="card-f35">
+          <div class="combat-card-heading">
+            <span
+              ><i class="aircraft-dot aircraft-dot--blue"></i
+              ><span id="aircraft-name-f35">F-35A</span></span
+            >
+            <strong id="health-f35-label">100%</strong>
+          </div>
+          <div class="health-track" aria-hidden="true">
+            <i id="health-f35"></i>
+          </div>
+          <p id="ammo-f35">6 MSL · 220 RDS · — KT · — FT</p>
+          <small id="status-f35">TRACKING</small>
+        </article>
+        <article class="combat-card combat-card--red" id="card-j20">
+          <div class="combat-card-heading">
+            <span
+              ><i class="aircraft-dot aircraft-dot--red"></i
+              ><span id="aircraft-name-j20">J-20</span></span
+            >
+            <strong id="health-j20-label">100%</strong>
+          </div>
+          <div class="health-track" aria-hidden="true">
+            <i id="health-j20"></i>
+          </div>
+          <p id="ammo-j20">6 MSL · 220 RDS · — KT · — FT</p>
+          <small id="status-j20">TRACKING</small>
+        </article>
+      </section>
+
+      <div
+        class="aircraft-label aircraft-label--blue combat-label"
+        id="label-f35"
+        hidden
+      >
+        <span id="label-name-f35">F-35A</span
+        ><small id="label-health-f35">100</small>
+      </div>
+      <div
+        class="aircraft-label aircraft-label--red combat-label"
+        id="label-j20"
+        hidden
+      >
+        <span id="label-name-j20">J-20</span
+        ><small id="label-health-j20">100</small>
+      </div>
+
+      <aside class="combat-event" id="combat-event" aria-live="polite">
+        <i></i>
+        <div>
+          <strong id="event-headline">Fighters inbound</strong>
+          <span id="event-detail"
+            >AI crews are closing for the first merge</span
+          >
+        </div>
+      </aside>
+
+      <section
+        class="flight-controls dogfight-controls"
+        aria-label="Dogfight controls"
+      >
+        <button
+          class="control-button pause-button"
+          id="pause-combat"
+          type="button"
+          aria-pressed="false"
+        >
+          Pause
+        </button>
+
+        <button
+          class="control-button guns-only-button"
+          id="guns-only-toggle"
+          type="button"
+          aria-pressed="true"
+          title="Switch between cannon-only fighting and missiles plus cannon"
+        >
+          Guns only
+        </button>
+
+        <label class="control-field camera-field">
+          <span>Camera</span>
+          <select id="camera-mode">
+            <option value="director" selected>Director</option>
+            <option value="combat">Tactical</option>
+            <option value="f-35" id="camera-name-f35">F-35A chase</option>
+            <option value="j-20" id="camera-name-j20">J-20 chase</option>
+            <option value="wide">Wide aerial</option>
+            <option value="free">Free orbit</option>
+          </select>
+        </label>
+
+        <label class="speed-field combat-speed-field">
+          <span>Combat pace</span>
+          <input
+            id="combat-speed"
+            type="range"
+            min="0.4"
+            max="1.75"
+            step="0.05"
+            value="1"
+          />
+          <output id="combat-speed-output" for="combat-speed">1.00×</output>
+        </label>
+
+        <details class="weapon-controls match-controls">
+          <summary id="scenario-summary">High · Mountains</summary>
+          <div class="match-controls-panel">
+            <div class="match-panel-section scenario-section">
+              <strong>Combat environment</strong>
+              <div class="pilot-select-grid">
+                <label class="match-select-field">
+                  <span>Theater</span>
+                  <select id="combat-theater">
+                    <option value="training">Green Range</option>
+                    <option value="mountains" selected>Alpine Front</option>
+                    <option value="plains">Continental Plain</option>
+                    <option value="coast">Littoral Reach</option>
+                    <option value="desert">Red Mesa</option>
+                  </select>
+                </label>
+                <label class="match-select-field">
+                  <span>Altitude</span>
+                  <select id="combat-altitude">
+                    <option value="high" selected>High · 34,000 ft</option>
+                    <option value="medium">Medium · 19,000 ft</option>
+                    <option value="low">Low · 8,000 ft</option>
+                  </select>
+                </label>
+                <label class="match-select-field">
+                  <span>Opening</span>
+                  <select id="engagement-setup">
+                    <option value="merge" selected>Head-on merge</option>
+                    <option value="altitude-advantage">
+                      High / low advantage
+                    </option>
+                    <option value="pursuit">Pursuit</option>
+                    <option value="intercept">Crossing intercept</option>
+                  </select>
+                </label>
+                <label class="match-select-field">
+                  <span>Weather</span>
+                  <select id="combat-weather">
+                    <option value="clear">Clear</option>
+                    <option value="scattered" selected>Scattered layers</option>
+                    <option value="overcast">Overcast</option>
+                    <option value="haze">Heavy haze</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="environment-slider-grid">
+                <label class="environment-slider-field">
+                  <span>Visibility</span>
+                  <output id="visibility-output" for="combat-visibility"
+                    >58 km</output
+                  >
+                  <input
+                    id="combat-visibility"
+                    type="range"
+                    min="10"
+                    max="90"
+                    step="1"
+                    value="58"
+                  />
+                </label>
+                <label class="environment-slider-field">
+                  <span>Wind</span>
+                  <output id="wind-speed-output" for="wind-speed">18 kt</output>
+                  <input
+                    id="wind-speed"
+                    type="range"
+                    min="0"
+                    max="90"
+                    step="1"
+                    value="18"
+                  />
+                </label>
+                <label
+                  class="environment-slider-field environment-slider-field--wide"
+                >
+                  <span>Wind from</span>
+                  <output id="wind-direction-output" for="wind-direction"
+                    >270° W</output
+                  >
+                  <input
+                    id="wind-direction"
+                    type="range"
+                    min="0"
+                    max="350"
+                    step="10"
+                    value="270"
+                  />
+                </label>
+              </div>
+              <p class="scenario-description" id="scenario-description">
+                High-altitude visual combat above broken cloud and alpine
+                terrain.
+              </p>
+            </div>
+
+            <div class="match-panel-section">
+              <strong>Aircraft and rules</strong>
+              <label class="match-select-field">
+                <span>Combat rules</span>
+                <select id="combat-rules">
+                  <option value="full">Missiles + guns</option>
+                  <option value="guns-only" selected>Guns only</option>
+                  <option value="custom">Custom weapons</option>
+                </select>
+              </label>
+
+              <div class="pilot-select-grid" aria-label="Aircraft matchup">
+                <label class="match-select-field">
+                  <span>Blue aircraft</span>
+                  <select id="aircraft-f35">
+                    <option value="f-35" selected>F-35A Lightning II</option>
+                    <option value="j-20">Chengdu J-20</option>
+                    <option value="f-22">F-22A Raptor</option>
+                    <option value="mig-35">Mikoyan MiG-35</option>
+                  </select>
+                </label>
+                <label class="match-select-field">
+                  <span>Red aircraft</span>
+                  <select id="aircraft-j20">
+                    <option value="f-35">F-35A Lightning II</option>
+                    <option value="j-20" selected>Chengdu J-20</option>
+                    <option value="f-22">F-22A Raptor</option>
+                    <option value="mig-35">Mikoyan MiG-35</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="pilot-select-grid" aria-label="Pilot experience">
+                <label class="match-select-field">
+                  <span id="pilot-name-f35">F-35A pilot</span>
+                  <select id="pilot-f35">
+                    <option value="green">Green</option>
+                    <option value="experienced" selected>Experienced</option>
+                    <option value="ace">Ace</option>
+                  </select>
+                </label>
+                <label class="match-select-field">
+                  <span id="pilot-name-j20">J-20 pilot</span>
+                  <select id="pilot-j20">
+                    <option value="green">Green</option>
+                    <option value="experienced" selected>Experienced</option>
+                    <option value="ace">Ace</option>
+                  </select>
+                </label>
+              </div>
+              <p class="pilot-envelope-note">
+                Sustained / peak G · Green 4.5 / 6.2 · Experienced 6.0 / 8.0 ·
+                Ace 7.4 / 9.2
+              </p>
+
+              <fieldset class="weapon-toggle-grid">
+                <legend>Weapons</legend>
+                <label
+                  ><input id="weapon-missiles" type="checkbox" />
+                  Missiles</label
+                >
+                <label
+                  ><input id="weapon-cannon" type="checkbox" checked />
+                  Cannon</label
+                >
+                <label
+                  ><input id="weapon-flares" type="checkbox" />
+                  Countermeasures</label
+                >
+              </fieldset>
+
+              <button
+                class="maneuver-dictionary-button"
+                id="aircraft-specifications-open"
+                type="button"
+              >
+                Aircraft specifications
+              </button>
+
+              <button
+                class="maneuver-dictionary-button"
+                id="maneuver-dictionary-open"
+                type="button"
+              >
+                Air-combat maneuver dictionary
+              </button>
+            </div>
+          </div>
+        </details>
+
+        <button
+          class="control-button restart-button"
+          id="restart-round"
+          type="button"
+        >
+          New round
+        </button>
+      </section>
+
+      <p class="flight-hint" id="combat-hint">
+        Drag to orbit · wheel or pinch to zoom · Space pauses · C changes camera
+        · G toggles guns only · R starts a new round
+      </p>
+
+      <p class="fiction-note">
+        Cinematic simulation · fictional game-scale physiology, sensors,
+        weapons, and damage
+      </p>
+
+      <p class="graphics-message" id="graphics-message" role="status" hidden>
+        Loading combat view…
+      </p>
+    </main>
+
+    <dialog class="maneuver-dictionary" id="maneuver-dictionary">
+      <div class="maneuver-dictionary-heading">
+        <div>
+          <span>Dogfight Lab · reference</span>
+          <h2>Air-combat maneuver dictionary</h2>
+        </div>
+        <button
+          class="dialog-close-button"
+          id="maneuver-dictionary-close"
+          type="button"
+          aria-label="Close maneuver dictionary"
+        >
+          Close
+        </button>
+      </div>
+      <p class="maneuver-dictionary-intro">
+        The AI chooses from these maneuvers according to geometry, energy, pilot
+        experience, fatigue, and current survivable G. Values are deliberately
+        game-scale—not medical or flight-training guidance.
+      </p>
+      <div class="maneuver-list" id="maneuver-list"></div>
+      <footer>
+        <span>Green</span> pilots use fundamentals;
+        <span>Experienced</span> pilots add vertical and rolling options;
+        <span>Aces</span> have the full library and the highest G tolerance.
+      </footer>
+    </dialog>
+
+    <dialog
+      class="maneuver-dictionary aircraft-specifications"
+      id="aircraft-specifications"
+    >
+      <div class="maneuver-dictionary-heading">
+        <div>
+          <span>Dogfight Lab · public reference</span>
+          <h2>Aircraft specifications</h2>
+        </div>
+        <button
+          class="dialog-close-button"
+          id="aircraft-specifications-close"
+          type="button"
+          aria-label="Close aircraft specifications"
+        >
+          Close
+        </button>
+      </div>
+      <p class="maneuver-dictionary-intro">
+        Published dimensions and performance are shown separately from the
+        compressed arena physics. Unknown or estimated values remain labeled;
+        classified data is never inferred.
+      </p>
+      <div
+        class="aircraft-specification-list"
+        id="aircraft-specification-list"
+      ></div>
+      <footer>
+        The MiG-35 is the newest publicly documented MiG fighter to have flown.
+        The proposed MiG-41 is not represented as a real aircraft.
+      </footer>
+    </dialog>
+
+    <script type="module" src="/src/fighters/dogfight/dogfight.ts"></script>
+  </body>
+</html>

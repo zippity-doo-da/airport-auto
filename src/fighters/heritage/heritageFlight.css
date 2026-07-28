@@ -1,0 +1,226 @@
+#heritage-canvas {
+  position: fixed;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.heritage-shell {
+  --heritage-modern: #8bc7d6;
+  --heritage-corsair: #6f9eb1;
+  --heritage-mustang: #d7c9a3;
+  --heritage-sabre: #e0b86e;
+}
+
+.heritage-roster {
+  width: min(19rem, 34vw);
+}
+
+.heritage-roster article {
+  grid-template-columns: 0.5rem 1fr;
+  padding-block: 0.48rem;
+}
+
+.heritage-roster strong {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.38rem;
+}
+
+.heritage-roster small {
+  color: var(--faint);
+  font-size: 0.5rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+}
+
+.heritage-dot--modern,
+.heritage-label--modern {
+  color: var(--heritage-modern);
+}
+
+.heritage-dot--corsair,
+.heritage-label--corsair {
+  color: var(--heritage-corsair);
+}
+
+.heritage-dot--mustang,
+.heritage-label--mustang {
+  color: var(--heritage-mustang);
+}
+
+.heritage-dot--sabre,
+.heritage-label--sabre {
+  color: var(--heritage-sabre);
+}
+
+.heritage-dot--modern,
+.heritage-dot--corsair,
+.heritage-dot--mustang,
+.heritage-dot--sabre {
+  background: currentColor;
+}
+
+.heritage-controls {
+  width: min(66rem, calc(100vw - 1.4rem));
+}
+
+.heritage-airframes {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.heritage-airframes summary {
+  display: grid;
+  min-height: 2.25rem;
+  padding: 0.5rem 0.72rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.72rem;
+  list-style: none;
+  place-items: center;
+  user-select: none;
+}
+
+.heritage-airframes summary::-webkit-details-marker {
+  display: none;
+}
+
+.heritage-airframes summary:hover,
+.heritage-airframes[open] summary {
+  border-color: rgba(224, 185, 111, 0.48);
+  color: var(--ink);
+}
+
+.heritage-airframe-panel {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 0.72rem);
+  width: min(34rem, calc(100vw - 1.4rem));
+  padding: 0.72rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 0.58rem;
+  background: rgba(14, 31, 31, 0.94);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(20px) saturate(0.82);
+}
+
+.heritage-airframe-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.42rem;
+}
+
+.heritage-airframe-grid article {
+  display: grid;
+  gap: 0.17rem;
+  padding: 0.58rem;
+  border: 1px solid var(--line);
+  border-radius: 0.38rem;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.heritage-airframe-grid strong {
+  font-family: "Libre Caslon Display", Georgia, serif;
+  font-size: 0.95rem;
+  font-weight: 400;
+}
+
+.heritage-airframe-grid span {
+  color: var(--accent);
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.heritage-airframe-grid small,
+.heritage-airframe-panel > p {
+  color: var(--muted);
+  font-size: 0.56rem;
+  line-height: 1.4;
+}
+
+.heritage-airframe-panel > p {
+  margin: 0.58rem 0 0;
+}
+
+@media (max-width: 900px) {
+  .heritage-controls .reset-button {
+    display: none;
+  }
+
+  .heritage-roster {
+    width: min(16rem, 38vw);
+  }
+}
+
+@media (max-width: 760px) {
+  .heritage-airport-link {
+    display: none !important;
+  }
+
+  .heritage-roster {
+    width: min(12rem, 48vw);
+    gap: 0.2rem;
+  }
+
+  .heritage-roster article {
+    padding: 0.32rem 0.4rem;
+  }
+
+  .heritage-controls {
+    grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .heritage-airframes {
+    grid-column: 1 / -1;
+  }
+
+  .heritage-airframes summary {
+    min-height: 1.95rem;
+    padding: 0.35rem 0.5rem;
+    font-size: 0.62rem;
+  }
+
+  .heritage-airframe-panel {
+    position: fixed;
+    right: 0.7rem;
+    bottom: 8.8rem;
+    left: 0.7rem;
+    width: auto;
+    max-height: calc(100vh - 10rem);
+    overflow-y: auto;
+  }
+}
+
+@media (max-width: 470px) {
+  .heritage-status {
+    max-width: calc(100vw - 8.5rem);
+  }
+
+  .heritage-roster {
+    width: 7rem;
+  }
+
+  .heritage-roster article:nth-child(n + 3) {
+    display: none;
+  }
+
+  .heritage-controls {
+    grid-template-columns: auto 1fr 1fr;
+  }
+
+  .heritage-airframe-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-height: 650px) and (min-width: 761px) {
+  .heritage-roster article:nth-child(n + 3) {
+    display: none;
+  }
+}
