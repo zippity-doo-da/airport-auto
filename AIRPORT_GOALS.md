@@ -369,6 +369,9 @@ The projection now also exposes active structured vector, hold, speed, and
 altitude instructions from the same navigation state, with typed parameters and
 instruction-specific presentation. It remains read-only: issuing or cancelling
 an instruction still goes through the normal command and safety arbiter.
+Departure runway status, assigned taxi route, and pending/cleared runway
+crossings now use the same structured message envelope; a pending crossing is
+shown as Standby rather than as an implicit clearance.
 
 ### Gameplay and UX
 
@@ -380,8 +383,8 @@ an instruction still goes through the normal command and safety arbiter.
 - [ ] Build structured departure, route, altitude, speed, direct-to, hold,
       frequency, taxi, crossing, and revision messages from existing typed commands.
       Active vector, hold, speed, altitude, and route state now project as
-      structured messages; departure, direct-to, frequency, taxi, crossing, and
-      revision envelopes remain open.
+      structured messages, as do departure, taxi, and crossing state; direct-to,
+      frequency, and revision envelopes remain open.
 - [ ] Permit multi-part clearances only when the atomic preview says the complete
       instruction is safe and authorized.
 - [ ] Make urgent, immediate, go-around, stop, rejected-takeoff, and conflict

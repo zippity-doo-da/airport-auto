@@ -12,7 +12,8 @@ Queue inspector plus explicit Tower departure release-window explanations.
 The inbound demand clock now applies bounded queue-pressure relief before the
 holding buffer fills. Deterministic validation updates cover the complete
 batch. The local Data Comm panel now also projects active structured vector,
-hold, speed, and altitude instructions without bypassing the command arbiter.
+hold, speed, altitude, departure, taxi, and crossing instructions without
+bypassing the command arbiter.
 This batch is intentionally not deployed yet.
 
 This file is the status ledger. A checked item is implemented and tested; any release intentionally held locally is labeled as such. Future ideas are kept in a separate, explicitly deferred section so implemented work is never duplicated as an unchecked task.

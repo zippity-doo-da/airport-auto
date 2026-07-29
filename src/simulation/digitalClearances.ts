@@ -15,7 +15,15 @@ export interface DigitalClearanceMessage {
   id: string;
   flightId: number;
   callsign: string;
-  kind: "route-amendment" | "vector" | "hold" | "speed" | "altitude";
+  kind:
+    | "route-amendment"
+    | "vector"
+    | "hold"
+    | "speed"
+    | "altitude"
+    | "departure"
+    | "taxi"
+    | "crossing";
   status: DigitalClearanceStatus;
   authority: string;
   revision: number;
@@ -116,6 +124,86 @@ function flightDigitalClearanceMessages(flight: Flight): DigitalClearanceMessage
       },
       detail: `Hold ${hold.fixId} ${hold.turns} turns; expect further clearance at ${Math.ceil(hold.expectFurtherClearanceAtSeconds)}s.`,
       warningCount: 0,
+    });
+  }
+
+  if (
+    (flight.phase === "taxi-out" || flight.phase === "takeoff") &&
+    flight.flightPlan.direction === "departure"
+  ) {
+    messages.push({
+      id: `departure:${flight.id}:${flight.departureRunway}:${flight.runwayEntryCleared ? 1 : 0}`,
+      flightId: flight.id,
+      callsign: flight.callsign,
+      kind: "departure",
+      status: "wilco",
+      authority: flight.navigation.frequencyOwner,
+      revision: 1,
+      createdAtSeconds: flight.flightPlan.createdAtSeconds,
+      issuedAtSeconds: flight.flightPlan.createdAtSeconds,
+      route: [flight.flightPlan.runwayIntent.designation],
+      parameters: {
+        runway: flight.flightPlan.runwayIntent.designation,
+        runwayEntryCleared: flight.runwayEntryCleared ? "yes" : "no",
+        takeoffCleared: flight.takeoffCleared ? "yes" : "no",
+      },
+      detail: flight.takeoffCleared
+        ? `Cleared for departure on ${flight.flightPlan.runwayIntent.designation}.`
+        : flight.runwayEntryCleared
+          ? `Line up and await takeoff clearance on ${flight.flightPlan.runwayIntent.designation}.`
+          : `Taxi for departure to ${flight.flightPlan.runwayIntent.designation}.`,
+      warningCount: 0,
+    });
+  }
+
+  if (
+    (flight.phase === "taxi-in" || flight.phase === "taxi-out") &&
+    flight.surfaceRoute?.length
+  ) {
+    messages.push({
+      id: `taxi:${flight.id}:${flight.surfaceRoute.length}:${flight.progress > 0.5 ? 1 : 0}`,
+      flightId: flight.id,
+      callsign: flight.callsign,
+      kind: "taxi",
+      status: "wilco",
+      authority: flight.navigation.frequencyOwner,
+      revision: 1,
+      createdAtSeconds: flight.flightPlan.createdAtSeconds,
+      issuedAtSeconds: flight.flightPlan.createdAtSeconds,
+      route: flight.surfaceRoute.slice(0, 8),
+      parameters: {
+        routeNodes: flight.surfaceRoute.length,
+        taxiway: flight.taxiway ?? "assigned surface route",
+      },
+      detail: `Taxi via the assigned surface route${flight.taxiway ? ` via ${flight.taxiway}` : ""}.`,
+      warningCount: 0,
+    });
+  }
+
+  const requiredCrossings = flight.requiredCrossings ?? [];
+  if (requiredCrossings.length) {
+    const cleared = new Set(flight.crossingClearances ?? []);
+    const remaining = requiredCrossings.filter((runway) => !cleared.has(runway));
+    messages.push({
+      id: `crossing:${flight.id}:${requiredCrossings.join(",")}:${[...cleared].join(",")}`,
+      flightId: flight.id,
+      callsign: flight.callsign,
+      kind: "crossing",
+      status: remaining.length ? "standby" : "wilco",
+      authority: flight.navigation.frequencyOwner,
+      revision: 1,
+      createdAtSeconds: flight.flightPlan.createdAtSeconds,
+      issuedAtSeconds: flight.flightPlan.createdAtSeconds,
+      route: requiredCrossings.map((runway) => `RWY ${runway + 1}`),
+      parameters: {
+        required: requiredCrossings.length,
+        cleared: cleared.size,
+        remaining: remaining.length,
+      },
+      detail: remaining.length
+        ? `${remaining.length} runway crossing${remaining.length === 1 ? "" : "s"} still require Ground clearance.`
+        : "All planned runway crossings are cleared.",
+      warningCount: remaining.length,
     });
   }
 
