@@ -137,12 +137,28 @@ export interface TrafficFlowCapacityWindow {
   direction: "arrival" | "departure";
   horizonSeconds: number;
   demandCount: number;
+  /** Demand already represented by queued meter entries in the horizon. */
+  predictedDemandCount: number;
   plannedReleaseCount: number;
+  /** Release capacity projected after the currently known slots. */
+  predictedCapacityCount: number;
   delayedCount: number;
   revisedCount: number;
   utilization: number;
   confidence: "high" | "medium" | "low";
   confidenceReason: string;
+  uncertainty: {
+    weather: number;
+    wind: number;
+    runwayCondition: number;
+    pilotResponse: number;
+  };
+}
+
+export interface TrafficFlowForecastInput {
+  arrivalDemandIntervalSeconds?: number;
+  departureSpacingSeconds?: number;
+  uncertainty?: Partial<TrafficFlowCapacityWindow["uncertainty"]>;
 }
 
 export function createTrafficFlowState(
@@ -436,12 +452,27 @@ export function refreshTrafficFlow(
 export function trafficFlowSnapshot(
   state: TrafficFlowState,
   nowSeconds: number,
+  forecast: TrafficFlowForecastInput = {},
 ): TrafficFlowSnapshot {
   refreshTrafficFlow(state, nowSeconds);
   const density = trafficDensityProfile(state.density);
   const capacityWindows = [
-    capacityWindow("arrival", state.arrivalQueue, nowSeconds),
-    capacityWindow("departure", state.departureQueue, nowSeconds),
+    capacityWindow(
+      "arrival",
+      state.arrivalQueue,
+      nowSeconds,
+      forecast.arrivalDemandIntervalSeconds,
+      forecast.arrivalDemandIntervalSeconds,
+      forecast.uncertainty,
+    ),
+    capacityWindow(
+      "departure",
+      state.departureQueue,
+      nowSeconds,
+      forecast.departureSpacingSeconds,
+      forecast.departureSpacingSeconds,
+      forecast.uncertainty,
+    ),
   ];
   return {
     schemaVersion: 1,
@@ -481,6 +512,9 @@ function capacityWindow(
   direction: TrafficFlowCapacityWindow["direction"],
   entries: TrafficFlowEntry[],
   nowSeconds: number,
+  demandIntervalSeconds = 60,
+  releaseSpacingSeconds = 60,
+  uncertaintyInput: Partial<TrafficFlowCapacityWindow["uncertainty"]> = {},
 ): TrafficFlowCapacityWindow {
   const horizon = nowSeconds + FLOW_LOOKAHEAD_SECONDS;
   const inWindow = entries.filter(
@@ -492,32 +526,86 @@ function capacityWindow(
   const delayedCount = inWindow.filter((entry) => entry.delaySeconds > 0.5).length;
   const revisedCount = inWindow.filter((entry) => entry.slotRevisions.length > 1).length;
   const demandCount = inWindow.length;
-  const utilization = demandCount
-    ? Number(Math.min(1, plannedReleaseCount / demandCount).toFixed(3))
+  const latestDemandAt = inWindow.reduce(
+    (latest, entry) => Math.max(latest, entry.scheduledAtSeconds),
+    nowSeconds,
+  );
+  const latestReleaseAt = inWindow.reduce(
+    (latest, entry) => Math.max(latest, entry.releaseSlotSeconds),
+    nowSeconds,
+  );
+  const forecastDemandCount =
+    demandCount +
+    Math.max(
+      0,
+      Math.ceil(
+        Math.max(0, horizon - latestDemandAt) /
+          Math.max(1, demandIntervalSeconds),
+      ),
+    );
+  const forecastCapacityCount =
+    plannedReleaseCount +
+    Math.max(
+      0,
+      Math.floor(
+        Math.max(0, horizon - latestReleaseAt) /
+          Math.max(1, releaseSpacingSeconds),
+      ),
+    );
+  const uncertainty = {
+    weather: clamp01(uncertaintyInput.weather ?? 0),
+    wind: clamp01(uncertaintyInput.wind ?? 0),
+    runwayCondition: clamp01(uncertaintyInput.runwayCondition ?? 0),
+    pilotResponse: clamp01(uncertaintyInput.pilotResponse ?? 0),
+  };
+  const uncertaintyScore =
+    (uncertainty.weather +
+      uncertainty.wind +
+      uncertainty.runwayCondition +
+      uncertainty.pilotResponse) /
+    4;
+  const utilization = forecastDemandCount
+    ? Number(
+        Math.min(
+          1,
+          forecastDemandCount /
+            Math.max(1, forecastCapacityCount * (1 - uncertaintyScore * 0.35)),
+        ).toFixed(3),
+      )
     : 0;
   const confidence =
-    delayedCount >= 3 || revisedCount >= 3
+    delayedCount >= 3 || revisedCount >= 3 || uncertaintyScore >= 0.45
       ? "low"
-      : delayedCount > 0 || revisedCount > 0
+      : delayedCount > 0 || revisedCount > 0 || uncertaintyScore >= 0.18
         ? "medium"
         : "high";
+  const uncertaintyLabels = Object.entries(uncertainty)
+    .filter(([, value]) => value >= 0.1)
+    .map(([key, value]) => `${key} ${(value * 100).toFixed(0)}%`);
   const confidenceReason =
     confidence === "low"
-      ? "Several slots are delayed or revised."
+      ? `Several slots are delayed/revised or uncertain${uncertaintyLabels.length ? ` (${uncertaintyLabels.join(", ")})` : ""}.`
       : confidence === "medium"
-        ? "Some slots have moved from their initial plan."
-        : "No delayed or revised slots in the look-ahead.";
+        ? `Some slots moved from their initial plan${uncertaintyLabels.length ? `; uncertainty ${uncertaintyLabels.join(", ")}` : ""}.`
+        : "No delayed, revised, or materially uncertain slots in the look-ahead.";
   return {
     direction,
     horizonSeconds: FLOW_LOOKAHEAD_SECONDS,
     demandCount,
+    predictedDemandCount: forecastDemandCount,
     plannedReleaseCount,
+    predictedCapacityCount: forecastCapacityCount,
     delayedCount,
     revisedCount,
     utilization,
     confidence,
     confidenceReason,
+    uncertainty,
   };
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
 }
 
 export function cloneTrafficFlowState(

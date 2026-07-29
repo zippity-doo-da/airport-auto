@@ -321,12 +321,16 @@ from “safe but metered.” Forecast-based release recommendations remain open.
 
 ### Simulation and API
 
-- [ ] Define versioned meter points and constraints from each airport's terminal
-      and surface programs.
-- [ ] Replace one-interval demand pressure with rolling predicted demand and
-      configurable capacity windows.
-- [ ] Model uncertainty from wind, procedure, runway condition, pilot response,
-      taxi congestion, and gate readiness.
+- [~] Define versioned meter points and constraints from each airport's terminal
+      and surface programs. Existing deterministic meter slots remain the
+      authority; the outlook now projects release cadence beyond queued entries.
+- [~] Replace one-interval demand pressure with rolling predicted demand and
+      configurable capacity windows. The five-minute outlook now forecasts both
+      sides of the horizon instead of counting only known queue entries.
+- [~] Model uncertainty from wind, procedure, runway condition, pilot response,
+      taxi congestion, and gate readiness. Forecast confidence carries bounded
+      weather, wind, runway-condition, and response factors without changing
+      separation, reservations, or movement commands.
 - [ ] Ensure schedule recommendations never move an aircraft directly; accepted
       actions must pass through the existing command and safety layers.
 - [~] Record schedule revisions and causes in exact replay and local analytics.

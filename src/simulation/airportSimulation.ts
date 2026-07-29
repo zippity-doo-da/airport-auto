@@ -5359,7 +5359,46 @@ export class AirportSimulation {
   }
 
   trafficFlowSnapshot(state: AirportState = this.state): TrafficFlowSnapshot {
-    return trafficFlowSnapshot(state.trafficFlow, state.elapsed);
+    const weather = state.weather;
+    const runwayCondition = Math.max(
+      weather.surfaceCondition === "dry" ? 0 : weather.surfaceCondition === "wet" ? 0.18 : 0.42,
+      ...weather.runwayConditionReports.map((report) =>
+        report.worstCode >= 4 ? 0.5 : report.worstCode >= 3 ? 0.28 : 0,
+      ),
+    );
+    const weatherFactor =
+      !weather.weatherEnabled || weather.condition === "clear"
+        ? 0
+        : weather.condition === "thunderstorm"
+          ? 0.6
+          : weather.condition === "fog" || weather.condition === "snow"
+            ? 0.42
+            : weather.condition === "rain"
+              ? 0.24
+              : 0.12;
+    const windFactor = !weather.windEnabled
+      ? 0
+      : Math.min(0.65, Math.max(0, (weather.windSpeed - 12) / 30) + Math.max(0, (weather.gustSpeed - weather.windSpeed) / 45));
+    const overdueHandoffs = state.flights.filter(
+      (flight) => flight.navigation.handoff?.status === "overdue",
+    ).length;
+    const pilotResponse = Math.min(
+      0.55,
+      (state.trafficFlow.arrivalQueue.reduce((sum, entry) => sum + entry.attempts, 0) +
+        state.trafficFlow.departureQueue.reduce((sum, entry) => sum + entry.attempts, 0) +
+        overdueHandoffs) /
+        Math.max(1, state.flights.length * 3),
+    );
+    return trafficFlowSnapshot(state.trafficFlow, state.elapsed, {
+      arrivalDemandIntervalSeconds: this.arrivalDemandInterval(),
+      departureSpacingSeconds: this.departureSlotSpacing(),
+      uncertainty: {
+        weather: weatherFactor,
+        wind: windFactor,
+        runwayCondition,
+        pilotResponse,
+      },
+    });
   }
 
   private updateSandboxInjections(): void {

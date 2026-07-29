@@ -232,9 +232,9 @@ function renderCapacitySummary(
       row.dataset.confidence = window.confidence;
 
       const heading = document.createElement("b");
-      heading.textContent = `${window.direction === "arrival" ? "ARR" : "DEP"} · ${window.plannedReleaseCount}/${window.demandCount} slots`;
+      heading.textContent = `${window.direction === "arrival" ? "ARR" : "DEP"} · ${window.predictedCapacityCount}/${window.predictedDemandCount} forecast slots`;
       const detail = document.createElement("small");
-      detail.textContent = `${window.horizonSeconds / 60} min · ${window.confidence} confidence${window.delayedCount ? ` · ${window.delayedCount} delayed` : ""}`;
+      detail.textContent = `${window.horizonSeconds / 60} min · ${window.confidence} confidence${window.delayedCount ? ` · ${window.delayedCount} delayed` : ""}${window.uncertainty.weather || window.uncertainty.wind || window.uncertainty.runwayCondition || window.uncertainty.pilotResponse ? " · uncertainty active" : ""}`;
       detail.title = window.confidenceReason;
 
       const meter = document.createElement("span");

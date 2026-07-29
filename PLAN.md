@@ -25,6 +25,9 @@ IDs, causal references, expiry, and structured response timing for every
 message kind.
 The external gateway now exposes a bounded typed clearance projection too;
 free-form message detail stays local to the page.
+Queue outlooks now forecast demand and release capacity beyond known meter
+entries and report bounded weather, wind, runway-condition, and pilot-response
+uncertainty factors.
 This batch is intentionally not deployed yet.
 
 This file is the status ledger. A checked item is implemented and tested; any release intentionally held locally is labeled as such. Future ideas are kept in a separate, explicitly deferred section so implemented work is never duplicated as an unchecked task.
