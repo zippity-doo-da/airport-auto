@@ -5447,6 +5447,17 @@ function renderFlightActions(): void {
   route.className = "flight-actions__route";
   route.textContent = `From ${airportPlaceLabel(flight.origin)} · To ${airportPlaceLabel(flight.destination)}`;
   flightActions.append(route);
+  const capability = document.createElement("p");
+  capability.className = "flight-actions__capability";
+  const aircraft = aircraftProfile(flight.aircraft);
+  const authorityOwner = flight.navigation.frequencyOwner.toUpperCase();
+  const deskAuthority =
+    simulation.state.station === "supervisor" ||
+    simulation.canIssue(simulation.state.station)
+      ? "desk authority available"
+      : "desk is read-only";
+  capability.textContent = `${aircraft.name} · ${aircraft.wakeClass.toUpperCase()} wake · runway ${Math.round(aircraft.takeoffRunwayRequiredM)} m takeoff / ${Math.round(aircraft.landingRunwayRequiredM)} m landing · data ${authorityOwner} · ${deskAuthority}`;
+  flightActions.append(capability);
   if (flight.phase !== "resting")
     flightActions.append(createNavigationPanel(flight));
   if (

@@ -2275,6 +2275,14 @@ summary:focus-visible {
   color: rgba(244, 232, 206, 0.76);
   line-height: 1.35;
 }
+.flight-actions .flight-actions__capability {
+  margin: -3px 0 9px;
+  color: rgba(188, 232, 216, 0.62);
+  font-size: 7px;
+  line-height: 1.35;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
 .group-actions {
   display: grid;
   gap: 8px;
