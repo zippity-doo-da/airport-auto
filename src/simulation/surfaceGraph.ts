@@ -1120,7 +1120,15 @@ export function surfaceRouteCrossingWindows(
       );
       const controlPoints = crossingId ? graphIndex.controlPointsByCrossing.get(crossingId) ?? [] : [];
       const controlPair = controlPoints
-        .filter((point) => point.kind === 'hold-short' && point.runwayId === runwayId)
+        // A crossing can span several imported edge fragments. Only project
+        // a control point against the fragment that owns it; projecting an
+        // adjacent fragment collapses hold and entry onto the same endpoint
+        // and creates an invalid zero-length hold-short window.
+        .filter((point) =>
+          point.kind === 'hold-short' &&
+          point.runwayId === runwayId &&
+          point.edgeId === edge.id,
+        )
         .map((holdPoint) => {
           const pairId = holdPoint.id.replace(/-HOLD$/, '');
           const crossingPoint = controlPoints.find((point) => point.id === `${pairId}-CROSS`);
@@ -1128,10 +1136,22 @@ export function surfaceRouteCrossingWindows(
           const holdProjection = routeProjectionForPoint(geometry, holdPoint.position, edgeIndex);
           const crossingProjection = routeProjectionForPoint(geometry, crossingPoint.position, edgeIndex);
           if (holdProjection.routeDistance > crossingProjection.routeDistance + 1e-6) return null;
+          // A few imported/generated pairs place the hold-short marker on the
+          // same pavement point as the crossing marker. Keep both source IDs
+          // for attribution, but move the authoritative stop target back by
+          // the normal buffer so the aircraft never stops in the protected
+          // crossing envelope.
+          const bufferedHoldDistance = Math.min(
+            holdProjection.routeDistance,
+            Math.max(0, crossingProjection.routeDistance - HOLD_SHORT_BUFFER),
+          );
           return {
             holdPoint,
             crossingPoint,
-            holdProjection,
+            holdProjection: {
+              ...holdProjection,
+              routeDistance: bufferedHoldDistance,
+            },
             crossingProjection,
             score: holdProjection.offset + crossingProjection.offset
               + Math.abs(crossingProjection.routeDistance - segment.startDistance),
@@ -1139,6 +1159,14 @@ export function surfaceRouteCrossingWindows(
         })
         .filter((pair): pair is NonNullable<typeof pair> => Boolean(pair))
         .sort((first, second) => first.score - second.score)[0];
+      const fallbackHoldPoint = controlPair?.holdPoint ?? controlPoints.find(
+        (point) => point.kind === 'hold-short' && point.runwayId === runwayId,
+      );
+      const fallbackCrossingPoint = fallbackHoldPoint
+        ? controlPoints.find(
+            (point) => point.id === `${fallbackHoldPoint.id.replace(/-HOLD$/, '')}-CROSS`,
+          )
+        : undefined;
       const holdDistance = controlPair?.holdProjection.routeDistance
         ?? Math.max(0, segment.startDistance - HOLD_SHORT_BUFFER);
       const entryDistance = controlPair?.crossingProjection.routeDistance ?? segment.startDistance;
@@ -1153,8 +1181,8 @@ export function surfaceRouteCrossingWindows(
         entryProgress: entryDistance / geometry.totalDistance,
         exitProgress: (segment.startDistance + segment.length) / geometry.totalDistance,
         distanceToHold: holdDistance,
-        holdPointId: controlPair?.holdPoint.id,
-        crossingPointId: controlPair?.crossingPoint.id,
+        holdPointId: fallbackHoldPoint?.id,
+        crossingPointId: controlPair?.crossingPoint.id ?? fallbackCrossingPoint?.id,
       });
     }
   }
@@ -1166,6 +1194,16 @@ export function surfaceRouteCrossingWindows(
       && previous.crossingId === window.crossingId
       && window.edgeIndex <= previous.exitEdgeIndex + 1
     ) {
+      // Prefer the authoritative generated control pair when the first edge
+      // fragment only supplied the conservative fallback buffer.
+      if (!previous.holdPointId && window.holdPointId) {
+        previous.holdProgress = window.holdProgress;
+        previous.entryProgress = window.entryProgress;
+        previous.holdPointId = window.holdPointId;
+        previous.crossingPointId = window.crossingPointId;
+        previous.edgeId = window.edgeId;
+        previous.edgeIndex = window.edgeIndex;
+      }
       previous.exitEdgeIndex = window.exitEdgeIndex;
       previous.exitProgress = Math.max(previous.exitProgress, window.exitProgress);
       continue;

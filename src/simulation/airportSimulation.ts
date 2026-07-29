@@ -3432,13 +3432,21 @@ export class AirportSimulation {
       });
       return false;
     }
+    // Supervisor may issue on behalf of the owning operational position. The
+    // pilot's readback must still belong to that frequency owner; recording
+    // "supervisor" here would immediately look like an authority transfer
+    // and cancel an otherwise valid clearance.
+    const issuingStation =
+      this.state.station === "supervisor"
+        ? flight.navigation.frequencyOwner
+        : this.state.station;
     const readbackDelay = 0.9 + (flight.id % 5) * 0.18;
     flight.navigation.routeClearance = {
       ...candidate.clearance,
       status: "pending-readback",
       issuedAtSeconds: this.state.elapsed,
       readbackDueSeconds: this.state.elapsed + readbackDelay,
-      issuedBy: this.state.station,
+      issuedBy: issuingStation,
       reason: "awaiting pilot readback",
     };
     flight.navigation.readbackStatus = "pending";
@@ -3471,7 +3479,10 @@ export class AirportSimulation {
         flight,
       );
     }
-    if (pending.issuedBy !== this.state.station) {
+    if (
+      pending.issuedBy !== this.state.station &&
+      this.state.station !== "supervisor"
+    ) {
       return this.rejectDecision(
         `${flight.callsign} route readback belongs to ${pending.issuedBy}; reissue after coordination`,
         flight,

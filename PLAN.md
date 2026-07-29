@@ -34,6 +34,11 @@ named reservation blockers in operation-queue records. A three-hour extreme
 ORD run no longer reaches the traffic-stall condition and remains free of
 collision alerts, runway incursions, and unexplained pauses; queue-volume and
 long-hold calibration remain open.
+The offline place directory now covers the JNB and GRU markets used by the
+traffic programs. Surface crossing windows also normalize multi-edge imported
+crossings and same-point generated hold markers into a positive buffered
+hold-short interval, so the full local operations suite validates ATL and ORD
+routes consistently.
 This batch is intentionally not deployed yet.
 
 This file is the status ledger. A checked item is implemented and tested; any release intentionally held locally is labeled as such. Future ideas are kept in a separate, explicitly deferred section so implemented work is never duplicated as an unchecked task.
