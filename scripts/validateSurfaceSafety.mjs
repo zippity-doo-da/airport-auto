@@ -21,6 +21,31 @@ const simulation = new AirportSimulation(config);
 const [first, second] = simulation.state.flights;
 assert(first && second, "ORD needs an initial departure bank for surface-safety validation");
 
+const routeSimulation = new AirportSimulation(config);
+const routeFlight = routeSimulation.state.flights.find(
+  (flight) => flight.phase === "taxi-out" && flight.surfaceRouteEdges?.length,
+);
+assert(routeFlight, "surface-safety validation needs a routed departure");
+routeFlight.surfaceRoute = undefined;
+routeFlight.surfaceRouteEdges = undefined;
+routeSimulation.update(1 / 30);
+assert(
+  routeFlight.automaticHold &&
+    routeFlight.automaticHoldReason === "surface movement held: no graph route",
+  "missing graph route did not create an explainable automatic hold",
+);
+const recoveryRoute = routeSimulation.state.flights.find(
+  (flight) => flight.id !== routeFlight.id && flight.surfaceRoute?.length && flight.surfaceRouteEdges?.length,
+);
+assert(recoveryRoute, "surface-safety validation needs a route for hold recovery");
+routeFlight.surfaceRoute = [...recoveryRoute.surfaceRoute];
+routeFlight.surfaceRouteEdges = [...recoveryRoute.surfaceRouteEdges];
+routeSimulation.update(1 / 30);
+assert(
+  routeFlight.automaticHoldReason !== "surface movement held: no graph route",
+  "restored graph route did not clear the no-route hold reason",
+);
+
 const savedSurfaceRoute = first.surfaceRoute;
 const savedSurfaceRouteEdges = first.surfaceRouteEdges;
 first.surfaceRoute = undefined;

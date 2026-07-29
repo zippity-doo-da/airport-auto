@@ -535,8 +535,9 @@ choices but are not live ATC runway-use authorizations.
 - [~] Every routed aircraft remains on authoritative pavement and every rendered
       pose matches collision sampling. A missing graph route now produces an
       authoritative no-route hold in both motion and collision envelopes instead
-      of a fabricated gate-to-runway line; full multi-airport soak coverage
-      remains open.
+      of a fabricated gate-to-runway line, publishes an explainable automatic hold
+      reason, and clears that reason when graph routing is restored; full
+      multi-airport soak coverage remains open.
 - [~] Every stand, edge, intersection, crossing, and runway protection zone is
   reachable, classified, and covered by route/property validation. The KATL
   validator now proves 800 stand-to-runway and runway-to-stand routes across all

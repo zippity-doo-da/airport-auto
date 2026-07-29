@@ -4860,6 +4860,22 @@ export class AirportSimulation {
         flight.safetyHoldReason = undefined;
         const onSurface =
           flight.phase === "taxi-in" || flight.phase === "taxi-out";
+        // A surface flight without a graph route must remain at its
+        // authoritative pose. Make that safety state explicit so operators
+        // can distinguish a deliberate hold from a stalled animation. The
+        // reason is cleared automatically as soon as routing is restored.
+        const routeMissing =
+          onSurface &&
+          (!flight.surfaceRoute?.length || !flight.surfaceRouteEdges?.length);
+        if (routeMissing) {
+          flight.automaticHold = true;
+          flight.automaticHoldReason = "surface movement held: no graph route";
+        } else if (
+          flight.automaticHoldReason === "surface movement held: no graph route"
+        ) {
+          flight.automaticHold = false;
+          flight.automaticHoldReason = undefined;
+        }
         const movingSurfaceRecovery =
           onSurface && flight.surfaceYield?.status === "moving";
         const reversingSurfaceYield =
@@ -4907,6 +4923,7 @@ export class AirportSimulation {
         const disruptionHold =
           onSurface && flight.surfaceReroute?.status === "holding";
         const hardHold =
+          routeMissing ||
           crossingHold ||
           deicingHold ||
           awaitingTakeoffClearance ||
