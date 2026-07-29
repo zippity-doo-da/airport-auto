@@ -11,7 +11,7 @@ export type DigitalClearanceStatus =
   | "timed-out"
   | "cancelled";
 
-export interface DigitalClearanceMessage {
+interface DigitalClearanceDraft {
   id: string;
   flightId: number;
   callsign: string;
@@ -40,8 +40,22 @@ export interface DigitalClearanceMessage {
   warningCount: number;
 }
 
+export interface DigitalClearanceMessage extends DigitalClearanceDraft {
+  /** Stable command identity for UI, replay, analytics, and agent clients. */
+  commandId: string;
+  /** Deterministic authoritative references that explain why this message exists. */
+  causalEventIds: string[];
+  /** Null for completed messages; otherwise the point at which the envelope expires. */
+  expiresAtSeconds: number | null;
+  response: {
+    status: DigitalClearanceStatus;
+    dueSeconds?: number;
+    respondedAtSeconds?: number;
+  };
+}
+
 export interface DigitalClearanceSnapshot {
-  schemaVersion: 1;
+  schemaVersion: 2;
   generatedAtSeconds: number;
   messages: DigitalClearanceMessage[];
   counts: Record<DigitalClearanceStatus, number>;
@@ -56,6 +70,7 @@ export function digitalClearanceSnapshot(
 ): DigitalClearanceSnapshot {
   const messages = state.flights
     .flatMap((flight) => flightDigitalClearanceMessages(flight))
+    .map(toEnvelope)
     .sort(
       (first, second) =>
         statusRank(second.status) - statusRank(first.status) ||
@@ -65,15 +80,15 @@ export function digitalClearanceSnapshot(
   const counts = emptyCounts();
   for (const message of messages) counts[message.status] += 1;
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAtSeconds: state.elapsed,
     messages,
     counts,
   };
 }
 
-function flightDigitalClearanceMessages(flight: Flight): DigitalClearanceMessage[] {
-  const messages: DigitalClearanceMessage[] = [];
+function flightDigitalClearanceMessages(flight: Flight): DigitalClearanceDraft[] {
+  const messages: DigitalClearanceDraft[] = [];
   const route = flight.navigation.routeClearance;
   if (route) messages.push(routeClearanceMessage(flight, route));
 
@@ -297,7 +312,7 @@ function instructionMessage(
   kind: "speed" | "altitude",
   value: number,
   detail: string,
-): DigitalClearanceMessage {
+): DigitalClearanceDraft {
   const issuedAtSeconds = flight.navigation.vector?.issuedAtSeconds ?? 0;
   return {
     id: `${kind}:${flight.id}:${value}`,
@@ -319,7 +334,7 @@ function instructionMessage(
 function routeClearanceMessage(
   flight: Flight,
   clearance: FlightRouteClearanceState,
-): DigitalClearanceMessage {
+): DigitalClearanceDraft {
   return {
     id: `route:${flight.id}:${clearance.revision}`,
     flightId: flight.id,
@@ -355,6 +370,33 @@ function routeStatus(
   return /superseded/i.test(clearance.reason ?? "")
     ? "superseded"
     : "cancelled";
+}
+
+function toEnvelope(draft: DigitalClearanceDraft): DigitalClearanceMessage {
+  const terminal = ["wilco", "unable", "superseded", "timed-out", "cancelled"].includes(
+    draft.status,
+  );
+  const expiresAtSeconds = terminal
+    ? null
+    : draft.responseDueSeconds ?? draft.createdAtSeconds + 90;
+  return {
+    ...draft,
+    commandId: `cmd:${draft.id}`,
+    causalEventIds: [
+      `flight:${draft.flightId}`,
+      `clearance:${draft.kind}:${draft.revision}`,
+    ],
+    expiresAtSeconds,
+    response: {
+      status: draft.status,
+      ...(draft.responseDueSeconds === undefined
+        ? {}
+        : { dueSeconds: draft.responseDueSeconds }),
+      ...(draft.respondedAtSeconds === undefined
+        ? {}
+        : { respondedAtSeconds: draft.respondedAtSeconds }),
+    },
+  };
 }
 
 function emptyCounts(): Record<DigitalClearanceStatus, number> {

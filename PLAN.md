@@ -20,6 +20,9 @@ evaluation also records bounded digital-message status and kind counts.
 The status broker now exposes selectable calm severity policies (Off, Advisory,
 Operational, Rare High Impact), keeps critical safety alerts visible, and saves
 the policy in Watch presets.
+Data Comm projections now use version 2 envelopes with deterministic command
+IDs, causal references, expiry, and structured response timing for every
+message kind.
 This batch is intentionally not deployed yet.
 
 This file is the status ledger. A checked item is implemented and tested; any release intentionally held locally is labeled as such. Future ideas are kept in a separate, explicitly deferred section so implemented work is never duplicated as an unchecked task.

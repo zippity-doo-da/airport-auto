@@ -390,13 +390,15 @@ shared free text as a command.
   now exposes route-clearance Draft, Delivered, Wilco, Unable, Superseded,
   and Cancelled states; additional message categories and unmodeled states
   remain open.
-- [ ] Build structured departure, route, altitude, speed, direct-to, hold,
+- [~] Build structured departure, route, altitude, speed, direct-to, hold,
       frequency, taxi, crossing, and revision messages from existing typed commands.
       Active vector, hold, speed, altitude, and route state now project as
       structured messages, as do departure, taxi, and crossing state; direct-to,
       and frequency state now use dedicated envelopes, and the latest plan
-      amendment is exposed as a Revision message; full revision-history UI and
-      remaining message families remain open.
+      amendment is exposed as a Revision message. Version 2 envelopes now carry
+      deterministic command IDs, causal references, expiry, and structured
+      response timing; full revision-history UI and remaining message families
+      remain open.
 - [ ] Permit multi-part clearances only when the atomic preview says the complete
       instruction is safe and authorized.
 - [ ] Make urgent, immediate, go-around, stop, rejected-takeoff, and conflict
@@ -412,9 +414,9 @@ shared free text as a command.
 
 - [~] Define one versioned message envelope containing authority, command IDs,
   causal event IDs, content fields, delivery timing, response, and expiry.
-  The versioned route-message projection includes authority, revision,
-  timing, route content, response status, and warning context; causal IDs,
-  other command types, and expiry remain open.
+  Version 2 projections now include these fields for every projected message;
+  causal references are deterministic flight/clearance identifiers until the
+  full event-history export is added.
 - [ ] Reuse staged pilot-response and route-readback behavior rather than adding
       a parallel command executor.
 - [~] Enforce one current data authority and deterministic handoff behavior.

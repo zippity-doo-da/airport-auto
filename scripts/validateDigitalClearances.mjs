@@ -52,7 +52,9 @@ flight.navigation.routeClearance = {
 };
 snapshot = digitalClearanceSnapshot(simulation.state);
 const message = snapshot.messages[0];
-assert(snapshot.schemaVersion === 1 && message?.status === 'delivered' && message.route.join('>') === 'NORTH>LAKE', 'pending readback did not project as a delivered route message');
+assert(snapshot.schemaVersion === 2 && message?.status === 'delivered' && message.route.join('>') === 'NORTH>LAKE', 'pending readback did not project as a delivered route message');
+assert(message.commandId === 'cmd:route:' + flight.id + ':4' && message.causalEventIds.length === 2, 'clearance envelope identity or causality is not deterministic');
+assert(message.expiresAtSeconds === 6 && message.response.status === 'delivered' && message.response.dueSeconds === 6, 'pending readback envelope timing or response is incomplete');
 message.route[0] = 'MUTATED';
 assert(flight.navigation.routeClearance.routeFixNames[0] === 'NORTH', 'digital-clearance snapshot shared route references with state');
 flight.navigation.frequencyOwner = 'tower';
