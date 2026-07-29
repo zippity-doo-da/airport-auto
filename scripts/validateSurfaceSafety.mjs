@@ -9,6 +9,7 @@ import { runwayProtectionStatuses } from "./src/simulation/runwayProtection.ts";
 import { runwayEndPoint, runwayTravelDirection } from "./src/simulation/runwayGeometry.ts";
 import { SurfaceSafetyAcknowledgements } from "./src/simulation/surfaceSafetyAcknowledgements.ts";
 import { SurfaceSafetyAnnouncementTracker } from "./src/presentation/surfaceSafetyAnnouncements.ts";
+import { aircraftCollisionEnvelope } from "./src/simulation/collisionDetection.ts";
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -19,6 +20,16 @@ const config = generateHubConfig(ordIndex);
 const simulation = new AirportSimulation(config);
 const [first, second] = simulation.state.flights;
 assert(first && second, "ORD needs an initial departure bank for surface-safety validation");
+
+const savedSurfaceRoute = first.surfaceRoute;
+const savedSurfaceRouteEdges = first.surfaceRouteEdges;
+first.surfaceRoute = undefined;
+first.surfaceRouteEdges = undefined;
+const noRouteStart = aircraftCollisionEnvelope(config, first, 0);
+const noRouteEnd = aircraftCollisionEnvelope(config, first, 1);
+assert(noRouteStart.x === noRouteEnd.x && noRouteStart.y === noRouteEnd.y && noRouteEnd.taxiway === "NO-ROUTE-HOLD" && !noRouteEnd.protectedSurface, "missing surface route invented a gate-to-runway collision path");
+first.surfaceRoute = savedSurfaceRoute;
+first.surfaceRouteEdges = savedSurfaceRouteEdges;
 
 first.phase = "taxi-out";
 first.motion.onGround = true;

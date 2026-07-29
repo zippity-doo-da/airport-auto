@@ -7,7 +7,6 @@ import { phaseUsesFlightTrajectory } from './flightTrajectory';
 import { runwaysConflict } from './runwayConflict';
 import { sampleFlightMotion } from './flightMotion';
 import { WORLD_METERS_PER_UNIT } from './runwayPerformance';
-import { runwayEndPoint } from './runwayGeometry';
 import { flightHasCommittedRunwayTrajectory } from './runwayProtection';
 
 /**
@@ -201,10 +200,7 @@ export function aircraftCollisionEnvelope(config: AirportConfig, flight: Flight,
     }
   }
   if (collisionPerformanceTrace) collisionPerformanceTrace.envelopeComputations += 1;
-  const runway = config.runways[flight.runway] ?? config.runways[0];
   const aircraft = aircraftProfile(flight.aircraft);
-  const landingSign = flight.operatingEnd;
-  const takeoffSign = -landingSign as -1 | 1;
   const baseScale = config.scope === 'center' ? 0.17 : 0.92;
   const approachScale = flight.phase === 'approach'
     ? lerp(baseScale * 1.3, baseScale, smoothRange(p, 0.06, 0.96))
@@ -306,25 +302,26 @@ export function aircraftCollisionEnvelope(config: AirportConfig, flight: Flight,
     }));
   }
 
-  const runwayAnchor = flight.phase === 'taxi-in'
-    ? runwayEndPoint(runway, takeoffSign, -5)
-    : runwayEndPoint(runway, landingSign, 8);
-  const from = flight.phase === 'taxi-in' ? runwayAnchor : gate;
-  const to = flight.phase === 'taxi-in' ? gate : runwayAnchor;
-  const taxiway = flight.taxiway === 'APRON'
-    ? 'APRON'
-    : `${flight.taxiway ?? `RUNWAY-${flight.runway}`}#${flight.runway}`;
+  // A missing surface route is a planning failure, not permission to invent a
+  // straight gate-to-runway path. Hold the physical envelope at the last
+  // authoritative pose until a graph route is assigned; this keeps collision
+  // diagnostics aligned with the rendered/simulated aircraft and prevents
+  // phantom grass or runway crossings.
+  const motion = Math.abs(p - flight.progress) < 1e-9 && flight.motion
+    ? flight.motion
+    : sampleFlightMotion(config, flight, p);
   return sampled(envelope({
-    x: lerp(from.x, to.x, p),
-    y: lerp(from.y, to.y, p),
+    x: motion.x,
+    y: motion.y,
     altitude: 2.1,
-    heading: Math.atan2(to.y - from.y, to.x - from.x),
+    heading: motion.heading,
     airborne: false,
     surface: true,
     parked: false,
-    protectedSurface: flight.phase === 'taxi-in' ? p < 0.3 : p > 0.7,
+    protectedSurface: false,
     runway: flight.runway,
-    taxiway,
+    taxiway: 'NO-ROUTE-HOLD',
+    surfaceNode: standNode?.id,
   }));
 }
 
