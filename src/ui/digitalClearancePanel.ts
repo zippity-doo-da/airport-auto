@@ -51,12 +51,16 @@ export function renderDigitalClearancePanel(
       );
       const heading = document.createElement("div");
       const title = document.createElement("b");
-      title.textContent = `${message.callsign} · ROUTE`;
+      title.textContent = `${message.callsign} · ${message.kind.replace("-", " ").toUpperCase()}`;
       const status = document.createElement("span");
       status.textContent = message.status.replace("-", " ").toUpperCase();
       heading.append(title, status);
       const route = document.createElement("p");
-      route.textContent = message.route.join(" › ") || "No amended fixes";
+      route.textContent = message.route.length
+        ? message.route.join(" › ")
+        : Object.entries(message.parameters)
+            .map(([key, value]) => `${key} ${value}`)
+            .join(" · ") || "No additional parameters";
       const detail = document.createElement("small");
       detail.textContent = `${message.authority.toUpperCase()} · R${message.revision} · ${message.detail}`;
       row.append(heading, route, detail);

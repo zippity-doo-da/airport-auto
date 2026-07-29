@@ -10,11 +10,18 @@ function assert(condition, message) { if (!condition) throw new Error(message); 
 const simulation = new AirportSimulation(generateHubConfig(HUB_AIRPORTS.findIndex((airport) => airport.code === 'ORD')));
 const flight = simulation.state.flights[0];
 assert(flight, 'ORD needs an initial flight for digital-clearance validation');
+let snapshot;
+flight.motion.onGround = false;
+flight.navigation.assignedSpeedKts = 180;
+flight.navigation.assignedAltitudeFt = 5000;
+snapshot = digitalClearanceSnapshot(simulation.state);
+assert(snapshot.messages.some((item) => item.kind === 'speed' && item.parameters.speedKts === 180), 'assigned speed did not project as a structured digital message');
+assert(snapshot.messages.some((item) => item.kind === 'altitude' && item.parameters.altitudeFt === 5000), 'assigned altitude did not project as a structured digital message');
 flight.navigation.routeClearance = {
   schemaVersion: 1, revision: 4, status: 'pending-readback', routeFixIds: ['FIX-A', 'FIX-B'], routeFixNames: ['NORTH', 'LAKE'], previousRouteFixIds: ['OLD'],
   previewedAtSeconds: 3, issuedAtSeconds: 4, readbackDueSeconds: 6, issuedBy: 'approach', distanceNm: 18, estimatedSeconds: 440, initialTurnDegrees: 14, safeToIssue: true, warnings: [], reason: 'awaiting pilot readback',
 };
-let snapshot = digitalClearanceSnapshot(simulation.state);
+snapshot = digitalClearanceSnapshot(simulation.state);
 const message = snapshot.messages[0];
 assert(snapshot.schemaVersion === 1 && message?.status === 'delivered' && message.route.join('>') === 'NORTH>LAKE', 'pending readback did not project as a delivered route message');
 message.route[0] = 'MUTATED';
