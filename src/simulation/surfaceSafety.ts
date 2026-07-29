@@ -507,6 +507,11 @@ function predictionToAdvisory(
         return [point.x, point.y] as [number, number];
       })
     : [];
+  const geometry = prediction.geometry ?? {
+    kind: runway ? ("runway" as const) : ("system" as const),
+    points: runwayPoints,
+    width: runway ? Math.max(1, runway.width) : undefined,
+  };
   return {
     schemaVersion: 1,
     id: `${prediction.type}:${[...prediction.flights].sort((first, second) => first - second).join("-")}:${prediction.runway ?? "none"}`,
@@ -524,11 +529,7 @@ function predictionToAdvisory(
     lastSeenAtSeconds: elapsedSeconds,
     predictedAtSeconds: elapsedSeconds + prediction.etaSeconds,
     detail: prediction.detail,
-    geometry: {
-      kind: runway ? "runway" : "system",
-      points: runwayPoints,
-      width: runway ? Math.max(1, runway.width) : undefined,
-    },
+    geometry,
   };
 }
 

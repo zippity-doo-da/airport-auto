@@ -185,6 +185,11 @@ function renderSurfaceDiagram(
     ...runwayPoints,
     ...tracks.map((track) => [track.x, track.y]),
     ...vehicles.map((vehicle) => [vehicle.x, vehicle.y]),
+    ...advisories.flatMap((advisory) =>
+      advisory.status === "active" && advisory.geometry.kind === "corridor"
+        ? advisory.geometry.points
+        : [],
+    ),
   ];
   const minX = Math.min(...points.map((point) => point[0])) - 8;
   const maxX = Math.max(...points.map((point) => point[0])) + 8;
@@ -237,13 +242,27 @@ function renderSurfaceDiagram(
       return `<path class="surface-safety__diagram-lookahead" data-severity="${severity}" d="M ${startX} ${startY} A ${radius} ${radius} 0 0 1 ${endX} ${endY}" aria-label="${severity} forecast for ${track.callsign} in ${etaSeconds} seconds" />`;
     })
     .join("");
+  const crossingCorridors = advisories
+    .filter(
+      (advisory) =>
+        advisory.status === "active" &&
+        advisory.geometry.kind === "corridor" &&
+        advisory.geometry.points.length >= 2,
+    )
+    .map((advisory) => {
+      const points = advisory.geometry.points
+        .map(([x, y]) => `${x},${svgY(y)}`)
+        .join(" ");
+      return `<polyline class="surface-safety__diagram-corridor" data-severity="${advisory.severity}" points="${points}" aria-label="${advisory.severity} runway crossing corridor" />`;
+    })
+    .join("");
   const vehicleMarks = vehicles
     .map(
       (vehicle) =>
         `<rect class="surface-safety__diagram-vehicle" x="${vehicle.x - 1.3}" y="${svgY(vehicle.y) - 1.3}" width="2.6" height="2.6" />`,
     )
     .join("");
-  container.innerHTML = `<svg viewBox="${minX} ${minY} ${width} ${height}" role="img" aria-label="Surface diagram: ${tracks.length} aircraft tracks, ${vehicles.length} service vehicles, ${lookaheadArcs ? "active forecast arcs" : "no forecast arcs"}">${runwayLines}${lookaheadArcs}${vehicleMarks}${trackMarks}</svg>`;
+  container.innerHTML = `<svg viewBox="${minX} ${minY} ${width} ${height}" role="img" aria-label="Surface diagram: ${tracks.length} aircraft tracks, ${vehicles.length} service vehicles, ${lookaheadArcs || crossingCorridors ? "active forecast geometry" : "no forecast geometry"}">${runwayLines}${crossingCorridors}${lookaheadArcs}${vehicleMarks}${trackMarks}</svg>`;
 }
 
 function trackMatchesFilter(

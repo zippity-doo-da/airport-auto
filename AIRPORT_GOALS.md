@@ -170,6 +170,12 @@ New active safety advisories now enter the existing dwell-based status broker
 once per active advisory burst, prioritizing the most severe item while leaving
 the complete list in the Safety panel. Resolved recurring advisories may alert
 again; unchanged advisories cannot churn the status copy.
+Protected-runway crossing forecasts now carry a shared corridor geometry from
+the authoritative aircraft pose to the named hold point. The compact surface
+diagram renders that corridor alongside its forecast arc, and the same points
+survive the remote redaction boundary. This makes a predicted crossing leg
+inspectable before the aircraft reaches the protected envelope; it does not
+grant clearance or change movement arbitration.
 
 ### Gameplay and UX
 

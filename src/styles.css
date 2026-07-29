@@ -4545,6 +4545,19 @@ body.capture-clean #capture-clean-exit {
   stroke-width: 2;
   stroke-dasharray: none;
 }
+.surface-safety__diagram-corridor {
+  fill: none;
+  stroke: #f2c84b;
+  stroke-width: 1.8;
+  stroke-dasharray: 3 2;
+  stroke-linecap: round;
+  opacity: 0.88;
+}
+.surface-safety__diagram-corridor[data-severity="critical"] {
+  stroke: #ef6f62;
+  stroke-width: 2.4;
+  stroke-dasharray: none;
+}
 .surface-safety__diagram-vehicle {
   fill: #8eb5ab;
   stroke: rgba(5, 24, 25, 0.92);

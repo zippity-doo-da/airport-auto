@@ -1294,6 +1294,12 @@ export interface ConflictPrediction {
   runway?: number;
   etaSeconds: number;
   detail: string;
+  /** Optional authoritative geometry for safety display projections. */
+  geometry?: {
+    kind: "corridor" | "runway" | "system";
+    points: Array<[number, number]>;
+    width?: number;
+  };
 }
 
 export interface ShiftMetrics {

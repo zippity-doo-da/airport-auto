@@ -92,7 +92,7 @@ simulation.surfaceCrossingPlan = () => ({
     entryProgress: 0.96,
     exitProgress: 0.99,
     distanceToHold: 1,
-    holdPointId: "CP-SAFETY-HOLD",
+    holdPointId: config.surfaceGraph.nodes[0].id,
   }],
   groups: [],
 });
@@ -143,7 +143,7 @@ const predictions = [{
   runway: second.runway,
   etaSeconds: 8,
   detail: "Synthetic runway occupancy forecast",
-}];
+}, crossingForecast];
 const snapshot = surfaceSafetySnapshot(config, simulation.state, predictions, {
   collisionAlerts: 0,
   runwayIncursions: 0,
@@ -164,6 +164,7 @@ assert(snapshot.protectedRunwayOccupancy === 1, "protected runway occupancy is n
 assert(snapshot.heldTracks === 1, "surface holds are not derived from tracks");
 assert(snapshot.advisories[0]?.kind === "runway-occupancy", "runway forecast was not projected as a surface advisory");
 assert(snapshot.advisories[0]?.schemaVersion === 1 && snapshot.advisories[0]?.geometry.kind === "runway" && snapshot.advisories[0].geometry.points.length === 2, "runway advisory did not carry shared geometry");
+assert(snapshot.advisories.some((advisory) => advisory.kind === "runway-crossing" && advisory.geometry.kind === "corridor" && advisory.geometry.points.length === 2), "crossing advisory did not carry its authoritative hold corridor");
 assert(snapshot.vehicles.length === 1, "active service vehicle was not projected");
 assert(snapshot.vehicles[0]?.state === "held" && snapshot.vehicles[0].groundspeedKts === 8, "service vehicle state or speed changed in the surface projection");
 assert(surfaceSafetyTracksForFilter(snapshot, "tower").some((track) => track.id === second.id), "tower view omitted protected runway traffic");
@@ -174,9 +175,12 @@ assert(surfaceSafetyTracksForFilter(snapshot, "watch").every((track) => track.st
 assert(surfaceSafetyVehiclesForFilter(snapshot, "tower").some((vehicle) => vehicle.id === "safety-test-fuel"), "tower view omitted a held safety vehicle");
 assert(surfaceSafetyVehiclesForFilter(snapshot, "ramp").some((vehicle) => vehicle.id === "safety-test-fuel"), "ramp view omitted its non-protected service vehicle");
 assert(surfaceSafetyVehiclesForFilter(snapshot, "supervisor").some((vehicle) => vehicle.id === "safety-test-fuel"), "supervisor view omitted active service traffic");
-const forecastTargets = surfaceSafetyLookaheadTargets(snapshot.tracks, snapshot.advisories, 10);
+const runwayForecastAdvisories = snapshot.advisories.filter(
+  (advisory) => advisory.kind === "runway-occupancy",
+);
+const forecastTargets = surfaceSafetyLookaheadTargets(snapshot.tracks, runwayForecastAdvisories, 10);
 assert(forecastTargets.length === 2 && forecastTargets.every((target) => target.severity === "advisory" && target.etaSeconds === 8), "look-ahead projection omitted the authoritative runway forecast");
-assert(surfaceSafetyLookaheadTargets(snapshot.tracks, snapshot.advisories, 7).length === 0, "look-ahead projection ignored its configured horizon");
+assert(surfaceSafetyLookaheadTargets(snapshot.tracks, runwayForecastAdvisories, 7).length === 0, "look-ahead projection ignored its configured horizon");
 const acknowledgements = new SurfaceSafetyAcknowledgements();
 const acknowledged = acknowledgements.acknowledge(snapshot, snapshot.advisories[0].id, 3);
 assert(acknowledged.accepted, "noncritical active advisory was not acknowledgeable");

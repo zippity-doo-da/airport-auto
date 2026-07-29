@@ -2464,6 +2464,23 @@ export class AirportSimulation {
         runway: crossing.runwayId,
         etaSeconds: Math.max(1, Math.min(120, Math.round(Math.max(0, distanceM) / speedMps))),
         detail: `${flight.callsign} is approaching ${this.activeRunwayDesignation(crossing.runwayId)} crossing ${crossing.holdPointId}; ${blocker.callsign} is protecting the runway`,
+        geometry: (() => {
+          const holdPoint = crossing.holdPointId
+            ? this.config.surfaceGraph.nodes.find(
+                (node) => node.id === crossing.holdPointId,
+              )
+            : undefined;
+          return holdPoint
+            ? {
+                kind: "corridor" as const,
+                points: [
+                  [flight.motion.x, flight.motion.y] as [number, number],
+                  [holdPoint.position[0], holdPoint.position[1]] as [number, number],
+                ],
+                width: Math.max(1, aircraftProfile(flight.aircraft).wingspanM),
+              }
+            : undefined;
+        })(),
       });
     }
     for (let firstIndex = 0; firstIndex < active.length; firstIndex += 1) {
