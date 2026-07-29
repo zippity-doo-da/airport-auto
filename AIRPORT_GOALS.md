@@ -224,9 +224,10 @@ again; unchanged advisories cannot churn the status copy.
       causal tracks; lifecycle persistence is still completed by the advisory
       tracker rather than the raw simulation snapshot.
 - [~] Route every alert through the existing status broker, replay, analytics,
-  and remote redaction policy. New active advisories now use the
-  dwell-based status broker without repeated-message churn; replay,
-  analytics, and remote-redaction integration remain open.
+      and remote redaction policy. New active advisories now use the
+      dwell-based status broker without repeated-message churn; bounded surface
+      tracks, vehicles, and advisory geometry now reach the authenticated remote
+      projection, while replay and dedicated analytics rollups remain open.
 - [x] Expose display configuration and acknowledgement through typed commands;
       acknowledgement must never suppress physical protection.
 
@@ -764,8 +765,9 @@ service or a full workload/debrief experience.
       workload, queues, and takeover readiness remain open.
 - [~] Give agents the same bounded station view that a human workstation receives;
       do not expose hidden future state or unrestricted full snapshots by default.
-      The gateway already projects a bounded/redacted operations view; formal
-      station-specific view contracts remain open.
+      The gateway now projects bounded/redacted flight, queue, clearance, surface
+      track, service-vehicle, and advisory-geometry state; formal station-specific
+      view contracts remain open.
 - [~] Add typed subscription filters, command batching limits, backpressure,
       heartbeat, reconnect, and emergency-stop behavior to the remote protocol.
       The gateway has command limits, heartbeat/reconnect, audited handoff, and

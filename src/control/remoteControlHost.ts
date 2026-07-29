@@ -160,6 +160,88 @@ function compactQueue(value: unknown): JsonRecord | null {
   };
 }
 
+function compactSurfaceTrack(value: unknown): JsonRecord | null {
+  if (!isRecord(value)) return null;
+  return {
+    schemaVersion: value.schemaVersion ?? null,
+    id: value.id ?? null,
+    callsign: value.callsign ?? null,
+    aircraft: value.aircraft ?? null,
+    x: number(value.x) ?? 0,
+    y: number(value.y) ?? 0,
+    headingDegrees: number(value.headingDegrees) ?? 0,
+    groundspeedKts: number(value.groundspeedKts) ?? 0,
+    location: text(value.location, 120),
+    state: value.state ?? null,
+    protectedRunway: value.protectedRunway === true,
+    runwayId: value.runwayId ?? null,
+    surfaceEdgeId: text(value.surfaceEdgeId, 120),
+    surfaceNodeId: text(value.surfaceNodeId, 120),
+    routeIntent: text(value.routeIntent, 240),
+    clearanceSummary: text(value.clearanceSummary, 160),
+    surveillanceAgeSeconds: number(value.surveillanceAgeSeconds) ?? 0,
+  };
+}
+
+function compactSurfaceVehicle(value: unknown): JsonRecord | null {
+  if (!isRecord(value)) return null;
+  return {
+    id: value.id ?? null,
+    callsign: value.callsign ?? null,
+    label: text(value.label, 120),
+    type: value.type ?? null,
+    x: number(value.x) ?? 0,
+    y: number(value.y) ?? 0,
+    headingDegrees: number(value.headingDegrees) ?? 0,
+    groundspeedKts: number(value.groundspeedKts) ?? 0,
+    location: text(value.location, 120),
+    state: value.state ?? null,
+    held: value.held === true,
+    protectedMovementArea: value.protectedMovementArea === true,
+    protectedMovementAuthorized: value.protectedMovementAuthorized === true,
+    surfaceEdgeId: text(value.surfaceEdgeId, 120),
+    surfaceNodeId: text(value.surfaceNodeId, 120),
+  };
+}
+
+function compactSurfaceAdvisory(value: unknown): JsonRecord | null {
+  if (!isRecord(value)) return null;
+  const geometry = isRecord(value.geometry) ? value.geometry : {};
+  const points = Array.isArray(geometry.points)
+    ? geometry.points
+        .filter(
+          (point): point is unknown[] =>
+            Array.isArray(point) && point.length >= 2,
+        )
+        .slice(0, 8)
+        .map((point) => [number(point[0]) ?? 0, number(point[1]) ?? 0])
+    : [];
+  return {
+    schemaVersion: value.schemaVersion ?? null,
+    id: text(value.id, 180),
+    severity: value.severity ?? null,
+    kind: value.kind ?? null,
+    status: value.status ?? null,
+    flightIds: Array.isArray(value.flightIds) ? value.flightIds.slice(0, 12) : [],
+    causalTrackIds: Array.isArray(value.causalTrackIds)
+      ? value.causalTrackIds.slice(0, 12)
+      : [],
+    runwayId: value.runwayId ?? null,
+    etaSeconds: number(value.etaSeconds) ?? 0,
+    firstSeenAtSeconds: number(value.firstSeenAtSeconds) ?? 0,
+    lastSeenAtSeconds: number(value.lastSeenAtSeconds) ?? 0,
+    predictedAtSeconds: number(value.predictedAtSeconds) ?? 0,
+    acknowledgedAtSeconds: value.acknowledgedAtSeconds ?? null,
+    resolvedAtSeconds: value.resolvedAtSeconds ?? null,
+    geometry: {
+      kind: geometry.kind ?? "system",
+      points,
+      width: number(geometry.width),
+    },
+    detail: text(value.detail, 280),
+  };
+}
+
 /**
  * Projects the page snapshot into a bounded operations view. The gateway never
  * receives the imported surface graph, rendering diagnostics, input state, or
@@ -179,6 +261,9 @@ export function projectRemoteOperationsSnapshot(value: unknown): JsonRecord {
     : {};
   const runwayConfiguration = isRecord(value.runwayConfiguration)
     ? value.runwayConfiguration
+    : {};
+  const surfaceSafety = isRecord(value.surfaceSafety)
+    ? value.surfaceSafety
     : {};
   const score = isRecord(value.score) ? value.score : {};
   const queues = Array.isArray(value.queues)
@@ -319,6 +404,21 @@ export function projectRemoteOperationsSnapshot(value: unknown): JsonRecord {
             .map(compactDigitalClearance)
             .filter(Boolean)
             .slice(0, 60)
+        : [],
+    },
+    surfaceSafety: {
+      schemaVersion: surfaceSafety.schemaVersion ?? null,
+      generatedAtSeconds: number(surfaceSafety.generatedAtSeconds) ?? null,
+      protectedRunwayOccupancy: surfaceSafety.protectedRunwayOccupancy ?? 0,
+      heldTracks: surfaceSafety.heldTracks ?? 0,
+      tracks: Array.isArray(surfaceSafety.tracks)
+        ? surfaceSafety.tracks.map(compactSurfaceTrack).filter(Boolean).slice(0, 80)
+        : [],
+      vehicles: Array.isArray(surfaceSafety.vehicles)
+        ? surfaceSafety.vehicles.map(compactSurfaceVehicle).filter(Boolean).slice(0, 80)
+        : [],
+      advisories: Array.isArray(surfaceSafety.advisories)
+        ? surfaceSafety.advisories.map(compactSurfaceAdvisory).filter(Boolean).slice(0, 30)
         : [],
     },
   };
