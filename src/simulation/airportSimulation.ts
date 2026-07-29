@@ -11511,6 +11511,29 @@ export class AirportSimulation {
           (candidate) => candidate.callsign === callsign,
         )?.id;
       }
+      // Crossing holds do not always include a flight id in their human
+      // reason. Recover the real wait-for edge from the next authoritative
+      // crossing and its protected-runway owner so a chain of taxi-in
+      // aircraft cannot remain invisible to cycle recovery indefinitely.
+      if (
+        blockerId === undefined &&
+        (flight.crossingHoldRunway !== undefined ||
+          flight.pendingCrossingCount > 0)
+      ) {
+        const crossing = this.nextUnclearedCrossing(flight);
+        if (crossing) {
+          const crossingBlocker = this.runwayBlocker(
+            crossing.runwayId,
+            flight.id,
+          );
+          if (
+            crossingBlocker &&
+            (crossingBlocker.phase === "taxi-in" ||
+              crossingBlocker.phase === "taxi-out")
+          )
+            blockerId = crossingBlocker.id;
+        }
+      }
       if (
         blockerId !== undefined &&
         blockerId !== flight.id &&
