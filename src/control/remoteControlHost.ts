@@ -174,6 +174,9 @@ export function projectRemoteOperationsSnapshot(value: unknown): JsonRecord {
   const presentation = isRecord(value.presentation) ? value.presentation : {};
   const analytics = isRecord(value.analytics) ? value.analytics : {};
   const controllers = isRecord(value.controllers) ? value.controllers : {};
+  const digitalClearances = isRecord(value.digitalClearances)
+    ? value.digitalClearances
+    : {};
   const runwayConfiguration = isRecord(value.runwayConfiguration)
     ? value.runwayConfiguration
     : {};
@@ -305,6 +308,45 @@ export function projectRemoteOperationsSnapshot(value: unknown): JsonRecord {
       : [],
     controllerWorkloads: controllers.workloads ?? null,
     controllerEvaluation: controllers.evaluation ?? null,
+    digitalClearances: {
+      schemaVersion: digitalClearances.schemaVersion ?? null,
+      generatedAtSeconds: digitalClearances.generatedAtSeconds ?? null,
+      counts: isRecord(digitalClearances.counts)
+        ? digitalClearances.counts
+        : {},
+      messages: Array.isArray(digitalClearances.messages)
+        ? digitalClearances.messages
+            .map(compactDigitalClearance)
+            .filter(Boolean)
+            .slice(0, 60)
+        : [],
+    },
+  };
+}
+
+function compactDigitalClearance(value: unknown): JsonRecord | null {
+  if (!isRecord(value)) return null;
+  return {
+    id: value.id ?? null,
+    commandId: value.commandId ?? null,
+    flightId: value.flightId ?? null,
+    callsign: value.callsign ?? null,
+    kind: value.kind ?? null,
+    status: value.status ?? null,
+    authority: value.authority ?? null,
+    revision: value.revision ?? null,
+    createdAtSeconds: value.createdAtSeconds ?? null,
+    issuedAtSeconds: value.issuedAtSeconds ?? null,
+    responseDueSeconds: value.responseDueSeconds ?? null,
+    respondedAtSeconds: value.respondedAtSeconds ?? null,
+    expiresAtSeconds: value.expiresAtSeconds ?? null,
+    causalEventIds: Array.isArray(value.causalEventIds)
+      ? value.causalEventIds.slice(0, 8)
+      : [],
+    route: Array.isArray(value.route) ? value.route.slice(0, 16) : [],
+    parameters: isRecord(value.parameters) ? value.parameters : {},
+    response: isRecord(value.response) ? value.response : null,
+    warningCount: value.warningCount ?? 0,
   };
 }
 

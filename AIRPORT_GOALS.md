@@ -424,11 +424,13 @@ shared free text as a command.
       aircraft's frequency ownership transfers, and the receiving desk cannot
       accept a route issued by the prior authority. Other clearance kinds and
       full timeout/coordination coverage remain open.
-- [ ] Include messages in replay, analytics, controller evaluation, and remote
+- [~] Include messages in replay, analytics, controller evaluation, and remote
       projections with free text excluded from shared exports. Replay frames
-      and remote snapshots already derive messages from authoritative state;
-      controller evaluation now includes bounded status/kind counts. Dedicated
-      analytics rollups and redacted message envelopes remain open.
+      and remote snapshots derive versioned messages from authoritative state;
+      the remote projection now carries bounded typed envelope fields without
+      free-form detail, and controller evaluation includes status/kind counts.
+      Dedicated analytics rollups and full redacted replay envelopes remain
+      open.
 
 ### Acceptance gate
 
