@@ -82,9 +82,10 @@ const snapshot = surfaceSafetySnapshot(config, simulation.state, predictions, {
   runwayIncursions: 0,
 });
 
-assert(snapshot.schemaVersion === 1, "surface snapshot version changed unexpectedly");
+assert(snapshot.schemaVersion === 2, "surface snapshot version changed unexpectedly");
 assert(snapshot.tracks.length >= 2, "surface snapshot omitted the known moving aircraft");
 assert(snapshot.tracks.every((track) => Number.isFinite(track.x) && Number.isFinite(track.y)), "surface snapshot emitted an invalid authoritative pose");
+assert(snapshot.tracks.every((track) => track.schemaVersion === 1), "surface tracks were not individually versioned");
 const held = snapshot.tracks.find((track) => track.id === first.id);
 const protectedTrack = snapshot.tracks.find((track) => track.id === second.id);
 assert(held?.state === "controller-hold", "controller hold did not survive the surface projection");
@@ -95,6 +96,7 @@ assert(protectedTrack?.protectedRunway, "protected runway state did not survive 
 assert(snapshot.protectedRunwayOccupancy === 1, "protected runway occupancy is not derived from tracks");
 assert(snapshot.heldTracks === 1, "surface holds are not derived from tracks");
 assert(snapshot.advisories[0]?.kind === "runway-occupancy", "runway forecast was not projected as a surface advisory");
+assert(snapshot.advisories[0]?.schemaVersion === 1 && snapshot.advisories[0]?.geometry.kind === "runway" && snapshot.advisories[0].geometry.points.length === 2, "runway advisory did not carry shared geometry");
 assert(snapshot.vehicles.length === 1, "active service vehicle was not projected");
 assert(snapshot.vehicles[0]?.state === "held" && snapshot.vehicles[0].groundspeedKts === 8, "service vehicle state or speed changed in the surface projection");
 assert(surfaceSafetyTracksForFilter(snapshot, "tower").some((track) => track.id === second.id), "tower view omitted protected runway traffic");

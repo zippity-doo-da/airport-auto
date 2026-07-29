@@ -215,10 +215,14 @@ again; unchanged advisories cannot churn the status copy.
 
 ### Simulation and API
 
-- [ ] Define one versioned `SurfaceTrack` projection sourced from authoritative
-      entities and reservations.
-- [ ] Define one `SurfaceSafetyAdvisory` type with severity, geometry, causal
+- [x] Define one versioned `SurfaceTrack` projection sourced from authoritative
+      entities and reservations. Surface tracks now carry their own schema
+      version and authoritative pose, route intent, clearance, and freshness.
+- [~] Define one `SurfaceSafetyAdvisory` type with severity, geometry, causal
       entities, first-seen time, predicted time, acknowledgement, and resolution.
+      Version 1 advisories now carry shared runway/corridor/system geometry and
+      causal tracks; lifecycle persistence is still completed by the advisory
+      tracker rather than the raw simulation snapshot.
 - [~] Route every alert through the existing status broker, replay, analytics,
   and remote redaction policy. New active advisories now use the
   dwell-based status broker without repeated-message churn; replay,

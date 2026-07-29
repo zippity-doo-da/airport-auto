@@ -17,6 +17,7 @@ import type {
  * simulation already owns.
  */
 export interface SurfaceTrack {
+  schemaVersion: 1;
   id: number;
   callsign: string;
   aircraft: string;
@@ -45,6 +46,7 @@ export interface SurfaceTrack {
 }
 
 export interface SurfaceSafetyAdvisory {
+  schemaVersion: 1;
   id: string;
   severity: "advisory" | "warning" | "critical";
   kind:
@@ -65,6 +67,13 @@ export interface SurfaceSafetyAdvisory {
   acknowledgedAtSeconds?: number;
   resolvedAtSeconds?: number;
   detail: string;
+  geometry: SurfaceSafetyGeometry;
+}
+
+export interface SurfaceSafetyGeometry {
+  kind: "corridor" | "runway" | "system";
+  points: Array<[number, number]>;
+  width?: number;
 }
 
 export interface SurfaceVehicleTrack {
@@ -86,7 +95,7 @@ export interface SurfaceVehicleTrack {
 }
 
 export interface SurfaceSafetySnapshot {
-  schemaVersion: 1;
+  schemaVersion: 2;
   generatedAtSeconds: number;
   tracks: SurfaceTrack[];
   vehicles: SurfaceVehicleTrack[];
@@ -115,7 +124,9 @@ export function surfaceSafetySnapshot(
   const advisories = [
     ...predictions
       .filter((prediction) => prediction.type !== "separation")
-      .map((prediction) => predictionToAdvisory(prediction, state.elapsed)),
+      .map((prediction) =>
+        predictionToAdvisory(config, prediction, state.elapsed),
+      ),
     ...wrongSurfaceApproachAdvisories(config, state),
   ];
   const vehicles = state.serviceVehicles
@@ -132,6 +143,7 @@ export function surfaceSafetySnapshot(
 
   if (metrics.runwayIncursions > 0) {
     advisories.unshift({
+      schemaVersion: 1,
       id: `runway-incursion:${metrics.runwayIncursions}`,
       severity: "critical",
       kind: "runway-incursion",
@@ -143,10 +155,12 @@ export function surfaceSafetySnapshot(
       lastSeenAtSeconds: state.elapsed,
       predictedAtSeconds: state.elapsed,
       detail: `${metrics.runwayIncursions} recorded runway-incursion ${metrics.runwayIncursions === 1 ? "event" : "events"} in this shift`,
+      geometry: { kind: "system", points: [] },
     });
   }
   if (metrics.collisionAlerts > 0) {
     advisories.unshift({
+      schemaVersion: 1,
       id: `collision-alert:${metrics.collisionAlerts}`,
       severity: "critical",
       kind: "system",
@@ -158,11 +172,12 @@ export function surfaceSafetySnapshot(
       lastSeenAtSeconds: state.elapsed,
       predictedAtSeconds: state.elapsed,
       detail: `${metrics.collisionAlerts} physical-overlap safety ${metrics.collisionAlerts === 1 ? "alert" : "alerts"} recorded in this shift`,
+      geometry: { kind: "system", points: [] },
     });
   }
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAtSeconds: state.elapsed,
     tracks,
     vehicles,
@@ -224,6 +239,7 @@ export function wrongSurfaceApproachAdvisories(
     const targetGeometry = alternative ? alternative.alignment! : taxiway!;
     return [
       {
+        schemaVersion: 1,
         id: `wrong-surface:${flight.id}:${alternative ? `runway-${alternative.runway.id}-${alternative.end}` : `taxiway-${taxiway!.id}`}`,
         severity: "warning",
         kind: "wrong-surface",
@@ -238,6 +254,19 @@ export function wrongSurfaceApproachAdvisories(
         firstSeenAtSeconds: state.elapsed,
         lastSeenAtSeconds: state.elapsed,
         predictedAtSeconds: state.elapsed,
+        geometry: {
+          kind: "corridor",
+          points: [
+            [flight.motion.x, flight.motion.y],
+            alternative
+              ? [
+                  runwayEndPoint(alternative.runway, alternative.end).x,
+                  runwayEndPoint(alternative.runway, alternative.end).y,
+                ]
+              : [flight.motion.x, flight.motion.y],
+          ],
+          width: Math.max(1, Math.abs(expected.lateralOffset)),
+        },
         detail: `${flight.callsign} short final is ${Math.round(expected.headingErrorDegrees)}° / ${expected.lateralOffset.toFixed(1)}u off assigned RWY ${runwayDesignation(config, flight.runway, flight.operatingEnd)} centerline; aligned with ${target}.`,
       },
     ];
@@ -400,6 +429,7 @@ function surfaceTrack(
               ? "protected-runway"
               : "taxiing";
   return {
+    schemaVersion: 1,
     id: flight.id,
     callsign: flight.callsign,
     aircraft: flight.aircraft,
@@ -465,10 +495,20 @@ function runwayLabel(config: AirportConfig, runwayId: number): string {
 }
 
 function predictionToAdvisory(
+  config: AirportConfig,
   prediction: ConflictPrediction,
   elapsedSeconds: number,
 ): SurfaceSafetyAdvisory {
+  const runway =
+    prediction.runway === undefined ? undefined : config.runways[prediction.runway];
+  const runwayPoints = runway
+    ? ([-1, 1] as const).map((end) => {
+        const point = runwayEndPoint(runway, end);
+        return [point.x, point.y] as [number, number];
+      })
+    : [];
   return {
+    schemaVersion: 1,
     id: `${prediction.type}:${[...prediction.flights].sort((first, second) => first - second).join("-")}:${prediction.runway ?? "none"}`,
     severity: prediction.severity === "warning" ? "warning" : "advisory",
     kind:
@@ -484,6 +524,11 @@ function predictionToAdvisory(
     lastSeenAtSeconds: elapsedSeconds,
     predictedAtSeconds: elapsedSeconds + prediction.etaSeconds,
     detail: prediction.detail,
+    geometry: {
+      kind: runway ? "runway" : "system",
+      points: runwayPoints,
+      width: runway ? Math.max(1, runway.width) : undefined,
+    },
   };
 }
 
