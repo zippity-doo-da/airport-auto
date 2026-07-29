@@ -372,6 +372,9 @@ an instruction still goes through the normal command and safety arbiter.
 Departure runway status, assigned taxi route, and pending/cleared runway
 crossings now use the same structured message envelope; a pending crossing is
 shown as Standby rather than as an implicit clearance.
+Direct-to vectors now identify themselves as Direct-To messages, and active
+controller handoffs project as Frequency messages with from/to, response timing,
+and overdue state.
 
 ### Gameplay and UX
 
@@ -384,7 +387,8 @@ shown as Standby rather than as an implicit clearance.
       frequency, taxi, crossing, and revision messages from existing typed commands.
       Active vector, hold, speed, altitude, and route state now project as
       structured messages, as do departure, taxi, and crossing state; direct-to,
-      frequency, and revision envelopes remain open.
+      and frequency state now use dedicated envelopes; revision history and
+      remaining message families remain open.
 - [ ] Permit multi-part clearances only when the atomic preview says the complete
       instruction is safe and authorized.
 - [ ] Make urgent, immediate, go-around, stop, rejected-takeoff, and conflict

@@ -17,6 +17,18 @@ flight.navigation.assignedAltitudeFt = 5000;
 snapshot = digitalClearanceSnapshot(simulation.state);
 assert(snapshot.messages.some((item) => item.kind === 'speed' && item.parameters.speedKts === 180), 'assigned speed did not project as a structured digital message');
 assert(snapshot.messages.some((item) => item.kind === 'altitude' && item.parameters.altitudeFt === 5000), 'assigned altitude did not project as a structured digital message');
+flight.navigation.vector = {
+  issuedAtSeconds: 9, startProgress: 0.1, endProgress: 0.5, headingDegrees: 120,
+  rejoinFixId: 'LAKE', start: { x: flight.motion.x, y: flight.motion.y, z: flight.motion.z, heading: flight.motion.heading, pitch: flight.motion.pitch, bank: flight.motion.bank, onGround: false, groundBlend: 0, protectedRunway: false },
+};
+flight.progress = 0.2;
+flight.flightPlan.amendments.push({ revision: 1, kind: 'route-change', atSeconds: 9, detail: 'direct LAKE' });
+flight.navigation.handoff = { schemaVersion: 1, revision: 1, from: 'approach', to: 'tower', status: 'offered', offeredAtSeconds: 10, responseDueSeconds: 20, offeredBy: 'approach', reason: 'final handoff' };
+snapshot = digitalClearanceSnapshot(simulation.state);
+assert(snapshot.messages.some((item) => item.kind === 'direct-to'), 'direct-to vector did not project as a structured message');
+assert(snapshot.messages.some((item) => item.kind === 'frequency' && item.status === 'delivered'), 'controller handoff did not project as a frequency message');
+flight.navigation.vector = undefined;
+flight.navigation.handoff = undefined;
 flight.phase = 'taxi-out';
 flight.motion.onGround = true;
 flight.flightPlan.direction = 'departure';

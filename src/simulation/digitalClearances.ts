@@ -23,7 +23,9 @@ export interface DigitalClearanceMessage {
     | "altitude"
     | "departure"
     | "taxi"
-    | "crossing";
+    | "crossing"
+    | "direct-to"
+    | "frequency";
   status: DigitalClearanceStatus;
   authority: string;
   revision: number;
@@ -81,11 +83,17 @@ function flightDigitalClearanceMessages(flight: Flight): DigitalClearanceMessage
     !flight.goAround &&
     !flight.diversion
   ) {
+    const directAmendment = flight.flightPlan.amendments
+      .at(-1);
+    const isDirectTo =
+      directAmendment?.kind === "route-change" &&
+      /^direct\s/i.test(directAmendment.detail) &&
+      Math.abs(directAmendment.atSeconds - vector.issuedAtSeconds) < 1e-6;
     messages.push({
       id: `vector:${flight.id}:${vector.issuedAtSeconds}`,
       flightId: flight.id,
       callsign: flight.callsign,
-      kind: "vector",
+      kind: isDirectTo ? "direct-to" : "vector",
       status: "wilco",
       authority: flight.navigation.frequencyOwner,
       revision: 1,
@@ -96,8 +104,10 @@ function flightDigitalClearanceMessages(flight: Flight): DigitalClearanceMessage
         headingDegrees: Math.round(vector.headingDegrees),
         ...(vector.rejoinFixId ? { rejoinFix: vector.rejoinFixId } : {}),
       },
-      detail: vector.rejoinFixId
-        ? `Fly heading ${Math.round(vector.headingDegrees)}°; rejoin ${vector.rejoinFixId}.`
+      detail: isDirectTo && vector.rejoinFixId
+        ? `Proceed direct ${vector.rejoinFixId}; fly heading ${Math.round(vector.headingDegrees)}°.`
+        : vector.rejoinFixId
+          ? `Fly heading ${Math.round(vector.headingDegrees)}°; rejoin ${vector.rejoinFixId}.`
         : `Fly heading ${Math.round(vector.headingDegrees)}° as assigned.`,
       warningCount: 0,
     });
@@ -204,6 +214,37 @@ function flightDigitalClearanceMessages(flight: Flight): DigitalClearanceMessage
         ? `${remaining.length} runway crossing${remaining.length === 1 ? "" : "s"} still require Ground clearance.`
         : "All planned runway crossings are cleared.",
       warningCount: remaining.length,
+    });
+  }
+
+  const handoff = flight.navigation.handoff;
+  if (
+    handoff &&
+    ["offered", "accepted", "overdue"].includes(handoff.status)
+  ) {
+    messages.push({
+      id: `frequency:${flight.id}:${handoff.revision}:${handoff.status}`,
+      flightId: flight.id,
+      callsign: flight.callsign,
+      kind: "frequency",
+      status: handoff.status === "overdue" ? "standby" : "delivered",
+      authority: handoff.offeredBy,
+      revision: handoff.revision,
+      createdAtSeconds: handoff.offeredAtSeconds,
+      issuedAtSeconds: handoff.offeredAtSeconds,
+      responseDueSeconds: handoff.responseDueSeconds,
+      respondedAtSeconds: handoff.respondedAtSeconds,
+      route: handoff.to ? [handoff.to] : [],
+      parameters: {
+        from: handoff.from,
+        to: handoff.to,
+        status: handoff.status,
+        responseDueSeconds: handoff.responseDueSeconds,
+      },
+      detail: handoff.status === "overdue"
+        ? `Contact handoff ${handoff.from} → ${handoff.to} is overdue.`
+        : `Handoff offered ${handoff.from} → ${handoff.to}; contact after coordination.`,
+      warningCount: handoff.status === "overdue" ? 1 : 0,
     });
   }
 
