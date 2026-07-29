@@ -300,6 +300,14 @@ departure and its blocker to hold one another indefinitely. The ORD rush
 fixed-step gate now requires multiple completed departures, while longer
 multi-hour flow and fuel comparisons remain open.
 
+Surface flow also applies bounded fairness recovery to long waits behind an
+uncommitted pushback corridor and to named graph-resource reservations. These
+recoveries amend only the remaining sourced graph suffix and never move a
+runway-entry-cleared aircraft. The predictive reservation horizon is 180 m;
+physical collision envelopes retain their independent 320 m preview. A one-hour
+ORD Rush soak remains collision-free and drains arrivals/departures, though
+individual taxi holds can still be long under extreme demand.
+
 ### Gameplay and UX
 
 - [~] Add a timeline showing demand, runway capacity, target crossing times,

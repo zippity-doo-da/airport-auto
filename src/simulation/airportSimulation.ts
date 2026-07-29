@@ -326,7 +326,11 @@ function incidentResponsePhaseLabel(
 }
 
 const PHASE_TRANSITION_RETRY_SECONDS = 0.75;
-const SURFACE_RESERVATION_LOOKAHEAD_M = 320;
+// Reserve enough pavement to yield before the next meaningful junction, but
+// do not turn every short imported OSM fragment into a several-hundred-metre
+// airport-wide queue. The collision arbiter remains the physical safety net;
+// this shorter horizon is only the predictive traffic-planning claim.
+const SURFACE_RESERVATION_LOOKAHEAD_M = 180;
 const SURFACE_PHYSICAL_RESERVATION_LOOKAHEAD_M = 320;
 const PUSHBACK_INBOUND_LOOKAHEAD_M = 300;
 const PUSHBACK_INBOUND_CACHE_BUFFER_M = 120;
@@ -703,6 +707,10 @@ export class AirportSimulation {
   private readonly surfaceReservationBlockerRecovery = new WeakMap<
     Flight,
     { attempts: number; retryAtSeconds: number }
+  >();
+  private readonly pushbackCorridorRecovery = new WeakMap<
+    Flight,
+    { signature: string; attempts: number; retryAtSeconds: number }
   >();
   private readonly reciprocalSurfaceRecovery = new WeakMap<
     Flight,
@@ -4829,6 +4837,7 @@ export class AirportSimulation {
       this.updateRouteReadbacks();
       this.updateSurfaceYields();
       this.resolveSurfaceReservationBlockers();
+      this.resolvePushbackCorridorBlockers();
       this.resolveServiceVehicleSurfaceBlockers();
       this.resolveParkedAircraftSurfaceBlockers();
       this.resolveReciprocalSurfaceDeadlocks();
@@ -10796,6 +10805,82 @@ export class AirportSimulation {
   }
 
   /**
+   * A taxi-in aircraft must not wait indefinitely for an outbound aircraft
+   * that has entered a pushback corridor and then stopped behind downstream
+   * traffic. The normal ledger correctly protects both bodies, but without a
+   * bounded fairness action this can form a one-way queue that never drains.
+   * Replan the uncommitted outbound aircraft around the inbound aircraft's
+   * near-term graph edges. Runway-entry-cleared departures remain untouched;
+   * their protected corridor has higher authority.
+   */
+  private resolvePushbackCorridorBlockers(): void {
+    const surfaceFlights = this.state.flights.filter(
+      (flight): flight is Flight & { phase: "taxi-in" | "taxi-out" } =>
+        flight.phase === "taxi-in" || flight.phase === "taxi-out",
+    );
+    for (const inbound of surfaceFlights) {
+      if (inbound.phase !== "taxi-in") continue;
+      if ((this.stationarySeconds.get(inbound.id) ?? 0) < 90) continue;
+      if (
+        !inbound.automaticHoldReason?.startsWith(
+          "pushback corridor protected for ",
+        )
+      )
+        continue;
+      const callsign = inbound.automaticHoldReason.slice(
+        "pushback corridor protected for ".length,
+      );
+      const outbound = surfaceFlights.find(
+        (flight) =>
+          flight.phase === "taxi-out" &&
+          flight.callsign === callsign &&
+          !flight.runwayEntryCleared &&
+          !flight.takeoffCleared,
+      );
+      if (!outbound) continue;
+      const signature = `${outbound.id}:${inbound.id}:${outbound.surfaceRouteEdges?.join(",") ?? ""}`;
+      const previous = this.pushbackCorridorRecovery.get(inbound);
+      const recovery =
+        previous?.signature === signature
+          ? previous
+          : { signature, attempts: 0, retryAtSeconds: this.state.elapsed };
+      if (
+        recovery.attempts >= 2 ||
+        this.state.elapsed + 1e-6 < recovery.retryAtSeconds
+      )
+        continue;
+      recovery.attempts += 1;
+      recovery.retryAtSeconds = this.state.elapsed + 45;
+      this.pushbackCorridorRecovery.set(inbound, recovery);
+
+      const inboundBlockedEdges = this.surfaceDeadlockAvoidanceEdges(inbound);
+      const outboundRerouted =
+        inboundBlockedEdges.size > 0 &&
+        this.replanSurfaceFlight(
+          outbound,
+          [`pushback-traffic:${inbound.id}`],
+          true,
+          {
+            additionallyBlockedEdgeIds: inboundBlockedEdges,
+            reason: `pushback corridor fairness for ${inbound.callsign}`,
+            holdIfUnavailable: false,
+          },
+        );
+      if (outboundRerouted) {
+        outbound.safetyHold = false;
+        outbound.safetyHoldReason = undefined;
+        outbound.automaticHold = false;
+        outbound.automaticHoldReason = undefined;
+        inbound.safetyHold = false;
+        inbound.safetyHoldReason = undefined;
+        this.stationarySeconds.set(outbound.id, 0);
+        this.stationarySeconds.set(inbound.id, 0);
+        this.pushbackCorridorRecovery.delete(inbound);
+      }
+    }
+  }
+
+  /**
    * Amend a route when the graph ledger first establishes a persistent
    * aircraft-to-aircraft wait. Waiting for the collision arbiter to report a
    * reciprocal stand-off leaves no room to turn at dense imported junctions;
@@ -10816,10 +10901,18 @@ export class AirportSimulation {
       )
         continue;
       const reason = flight.automaticHoldReason;
-      // A junction reservation is a normal, bounded queue. Replanning around
-      // every occupied junction can oscillate between equivalent routes and
-      // defeats the zone owner that is already clearing the intersection.
-      if (!reason?.startsWith("opposing traffic") || flight.safetyHold)
+      // A short junction queue is normal, but a named graph resource that has
+      // held an aircraft for the recovery threshold is a wait-for edge. Do not
+      // let one-way sections and derived intersections form an unbounded
+      // chain. Committed runway and ramp-capacity holds have separate
+      // authorities and must remain untouched here.
+      if (
+        !reason ||
+        flight.safetyHold ||
+        /protected (?:departure|taxi) corridor|ramp-control zone|departure slot/.test(
+          reason,
+        )
+      )
         continue;
       const match = reason.match(/\(flight (\d+)\)$/);
       if (!match) continue;
