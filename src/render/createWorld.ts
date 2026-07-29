@@ -58,6 +58,14 @@ import {
   type GateActivityLights,
 } from "./gateActivityLights";
 import { createTerminalAccessScene } from "./terminalAccessScene";
+import {
+  createSurfaceProjectionOverlay,
+  createSurfaceProtectionOverlay,
+  updateSurfaceProjectionOverlay,
+  updateSurfaceProtectionOverlay,
+  type SurfaceProjectionOverlay,
+  type SurfaceProtectionOverlay,
+} from "./surfaceSafetyOverlays";
 export type { AirspaceLayer } from "./airspaceOverlay";
 
 const APPROACH_PRESENTATION_PITCH = THREE.MathUtils.degToRad(6);
@@ -103,11 +111,18 @@ type AirportBuild = {
   runwayProtectionLights: RunwayProtectionLight[];
   runwayVisuals: RunwayVisual[];
   gateLights: GateActivityLights | null;
+  surfaceProtection: SurfaceProtectionOverlay;
+  surfaceProjections: SurfaceProjectionOverlay;
   surfaceLayers: Record<SurfaceLayer, THREE.Group>;
 };
 
 export type SurfaceLayer =
-  "taxiway-labels" | "operational-zones" | "hotspots" | "airport-boundary";
+  | "taxiway-labels"
+  | "operational-zones"
+  | "hotspots"
+  | "airport-boundary"
+  | "protection-zones"
+  | "movement-projections";
 
 export type WorldDiagnostics = {
   drawCalls: number;
@@ -559,6 +574,14 @@ export function createWorld(
       visual.closure.visible = closed;
       for (const label of visual.labels) label.visible = runwayLabelsVisible;
     }
+    updateSurfaceProtectionOverlay(airportBuild.surfaceProtection, state);
+    if (airportBuild.surfaceProjections.group.visible)
+      updateSurfaceProjectionOverlay(
+        airportBuild.surfaceProjections,
+        state,
+        config.vectorData?.runtimeReference.worldMetersPerUnit ?? 38,
+        serviceVehiclesVisible,
+      );
     if (airportBuild.gateLights)
       lastGateLightState = updateGateActivityLights(
         airportBuild.gateLights,
@@ -1548,6 +1571,10 @@ export function createWorld(
           hotspots: airportBuild.surfaceLayers.hotspots.visible,
           "airport-boundary":
             airportBuild.surfaceLayers["airport-boundary"].visible,
+          "protection-zones":
+            airportBuild.surfaceLayers["protection-zones"].visible,
+          "movement-projections":
+            airportBuild.surfaceLayers["movement-projections"].visible,
         },
         airspaceLayers: airspaceOverlay.visibility(),
         runways: airportBuild.runwayVisuals.map((visual, id) => ({
@@ -2070,7 +2097,15 @@ function buildAirport(
   });
   taxiMaterial.name = "environment:pavement";
   addTaxiNetwork(root, config.surfaceGraph, taxiMaterial);
-  const surfaceLayers = addSurfaceMapLayers(root, config);
+  const baseSurfaceLayers = addSurfaceMapLayers(root, config);
+  const surfaceProtection = createSurfaceProtectionOverlay(config);
+  const surfaceProjections = createSurfaceProjectionOverlay();
+  const surfaceLayers: Record<SurfaceLayer, THREE.Group> = {
+    ...baseSurfaceLayers,
+    "protection-zones": surfaceProtection.group,
+    "movement-projections": surfaceProjections.group,
+  };
+  root.add(surfaceProtection.group, surfaceProjections.group);
   addHoldShortMarkings(root, config, unitBox);
 
   if (config.vectorData) {
@@ -2155,6 +2190,8 @@ function buildAirport(
     runwayProtectionLights,
     runwayVisuals,
     gateLights,
+    surfaceProtection,
+    surfaceProjections,
     surfaceLayers,
   };
 }
@@ -3291,7 +3328,10 @@ function addPassengerFacilityLabels(
 function addSurfaceMapLayers(
   root: THREE.Group,
   config: AirportConfig,
-): Record<SurfaceLayer, THREE.Group> {
+): Omit<
+  Record<SurfaceLayer, THREE.Group>,
+  "protection-zones" | "movement-projections"
+> {
   const graph = config.surfaceGraph;
   const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
   const edgeById = new Map(graph.edges.map((edge) => [edge.id, edge]));

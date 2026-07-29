@@ -174,16 +174,31 @@ again; unchanged advisories cannot churn the status copy.
 ### Gameplay and UX
 
 - [~] Add a resizable surface-safety panel separate from the existing general
-  radar inset. It is desktop-resizable and bounded on compact screens;
-  dedicated surface-diagram rendering remains open.
-- [ ] Render aircraft, tugs, authorized vehicles, runway occupancy, hold-short
+  radar inset. It is desktop-resizable and bounded on compact screens, and now
+  includes a compact authoritative surface diagram; advanced controls remain
+  open.
+- [~] Render aircraft, tugs, authorized vehicles, runway occupancy, hold-short
       state, crossing authority, and approach/departure protection zones.
+  The optional **Runway protection** map layer now shades each authoritative
+  protected runway and its hold-short points: red for occupied pavement, blue
+  for a currently authorized crossing, and amber for a waiting hold. The
+  dedicated compact diagram now shows those authoritative runway states with
+  aircraft and service-vehicle symbols; route/crossing intent and
+  approach/departure corridors remain open.
 - [x] Show track identity, movement state, route intent, last clearance, and
       surveillance freshness without exposing hidden future simulation state.
-- [ ] Add configurable look-ahead conflict arcs with a quiet advisory tier and a
-      visually distinct immediate warning tier.
+- [~] Add configurable look-ahead conflict arcs with a quiet advisory tier and a
+      visually distinct immediate warning tier. The compact diagram now offers
+      15-, 30-, and 60-second horizons and draws only active forecast-backed
+      track arcs: dashed blue for advisory, solid amber for warning, and red
+      for critical. Full route/crossing geometry remains open.
 - [x] Add modeled runway entrance lights and takeoff-hold lights driven by the
       authoritative protection state, not decorative animation.
+- [x] Add a toggleable, speed-scaled surface movement-vector layer for aircraft
+      and service vehicles. Its short vectors derive only from each entity's
+      current authoritative pose, heading, and groundspeed; amber and red
+      indicate held and protected-runway movement without displaying an
+      invented future taxi route.
 - [x] Add wrong-surface alignment detection for runway versus taxiway approach
       paths and explain the triggering geometry.
 - [x] Allow selecting or focusing a target from either the 3D field or the
@@ -249,6 +264,17 @@ Each meter entry now keeps a bounded, replay-safe revision trail containing the
 revised target time and cause. The Queue meter displays the latest cause instead
 of leaving schedule movement as an opaque timer.
 
+Each current meter reason is now also classified as Weather, Runway, Wake, Gate,
+Performance, Taxi, Demand, or Schedule. The category is derived from the
+authoritative detailed reason and retained with each slot revision; it improves
+scanability without creating a second scheduler or hiding the actual constraint.
+
+ORD now seeds a bounded ten-aircraft opening bank: two independently reserved
+taxi-out departures, a live turn, additional gate/ramp departures, and the
+normal three-aircraft approach picture. Departure starters are staged without
+consuming approach capacity, then pass through the same stand, meter, runway,
+wake, and surface-reservation rules as every later flight.
+
 ### Gameplay and UX
 
 - [~] Add a timeline showing demand, runway capacity, target crossing times,
@@ -259,12 +285,22 @@ of leaving schedule movement as an opaque timer.
   Weather Recovery, or Watch/Calm scheduling objectives. The Queue
   inspector and typed control API now select authoritative pacing profiles;
   forecast-based recommendation policy remains open.
-- [ ] Give Approach advisories for speed, vector, hold, direct-to, and sequence
-      changes that satisfy target times through existing legal commands.
-- [ ] Give Tower a runway-ready sequence that respects wake, runway occupancy,
+- [~] Give Approach advisories for speed, vector, hold, direct-to, and sequence
+      changes that satisfy target times through existing legal commands. Assisted
+      mode now proposes a legal speed reduction for a trailing same-runway
+      approach before final; vector, hold, and direct-to metering proposals
+      remain open.
+- [~] Give Tower a runway-ready sequence that respects wake, runway occupancy,
       crossing queues, configuration transitions, and departure-release windows.
-- [ ] Explain every slot movement: weather, missed approach, gate pressure,
+  Assisted Tower now offers only the next physically releasable line-up or
+  takeoff in each conflicting-runway group after checking runway protection,
+  crossing priority, weather, performance, wake release, and the departure
+  envelope. More explicit release-window explanation remains open.
+- [~] Explain every slot movement: weather, missed approach, gate pressure,
       runway closure, aircraft performance, wake, or downstream saturation.
+  The queue meter now labels the latest authoritative reason with a stable
+  weather/runway/wake/gate/performance/taxi/demand/schedule category; fuller
+  procedure and downstream-cause coverage remains open.
 - [ ] Keep Auto capable of guaranteed flow without requiring a human to manage
       the timeline.
 

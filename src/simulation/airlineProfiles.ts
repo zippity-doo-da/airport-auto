@@ -25,6 +25,17 @@ export interface AirlineProfile {
   registrationPrefix: string;
 }
 
+/**
+ * Original, logo-free livery guidance. These are color-blocking references,
+ * not copied marks or airline artwork: the renderer uses them to keep a light
+ * fuselage distinct from its airline-colored tail at hub scale.
+ */
+export interface AirlineLiveryPresentation {
+  fuselageColor: number;
+  tailColor: number;
+  style: AirlineLiveryStyle;
+}
+
 export const AIRLINE_PROFILES: Record<AirlineCode, AirlineProfile> = {
   UA: { code: "UA", name: "United Airlines", callsign: "United", primaryColor: 0x5d8fc4, accentColor: 0xf0c75e, cargo: false, registrationPrefix: "N", },
   AA: { code: "AA", name: "American Airlines", callsign: "American", primaryColor: 0xbac5c7, accentColor: 0xd63d43, cargo: false, registrationPrefix: "N", },
@@ -189,8 +200,48 @@ export function airlineProfile(code: AirlineCode): AirlineProfile {
 }
 
 export function airlineLiveryStyle(code: AirlineCode): AirlineLiveryStyle {
-  if (AIRLINE_PROFILES[code].cargo) return "belly-sweep";
-  const styles: AirlineLiveryStyle[] = ["ribbon", "tail-band", "belly-sweep", "minimal"];
-  const variant = [...code].reduce((value, character, index) => value + character.charCodeAt(0) * (index + 3), 0);
-  return styles[variant % styles.length];
+  return airlineLiveryPresentation(code).style;
+}
+
+export function airlineLiveryPresentation(
+  code: AirlineCode,
+): AirlineLiveryPresentation {
+  const profile = AIRLINE_PROFILES[code];
+  const lightFuselage = 0xeee9e1;
+  const tailored: Partial<Record<AirlineCode, AirlineLiveryPresentation>> = {
+    UA: { fuselageColor: lightFuselage, tailColor: 0x2e679d, style: "ribbon" },
+    AA: { fuselageColor: 0xe7eceb, tailColor: 0x365f93, style: "ribbon" },
+    DL: { fuselageColor: lightFuselage, tailColor: 0x9d3047, style: "tail-band" },
+    WN: { fuselageColor: 0x285987, tailColor: 0x274d84, style: "ribbon" },
+    B6: { fuselageColor: lightFuselage, tailColor: 0x2e71a8, style: "ribbon" },
+    F9: { fuselageColor: lightFuselage, tailColor: 0x4e7b49, style: "minimal" },
+    AS: { fuselageColor: lightFuselage, tailColor: 0x34586f, style: "tail-band" },
+    EK: { fuselageColor: 0xe8e2d8, tailColor: 0xc9433d, style: "belly-sweep" },
+    FZ: { fuselageColor: lightFuselage, tailColor: 0x2f73a8, style: "ribbon" },
+    NH: { fuselageColor: 0xe8eef0, tailColor: 0x3a69a8, style: "tail-band" },
+    JL: { fuselageColor: lightFuselage, tailColor: 0xc93e42, style: "minimal" },
+    BA: { fuselageColor: lightFuselage, tailColor: 0x274a83, style: "ribbon" },
+    VS: { fuselageColor: 0xe9e4df, tailColor: 0xc63e52, style: "ribbon" },
+    TK: { fuselageColor: 0xe9e5df, tailColor: 0xc53f43, style: "tail-band" },
+    LH: { fuselageColor: lightFuselage, tailColor: 0x314a79, style: "tail-band" },
+    OS: { fuselageColor: lightFuselage, tailColor: 0xc64b45, style: "tail-band" },
+    KL: { fuselageColor: lightFuselage, tailColor: 0x79b8cc, style: "tail-band" },
+    AF: { fuselageColor: lightFuselage, tailColor: 0x465a82, style: "tail-band" },
+    QR: { fuselageColor: 0xe5e0dc, tailColor: 0x79475e, style: "minimal" },
+    AC: { fuselageColor: lightFuselage, tailColor: 0xb94749, style: "minimal" },
+    EI: { fuselageColor: lightFuselage, tailColor: 0x5d9b86, style: "tail-band" },
+    IB: { fuselageColor: lightFuselage, tailColor: 0xc94f43, style: "tail-band" },
+    LO: { fuselageColor: lightFuselage, tailColor: 0x4f6387, style: "minimal" },
+    KE: { fuselageColor: lightFuselage, tailColor: 0x87b5c8, style: "tail-band" },
+    LX: { fuselageColor: lightFuselage, tailColor: 0xb84545, style: "minimal" },
+    "5X": { fuselageColor: 0x5a392c, tailColor: 0xf0c346, style: "belly-sweep" },
+    FX: { fuselageColor: 0x70529a, tailColor: 0xe8a12b, style: "belly-sweep" },
+    FDX: { fuselageColor: 0x70529a, tailColor: 0xe8a12b, style: "belly-sweep" },
+    LOCAL: { fuselageColor: 0x789b92, tailColor: 0xe8dfbf, style: "ribbon" },
+  };
+  return tailored[code] ?? {
+    fuselageColor: profile.primaryColor,
+    tailColor: profile.accentColor,
+    style: profile.cargo ? "belly-sweep" : "ribbon",
+  };
 }

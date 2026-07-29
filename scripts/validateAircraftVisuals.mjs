@@ -7,7 +7,12 @@ import {
   createAircraftVisual,
 } from './src/render/aircraftVisualFactory.ts';
 import { AIRCRAFT_PROFILES, AIRCRAFT_ROSTER } from './src/simulation/aircraftProfiles.ts';
-import { AIRLINE_PROFILES, airlineLiveryStyle } from './src/simulation/airlineProfiles.ts';
+import {
+  AIRLINE_PROFILES,
+  AIRPORT_AIRLINES,
+  airlineLiveryPresentation,
+  airlineLiveryStyle,
+} from './src/simulation/airlineProfiles.ts';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -60,6 +65,21 @@ for (let index = 0; index < AIRCRAFT_ROSTER.length; index += 1) {
   assert(low.assetCounts.geometryBytes < high.assetCounts.geometryBytes, aircraft + ' low LOD does not reduce geometry memory');
 }
 assert(families.size >= 10, 'visual factory did not preserve distinct catalog families');
+
+const austrianLivery = airlineLiveryPresentation('OS');
+assert(AIRPORT_AIRLINES.ORD.includes('OS'), 'ORD carrier pool is missing Austrian Airlines');
+assert(austrianLivery.fuselageColor === 0xeee9e1, 'Austrian fuselage paint drifted');
+assert(austrianLivery.tailColor === 0xc64b45, 'Austrian tail paint drifted');
+const austrianVisual = createAircraftVisual({ aircraft: 'B789', airline: 'OS', palette: 0 }, 0xffc875, false);
+const austrianFin = austrianVisual.root.getObjectByName('vertical-stabilizer');
+assert(austrianFin?.material?.color?.getHex?.() === austrianLivery.tailColor, 'Austrian tail is not rendered in its livery color');
+for (const airline of airlines) {
+  const presentation = airlineLiveryPresentation(airline);
+  assert(presentation.fuselageColor !== presentation.tailColor, airline + ' livery does not distinguish the tail from the fuselage');
+  const rendered = createAircraftVisual({ aircraft: 'A320', airline, palette: 0 }, 0xffc875, true);
+  const fin = rendered.root.getObjectByName('vertical-stabilizer');
+  assert(fin?.material?.color?.getHex?.() === presentation.tailColor, airline + ' tail color did not reach the aircraft visual');
+}
 
 const animated = createAircraftVisual({ aircraft: 'A320', airline: 'UA', palette: 0 }, 0xffc875, false);
 const systemState = {

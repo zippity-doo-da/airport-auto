@@ -5,7 +5,7 @@ import {
   type AircraftVisualSpec,
 } from "../simulation/aircraftProfiles";
 import {
-  airlineLiveryStyle,
+  airlineLiveryPresentation,
   airlineProfile,
   type AirlineLiveryStyle,
 } from "../simulation/airlineProfiles";
@@ -196,6 +196,7 @@ export function createAircraftVisual(
 ): AircraftVisual {
   const profile = aircraftProfile(flight.aircraft);
   const airline = airlineProfile(flight.airline);
+  const livery = airlineLiveryPresentation(flight.airline);
   const visual = profile.visual;
   const segments = lowDetail ? 8 : 14;
   const root = new THREE.Group();
@@ -204,8 +205,9 @@ export function createAircraftVisual(
   body.name = "airframe";
   root.add(body);
 
-  const paint = standardMaterial(airline.primaryColor, 0.46, 0.05);
+  const paint = standardMaterial(livery.fuselageColor, 0.46, 0.05);
   const accent = standardMaterial(airline.accentColor, 0.4, 0.08);
+  const tailPaint = standardMaterial(livery.tailColor, 0.4, 0.08);
   const wingPaint = standardMaterial(0xf1eadc, 0.5, 0.04);
   const dark = standardMaterial(0x293d40, 0.42, 0.1);
   const structure = standardMaterial(0x707978, 0.6, 0.25);
@@ -217,12 +219,12 @@ export function createAircraftVisual(
     body,
     visual,
     accent,
-    airlineLiveryStyle(flight.airline),
+    livery.style,
     lowDetail,
   );
   addCockpit(body, visual, dark, segments, visual.family);
   addWingFamily(body, visual, wingPaint, accent, lowDetail);
-  addTailFamily(body, visual, wingPaint, paint, accent, lowDetail);
+  addTailFamily(body, visual, wingPaint, tailPaint, accent, lowDetail);
   addWindowsAndIdentification(
     body,
     visual,

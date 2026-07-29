@@ -479,6 +479,10 @@ const surfaceSafetyLabel = $<HTMLElement>("#surface-safety-label");
 const surfaceSafetyPanel = $<HTMLElement>("#surface-safety-panel");
 const surfaceSafetyClose = $<HTMLButtonElement>("#surface-safety-close");
 const surfaceSafetyFilter = $<HTMLSelectElement>("#surface-safety-filter");
+const surfaceSafetyLookahead = $<HTMLSelectElement>(
+  "#surface-safety-lookahead",
+);
+const surfaceSafetyDiagram = $<HTMLElement>("#surface-safety-diagram");
 const surfaceSafetyTracks = $<HTMLElement>("#surface-safety-tracks");
 const surfaceSafetyVehicles = $<HTMLElement>("#surface-safety-vehicles");
 const surfaceSafetyAdvisories = $<HTMLElement>("#surface-safety-advisories");
@@ -871,6 +875,7 @@ let radarVisible = false;
 let surfaceSafetyVisible = false;
 let surfaceSafetyUiKey = "";
 let surfaceSafetyFilterValue: SurfaceSafetyFilter = "all";
+let surfaceSafetyLookaheadSeconds = 30;
 const surfaceSafetyAdvisoryTracker = new SurfaceSafetyAdvisoryTracker();
 const surfaceSafetyAcknowledgements = new SurfaceSafetyAcknowledgements();
 const surfaceSafetyAnnouncements = new SurfaceSafetyAnnouncementTracker();
@@ -950,6 +955,8 @@ const surfaceLayerVisibility: Record<SurfaceLayer, boolean> = {
   "operational-zones": false,
   hotspots: false,
   "airport-boundary": false,
+  "protection-zones": false,
+  "movement-projections": false,
 };
 const airspaceLayerVisibility: Record<AirspaceLayer, boolean> = {
   "airspace-sectors": false,
@@ -963,6 +970,7 @@ let lastOrientationUpdate = -Infinity;
 let lastRadarUpdate = -Infinity;
 let previousPresentation = capturePresentation(simulation.state);
 let lastFlightStripRender = -Infinity;
+let lastSurfaceSafetyRender = -Infinity;
 let renderedFrames = 0;
 let frameWindowStarted = performance.now();
 let measuredFps = 0;
@@ -2274,6 +2282,12 @@ surfaceSafetyFilter.addEventListener("change", () => {
   if (surfaceSafetyVisible) renderSurfaceSafety();
 });
 
+surfaceSafetyLookahead.addEventListener("change", () => {
+  surfaceSafetyLookaheadSeconds = Number(surfaceSafetyLookahead.value);
+  surfaceSafetyUiKey = "";
+  if (surfaceSafetyVisible) renderSurfaceSafety();
+});
+
 surfaceSafetyTracks.addEventListener("click", (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
     "[data-flight-id]",
@@ -2582,6 +2596,13 @@ function frame(now: number): void {
     renderSandboxExperience();
     lastFlightStripRender = now;
   }
+  // The optional surface picture is deliberately bounded below the render
+  // frame rate. Its projection is authoritative, but rebuilding its DOM is
+  // neither necessary nor desirable at 60 Hz.
+  if (surfaceSafetyVisible && now - lastSurfaceSafetyRender >= 250) {
+    renderSurfaceSafety();
+    lastSurfaceSafetyRender = now;
+  }
 
   const hudSecond = Math.floor(displayedState.elapsed);
   if (hudSecond !== lastHudSecond) {
@@ -2631,7 +2652,6 @@ function frame(now: number): void {
         setStatus(advisory.label, advisory.detail, advisory.priority);
       }
     }
-    if (surfaceSafetyVisible) renderSurfaceSafety();
     if (digitalClearanceVisible) renderDigitalClearanceMessages();
     refreshFocusTargets(displayedState, predictions);
     updateReplayUi();
@@ -6113,6 +6133,12 @@ function applyClearanceProposal(proposal: ClearanceProposal): void {
       action: "clearTakeoff",
       flightId: proposal.flightId,
     });
+  else if (proposal.action === "slow")
+    result = executeAirportRequest({
+      action: "assignAirspeed",
+      flightId: proposal.flightId,
+      speedKts: proposal.speedKts!,
+    });
   else
     result = executeAirportRequest({
       action: "controlFlights",
@@ -7212,12 +7238,13 @@ function setSurfaceSafetyPanelVisible(visible: boolean): void {
 
 function renderSurfaceSafety(): void {
   const snapshot = currentSurfaceSafetySnapshot();
-  const key = `${surfaceSafetyPanelKey(snapshot)}|${surfaceSafetyFilterValue}|${focusedFlightId ?? "none"}`;
+  const key = `${surfaceSafetyPanelKey(snapshot)}|${surfaceSafetyFilterValue}|${surfaceSafetyLookaheadSeconds}|${focusedFlightId ?? "none"}`;
   if (key === surfaceSafetyUiKey) return;
   surfaceSafetyUiKey = key;
   renderSurfaceSafetyPanel(
     {
       panel: surfaceSafetyPanel,
+      diagram: surfaceSafetyDiagram,
       tracks: surfaceSafetyTracks,
       vehicles: surfaceSafetyVehicles,
       advisories: surfaceSafetyAdvisories,
@@ -7225,9 +7252,11 @@ function renderSurfaceSafety(): void {
       protectedRunways: surfaceSafetyProtected,
       holds: surfaceSafetyHolds,
     },
+    config,
     snapshot,
     focusedFlightId,
     surfaceSafetyFilterValue,
+    surfaceSafetyLookaheadSeconds,
   );
 }
 
@@ -7563,9 +7592,13 @@ function updateAirportUi(): void {
         ? config.surfaceGraph.hotspots.length > 0
         : layer === "operational-zones"
           ? config.surfaceGraph.zones.length > 0
-          : layer === "airport-boundary"
-            ? Boolean(config.contextData)
-            : config.surfaceGraph.taxiways.some((taxiway) =>
+        : layer === "airport-boundary"
+          ? Boolean(config.contextData)
+          : layer === "protection-zones"
+            ? config.runways.length > 0
+            : layer === "movement-projections"
+              ? true
+          : config.surfaceGraph.taxiways.some((taxiway) =>
                 Boolean(taxiway.reference),
               );
     control.disabled = !available;
@@ -9509,14 +9542,16 @@ function executeAirportRequest(
   if (command.action === "setSurfaceLayerVisible") {
     accepted = [
       "taxiway-labels",
-      "operational-zones",
-      "hotspots",
-      "airport-boundary",
-    ].includes(command.layer);
+        "operational-zones",
+        "hotspots",
+        "airport-boundary",
+        "protection-zones",
+        "movement-projections",
+      ].includes(command.layer);
     if (accepted) setSurfaceLayerVisible(command.layer, command.enabled);
     else
       reason =
-        "surface layer must be taxiway-labels, operational-zones, hotspots, or airport-boundary";
+        "surface layer must be taxiway-labels, operational-zones, hotspots, airport-boundary, protection-zones, or movement-projections";
   }
   if (command.action === "setAirspaceLayerVisible") {
     accepted = [

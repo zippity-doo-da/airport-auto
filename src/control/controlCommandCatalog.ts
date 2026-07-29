@@ -763,6 +763,8 @@ const COMMAND_SPECS = {
         "operational-zones",
         "hotspots",
         "airport-boundary",
+        "protection-zones",
+        "movement-projections",
       ]),
       enabled: booleanSchema("Whether the layer is visible."),
     },

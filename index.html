@@ -993,6 +993,18 @@
             >
             <label
               ><input
+                data-surface-layer="protection-zones"
+                type="checkbox"
+              />Runway protection</label
+            >
+            <label
+              ><input
+                data-surface-layer="movement-projections"
+                type="checkbox"
+              />Movement vectors</label
+            >
+            <label
+              ><input
                 data-airspace-layer="airspace-sectors"
                 type="checkbox"
               />Terminal sectors</label
@@ -1462,6 +1474,22 @@
           >
           <span><b id="surface-safety-holds">0</b><small>Holds</small></span>
         </div>
+        <label class="surface-safety__lookahead"
+          ><span>Forecast horizon</span
+          ><select
+            id="surface-safety-lookahead"
+            aria-label="Surface safety forecast horizon"
+          >
+            <option value="15">15 sec</option>
+            <option value="30" selected>30 sec</option>
+            <option value="60">60 sec</option>
+          </select></label
+        >
+        <div
+          id="surface-safety-diagram"
+          class="surface-safety__diagram"
+          aria-live="off"
+        ></div>
         <section aria-label="Active surface forecasts">
           <h2>Forecasts</h2>
           <div

@@ -1,5 +1,6 @@
 import type {
   Flight,
+  TrafficFlowConstraintCategory,
   TrafficFlowEntry,
   TrafficFlowObjective,
   TrafficFlowState,
@@ -77,6 +78,33 @@ const TRAFFIC_FLOW_OBJECTIVE_PROFILES: Record<
 export interface TrafficFlowExpiry {
   diverted: TrafficFlowEntry[];
   cancelled: TrafficFlowEntry[];
+}
+
+export interface TrafficFlowConstraint {
+  category: TrafficFlowConstraintCategory;
+  label: string;
+}
+
+/**
+ * Converts existing deterministic slot reasons into a compact, stable UI
+ * category. It never replaces the exact reason or affects scheduling.
+ */
+export function trafficFlowConstraint(
+  reason: string,
+): TrafficFlowConstraint {
+  const copy = reason.toLowerCase();
+  if (/weather|wind|storm|visibility|deicing|rwycc|runway condition/.test(copy))
+    return { category: "weather", label: "Weather" };
+  if (/wake|separation/.test(copy)) return { category: "wake", label: "Wake" };
+  if (/gate|stand|terminal/.test(copy)) return { category: "gate", label: "Gate" };
+  if (/performance|compatible|safe exit|takeoff shortfall/.test(copy))
+    return { category: "performance", label: "Performance" };
+  if (/taxi|surface|route|crossing|pushback/.test(copy))
+    return { category: "taxi", label: "Taxi" };
+  if (/runway|approach|landing|departure envelope|protected/.test(copy))
+    return { category: "runway", label: "Runway" };
+  if (/capacity|budget|holding/.test(copy)) return { category: "demand", label: "Demand" };
+  return { category: "schedule", label: "Schedule" };
 }
 
 export interface TrafficFlowSnapshot {
@@ -235,6 +263,7 @@ export function markArrivalHolding(
 ): void {
   entry.status = "holding";
   entry.reason = reason;
+  entry.constraintCategory = trafficFlowConstraint(reason).category;
   entry.updatedAtSeconds = nowSeconds;
   entry.attempts += 1;
   reviseSlot(
@@ -282,6 +311,7 @@ export function releaseArrivalDemand(
   entry.updatedAtSeconds = nowSeconds;
   entry.delaySeconds = Math.max(0, nowSeconds - entry.scheduledAtSeconds);
   entry.reason = `${flight.callsign} released to runway ${flight.runway + 1}`;
+  entry.constraintCategory = "runway";
   entry.flightId = flight.id;
   entry.callsign = flight.callsign;
   entry.runwayId = flight.runway;
@@ -303,6 +333,7 @@ export function releaseDepartureDemand(
   entry.updatedAtSeconds = nowSeconds;
   entry.delaySeconds = Math.max(0, nowSeconds - entry.scheduledAtSeconds);
   entry.reason = `${entry.callsign ?? "departure"} released from the gate bank`;
+  entry.constraintCategory = "schedule";
   state.nextDepartureReleaseSeconds =
     nowSeconds + Math.max(0.2, nextSlotSpacingSeconds);
   state.totals.departureReleases += 1;
@@ -328,6 +359,7 @@ export function expireTrafficFlow(
     entry.updatedAtSeconds = nowSeconds;
     entry.delaySeconds = nowSeconds - entry.scheduledAtSeconds;
     entry.reason = `arrival metering exceeded ${density.maximumArrivalDelaySeconds}s; diverted before map entry`;
+    entry.constraintCategory = "demand";
     state.totals.diversions += 1;
     archive(state, entry);
     diverted.push(entry);
@@ -343,6 +375,7 @@ export function expireTrafficFlow(
     entry.updatedAtSeconds = nowSeconds;
     entry.delaySeconds = nowSeconds - entry.scheduledAtSeconds;
     entry.reason = `departure release exceeded ${density.maximumDepartureDelaySeconds}s; slot cancelled and replanning required`;
+    entry.constraintCategory = "schedule";
     state.totals.cancellations += 1;
     archive(state, entry);
     cancelled.push(entry);
@@ -439,6 +472,7 @@ function createEntry(
   reason: string,
 ): TrafficFlowEntry {
   const id = `${direction === "arrival" ? "ARR" : "DEP"}-${state.nextDemandId++}`;
+  const constraintCategory = trafficFlowConstraint(reason).category;
   return {
     id,
     direction,
@@ -450,7 +484,10 @@ function createEntry(
     delaySeconds: 0,
     attempts: 0,
     reason,
-    slotRevisions: [{ atSeconds: nowSeconds, releaseSlotSeconds, reason }],
+    constraintCategory,
+    slotRevisions: [
+      { atSeconds: nowSeconds, releaseSlotSeconds, reason, category: constraintCategory },
+    ],
   };
 }
 
@@ -477,6 +514,7 @@ function cloneEntry(entry: TrafficFlowEntry): TrafficFlowEntry {
           atSeconds: entry.updatedAtSeconds,
           releaseSlotSeconds: entry.releaseSlotSeconds,
           reason: entry.reason,
+          category: entry.constraintCategory ?? trafficFlowConstraint(entry.reason).category,
         },
       ]
     ).map((revision) => ({ ...revision })),
@@ -491,10 +529,13 @@ function reviseSlot(
 ): void {
   if (Math.abs(entry.releaseSlotSeconds - releaseSlotSeconds) < 1e-6) return;
   entry.releaseSlotSeconds = releaseSlotSeconds;
+  const category = trafficFlowConstraint(reason).category;
+  entry.constraintCategory = category;
   entry.slotRevisions.push({
     atSeconds: nowSeconds,
     releaseSlotSeconds,
     reason,
+    category,
   });
   if (entry.slotRevisions.length > MAX_SLOT_REVISIONS) {
     entry.slotRevisions.splice(

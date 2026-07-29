@@ -129,6 +129,73 @@ arrival.navigation.hold = undefined;
 const landingProposal = simulation.clearanceProposals().find((proposal) => proposal.flightId === arrival.id && proposal.action === 'land');
 assert(landingProposal?.station === 'tower', 'landing proposal was not routed to Tower');
 
+const trailing = simulation.state.flights.find((flight) => flight.id !== arrival.id);
+assert(trailing, 'ORD needs a second arrival for sequencing advice');
+arrival.progress = 0.48;
+arrival.runway = trailing.runway;
+arrival.navigation.frequencyOwner = 'approach';
+trailing.phase = 'approach';
+trailing.progress = 0.39;
+trailing.goAround = undefined;
+trailing.diversion = undefined;
+trailing.navigation.hold = undefined;
+trailing.navigation.frequencyOwner = 'approach';
+trailing.kinematics.airspeedKts = 180;
+trailing.navigation.assignedSpeedKts = undefined;
+simulation.setStation('approach');
+const speedProposal = simulation.clearanceProposals().find((proposal) => proposal.flightId === trailing.id && proposal.action === 'slow');
+assert(speedProposal?.station === 'approach' && speedProposal.speedKts && speedProposal.speedKts < trailing.kinematics.airspeedKts, 'Assisted mode did not produce a legal arrival-spacing speed proposal');
+assert(simulation.assignAirspeed(trailing.id, speedProposal.speedKts), 'Approach could not apply the proposed legal speed');
+
+// Tower's assisted card must not offer multiple mutually conflicting runway
+// movements. A lined-up departure wins over a second aircraft still waiting
+// at the same runway's hold-short point.
+for (const flight of simulation.state.flights) {
+  flight.phase = 'resting';
+  flight.motion.onGround = true;
+  flight.motion.protectedRunway = false;
+  flight.motion.protectedRunwayIds = [];
+  flight.motion.x = 500 + flight.id * 10;
+  flight.motion.y = 500 + flight.id * 10;
+  flight.motion.z = 0;
+  flight.surfaceRoute = undefined;
+  flight.surfaceRouteEdges = undefined;
+  flight.runwayEntryCleared = false;
+  flight.takeoffCleared = false;
+  flight.cleared = false;
+  flight.navigation.frequencyOwner = 'tower';
+  flight.navigation.handoff = undefined;
+  flight.navigation.handoffStatus = 'owned';
+}
+const towerLead = simulation.state.flights[0];
+const towerFollower = simulation.state.flights[1];
+assert(towerLead && towerFollower, 'Tower sequence validation needs two departures');
+towerLead.phase = 'takeoff';
+towerLead.runwayEntryCleared = true;
+towerLead.takeoffCleared = false;
+towerLead.progress = 0;
+towerLead.motion.x = -120;
+towerLead.motion.y = -120;
+towerLead.motion.z = 0;
+towerFollower.phase = 'taxi-out';
+towerFollower.runway = towerLead.runway;
+towerFollower.progress = 0.99;
+towerFollower.motion.x = 120;
+towerFollower.motion.y = 120;
+towerFollower.motion.z = 0;
+// Keep this synthetic queue follower at its stand; the test is about Tower's
+// ordering policy, not the imported ORD geometry that would otherwise place
+// its old route across the lead's departure envelope.
+towerFollower.surfaceRoute = undefined;
+towerFollower.surfaceRouteEdges = undefined;
+simulation.setStation('tower');
+const towerProposals = simulation.clearanceProposals();
+if (!towerProposals.some((proposal) => proposal.flightId === towerLead.id && proposal.action === 'takeoff')) {
+  simulation.clearTakeoff(towerLead.id);
+  throw new Error('Tower advisor omitted the releasable lined-up departure: ' + simulation.lastCommandReason());
+}
+assert(!towerProposals.some((proposal) => proposal.flightId === towerFollower.id && proposal.action === 'line-up'), 'Tower advisor offered a conflicting second runway movement');
+
 const syntheticWorkloads = controllerWorkloadSnapshots([sample], createStationAutomation(true));
 assert(syntheticWorkloads.reduce((sum, workload) => sum + workload.phaseRelevantFlights, 0) === 1, 'one aircraft appeared in multiple station workload queues');
 

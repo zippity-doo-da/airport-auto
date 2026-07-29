@@ -1099,11 +1099,23 @@ export interface ControllerPerformanceSnapshot {
 export type TrafficFlowStatus =
   "scheduled" | "metered" | "holding" | "released" | "diverted" | "cancelled";
 
+/** Stable, controller-visible classification of a meter-slot constraint. */
+export type TrafficFlowConstraintCategory =
+  | "weather"
+  | "runway"
+  | "wake"
+  | "gate"
+  | "performance"
+  | "taxi"
+  | "demand"
+  | "schedule";
+
 /** A bounded, authoritative explanation for one metering-slot change. */
 export interface TrafficFlowSlotRevision {
   atSeconds: number;
   releaseSlotSeconds: number;
   reason: string;
+  category?: TrafficFlowConstraintCategory;
 }
 
 export type TrafficFlowObjective =
@@ -1124,6 +1136,8 @@ export interface TrafficFlowEntry {
   delaySeconds: number;
   attempts: number;
   reason: string;
+  /** Classification is advisory only; the detailed reason remains authoritative. */
+  constraintCategory?: TrafficFlowConstraintCategory;
   slotRevisions: TrafficFlowSlotRevision[];
   flightId?: number;
   callsign?: string;
@@ -1161,6 +1175,7 @@ export type ClearanceProposalAction =
   | "cross"
   | "line-up"
   | "takeoff"
+  | "slow"
   | "resume";
 
 export interface ClearanceProposal {
@@ -1168,6 +1183,8 @@ export interface ClearanceProposal {
   flightId: number;
   action: ClearanceProposalAction;
   runway?: number;
+  /** Present only for a speed proposal; approval still calls assignAirspeed. */
+  speedKts?: number;
   station: ControllerStation;
   label: string;
   reason: string;

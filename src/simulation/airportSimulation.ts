@@ -2113,6 +2113,11 @@ export class AirportSimulation {
   clearanceProposals(): ClearanceProposal[] {
     if (this.state.mode !== "assisted") return [];
     const proposals: ClearanceProposal[] = [];
+    // Keep the assisted Tower card to one usable movement per conflicting
+    // runway group. The command itself repeats every safety check on approval;
+    // this only prevents a controller from being offered a knowingly blocked
+    // line-up or takeoff beside the actual next release.
+    const towerReadyDepartures = this.towerReadyDepartureIds();
     for (const flight of this.state.flights) {
       if (
         flight.phase === "approach" &&
@@ -2139,6 +2144,44 @@ export class AirportSimulation {
                 ? "attention"
                 : "routine",
         });
+      }
+      if (
+        flight.phase === "approach" &&
+        flight.progress < 0.68 &&
+        !flight.goAround &&
+        !flight.diversion &&
+        !flight.navigation.hold
+      ) {
+        const leader = this.state.flights
+          .filter(
+            (candidate) =>
+              candidate.id !== flight.id &&
+              candidate.phase === "approach" &&
+              candidate.runway === flight.runway &&
+              candidate.progress > flight.progress &&
+              !candidate.goAround &&
+              !candidate.diversion,
+          )
+          .sort((first, second) => first.progress - second.progress)[0];
+        const currentSpeed =
+          flight.navigation.assignedSpeedKts ?? flight.kinematics.airspeedKts;
+        const targetSpeed = Math.max(
+          aircraftProfile(flight.aircraft).approachKts,
+          Math.round((currentSpeed - 15) / 5) * 5,
+        );
+        const progressGap = leader ? leader.progress - flight.progress : 1;
+        if (leader && progressGap < 0.16 && targetSpeed <= currentSpeed - 5) {
+          proposals.push({
+            id: `${flight.id}:slow:${targetSpeed}`,
+            flightId: flight.id,
+            action: "slow",
+            speedKts: targetSpeed,
+            station: "approach",
+            label: `Reduce to ${targetSpeed} kt`,
+            reason: `${leader.callsign} is ahead on the same runway sequence; a small speed reduction creates spacing before final without inserting a holding pattern.`,
+            priority: progressGap < 0.08 ? "urgent" : "attention",
+          });
+        }
       }
       if (
         (flight.phase === "approach" || flight.phase === "landing") &&
@@ -2202,6 +2245,7 @@ export class AirportSimulation {
         flight.phase === "taxi-out" &&
         flight.progress >= 0.985 &&
         !flight.runwayEntryCleared &&
+        towerReadyDepartures.has(flight.id) &&
         deicingReleaseValid(flight, this.state.weather, this.state.elapsed)
       ) {
         proposals.push({
@@ -2216,7 +2260,11 @@ export class AirportSimulation {
           priority: "attention",
         });
       }
-      if (flight.phase === "takeoff" && !flight.takeoffCleared) {
+      if (
+        flight.phase === "takeoff" &&
+        !flight.takeoffCleared &&
+        towerReadyDepartures.has(flight.id)
+      ) {
         proposals.push({
           id: `${flight.id}:takeoff:${flight.runway}`,
           flightId: flight.id,
@@ -5918,11 +5966,83 @@ export class AirportSimulation {
     return true;
   }
 
+  /**
+   * Select the next line-up/takeoff that Tower can actually use without
+   * contradicting runway protection, wake release, crossings, weather, or the
+   * low-altitude departure envelope. This is intentionally side-effect free:
+   * queue registration and runway reservation still occur only when an actual
+   * command passes the shared arbiter.
+   */
+  private towerReadyDepartureIds(): Set<number> {
+    const queuePosition = (flight: Flight): number => {
+      const position = this.state.trafficFlow.departureQueue.findIndex(
+        (entry) => entry.flightId === flight.id,
+      );
+      return position === -1 ? Number.MAX_SAFE_INTEGER : position;
+    };
+    const candidates = this.state.flights
+      .filter(
+        (flight) =>
+          (flight.phase === "takeoff" && !flight.takeoffCleared) ||
+          (flight.phase === "taxi-out" &&
+            flight.progress >= 0.985 &&
+            !flight.runwayEntryCleared),
+      )
+      .sort(
+        (first, second) =>
+          // A lined-up aircraft is the runway's next practical operation.
+          (first.phase === "takeoff" ? 0 : 1) -
+            (second.phase === "takeoff" ? 0 : 1) ||
+          queuePosition(first) - queuePosition(second) ||
+          first.id - second.id,
+      );
+    const selected: Flight[] = [];
+    for (const candidate of candidates) {
+      if (
+        selected.some((owner) =>
+          this.runwaysConflict(owner.runway, candidate.runway),
+        )
+      ) {
+        continue;
+      }
+      if (!this.towerDepartureProposalReady(candidate)) continue;
+      selected.push(candidate);
+    }
+    return new Set(selected.map((flight) => flight.id));
+  }
+
+  private towerDepartureProposalReady(flight: Flight): boolean {
+    if (!deicingReleaseValid(flight, this.state.weather, this.state.elapsed))
+      return false;
+    if (this.priorityRunwayCrossing(flight.runway, flight.id)) return false;
+    if (this.runwayBlocker(flight.runway, flight.id)) return false;
+    if (this.departurePathBlocker(flight)) return false;
+    if (flight.phase === "taxi-out") {
+      return !this.nextUnclearedCrossing(flight);
+    }
+    if (flight.phase !== "takeoff") return false;
+    const hazard = this.state.weather.activeHazard;
+    if (
+      hazard?.status === "active" &&
+      hazard.operation === "departure" &&
+      hazard.runwayId === flight.runway
+    ) {
+      return false;
+    }
+    if (!this.assessTakeoffPerformance(flight).safe) return false;
+    return this.runwayReleaseBlocker(flight, "departure") === null;
+  }
+
   private seedInitialTraffic(): void {
+    // ORD needs a visibly active opening bank. The imported field has enough
+    // stands and independent taxi corridors to support a fuller initial
+    // picture; subsequent demand is still admitted only through the same
+    // flow meter, stand allocator, runway protection, and surface arbiter.
+    const openingHubTarget = this.config.code === "ORD" ? 10 : 8;
     const baseTarget =
       this.config.scope === "center"
         ? Math.min(
-            8,
+            openingHubTarget,
             Math.max(5, Math.floor(this.config.surfaceGraph.stands.length / 2)),
           )
         : 1;
@@ -5955,17 +6075,18 @@ export class AirportSimulation {
     // from filling the active-traffic cap before the first arrival demand can
     // enter terminal airspace.
     const maximumOpeningDepartures = target >= 2 ? target - 1 : target;
-    // Two moving departures are enough to establish simultaneous hub flow.
-    // Capping the generic bank also leaves the third successfully admitted
-    // aircraft as an arrival when later candidates fail stand compatibility.
-    // ORD alone keeps the requested live gate turn when at least four slots
-    // are available, matching its denser imported surface and stand graph.
+    // Two moving departures establish simultaneous hub flow at every large
+    // airport. ORD alone adds a bounded gate/ramp bank behind them, matching
+    // its denser imported surface and stand graph without overfilling final.
+    // ORD can open with a real gate/ramp bank while retaining only a small,
+    // believable number of aircraft on final. These additional starters are
+    // parked or taxiing departures, not extra arrivals injected into the
+    // approach stack.
     const openingDepartureLimit =
-      this.config.code === "ORD" && target >= 4 ? 3 : 2;
+      this.config.code === "ORD" && target >= 7 ? 7 : 2;
     const departureTarget = Math.min(
       maximumOpeningDepartures,
       openingDepartureLimit,
-      departureRunways.length,
       requestedDepartures,
     );
     const liveTurnAtStartup =
@@ -5977,7 +6098,14 @@ export class AirportSimulation {
       const index = seeded;
       const candidateId = this.nextId;
       attempts += 1;
-      const aircraft = this.spawnFlight();
+      // Departure starters must not consume an arrival approach position while
+      // they are being prepared for their gate and taxi route. They still use
+      // the normal aircraft, stand, runway-performance, and surface planning
+      // admission path; staging only avoids treating a parked departure as a
+      // temporary inbound aircraft during this one startup pass.
+      const aircraft = this.spawnFlight({
+        stagingDeparture: index < departureTarget,
+      });
       if (!aircraft) {
         // Performance and stand planning can reject a particular deterministic
         // traffic-program candidate while advancing to the next one. Preserve
@@ -6001,9 +6129,9 @@ export class AirportSimulation {
       }
       const runway = compatible[index % compatible.length];
       // A center-scale hub opens with two departures already moving on
-      // independently reserved taxi routes; the next departure remains a
-      // live turn so the ramp is active too. Smaller schematics keep a single
-      // taxiing departure to avoid reusing their limited stand geometry.
+      // independently reserved taxi routes. ORD also keeps a live turn plus
+      // a bounded set of gate departures so the ramp remains active; smaller
+      // schematics keep a single taxiing departure for their limited geometry.
       const taxiing =
         index <
         (this.config.scope === "center" ? Math.min(2, departureTarget) : 1);

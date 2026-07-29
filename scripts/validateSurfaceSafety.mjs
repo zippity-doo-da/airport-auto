@@ -4,7 +4,7 @@ const validationSource = `
 import { generateHubConfig, HUB_AIRPORTS } from "./src/simulation/airportConfig.ts";
 import { AirportSimulation } from "./src/simulation/airportSimulation.ts";
 import { SurfaceSafetyAdvisoryTracker, surfaceSafetySnapshot, wrongSurfaceApproachAdvisories } from "./src/simulation/surfaceSafety.ts";
-import { surfaceSafetyTracksForFilter, surfaceSafetyVehiclesForFilter } from "./src/ui/surfaceSafetyPanel.ts";
+import { surfaceSafetyLookaheadTargets, surfaceSafetyTracksForFilter, surfaceSafetyVehiclesForFilter } from "./src/ui/surfaceSafetyPanel.ts";
 import { runwayProtectionStatuses } from "./src/simulation/runwayProtection.ts";
 import { runwayEndPoint, runwayTravelDirection } from "./src/simulation/runwayGeometry.ts";
 import { SurfaceSafetyAcknowledgements } from "./src/simulation/surfaceSafetyAcknowledgements.ts";
@@ -105,6 +105,9 @@ assert(surfaceSafetyTracksForFilter(snapshot, "watch").every((track) => track.st
 assert(surfaceSafetyVehiclesForFilter(snapshot, "tower").some((vehicle) => vehicle.id === "safety-test-fuel"), "tower view omitted a held safety vehicle");
 assert(surfaceSafetyVehiclesForFilter(snapshot, "ramp").some((vehicle) => vehicle.id === "safety-test-fuel"), "ramp view omitted its non-protected service vehicle");
 assert(surfaceSafetyVehiclesForFilter(snapshot, "supervisor").some((vehicle) => vehicle.id === "safety-test-fuel"), "supervisor view omitted active service traffic");
+const forecastTargets = surfaceSafetyLookaheadTargets(snapshot.tracks, snapshot.advisories, 10);
+assert(forecastTargets.length === 2 && forecastTargets.every((target) => target.severity === "advisory" && target.etaSeconds === 8), "look-ahead projection omitted the authoritative runway forecast");
+assert(surfaceSafetyLookaheadTargets(snapshot.tracks, snapshot.advisories, 7).length === 0, "look-ahead projection ignored its configured horizon");
 const acknowledgements = new SurfaceSafetyAcknowledgements();
 const acknowledged = acknowledgements.acknowledge(snapshot, snapshot.advisories[0].id, 3);
 assert(acknowledged.accepted, "noncritical active advisory was not acknowledgeable");

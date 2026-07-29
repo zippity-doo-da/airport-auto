@@ -19,6 +19,7 @@ import {
   setTrafficFlowObjective,
   trafficFlowObjectiveProfile,
   trafficFlowSnapshot,
+  trafficFlowConstraint,
 } from './src/simulation/trafficFlowManagement.ts';
 import { amendFlightPlan, createFlightPlan } from './src/simulation/flightPlanning.ts';
 import { createHubSimulationHarness } from './src/simulation/fixedStepHarness.ts';
@@ -46,6 +47,10 @@ const totals = {
 assert(JSON.stringify(TRAFFIC_DENSITIES) === JSON.stringify(['quiet', 'realistic', 'busy', 'rush', 'extreme']), 'traffic-density order changed');
 assert(JSON.stringify(TRAFFIC_FLOW_OBJECTIVES) === JSON.stringify(['balanced', 'minimum-holding', 'minimum-taxi-delay', 'weather-recovery', 'watch-calm']), 'traffic-flow objective order changed');
 assert(TRAFFIC_FLOW_OBJECTIVES.every((objective) => isTrafficFlowObjective(objective) && trafficFlowObjectiveProfile(objective).arrivalDemandIntervalMultiplier > 0 && trafficFlowObjectiveProfile(objective).arrivalSpacingMultiplier > 0 && trafficFlowObjectiveProfile(objective).departureSpacingMultiplier > 0), 'traffic-flow objective profiles are incomplete');
+assert(trafficFlowConstraint('weather recovery arrival metering').category === 'weather', 'weather slot reason lacks a stable category');
+assert(trafficFlowConstraint('no immediately available compatible stand').category === 'gate', 'gate slot reason lacks a stable category');
+assert(trafficFlowConstraint('protected arrival sweep occupied').category === 'runway', 'runway slot reason lacks a stable category');
+assert(trafficFlowConstraint('active-aircraft budget occupied').category === 'demand', 'demand slot reason lacks a stable category');
 let previousDemand = 0;
 for (const density of TRAFFIC_DENSITIES) {
   const profile = TRAFFIC_DENSITY_PROFILES[density];
@@ -145,7 +150,7 @@ assert(flow.totals.departureReleases === 1 && flow.departureQueue[0] === slotB, 
 const meterSnapshot = trafficFlowSnapshot(flow, 20);
 const meterRows = trafficFlowMeterRows(meterSnapshot);
 assert(meterRows.length === 4 && meterRows.filter((row) => row.direction === 'arrival').length === 3 && meterRows.filter((row) => row.direction === 'departure').length === 1, 'meter plan did not expose the pending arrival and departure slots');
-assert(meterRows.every((row) => row.slotInSeconds >= 0 && row.label.length > 0 && row.reason.length > 0), 'meter plan contains incomplete slot context');
+assert(meterRows.every((row) => row.slotInSeconds >= 0 && row.label.length > 0 && row.reason.length > 0 && row.constraintLabel.length > 0 && row.constraintCategory.length > 0), 'meter plan contains incomplete slot context');
 const expiry = expireTrafficFlow(flow, 500);
 assert(expiry.diverted.length === 3 && expiry.cancelled.length === 1, 'capacity expiry did not divert/cancel blocked demand');
 const flowSnapshot = trafficFlowSnapshot(flow, 500);
@@ -160,6 +165,8 @@ assert(objectiveSimulation.setTrafficFlowObjective('minimum-taxi-delay') && obje
 
 const hub = createHubSimulationHarness('ORD', { stepSeconds: 0.1, pace: 3, mode: 'auto', density: 'extreme' });
 const initialIds = new Set(hub.simulation.state.flights.map((flight) => flight.id));
+assert(initialIds.size >= 10, 'ORD: opening bank is too quiet for the hub-scale surface (' + initialIds.size + ' aircraft)');
+assert(hub.simulation.state.flights.filter((flight) => flight.phase === 'taxi-out').length >= 2, 'ORD: opening bank did not include simultaneous taxi-out traffic');
 let maximumActive = hub.simulation.state.flights.length;
 let previousProgress = new Map(hub.simulation.state.flights.map((flight) => [flight.id, flight.progress]));
 for (let tick = 0; tick < 2_400; tick += 1) {

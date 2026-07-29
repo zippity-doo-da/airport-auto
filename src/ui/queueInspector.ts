@@ -4,6 +4,7 @@ import {
   type OperationQueueSnapshot,
 } from "../simulation/operationQueues";
 import type { TrafficFlowSnapshot } from "../simulation/trafficFlowManagement";
+import { trafficFlowConstraint } from "../simulation/trafficFlowManagement";
 import type { TrafficFlowEntry } from "../simulation/types";
 
 export type OperationQueueFilter = "all" | OperationQueueCategory;
@@ -23,6 +24,8 @@ export interface TrafficFlowMeterRow {
   slotInSeconds: number;
   delaySeconds: number;
   revisionCount: number;
+  constraintLabel: string;
+  constraintCategory: string;
   status: TrafficFlowEntry["status"];
   reason: string;
 }
@@ -189,7 +192,8 @@ function renderMeterPlan(
     slot.className = "queue-meter-slot";
     slot.dataset.direction = row.direction === "arrival" ? "arr" : "dep";
     const label = document.createElement("b");
-    label.textContent = `${row.direction === "arrival" ? "ARR" : "DEP"} · ${row.label}`;
+    label.textContent = `${row.direction === "arrival" ? "ARR" : "DEP"} · ${row.label} · ${row.constraintLabel}`;
+    slot.dataset.constraint = row.constraintCategory;
     const timing = document.createElement("small");
     timing.textContent = `${row.status} · slot ${formatWait(row.slotInSeconds)}${row.delaySeconds > 0 ? ` · delay ${formatWait(row.delaySeconds)}` : ""}`;
     const reason = document.createElement("small");
@@ -208,6 +212,7 @@ function meterRow(
   direction: TrafficFlowMeterRow["direction"],
   entry: TrafficFlowEntry,
 ): TrafficFlowMeterRow {
+  const constraint = trafficFlowConstraint(entry.reason);
   return {
     id: entry.id,
     direction,
@@ -215,6 +220,8 @@ function meterRow(
     slotInSeconds: slotInSeconds(entry),
     delaySeconds: entry.delaySeconds,
     revisionCount: entry.slotRevisions.length,
+    constraintLabel: constraint.label,
+    constraintCategory: constraint.category,
     status: entry.status,
     reason: entry.reason,
   };
