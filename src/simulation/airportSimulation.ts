@@ -432,6 +432,7 @@ const RUNWAY_HOLD_SHORT_NOSE_BUFFER_M = 5;
 const RUNWAY_CROSSING_TAIL_BUFFER_M = 5;
 const RUNWAY_CROSSING_PRIORITY_WAIT_SECONDS = 20;
 const RUNWAY_HOLD_POSITION_TOLERANCE_M = 1;
+const RUNWAY_CROSSING_ADVISORY_LOOKAHEAD_M = 500;
 const SURFACE_DEADLOCK_AVOIDANCE_M = 750;
 const SERVICE_VEHICLE_AVOIDANCE_EDGES = 8;
 const SURFACE_RESERVATION_RECOVERY_WAIT_SECONDS = 4;
@@ -2435,6 +2436,36 @@ export class AirportSimulation {
       (flight) => flight.phase !== "resting",
     );
     const rules = separationRuleset(this.state.separationRuleset);
+
+    // Surface runway crossings have an explicit hold line and clearance
+    // lifecycle, so expose a forecast before the aircraft reaches the line.
+    // The movement arbiter remains authoritative; this is only the shared
+    // safety picture used by the UI, telemetry, and agent-facing snapshots.
+    for (const flight of active) {
+      if (flight.phase !== "taxi-in" && flight.phase !== "taxi-out") continue;
+      const crossing = this.nextUnclearedCrossing(flight);
+      if (!crossing) continue;
+      const distanceM = crossing.distanceToHold * WORLD_METERS_PER_UNIT;
+      if (
+        distanceM > RUNWAY_CROSSING_ADVISORY_LOOKAHEAD_M ||
+        distanceM < -RUNWAY_HOLD_POSITION_TOLERANCE_M
+      )
+        continue;
+      const blocker = this.runwayBlocker(crossing.runwayId, flight.id);
+      if (!blocker) continue;
+      const speedMps = Math.max(
+        3,
+        flight.kinematics.groundSpeedKts * KNOT_TO_MPS,
+      );
+      predictions.push({
+        severity: "warning",
+        type: "crossing",
+        flights: [flight.id, blocker.id],
+        runway: crossing.runwayId,
+        etaSeconds: Math.max(1, Math.min(120, Math.round(Math.max(0, distanceM) / speedMps))),
+        detail: `${flight.callsign} is approaching ${this.activeRunwayDesignation(crossing.runwayId)} crossing ${crossing.holdPointId}; ${blocker.callsign} is protecting the runway`,
+      });
+    }
     for (let firstIndex = 0; firstIndex < active.length; firstIndex += 1) {
       const first = active[firstIndex];
       for (

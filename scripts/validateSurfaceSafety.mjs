@@ -74,6 +74,37 @@ first.holdShortRunway = first.runway;
 first.runwayEntryCleared = false;
 first.takeoffCleared = false;
 
+const originalSurfaceCrossingPlan = simulation.surfaceCrossingPlan;
+simulation.surfaceCrossingPlan = () => ({
+  routeNodes: [],
+  routeEdges: [],
+  runway: first.runway,
+  aircraft: first.aircraft,
+  routeDistanceWorld: 10,
+  routeDistanceM: 380,
+  windows: [{
+    id: "synthetic-protected-crossing",
+    runwayId: first.runway,
+    edgeId: "synthetic-edge",
+    edgeIndex: 0,
+    exitEdgeIndex: 1,
+    holdProgress: 0.95,
+    entryProgress: 0.96,
+    exitProgress: 0.99,
+    distanceToHold: 1,
+    holdPointId: "CP-SAFETY-HOLD",
+  }],
+  groups: [],
+});
+const crossingForecast = simulation.conflictPredictions().find(
+  (prediction) => prediction.type === "crossing" && prediction.flights.includes(first.id),
+);
+simulation.surfaceCrossingPlan = originalSurfaceCrossingPlan;
+assert(
+  crossingForecast?.flights.includes(second.id) && crossingForecast.runway !== undefined,
+  "an approaching taxi crossing protected by active runway traffic did not create a pre-incursion forecast",
+);
+
 simulation.state.serviceVehicles.push({
   id: "safety-test-fuel",
   flightId: first.id,
