@@ -27,6 +27,7 @@ flight.navigation.handoff = { schemaVersion: 1, revision: 1, from: 'approach', t
 snapshot = digitalClearanceSnapshot(simulation.state);
 assert(snapshot.messages.some((item) => item.kind === 'direct-to'), 'direct-to vector did not project as a structured message');
 assert(snapshot.messages.some((item) => item.kind === 'frequency' && item.status === 'delivered'), 'controller handoff did not project as a frequency message');
+assert(snapshot.messages.some((item) => item.kind === 'revision' && item.parameters.amendmentRevision === 1), 'flight-plan amendment did not project as a revision message');
 flight.navigation.vector = undefined;
 flight.navigation.handoff = undefined;
 flight.phase = 'taxi-out';

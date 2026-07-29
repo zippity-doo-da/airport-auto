@@ -25,7 +25,8 @@ export interface DigitalClearanceMessage {
     | "taxi"
     | "crossing"
     | "direct-to"
-    | "frequency";
+    | "frequency"
+    | "revision";
   status: DigitalClearanceStatus;
   authority: string;
   revision: number;
@@ -75,6 +76,28 @@ function flightDigitalClearanceMessages(flight: Flight): DigitalClearanceMessage
   const messages: DigitalClearanceMessage[] = [];
   const route = flight.navigation.routeClearance;
   if (route) messages.push(routeClearanceMessage(flight, route));
+
+  const amendment = flight.flightPlan.amendments.at(-1);
+  if (amendment) {
+    messages.push({
+      id: `revision:${flight.id}:${amendment.revision}`,
+      flightId: flight.id,
+      callsign: flight.callsign,
+      kind: "revision",
+      status: "wilco",
+      authority: flight.navigation.frequencyOwner,
+      revision: amendment.revision,
+      createdAtSeconds: amendment.atSeconds,
+      issuedAtSeconds: amendment.atSeconds,
+      route: [],
+      parameters: {
+        amendmentRevision: amendment.revision,
+        amendmentKind: amendment.kind,
+      },
+      detail: `Flight plan revision ${amendment.revision}: ${amendment.detail}`,
+      warningCount: 0,
+    });
+  }
 
   const vector = flight.navigation.vector;
   if (

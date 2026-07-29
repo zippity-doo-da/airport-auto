@@ -375,6 +375,9 @@ shown as Standby rather than as an implicit clearance.
 Direct-to vectors now identify themselves as Direct-To messages, and active
 controller handoffs project as Frequency messages with from/to, response timing,
 and overdue state.
+The latest authoritative flight-plan amendment also appears as a Revision
+message with its amendment kind, revision number, and cause text; the full
+bounded amendment history remains part of the flight-plan/replay state.
 
 ### Gameplay and UX
 
@@ -387,7 +390,8 @@ and overdue state.
       frequency, taxi, crossing, and revision messages from existing typed commands.
       Active vector, hold, speed, altitude, and route state now project as
       structured messages, as do departure, taxi, and crossing state; direct-to,
-      and frequency state now use dedicated envelopes; revision history and
+      and frequency state now use dedicated envelopes, and the latest plan
+      amendment is exposed as a Revision message; full revision-history UI and
       remaining message families remain open.
 - [ ] Permit multi-part clearances only when the atomic preview says the complete
       instruction is safe and authorized.
