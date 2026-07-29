@@ -63,6 +63,14 @@ export function operationQueueRenderKey(
         window.confidence,
       ].join(":"),
     ),
+    ...flow.recommendations.map((recommendation) =>
+      [
+        recommendation.id,
+        recommendation.priority,
+        Math.floor(recommendation.targetSlotSeconds),
+        recommendation.rationale,
+      ].join(":"),
+    ),
     ...snapshot.entries.map((entry) =>
       [
         entry.id,
@@ -246,6 +254,20 @@ function renderCapacitySummary(
       return row;
     }),
   );
+  const advisory = flow.recommendations.slice(0, 3).map((recommendation) => {
+    const row = document.createElement("div");
+    row.className = "queue-panel__capacity-row queue-panel__capacity-row--advisory";
+    row.dataset.direction = recommendation.direction === "arrival" ? "arr" : "dep";
+    row.dataset.priority = recommendation.priority;
+    const heading = document.createElement("b");
+    heading.textContent = `${recommendation.authority.toUpperCase()} · ${recommendation.callsign ?? recommendation.direction} · review slot`;
+    const detail = document.createElement("small");
+    detail.textContent = `${recommendation.priority} · advisory only · command arbiter required`;
+    detail.title = recommendation.rationale;
+    row.append(heading, detail);
+    return row;
+  });
+  container.append(...advisory);
 }
 
 function meterRow(

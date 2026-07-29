@@ -297,12 +297,13 @@ long-session flow validators continue to pass with the relief active.
 - [~] Let Supervisor choose Balanced, Minimum Holding, Minimum Taxi Delay,
   Weather Recovery, or Watch/Calm scheduling objectives. The Queue
   inspector and typed control API now select authoritative pacing profiles;
-  forecast-based recommendation policy remains open.
+  bounded forecast-based slot reviews are now exposed without mutating
+  aircraft; action-specific release policy remains open.
 - [~] Give Approach advisories for speed, vector, hold, direct-to, and sequence
       changes that satisfy target times through existing legal commands. Assisted
-      mode now proposes a legal speed reduction for a trailing same-runway
-      approach before final; vector, hold, and direct-to metering proposals
-      remain open.
+      mode now proposes legal speed, vector, hold, and direct-to guidance; the
+      flow layer also exposes read-only slot reviews with explicit command-arbiter
+      boundaries.
 - [~] Give Tower a runway-ready sequence that respects wake, runway occupancy,
       crossing queues, configuration transitions, and departure-release windows.
 Assisted Tower now offers only the next physically releasable line-up or
@@ -310,7 +311,8 @@ takeoff in each conflicting-runway group after checking runway protection,
 crossing priority, weather, performance, wake release, and the departure
 envelope. Each proposal now also reports the authoritative planned departure
 release window and queue position, so a controller can distinguish “safe now”
-from “safe but metered.” Forecast-based release recommendations remain open.
+from “safe but metered.” Forecast-based release reviews are now visible as
+advisory-only flow records; action-specific release policy remains open.
 - [~] Explain every slot movement: weather, missed approach, gate pressure,
       runway closure, aircraft performance, wake, or downstream saturation.
   The queue meter now labels the latest authoritative reason with a stable
@@ -331,8 +333,10 @@ from “safe but metered.” Forecast-based release recommendations remain open.
       taxi congestion, and gate readiness. Forecast confidence carries bounded
       weather, wind, runway-condition, and response factors without changing
       separation, reservations, or movement commands.
-- [ ] Ensure schedule recommendations never move an aircraft directly; accepted
-      actions must pass through the existing command and safety layers.
+- [~] Ensure schedule recommendations never move an aircraft directly; accepted
+      actions must pass through the existing command and safety layers. Version 2
+      flow recommendations are advisory-only and explicitly require the command
+      arbiter; action-specific scheduler acceptance remains open.
 - [~] Record schedule revisions and causes in exact replay and local analytics.
   Meter entries now retain bounded revision causes in replay-safe state and
   expose the latest cause in Queue inspector; dedicated analytics rollups

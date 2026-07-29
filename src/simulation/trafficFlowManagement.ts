@@ -108,7 +108,7 @@ export function trafficFlowConstraint(
 }
 
 export interface TrafficFlowSnapshot {
-  schemaVersion: 1;
+  schemaVersion: 2;
   density: ReturnType<typeof trafficDensityProfile>;
   objective: TrafficFlowObjectiveProfile;
   nextArrivalDemandInSeconds: number;
@@ -131,6 +131,26 @@ export interface TrafficFlowSnapshot {
    * a second scheduler and never moves an aircraft.
    */
   capacityWindows: TrafficFlowCapacityWindow[];
+  /**
+   * Read-only planning guidance. Recommendations never mutate a flight or
+   * release a slot; an accepted action must still pass the normal command and
+   * safety arbiters.
+   */
+  recommendations: TrafficFlowRecommendation[];
+}
+
+export interface TrafficFlowRecommendation {
+  id: string;
+  direction: "arrival" | "departure";
+  action: "review-arrival-release" | "review-departure-release";
+  priority: "routine" | "attention" | "urgent";
+  flightId?: number;
+  callsign?: string;
+  targetSlotSeconds: number;
+  rationale: string;
+  authority: "approach" | "tower";
+  advisoryOnly: true;
+  requiresCommandArbiter: true;
 }
 
 export interface TrafficFlowCapacityWindow {
@@ -474,8 +494,9 @@ export function trafficFlowSnapshot(
       forecast.uncertainty,
     ),
   ];
+  const recommendations = flowRecommendations(state, nowSeconds);
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     density: { ...density, assumptions: [...density.assumptions] },
     objective: { ...trafficFlowObjectiveProfile(state.objective) },
     nextArrivalDemandInSeconds: round(
@@ -503,7 +524,67 @@ export function trafficFlowSnapshot(
       holdingCapacity: density.holdingCapacity,
     },
     capacityWindows,
+    recommendations,
   };
+}
+
+function flowRecommendations(
+  state: TrafficFlowState,
+  nowSeconds: number,
+): TrafficFlowRecommendation[] {
+  const recommendations: TrafficFlowRecommendation[] = [];
+  const arrival = state.arrivalQueue[0];
+  if (arrival) {
+    const wait = Math.max(0, arrival.releaseSlotSeconds - nowSeconds);
+    recommendations.push({
+      id: `arrival:${arrival.id}:review`,
+      direction: "arrival",
+      action: "review-arrival-release",
+      priority: arrival.status === "holding" || arrival.delaySeconds > 30 ? "attention" : "routine",
+      flightId: arrival.flightId,
+      callsign: arrival.callsign,
+      targetSlotSeconds: Math.max(nowSeconds, arrival.releaseSlotSeconds),
+      rationale: arrival.reason,
+      authority: "approach",
+      advisoryOnly: true,
+      requiresCommandArbiter: true,
+    });
+    // Do not expose a second lower-priority arrival recommendation while the
+    // first meter point is unresolved.
+    if (wait > 0 && state.arrivalQueue.length > 1) {
+      const next = state.arrivalQueue[1];
+      recommendations.push({
+        id: `arrival:${next.id}:review`,
+        direction: "arrival",
+        action: "review-arrival-release",
+        priority: "routine",
+        flightId: next.flightId,
+        callsign: next.callsign,
+        targetSlotSeconds: Math.max(nowSeconds, next.releaseSlotSeconds),
+        rationale: `Queued behind ${arrival.callsign ?? "the leading arrival"}; preserve the existing meter order.`,
+        authority: "approach",
+        advisoryOnly: true,
+        requiresCommandArbiter: true,
+      });
+    }
+  }
+  const departure = state.departureQueue[0];
+  if (departure) {
+    recommendations.push({
+      id: `departure:${departure.id}:review`,
+      direction: "departure",
+      action: "review-departure-release",
+      priority: departure.delaySeconds > 45 ? "attention" : "routine",
+      flightId: departure.flightId,
+      callsign: departure.callsign,
+      targetSlotSeconds: Math.max(nowSeconds, departure.releaseSlotSeconds),
+      rationale: departure.reason,
+      authority: "tower",
+      advisoryOnly: true,
+      requiresCommandArbiter: true,
+    });
+  }
+  return recommendations;
 }
 
 const FLOW_LOOKAHEAD_SECONDS = 300;
