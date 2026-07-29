@@ -892,6 +892,7 @@ let queueInspectorFilter: OperationQueueFilter = "all";
 let queueInspectorUiKey = "";
 let digitalClearanceVisible = false;
 let digitalClearanceUiKey = "";
+let digitalClearanceReturnFocus: HTMLElement | null = null;
 let windOverlayVisible = false;
 let serviceVehiclesVisible = true;
 let airportLifeVisible = false;
@@ -2350,10 +2351,14 @@ queueClose.addEventListener("click", () => {
 });
 
 digitalClearanceButton.addEventListener("click", () => {
+  if (!digitalClearanceVisible && document.activeElement instanceof HTMLElement)
+    digitalClearanceReturnFocus = document.activeElement;
   setDigitalClearancePanelVisible(!digitalClearanceVisible);
 });
 digitalClearanceClose.addEventListener("click", () => {
   setDigitalClearancePanelVisible(false);
+  digitalClearanceReturnFocus?.focus({ preventScroll: true });
+  digitalClearanceReturnFocus = null;
 });
 digitalClearanceList.addEventListener("click", (event) => {
   const row = (event.target as HTMLElement).closest<HTMLButtonElement>(
@@ -7529,6 +7534,13 @@ function setExclusiveModal(modal: HTMLElement | null): void {
 }
 
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && digitalClearanceVisible) {
+    event.preventDefault();
+    setDigitalClearancePanelVisible(false);
+    digitalClearanceReturnFocus?.focus({ preventScroll: true });
+    digitalClearanceReturnFocus = null;
+    return;
+  }
   if (event.key !== "Tab") return;
   const modal = [intro, gameOver, challengeResults].find(
     (candidate) =>

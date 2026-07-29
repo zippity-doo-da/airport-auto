@@ -446,8 +446,11 @@ shared free text as a command.
 - [~] Supersession, timeout, handoff, and rejection never apply stale commands.
       Pending route readbacks are now tested to cancel on a station transfer;
       timeout and non-route message coverage remain open.
-- [ ] Screen-reader and keyboard users can compose, inspect, send, and dismiss a
-      clearance without losing flight-strip focus.
+- [~] Screen-reader and keyboard users can compose, inspect, send, and dismiss a
+      clearance without losing flight-strip focus. Data Comm now restores the
+      invoking control on close or Escape and exposes every message as a named,
+      keyboard-focusable row; compose/send/dismiss actions still finish through
+      the standard flight-strip workflow.
 
 ## A4 — High-fidelity Atlanta
 
