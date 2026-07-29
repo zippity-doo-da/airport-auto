@@ -147,6 +147,18 @@ const speedProposal = simulation.clearanceProposals().find((proposal) => proposa
 assert(speedProposal?.station === 'approach' && speedProposal.speedKts && speedProposal.speedKts < trailing.kinematics.airspeedKts, 'Assisted mode did not produce a legal arrival-spacing speed proposal');
 assert(simulation.assignAirspeed(trailing.id, speedProposal.speedKts), 'Approach could not apply the proposed legal speed');
 
+// When the sequence is too compressed for speed control alone, Assisted must
+// offer a published terminal hold to the trailing arrival.
+trailing.progress = 0.44;
+arrival.progress = 0.52;
+trailing.navigation.hold = undefined;
+arrival.navigation.hold = undefined;
+trailing.navigation.frequencyOwner = 'approach';
+arrival.navigation.frequencyOwner = 'approach';
+const holdProposal = simulation.clearanceProposals().find((proposal) => proposal.flightId === trailing.id && proposal.action === 'hold');
+assert(holdProposal?.station === 'approach' && holdProposal.patternId && holdProposal.efcMinutes === 3, 'Assisted mode did not produce a timed published hold proposal');
+assert(simulation.holdFlight(trailing.id, holdProposal.patternId, holdProposal.efcMinutes), 'Approach could not apply the proposed hold');
+
 // Tower's assisted card must not offer multiple mutually conflicting runway
 // movements. A lined-up departure wins over a second aircraft still waiting
 // at the same runway's hold-short point.

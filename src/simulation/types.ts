@@ -1176,6 +1176,7 @@ export type ClearanceProposalAction =
   | "line-up"
   | "takeoff"
   | "slow"
+  | "hold"
   | "resume";
 
 export interface ClearanceProposal {
@@ -1185,6 +1186,9 @@ export interface ClearanceProposal {
   runway?: number;
   /** Present only for a speed proposal; approval still calls assignAirspeed. */
   speedKts?: number;
+  /** Present only for a holding proposal; approval calls holdFlight. */
+  patternId?: string;
+  efcMinutes?: number;
   station: ControllerStation;
   label: string;
   reason: string;

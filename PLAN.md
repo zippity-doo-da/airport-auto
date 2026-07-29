@@ -60,7 +60,7 @@ This file is the status ledger. A checked item is implemented and tested; any re
 ### Player and ASMR modes
 
 - [x] Full Auto continuously operates every station.
-- [x] Assisted ATC proposes one safe clearance at a time, explains why, and waits for approval.
+- [x] Assisted ATC proposes one safe clearance at a time, explains why, and waits for approval; compressed arrival sequences can now receive a timed published Approach hold through the typed command path.
 - [x] Full Manual requires the player to issue each operational clearance.
 - [x] Watch / ASMR runs the automatic policy with reduced chrome and a calm sound preset.
 - [x] Station-specific flight strips keep the selected frequency readable without hiding traffic from the 3D field.

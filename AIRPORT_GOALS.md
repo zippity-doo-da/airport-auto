@@ -411,8 +411,10 @@ shared free text as a command.
       turning the interface into avionics configuration management.
 - [~] Provide concise keyboard flows and an Assisted composer that explains why
   a message is valid, delayed, or rejected. Clearance rows are keyboard
-  focusable and move to the existing flight workflow; the Assisted composer
-  remains open.
+  focusable and move to the existing flight workflow; the advisor now offers a
+  timed, published Approach hold when sequence pressure cannot be solved by
+  speed alone. Full composer editing and remaining vector/direct-to guidance
+  remain open.
 
 ### Simulation and API
 

@@ -6159,6 +6159,13 @@ function applyClearanceProposal(proposal: ClearanceProposal): void {
       flightId: proposal.flightId,
       speedKts: proposal.speedKts!,
     });
+  else if (proposal.action === "hold")
+    result = executeAirportRequest({
+      action: "holdFlight",
+      flightId: proposal.flightId,
+      patternId: proposal.patternId,
+      efcMinutes: proposal.efcMinutes,
+    });
   else
     result = executeAirportRequest({
       action: "controlFlights",

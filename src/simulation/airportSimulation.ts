@@ -2182,6 +2182,32 @@ export class AirportSimulation {
             priority: progressGap < 0.08 ? "urgent" : "attention",
           });
         }
+
+        // If speed control alone cannot create enough room, offer Approach a
+        // published terminal hold. Only the trailing aircraft may receive it,
+        // and only before the final segment where holdFlight() accepts it.
+        const holdPressure = leader && progressGap < 0.1;
+        if (holdPressure && progressGap < 0.1 && flight.progress >= 0.2) {
+          const routeFixes = new Set(flight.navigation.routeFixIds);
+          const pattern =
+            this.config.airspaceProgram.holds.find((hold) =>
+              routeFixes.has(hold.fixId),
+            ) ??
+            this.config.airspaceProgram.holds[flight.id % this.config.airspaceProgram.holds.length];
+          if (pattern) {
+            proposals.push({
+              id: `${flight.id}:hold:${pattern.id}`,
+              flightId: flight.id,
+              action: "hold",
+              patternId: pattern.id,
+              efcMinutes: 3,
+              station: "approach",
+              label: `Hold at ${pattern.name} · EFC 3 min`,
+              reason: `${leader.callsign} is less than 0.10 sequence-progress ahead on the same runway; a published hold meters the arrival without forcing a sharp vector or a late go-around.`,
+              priority: progressGap < 0.06 ? "urgent" : "attention",
+            });
+          }
+        }
       }
       if (
         (flight.phase === "approach" || flight.phase === "landing") &&
