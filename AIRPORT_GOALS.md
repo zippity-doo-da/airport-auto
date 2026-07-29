@@ -413,6 +413,10 @@ and overdue state.
 The latest authoritative flight-plan amendment also appears as a Revision
 message with its amendment kind, revision number, and cause text; the full
 bounded amendment history remains part of the flight-plan/replay state.
+The selected-flight action card now keeps the operational limit in view: named
+aircraft profile, wake class, modeled takeoff/landing runway requirements, and
+the current frequency owner plus desk-authority state. It is a concise
+controller aid, not an avionics configuration panel.
 Controller evaluation now carries a read-only digital-clearance summary with
 active, delivered, standby, Unable, and per-kind counts, so a human, replay
 reviewer, or agent evaluator can measure message workload without receiving
