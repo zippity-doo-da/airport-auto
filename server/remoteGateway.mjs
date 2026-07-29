@@ -19,6 +19,7 @@ const CONTROLLER_STATIONS = new Set([
   "ground",
   "ramp",
 ]);
+const SUBSCRIPTION_TOPICS = new Set(["state", "event", "session"]);
 const REMOTE_ROLES = new Set(["host", "controller", "spectator", "admin"]);
 const SESSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const CLIENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$/;
@@ -219,6 +220,7 @@ function sessionPublicState(session) {
         displayName: connection.token.displayName,
         role: connection.role,
         station: connection.station,
+        subscriptions: [...(connection.subscriptions ?? SUBSCRIPTION_TOPICS)].sort(),
         connectedAt: connection.connectedAt,
       }))
       .sort((first, second) => first.clientId.localeCompare(second.clientId)),
@@ -424,8 +426,10 @@ export function createRemoteGateway(options = {}) {
       type: "session-state",
       session: sessionPublicState(session),
     };
-    for (const connection of session.connections)
-      safeSend(connection, message, false);
+    for (const connection of session.connections) {
+      if ((connection.subscriptions ?? SUBSCRIPTION_TOPICS).has("session"))
+        safeSend(connection, message, false);
+    }
   };
 
   const releaseClaim = (session, station, reason, actor = null) => {
@@ -1002,7 +1006,11 @@ export function createRemoteGateway(options = {}) {
       metrics: session.metrics,
     };
     for (const target of session.connections) {
-      if (target !== connection) safeSend(target, outgoing, false);
+      if (
+        target !== connection &&
+        (target.subscriptions ?? SUBSCRIPTION_TOPICS).has("state")
+      )
+        safeSend(target, outgoing, false);
     }
   };
 
@@ -1015,8 +1023,45 @@ export function createRemoteGateway(options = {}) {
       event: message.event,
     };
     for (const target of connection.session.connections) {
-      if (target !== connection) safeSend(target, outgoing, false);
+      if (
+        target !== connection &&
+        (target.subscriptions ?? SUBSCRIPTION_TOPICS).has("event")
+      )
+        safeSend(target, outgoing, false);
     }
+  };
+
+  const handleSubscribe = (connection, message) => {
+    if (connection.role === "host") {
+      sendGatewayError(
+        connection,
+        "subscription-host-forbidden",
+        "hosts publish state and cannot filter their own source stream",
+      );
+      return;
+    }
+    if (!Array.isArray(message.topics)) {
+      sendGatewayError(connection, "subscription-invalid", "topics must be an array");
+      return;
+    }
+    const topics = [...new Set(message.topics.map((topic) => boundedText(topic, 16)))]
+      .filter((topic) => topic && SUBSCRIPTION_TOPICS.has(topic));
+    if (topics.length !== message.topics.length || topics.length === 0) {
+      sendGatewayError(
+        connection,
+        "subscription-invalid",
+        "choose one or more supported topics: state, event, session",
+      );
+      return;
+    }
+    connection.subscriptions = new Set(topics);
+    safeSend(connection, {
+      type: "subscription-result",
+      protocolVersion: REMOTE_GATEWAY_PROTOCOL_VERSION,
+      requestId: boundedText(message.requestId, 128),
+      accepted: true,
+      topics: [...connection.subscriptions],
+    });
   };
 
   const handleStationOffer = (connection, message) => {
@@ -1159,6 +1204,9 @@ export function createRemoteGateway(options = {}) {
     switch (message.type) {
       case "ping":
         safeSend(connection, { type: "pong", at: new Date().toISOString() });
+        return;
+      case "subscribe":
+        handleSubscribe(connection, message);
         return;
       case "claim": {
         const station = boundedText(message.station, 16);
@@ -1524,6 +1572,7 @@ export function createRemoteGateway(options = {}) {
       resumeTokenHash: null,
       commandTimes: [],
       requestIds: new Set(),
+      subscriptions: new Set(SUBSCRIPTION_TOPICS),
       handshakeTimer: null,
     };
     connection.handshakeTimer = setTimeout(() => {

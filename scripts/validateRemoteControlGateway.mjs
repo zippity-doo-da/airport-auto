@@ -356,6 +356,16 @@ try {
     (message) => message.type === "state",
   );
   assert.equal(initialState.snapshot.airport.code, "ORD");
+  spectator.peer.send({
+    type: "subscribe",
+    requestId: "spectator-subscription",
+    topics: ["event"],
+  });
+  const subscription = await spectator.peer.waitFor(
+    (message) => message.type === "subscription-result",
+  );
+  assert.equal(subscription.accepted, true);
+  assert.deepEqual(subscription.topics, ["event"]);
   spectator.peer.send(command("spectator-command"));
   const spectatorRejection = await spectator.peer.waitFor(
     (message) => message.type === "command-result",

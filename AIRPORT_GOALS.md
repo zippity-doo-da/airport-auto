@@ -770,9 +770,9 @@ service or a full workload/debrief experience.
       view contracts remain open.
 - [~] Add typed subscription filters, command batching limits, backpressure,
       heartbeat, reconnect, and emergency-stop behavior to the remote protocol.
-      The gateway has command limits, heartbeat/reconnect, audited handoff, and
-      emergency-stop paths; subscription filters and batching/backpressure policy
-      remain open.
+      The gateway now supports bounded state/event/session topic subscriptions,
+      alongside command limits, heartbeat/reconnect, audited handoff, and
+      emergency-stop paths; batching/backpressure policy remains open.
 - [~] Preserve deterministic local automation whenever a client disconnects,
       times out, releases authority, or fails closed. Release, timeout, and
       reconnect paths are covered by the gateway validation; simulation-side
