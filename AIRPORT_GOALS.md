@@ -413,8 +413,8 @@ shared free text as a command.
   a message is valid, delayed, or rejected. Clearance rows are keyboard
   focusable and move to the existing flight workflow; the advisor now offers a
   timed, published Approach hold when sequence pressure cannot be solved by
-  speed alone, plus an early published-route direct-to when a safe shortcut is
-  available. Full composer editing and proactive vector guidance remain open.
+      speed alone, plus an early published-route direct-to or vector when a safe
+      route correction is available. Full composer editing remains open.
 
 ### Simulation and API
 

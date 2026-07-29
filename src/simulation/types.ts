@@ -1178,6 +1178,7 @@ export type ClearanceProposalAction =
   | "slow"
   | "hold"
   | "direct-to"
+  | "vector"
   | "resume";
 
 export interface ClearanceProposal {

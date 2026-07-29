@@ -2256,6 +2256,55 @@ export class AirportSimulation {
             });
           }
         }
+
+        // When a shortcut is unavailable, give Approach a small, published-
+        // route vector instead of forcing manual heading nudges. This is only
+        // offered early enough to rejoin the next fix and within the same
+        // 120-degree turn limit enforced by assignHeading().
+        const vectorFixId =
+          flight.navigation.routeFixIds[flight.navigation.activeFixIndex + 1];
+        const vectorFix = vectorFixId
+          ? this.config.airspaceProgram.fixes.find(
+              (fix) => fix.id === vectorFixId,
+            )
+          : undefined;
+        if (
+          !leader &&
+          !flight.navigation.vector &&
+          !flight.navigation.hold &&
+          flight.progress >= 0.2 &&
+          flight.progress < 0.6 &&
+          vectorFix
+        ) {
+          const heading = this.mathAngleToAviationDegrees(
+            Math.atan2(
+              vectorFix.position[1] - flight.motion.y,
+              vectorFix.position[0] - flight.motion.x,
+            ),
+          );
+          const presentHeading = this.mathAngleToAviationDegrees(
+            flight.motion.heading,
+          );
+          const turn = Math.abs(
+            Math.atan2(
+              Math.sin(((heading - presentHeading) * Math.PI) / 180),
+              Math.cos(((heading - presentHeading) * Math.PI) / 180),
+            ) *
+              (180 / Math.PI),
+          );
+          if (turn >= 18 && turn <= 90) {
+            proposals.push({
+              id: `${flight.id}:vector:${Math.round(heading)}`,
+              flightId: flight.id,
+              action: "vector",
+              headingDegrees: Math.round(heading),
+              station: "approach",
+              label: `Fly heading ${String(Math.round(heading)).padStart(3, "0")}`,
+              reason: `Rejoin ${vectorFix.name} with a ${Math.round(turn)}° correction; the vector stays outside final and returns the aircraft to its published arrival.`,
+              priority: "routine",
+            });
+          }
+        }
       }
       if (
         (flight.phase === "approach" || flight.phase === "landing") &&

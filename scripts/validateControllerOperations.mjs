@@ -179,6 +179,27 @@ if (directFlight) {
   assert(simulation.directFlightTo(directFlight.id, directProposal.fixId), 'Approach could not apply the proposed direct-to');
 }
 
+// A published-route vector remains available for an early arrival whose next
+// fix needs a modest heading correction.
+const vectorFlight = simulation.state.flights.find((flight) => flight.id !== trailing.id && flight.id !== arrival.id && flight.id !== directFlight?.id);
+if (vectorFlight) {
+  const vectorFixes = simulation.config.airspaceProgram.fixes.slice(0, 2);
+  assert(vectorFixes.length >= 2, 'ORD needs two published fixes for vector advice');
+  vectorFlight.navigation.routeFixIds = vectorFixes.map((fix) => fix.id);
+  vectorFlight.navigation.activeFixIndex = 0;
+  vectorFlight.phase = 'approach';
+  vectorFlight.progress = 0.28;
+  vectorFlight.navigation.hold = undefined;
+  vectorFlight.navigation.vector = undefined;
+  vectorFlight.navigation.frequencyOwner = 'approach';
+  const vectorTarget = vectorFixes[1];
+  const targetHeading = Math.atan2(vectorTarget.position[1] - vectorFlight.motion.y, vectorTarget.position[0] - vectorFlight.motion.x);
+  vectorFlight.motion.heading = targetHeading - (18 * Math.PI / 180);
+  const vectorProposal = simulation.clearanceProposals().find((proposal) => proposal.flightId === vectorFlight.id && proposal.action === 'vector');
+  assert(vectorProposal?.station === 'approach' && vectorProposal.headingDegrees !== undefined, 'Assisted mode did not produce a published-route vector proposal');
+  assert(simulation.assignHeading(vectorFlight.id, vectorProposal.headingDegrees), 'Approach could not apply the proposed vector');
+}
+
 // Tower's assisted card must not offer multiple mutually conflicting runway
 // movements. A lined-up departure wins over a second aircraft still waiting
 // at the same runway's hold-short point.

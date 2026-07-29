@@ -6172,6 +6172,12 @@ function applyClearanceProposal(proposal: ClearanceProposal): void {
       flightId: proposal.flightId,
       fixId: proposal.fixId!,
     });
+  else if (proposal.action === "vector")
+    result = executeAirportRequest({
+      action: "assignHeading",
+      flightId: proposal.flightId,
+      headingDegrees: proposal.headingDegrees!,
+    });
   else
     result = executeAirportRequest({
       action: "controlFlights",
