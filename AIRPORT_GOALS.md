@@ -314,6 +314,16 @@ physical collision envelopes retain their independent 320 m preview. A one-hour
 ORD Rush soak remains collision-free and drains arrivals/departures, though
 individual taxi holds can still be long under extreme demand.
 
+Surface reservation recovery now scopes its retry budget to the current
+blocker/route position and permits a bounded re-attempt after downstream
+reservations have had time to change; a previously failed alternate route no
+longer permanently blacklists that aircraft. Queue records also retain named
+flight blockers extracted from authoritative reservation reasons, so the Queue
+inspector and agent-facing snapshot expose the same wait-for edge. The current
+three-hour extreme run no longer trips the traffic-stall condition and remains
+collision/incursion-free; queue-volume calibration and long individual holds
+remain open acceptance work.
+
 ### Gameplay and UX
 
 - [~] Add a timeline showing demand, runway capacity, target crossing times,

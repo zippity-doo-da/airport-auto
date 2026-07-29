@@ -243,7 +243,20 @@ function diagnoseFlightQueue(
   runwayReservations: ReadonlyMap<number, number>,
 ): QueueCandidate | null {
   const waitSeconds = queueWaitSeconds(flight, state, stationarySeconds);
-  const blockerFlightIds = runwayBlockers(flight, state, runwayReservations);
+  const holdReason = flight.safetyHoldReason ?? flight.automaticHoldReason ?? '';
+  // Reservation explanations are intentionally human-readable, but the
+  // queue/API projection also needs a causal edge for agents and focus tools.
+  // Preserve the authoritative runway blockers and add any explicitly named
+  // flight from the same reason without inventing a future route.
+  const namedBlockers = [...holdReason.matchAll(/\(flight (\d+)\)/g)].map(
+    (match) => Number(match[1]),
+  );
+  const blockerFlightIds = [
+    ...new Set([
+      ...runwayBlockers(flight, state, runwayReservations),
+      ...namedBlockers.filter((id) => id !== flight.id),
+    ]),
+  ];
 
   if (flight.emergency === 'disabled') {
     const disruption = state.surfaceDisruptions.find((item) => item.flightId === flight.id);
@@ -329,7 +342,6 @@ function diagnoseFlightQueue(
       -flight.progress,
     );
   }
-  const holdReason = flight.safetyHoldReason ?? flight.automaticHoldReason;
   if (flight.safetyHold || flight.automaticHold || flight.controlHold) {
     const reason = holdReason ?? (flight.controlHold ? 'Controller hold remains active.' : 'Automatic movement protection is active.');
     const category = classifyReason(reason);

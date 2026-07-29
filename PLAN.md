@@ -28,6 +28,12 @@ free-form message detail stays local to the page.
 Queue outlooks now forecast demand and release capacity beyond known meter
 entries and report bounded weather, wind, runway-condition, and pilot-response
 uncertainty factors.
+Surface wait-for recovery now includes runway-crossing dependencies, retries
+named reservation recoveries after downstream reservations change, and exposes
+named reservation blockers in operation-queue records. A three-hour extreme
+ORD run no longer reaches the traffic-stall condition and remains free of
+collision alerts, runway incursions, and unexplained pauses; queue-volume and
+long-hold calibration remain open.
 This batch is intentionally not deployed yet.
 
 This file is the status ledger. A checked item is implemented and tested; any release intentionally held locally is labeled as such. Future ideas are kept in a separate, explicitly deferred section so implemented work is never duplicated as an unchecked task.

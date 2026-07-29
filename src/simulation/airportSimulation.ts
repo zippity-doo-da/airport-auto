@@ -707,7 +707,12 @@ export class AirportSimulation {
   >();
   private readonly surfaceReservationBlockerRecovery = new WeakMap<
     Flight,
-    { attempts: number; retryAtSeconds: number }
+    {
+      signature: string;
+      attempts: number;
+      retryAtSeconds: number;
+      lastAttemptSeconds: number;
+    }
   >();
   private readonly pushbackCorridorRecovery = new WeakMap<
     Flight,
@@ -10978,20 +10983,48 @@ export class AirportSimulation {
         blocker.progress,
       );
       if (!blockerSample) continue;
-      const recovery = this.surfaceReservationBlockerRecovery.get(flight) ?? {
-        attempts: 0,
-        retryAtSeconds: this.state.elapsed,
-      };
+      // Recovery attempts are scoped to the current blocker/route position.
+      // A failed alternate path must not permanently blacklist an aircraft:
+      // the blocker may later move, or a downstream reservation may change.
+      // Retry a bounded pair of graph amendments every few minutes while the
+      // same wait remains genuine; this preserves fairness without thrashing
+      // the route planner every fixed step.
+      const signature = `${blocker.id}:${flight.surfaceEdge ?? ""}:${flight.surfaceReroute?.revision ?? 0}`;
+      const previous = this.surfaceReservationBlockerRecovery.get(flight);
+      const recovery =
+        previous?.signature === signature
+          ? previous
+          : {
+              signature,
+              attempts: 0,
+              retryAtSeconds: this.state.elapsed,
+              lastAttemptSeconds: -Infinity,
+            };
+      if (this.state.elapsed + 1e-6 < recovery.retryAtSeconds) continue;
       if (
-        recovery.attempts >= 2 ||
-        this.state.elapsed + 1e-6 < recovery.retryAtSeconds
+        recovery.attempts >= 2 &&
+        this.state.elapsed - recovery.lastAttemptSeconds < 180
       )
         continue;
       recovery.attempts += 1;
       recovery.retryAtSeconds =
         this.state.elapsed + SURFACE_DEADLOCK_RETRY_SECONDS;
+      recovery.lastAttemptSeconds = this.state.elapsed;
+      if (recovery.attempts > 2) recovery.attempts = 1;
       this.surfaceReservationBlockerRecovery.set(flight, recovery);
-      const blockedEdges = this.surfaceDeadlockAvoidanceEdges(blocker);
+      const waitSeconds = this.stationarySeconds.get(flight.id) ?? 0;
+      // The first recovery keeps a generous protected corridor. If that
+      // corridor has been occupied for several minutes, narrow only the
+      // *planning* exclusion to the next physical envelope; collision and
+      // reservation arbitration still validate every proposed pose. This
+      // gives a long-waiting aircraft a chance to use a nearby parallel
+      // taxiway instead of treating a whole 750 m neighborhood as closed.
+      const avoidanceDistanceM =
+        waitSeconds >= 180 ? 320 : SURFACE_DEADLOCK_AVOIDANCE_M;
+      const blockedEdges = this.surfaceDeadlockAvoidanceEdges(
+        blocker,
+        avoidanceDistanceM,
+      );
       if (!blockedEdges.size) continue;
       const rerouted = this.replanSurfaceFlight(
         flight,
@@ -11013,7 +11046,10 @@ export class AirportSimulation {
   }
 
   /** Build a geometry-distance corridor instead of counting OSM fragments. */
-  private surfaceDeadlockAvoidanceEdges(flight: Flight): Set<string> {
+  private surfaceDeadlockAvoidanceEdges(
+    flight: Flight,
+    maxDistanceM = SURFACE_DEADLOCK_AVOIDANCE_M,
+  ): Set<string> {
     const sample = sampleSurfaceRouteWithEdges(
       this.config.surfaceGraph,
       flight.surfaceRoute,
@@ -11046,7 +11082,7 @@ export class AirportSimulation {
         distanceM +=
           edgeDistanceWorld * remainingFactor * WORLD_METERS_PER_UNIT;
       }
-      if (distanceM >= SURFACE_DEADLOCK_AVOIDANCE_M) break;
+      if (distanceM >= maxDistanceM) break;
     }
     return blocked;
   }
@@ -11518,7 +11554,7 @@ export class AirportSimulation {
       if (
         blockerId === undefined &&
         (flight.crossingHoldRunway !== undefined ||
-          flight.pendingCrossingCount > 0)
+          (flight.pendingCrossingCount ?? 0) > 0)
       ) {
         const crossing = this.nextUnclearedCrossing(flight);
         if (crossing) {
