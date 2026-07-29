@@ -84,7 +84,12 @@ export function requiredControllerStation(flight: Flight): OperationalController
   if (flight.phase === 'landing') return 'tower';
   if (flight.phase === 'resting') return 'ramp';
   if (flight.phase === 'taxi-in') {
-    if (hasPendingRunwayCrossing(flight)) return 'ground';
+    // Crossing clearance is not the same as runway vacated.  Keep Ground as
+    // the controlling authority while the authoritative motion envelope is
+    // still on protected runway pavement; handing the aircraft to Ramp at
+    // that instant can leave the occupier unable to clear while every other
+    // crossing correctly waits behind it.
+    if (hasPendingRunwayCrossing(flight) || flight.motion.protectedRunwayIds.length > 0) return 'ground';
     if (flight.progress >= 0.82 || Boolean(flight.rampControlZoneId)) return 'ramp';
     return 'ground';
   }
@@ -118,7 +123,11 @@ export function controllerStationIsAhead(
   // accepted an inbound aircraft. Ramp is ordinarily downstream of Ground,
   // but it cannot retain ownership while a Ground-only crossing clearance is
   // still required; force explicit coordination back to Ground instead.
-  if (current === 'ramp' && required === 'ground' && hasPendingRunwayCrossing(flight)) return false;
+  if (
+    current === 'ramp' &&
+    required === 'ground' &&
+    (hasPendingRunwayCrossing(flight) || flight.motion.protectedRunwayIds.length > 0)
+  ) return false;
   const sequence = controllerFlowSequence(flight);
   return sequence.indexOf(current) === sequence.indexOf(required) + 1;
 }
@@ -159,6 +168,7 @@ export function suggestedHandoffStation(flight: Flight): OperationalControllerSt
   if (owner === 'ground' && flight.flightPlan.direction === 'arrival') {
     return flight.phase === 'taxi-in'
       && !hasPendingRunwayCrossing(flight)
+      && flight.motion.protectedRunwayIds.length === 0
       && (flight.progress >= 0.72 || Boolean(flight.rampControlZoneId))
       ? 'ramp'
       : null;
