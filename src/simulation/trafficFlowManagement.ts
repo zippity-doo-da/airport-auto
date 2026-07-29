@@ -125,6 +125,24 @@ export interface TrafficFlowSnapshot {
     oldestDepartureDelaySeconds: number;
     holdingCapacity: number;
   };
+  /**
+   * A controller-facing, bounded look-ahead of scheduled demand and release
+   * capacity.  This is derived from the authoritative meter slots; it is not
+   * a second scheduler and never moves an aircraft.
+   */
+  capacityWindows: TrafficFlowCapacityWindow[];
+}
+
+export interface TrafficFlowCapacityWindow {
+  direction: "arrival" | "departure";
+  horizonSeconds: number;
+  demandCount: number;
+  plannedReleaseCount: number;
+  delayedCount: number;
+  revisedCount: number;
+  utilization: number;
+  confidence: "high" | "medium" | "low";
+  confidenceReason: string;
 }
 
 export function createTrafficFlowState(
@@ -421,6 +439,10 @@ export function trafficFlowSnapshot(
 ): TrafficFlowSnapshot {
   refreshTrafficFlow(state, nowSeconds);
   const density = trafficDensityProfile(state.density);
+  const capacityWindows = [
+    capacityWindow("arrival", state.arrivalQueue, nowSeconds),
+    capacityWindow("departure", state.departureQueue, nowSeconds),
+  ];
   return {
     schemaVersion: 1,
     density: { ...density, assumptions: [...density.assumptions] },
@@ -449,6 +471,52 @@ export function trafficFlowSnapshot(
       ),
       holdingCapacity: density.holdingCapacity,
     },
+    capacityWindows,
+  };
+}
+
+const FLOW_LOOKAHEAD_SECONDS = 300;
+
+function capacityWindow(
+  direction: TrafficFlowCapacityWindow["direction"],
+  entries: TrafficFlowEntry[],
+  nowSeconds: number,
+): TrafficFlowCapacityWindow {
+  const horizon = nowSeconds + FLOW_LOOKAHEAD_SECONDS;
+  const inWindow = entries.filter(
+    (entry) => entry.scheduledAtSeconds <= horizon,
+  );
+  const plannedReleaseCount = inWindow.filter(
+    (entry) => entry.releaseSlotSeconds <= horizon,
+  ).length;
+  const delayedCount = inWindow.filter((entry) => entry.delaySeconds > 0.5).length;
+  const revisedCount = inWindow.filter((entry) => entry.slotRevisions.length > 1).length;
+  const demandCount = inWindow.length;
+  const utilization = demandCount
+    ? Number(Math.min(1, plannedReleaseCount / demandCount).toFixed(3))
+    : 0;
+  const confidence =
+    delayedCount >= 3 || revisedCount >= 3
+      ? "low"
+      : delayedCount > 0 || revisedCount > 0
+        ? "medium"
+        : "high";
+  const confidenceReason =
+    confidence === "low"
+      ? "Several slots are delayed or revised."
+      : confidence === "medium"
+        ? "Some slots have moved from their initial plan."
+        : "No delayed or revised slots in the look-ahead.";
+  return {
+    direction,
+    horizonSeconds: FLOW_LOOKAHEAD_SECONDS,
+    demandCount,
+    plannedReleaseCount,
+    delayedCount,
+    revisedCount,
+    utilization,
+    confidence,
+    confidenceReason,
   };
 }
 

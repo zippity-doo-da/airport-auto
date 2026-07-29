@@ -129,7 +129,7 @@ FAA system fuses surface surveillance and flight-plan information to improve
 movement-area awareness; Airport Auto will model the concept, not replicate an
 operational display. Reference: [FAA ASDE-X](https://www.faa.gov/air_traffic/technology/asde-x).
 
-### Current progress — July 28, 2026
+### Current progress — July 29, 2026
 
 The first implementation slice is in place: a versioned, renderer-independent
 `SurfaceTrack`/`SurfaceVehicleTrack`/`SurfaceSafetyAdvisory` projection reads
@@ -269,6 +269,12 @@ Performance, Taxi, Demand, or Schedule. The category is derived from the
 authoritative detailed reason and retained with each slot revision; it improves
 scanability without creating a second scheduler or hiding the actual constraint.
 
+The Queue inspector now adds a bounded five-minute directional capacity
+outlook. It reports planned releases against current demand, delayed and
+revised slots, a confidence tier, and the reason for that confidence. The
+outlook is derived from the same authoritative slots and is presentation-only;
+it cannot move, release, or cancel an aircraft.
+
 ORD now seeds a bounded ten-aircraft opening bank: two independently reserved
 taxi-out departures, a live turn, additional gate/ramp departures, and the
 normal three-aircraft approach picture. Departure starters are staged without
@@ -279,8 +285,9 @@ wake, and surface-reservation rules as every later flight.
 
 - [~] Add a timeline showing demand, runway capacity, target crossing times,
   tolerance windows, expected delay, and confidence. The Queue inspector
-  now shows active arrival/departure slots and delay; capacity, constraints,
-  and confidence remain open.
+  now shows active arrival/departure slots, delay, a five-minute planned-slot
+  outlook, and bounded confidence; runway-capacity attribution, tolerance
+  windows, and downstream uncertainty remain open.
 - [~] Let Supervisor choose Balanced, Minimum Holding, Minimum Taxi Delay,
   Weather Recovery, or Watch/Calm scheduling objectives. The Queue
   inspector and typed control API now select authoritative pacing profiles;

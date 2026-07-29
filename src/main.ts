@@ -500,6 +500,7 @@ const queueList = $<HTMLElement>("#queue-list");
 const queueLongest = $<HTMLElement>("#queue-longest");
 const queueMeter = $<HTMLElement>("#queue-meter");
 const queueMeterSummary = $<HTMLElement>("#queue-meter-summary");
+const queueCapacity = $<HTMLElement>("#queue-capacity");
 const digitalClearanceButton = $<HTMLButtonElement>(
   "#digital-clearance-toggle",
 );
@@ -7348,6 +7349,7 @@ function renderQueueInspector(): void {
       list: queueList,
       meter: queueMeter,
       meterSummary: queueMeterSummary,
+      capacity: queueCapacity,
     },
     snapshot,
     queueInspectorFilter,

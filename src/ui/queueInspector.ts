@@ -15,6 +15,7 @@ export interface QueueInspectorElements {
   list: HTMLElement;
   meter: HTMLElement;
   meterSummary: HTMLElement;
+  capacity: HTMLElement;
 }
 
 export interface TrafficFlowMeterRow {
@@ -52,6 +53,16 @@ export function operationQueueRenderKey(
         row.reason,
       ].join(":"),
     ),
+    ...flow.capacityWindows.map((window) =>
+      [
+        window.direction,
+        window.demandCount,
+        window.plannedReleaseCount,
+        window.delayedCount,
+        window.revisedCount,
+        window.confidence,
+      ].join(":"),
+    ),
     ...snapshot.entries.map((entry) =>
       [
         entry.id,
@@ -82,6 +93,7 @@ export function renderOperationQueueInspector(
       ? `Longest ${formatWait(snapshot.longestWaitSeconds)}`
       : "Flowing";
   renderMeterPlan(elements, flow);
+  renderCapacitySummary(elements.capacity, flow);
 
   if (!entries.length) {
     const empty = document.createElement("p");
@@ -206,6 +218,34 @@ function renderMeterPlan(
     return slot;
   });
   elements.meter.replaceChildren(...slots);
+}
+
+function renderCapacitySummary(
+  container: HTMLElement,
+  flow: TrafficFlowSnapshot,
+): void {
+  container.replaceChildren(
+    ...flow.capacityWindows.map((window) => {
+      const row = document.createElement("div");
+      row.className = "queue-panel__capacity-row";
+      row.dataset.direction = window.direction === "arrival" ? "arr" : "dep";
+      row.dataset.confidence = window.confidence;
+
+      const heading = document.createElement("b");
+      heading.textContent = `${window.direction === "arrival" ? "ARR" : "DEP"} · ${window.plannedReleaseCount}/${window.demandCount} slots`;
+      const detail = document.createElement("small");
+      detail.textContent = `${window.horizonSeconds / 60} min · ${window.confidence} confidence${window.delayedCount ? ` · ${window.delayedCount} delayed` : ""}`;
+      detail.title = window.confidenceReason;
+
+      const meter = document.createElement("span");
+      meter.className = "queue-panel__capacity-bar";
+      const fill = document.createElement("i");
+      fill.style.width = `${Math.round(window.utilization * 100)}%`;
+      meter.append(fill);
+      row.append(heading, detail, meter);
+      return row;
+    }),
+  );
 }
 
 function meterRow(

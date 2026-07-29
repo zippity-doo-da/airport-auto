@@ -149,6 +149,7 @@ releaseDepartureDemand(flow, slotA, slotA.releaseSlotSeconds, 6);
 assert(flow.totals.departureReleases === 1 && flow.departureQueue[0] === slotB, 'departure release did not advance the queue');
 const meterSnapshot = trafficFlowSnapshot(flow, 20);
 const meterRows = trafficFlowMeterRows(meterSnapshot);
+assert(meterSnapshot.capacityWindows.length === 2 && meterSnapshot.capacityWindows.every((window) => window.horizonSeconds === 300 && window.demandCount >= window.plannedReleaseCount && ['high', 'medium', 'low'].includes(window.confidence)), 'capacity outlook did not expose bounded directional confidence');
 assert(meterRows.length === 4 && meterRows.filter((row) => row.direction === 'arrival').length === 3 && meterRows.filter((row) => row.direction === 'departure').length === 1, 'meter plan did not expose the pending arrival and departure slots');
 assert(meterRows.every((row) => row.slotInSeconds >= 0 && row.label.length > 0 && row.reason.length > 0 && row.constraintLabel.length > 0 && row.constraintCategory.length > 0), 'meter plan contains incomplete slot context');
 const expiry = expireTrafficFlow(flow, 500);

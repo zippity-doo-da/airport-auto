@@ -2,13 +2,14 @@
 
 Airport Auto is an ASMR-first airport simulation with an optional serious ATC game layer. The fixed-step simulation owns motion and safety; Three.js presents that state; DOM controls and the versioned control API provide human and agent input.
 
-Current publication: Airport Auto 2.40.0 is live at [GitHub Pages](https://zippity-doo-da.github.io/random_art_projects/airport-auto/) as of July 28, 2026. Source release head: `fa60d58`; additive Pages commit: `8f67da7`.
+Current publication: Airport Auto 2.40.0 is live at [GitHub Pages](https://zippity-doo-da.github.io/random_art_projects/airport-auto/) as of July 29, 2026. Source release head: `01cbf79`; additive Pages commit: `98ea34e`.
 
 Current local, unpublished batch: airline-specific passenger liveries including
 Austrian; ORD's expanded opening bank and assisted sequencing advice; optional
 runway-protection and authoritative movement-vector map layers; surface-overlay
-renderer extraction; and their deterministic validation updates. This batch is
-intentionally not deployed yet.
+renderer extraction; and a bounded five-minute traffic-capacity outlook in the
+Queue inspector. Deterministic validation updates cover the complete batch.
+This batch is intentionally not deployed yet.
 
 This file is the status ledger. A checked item is implemented and tested; any release intentionally held locally is labeled as such. Future ideas are kept in a separate, explicitly deferred section so implemented work is never duplicated as an unchecked task.
 
