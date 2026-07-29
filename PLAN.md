@@ -8,7 +8,8 @@ Current local, unpublished batch: airline-specific passenger liveries including
 Austrian; ORD's expanded opening bank and assisted sequencing advice; optional
 runway-protection and authoritative movement-vector map layers; surface-overlay
 renderer extraction; and a bounded five-minute traffic-capacity outlook in the
-Queue inspector. Deterministic validation updates cover the complete batch.
+Queue inspector plus explicit Tower departure release-window explanations.
+Deterministic validation updates cover the complete batch.
 This batch is intentionally not deployed yet.
 
 This file is the status ledger. A checked item is implemented and tested; any release intentionally held locally is labeled as such. Future ideas are kept in a separate, explicitly deferred section so implemented work is never duplicated as an unchecked task.

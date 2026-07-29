@@ -194,6 +194,8 @@ if (!towerProposals.some((proposal) => proposal.flightId === towerLead.id && pro
   simulation.clearTakeoff(towerLead.id);
   throw new Error('Tower advisor omitted the releasable lined-up departure: ' + simulation.lastCommandReason());
 }
+const towerTakeoffProposal = towerProposals.find((proposal) => proposal.flightId === towerLead.id && proposal.action === 'takeoff');
+assert(/departure release|release window|queue position/i.test(towerTakeoffProposal?.reason ?? ''), 'Tower departure proposal omitted its release-window explanation: ' + JSON.stringify(towerTakeoffProposal));
 assert(!towerProposals.some((proposal) => proposal.flightId === towerFollower.id && proposal.action === 'line-up'), 'Tower advisor offered a conflicting second runway movement');
 
 const syntheticWorkloads = controllerWorkloadSnapshots([sample], createStationAutomation(true));

@@ -299,10 +299,12 @@ wake, and surface-reservation rules as every later flight.
       remain open.
 - [~] Give Tower a runway-ready sequence that respects wake, runway occupancy,
       crossing queues, configuration transitions, and departure-release windows.
-  Assisted Tower now offers only the next physically releasable line-up or
-  takeoff in each conflicting-runway group after checking runway protection,
-  crossing priority, weather, performance, wake release, and the departure
-  envelope. More explicit release-window explanation remains open.
+Assisted Tower now offers only the next physically releasable line-up or
+takeoff in each conflicting-runway group after checking runway protection,
+crossing priority, weather, performance, wake release, and the departure
+envelope. Each proposal now also reports the authoritative planned departure
+release window and queue position, so a controller can distinguish “safe now”
+from “safe but metered.” Forecast-based release recommendations remain open.
 - [~] Explain every slot movement: weather, missed approach, gate pressure,
       runway closure, aircraft performance, wake, or downstream saturation.
   The queue meter now labels the latest authoritative reason with a stable

@@ -2256,7 +2256,7 @@ export class AirportSimulation {
           station: "tower",
           label: `Line up ${this.activeRunwayDesignation(flight.runway)}`,
           reason:
-            "Aircraft is stopped at the hold-short point and all required route crossings are clear.",
+            `Aircraft is stopped at the hold-short point and all required route crossings are clear. ${this.towerDepartureReleaseDetail(flight)}`,
           priority: "attention",
         });
       }
@@ -2273,7 +2273,7 @@ export class AirportSimulation {
           station: "tower",
           label: `Clear takeoff ${this.activeRunwayDesignation(flight.runway)}`,
           reason:
-            "Aircraft is lined up; runway protection and arrival spacing will be validated on approval.",
+            `Aircraft is lined up; runway protection and arrival spacing will be validated on approval. ${this.towerDepartureReleaseDetail(flight)}`,
           priority: "attention",
         });
       }
@@ -6031,6 +6031,25 @@ export class AirportSimulation {
     }
     if (!this.assessTakeoffPerformance(flight).safe) return false;
     return this.runwayReleaseBlocker(flight, "departure") === null;
+  }
+
+  private towerDepartureReleaseDetail(flight: Flight): string {
+    const entry = this.state.trafficFlow.departureQueue.find(
+      (candidate) => candidate.flightId === flight.id,
+    );
+    const slot = Math.max(
+      entry?.releaseSlotSeconds ?? flight.flightPlan.scheduledReleaseSeconds,
+      this.state.trafficFlow.nextDepartureReleaseSeconds,
+    );
+    const releaseIn = Math.max(0, slot - this.state.elapsed);
+    const queuePosition = entry
+      ? this.state.trafficFlow.departureQueue.indexOf(entry) + 1
+      : 0;
+    if (releaseIn <= 0.5)
+      return queuePosition > 1
+        ? `Departure window open; queue position ${queuePosition}.`
+        : "Departure release window open.";
+    return `Planned departure release in ${Math.ceil(releaseIn)} seconds${queuePosition ? `; queue position ${queuePosition}` : ""}.`;
   }
 
   private seedInitialTraffic(): void {
