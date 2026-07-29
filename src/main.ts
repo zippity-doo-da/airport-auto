@@ -5451,11 +5451,17 @@ function renderFlightActions(): void {
   capability.className = "flight-actions__capability";
   const aircraft = aircraftProfile(flight.aircraft);
   const authorityOwner = flight.navigation.frequencyOwner.toUpperCase();
-  const deskAuthority =
+  const deskCanIssue =
     simulation.state.station === "supervisor" ||
-    simulation.canIssue(simulation.state.station)
-      ? "desk authority available"
-      : "desk is read-only";
+    simulation.canIssue(simulation.state.station);
+  const ownsFrequency =
+    simulation.state.station === "supervisor" ||
+    flight.navigation.frequencyOwner === simulation.state.station;
+  const deskAuthority = !deskCanIssue
+    ? "desk is read-only"
+    : !ownsFrequency
+      ? "authority transfer required"
+      : "desk authority available";
   capability.textContent = `${aircraft.name} · ${aircraft.wakeClass.toUpperCase()} wake · runway ${Math.round(aircraft.takeoffRunwayRequiredM)} m takeoff / ${Math.round(aircraft.landingRunwayRequiredM)} m landing · data ${authorityOwner} · ${deskAuthority}`;
   flightActions.append(capability);
   if (flight.phase !== "resting")
