@@ -5238,7 +5238,7 @@ export class AirportSimulation {
           ...trafficDensityProfile(state.trafficFlow.density).assumptions,
         ],
       },
-      flow: trafficFlowSnapshot(state.trafficFlow, state.elapsed),
+      flow: this.trafficFlowSnapshot(state),
     };
   }
 
