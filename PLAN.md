@@ -576,6 +576,15 @@ Deployment remains intentionally withheld to conserve GitHub Actions minutes. Th
 
 The multi-hour roadmap acceptance item completed locally before publication. It was subsequently revalidated by the hosted source workflow and released after explicit user authorization.
 
+## Airport Auto 2.41 — local flow hardening (deployment withheld)
+
+This tranche is intentionally local-only. No source push or Pages deployment is part of the work until explicitly authorized.
+
+- [x] Add a conservative static obstacle spatial index to collision arbitration. Proposed aircraft movement still runs the unchanged exact vertical and boundary-envelope tests, but only nearby obstacle candidates are enumerated.
+- [x] Preserve collision behavior across the fixed-step, trajectory, surface-safety, and complete operations validators after the index change.
+- [x] Re-measure the hot loop locally: the one-minute Extreme-ORD profile improved simulation p95 from the earlier 4.076 ms reference to 2.914 ms with zero collision/incursion changes; no WASM boundary is justified by this measurement.
+- [ ] Repeat the full three-hour Auto/Watch acceptance with queue and simulation-p95 budgets both satisfied; the latest honest baseline remains collision-free and traffic-moving but exceeds those two budgets.
+
 ## Airport Auto 2.40 — roadmap completion and release
 
 Published additively on July 27, 2026. The source and Pages workflows passed, the public 2.40/schema-42 runtime loaded without console or request failures, and the existing menagerie remained available.

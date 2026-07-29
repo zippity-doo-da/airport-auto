@@ -115,6 +115,18 @@ const obstacleBoundsCaches = new WeakMap<AirportObstacleEnvelope, {
   maximumY: number;
 }>();
 
+// Obstacles are static for the lifetime of an airport configuration.  Keep a
+// conservative coarse index so proposed-movement checks do not walk every
+// terminal/building in the airport on every fixed step.  The index stores
+// unexpanded bounds; the query expands by the aircraft envelope and the
+// largest obstacle clearance before the exact vertical/boundary test runs.
+const OBSTACLE_GRID_CELL_SIZE = 32;
+interface ObstacleSpatialIndex {
+  cells: Map<string, AirportObstacleEnvelope[]>;
+  maximumClearance: number;
+}
+const obstacleSpatialIndexes = new WeakMap<AirportConfig, ObstacleSpatialIndex>();
+
 interface CollisionEnvelopeSampleCache {
   epoch: number;
   samples: Map<number, AircraftCollisionEnvelope>;
@@ -568,7 +580,7 @@ export function findObstacleConflicts(config: AirportConfig, flights: Flight[]):
       continue;
     }
     const flightConflicts: AircraftObstacleConflict[] = [];
-    for (const obstacle of config.obstacles) {
+    for (const obstacle of nearbyObstacles(config, aircraft)) {
       const conflict = detectAircraftObstacleConflict(aircraft, obstacle);
       if (conflict) flightConflicts.push(conflict);
     }
@@ -621,6 +633,51 @@ function obstacleBounds(obstacle: AirportObstacleEnvelope): {
   return result;
 }
 
+function obstacleSpatialIndex(config: AirportConfig): ObstacleSpatialIndex {
+  const cached = obstacleSpatialIndexes.get(config);
+  if (cached) return cached;
+  const cells = new Map<string, AirportObstacleEnvelope[]>();
+  let maximumClearance = 0;
+  for (const obstacle of config.obstacles) {
+    const bounds = obstacleBounds(obstacle);
+    maximumClearance = Math.max(maximumClearance, obstacle.clearance);
+    const minimumCellX = Math.floor(bounds.minimumX / OBSTACLE_GRID_CELL_SIZE);
+    const maximumCellX = Math.floor(bounds.maximumX / OBSTACLE_GRID_CELL_SIZE);
+    const minimumCellY = Math.floor(bounds.minimumY / OBSTACLE_GRID_CELL_SIZE);
+    const maximumCellY = Math.floor(bounds.maximumY / OBSTACLE_GRID_CELL_SIZE);
+    for (let cellX = minimumCellX; cellX <= maximumCellX; cellX += 1) {
+      for (let cellY = minimumCellY; cellY <= maximumCellY; cellY += 1) {
+        const key = `${cellX}:${cellY}`;
+        const bucket = cells.get(key);
+        if (bucket) bucket.push(obstacle);
+        else cells.set(key, [obstacle]);
+      }
+    }
+  }
+  const index = { cells, maximumClearance };
+  obstacleSpatialIndexes.set(config, index);
+  return index;
+}
+
+function nearbyObstacles(
+  config: AirportConfig,
+  aircraft: AircraftCollisionEnvelope,
+): AirportObstacleEnvelope[] {
+  const index = obstacleSpatialIndex(config);
+  const searchRadius = aircraft.bodyRadius + index.maximumClearance;
+  const minimumCellX = Math.floor((aircraft.x - searchRadius) / OBSTACLE_GRID_CELL_SIZE);
+  const maximumCellX = Math.floor((aircraft.x + searchRadius) / OBSTACLE_GRID_CELL_SIZE);
+  const minimumCellY = Math.floor((aircraft.y - searchRadius) / OBSTACLE_GRID_CELL_SIZE);
+  const maximumCellY = Math.floor((aircraft.y + searchRadius) / OBSTACLE_GRID_CELL_SIZE);
+  const candidates = new Set<AirportObstacleEnvelope>();
+  for (let cellX = minimumCellX; cellX <= maximumCellX; cellX += 1) {
+    for (let cellY = minimumCellY; cellY <= maximumCellY; cellY += 1) {
+      for (const obstacle of index.cells.get(`${cellX}:${cellY}`) ?? []) candidates.add(obstacle);
+    }
+  }
+  return [...candidates];
+}
+
 export function findProposedConflict(
   config: AirportConfig,
   flight: Flight,
@@ -650,7 +707,7 @@ export function findProposedConflict(
       };
     }
   }
-  for (const obstacle of config.obstacles) {
+  for (const obstacle of nearbyObstacles(config, proposed)) {
     if (collisionPerformanceTrace) collisionPerformanceTrace.obstacleCandidateChecks += 1;
     const conflict = detectAircraftObstacleConflict(proposed, obstacle);
     if (!conflict) continue;
