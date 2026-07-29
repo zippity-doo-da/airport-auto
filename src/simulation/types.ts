@@ -1177,6 +1177,7 @@ export type ClearanceProposalAction =
   | "takeoff"
   | "slow"
   | "hold"
+  | "direct-to"
   | "resume";
 
 export interface ClearanceProposal {
@@ -1189,6 +1190,10 @@ export interface ClearanceProposal {
   /** Present only for a holding proposal; approval calls holdFlight. */
   patternId?: string;
   efcMinutes?: number;
+  /** Present only for a direct-to proposal; must be a published route fix. */
+  fixId?: string;
+  /** Present only for a vector proposal; aviation heading in degrees. */
+  headingDegrees?: number;
   station: ControllerStation;
   label: string;
   reason: string;

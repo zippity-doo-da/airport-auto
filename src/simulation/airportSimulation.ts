@@ -2208,6 +2208,54 @@ export class AirportSimulation {
             });
           }
         }
+
+        // A published-route direct-to is useful early in the arrival when it
+        // removes a redundant dog-leg. Keep it conservative: skip at most one
+        // upcoming fix, stay well outside final, and let directFlightTo() run
+        // the authoritative ownership/geometry checks on approval.
+        const directIndex = flight.navigation.activeFixIndex + 2;
+        const directFixId = flight.navigation.routeFixIds[directIndex];
+        const directFix = directFixId
+          ? this.config.airspaceProgram.fixes.find(
+              (fix) => fix.id === directFixId,
+            )
+          : undefined;
+        if (
+          !leader &&
+          !flight.navigation.vector &&
+          flight.progress >= 0.2 &&
+          flight.progress < 0.5 &&
+          directFix
+        ) {
+          const heading = this.mathAngleToAviationDegrees(
+            Math.atan2(
+              directFix.position[1] - flight.motion.y,
+              directFix.position[0] - flight.motion.x,
+            ),
+          );
+          const presentHeading = this.mathAngleToAviationDegrees(
+            flight.motion.heading,
+          );
+          const turn = Math.abs(
+            Math.atan2(
+              Math.sin(((heading - presentHeading) * Math.PI) / 180),
+              Math.cos(((heading - presentHeading) * Math.PI) / 180),
+            ) *
+              (180 / Math.PI),
+          );
+          if (turn <= 90) {
+            proposals.push({
+              id: `${flight.id}:direct-to:${directFix.id}`,
+              flightId: flight.id,
+              action: "direct-to",
+              fixId: directFix.id,
+              station: "approach",
+              label: `Direct ${directFix.name}`,
+              reason: `Early in the published arrival, ${directFix.name} is the next safe route shortcut (${Math.round(turn)}° turn); no conflicting sequence leader is ahead.`,
+              priority: "routine",
+            });
+          }
+        }
       }
       if (
         (flight.phase === "approach" || flight.phase === "landing") &&

@@ -6166,6 +6166,12 @@ function applyClearanceProposal(proposal: ClearanceProposal): void {
       patternId: proposal.patternId,
       efcMinutes: proposal.efcMinutes,
     });
+  else if (proposal.action === "direct-to")
+    result = executeAirportRequest({
+      action: "directTo",
+      flightId: proposal.flightId,
+      fixId: proposal.fixId!,
+    });
   else
     result = executeAirportRequest({
       action: "controlFlights",

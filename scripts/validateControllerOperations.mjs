@@ -159,6 +159,26 @@ const holdProposal = simulation.clearanceProposals().find((proposal) => proposal
 assert(holdProposal?.station === 'approach' && holdProposal.patternId && holdProposal.efcMinutes === 3, 'Assisted mode did not produce a timed published hold proposal');
 assert(simulation.holdFlight(trailing.id, holdProposal.patternId, holdProposal.efcMinutes), 'Approach could not apply the proposed hold');
 
+// With no sequence leader, an early arrival may be offered a conservative
+// direct-to the next published route fix.
+const directFlight = simulation.state.flights.find((flight) => flight.id !== trailing.id && flight.id !== arrival.id);
+if (directFlight) {
+  const publishedFixes = simulation.config.airspaceProgram.fixes.slice(0, 4);
+  assert(publishedFixes.length >= 4, 'ORD needs four published fixes for direct-to advice');
+  directFlight.navigation.routeFixIds = publishedFixes.map((fix) => fix.id);
+  directFlight.navigation.activeFixIndex = 0;
+  const directTarget = publishedFixes[2];
+  directFlight.phase = 'approach';
+  directFlight.progress = 0.28;
+  directFlight.navigation.hold = undefined;
+  directFlight.navigation.vector = undefined;
+  directFlight.navigation.frequencyOwner = 'approach';
+  directFlight.motion.heading = Math.atan2(directTarget.position[1] - directFlight.motion.y, directTarget.position[0] - directFlight.motion.x);
+  const directProposal = simulation.clearanceProposals().find((proposal) => proposal.flightId === directFlight.id && proposal.action === 'direct-to');
+  assert(directProposal?.station === 'approach' && directProposal.fixId === directTarget.id, 'Direct-to proposal was missing its published fix');
+  assert(simulation.directFlightTo(directFlight.id, directProposal.fixId), 'Approach could not apply the proposed direct-to');
+}
+
 // Tower's assisted card must not offer multiple mutually conflicting runway
 // movements. A lined-up departure wins over a second aircraft still waiting
 // at the same runway's hold-short point.
