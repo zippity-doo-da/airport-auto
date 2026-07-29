@@ -281,6 +281,12 @@ normal three-aircraft approach picture. Departure starters are staged without
 consuming approach capacity, then pass through the same stand, meter, runway,
 wake, and surface-reservation rules as every later flight.
 
+Inbound demand now applies bounded queue-pressure relief to its next-demand
+clock once the holding buffer is more than half full. This keeps the rolling
+stream alive while reducing self-inflicted bursts; it does not alter separation,
+runway, gate, or surface safety rules. Rush, fixed-step, trajectory, and
+long-session flow validators continue to pass with the relief active.
+
 ### Gameplay and UX
 
 - [~] Add a timeline showing demand, runway capacity, target crossing times,

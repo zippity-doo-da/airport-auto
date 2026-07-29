@@ -5580,7 +5580,11 @@ export class AirportSimulation {
         `${density.label} demand · ${this.operationStateAt(this.state, now).periodLabel}`,
       );
       if (demand.status === "diverted") this.metrics.diversions += 1;
-      scheduleNextArrivalDemand(flow, now, this.arrivalDemandInterval());
+      scheduleNextArrivalDemand(
+        flow,
+        now,
+        this.arrivalDemandInterval() * this.arrivalPressureReliefFactor(),
+      );
     }
 
     for (const flight of this.state.flights) {
@@ -5709,6 +5713,20 @@ export class AirportSimulation {
         objective.arrivalDemandIntervalMultiplier) /
         density.demandMultiplier,
     );
+  }
+
+  /**
+   * Back-pressure the demand clock before the invisible holding buffer fills.
+   * This is deliberately bounded and only changes when the next demand is
+   * presented; it never changes runway separation, reservations, or an
+   * aircraft already in the simulation.
+   */
+  private arrivalPressureReliefFactor(): number {
+    const density = trafficDensityProfile(this.state.trafficFlow.density);
+    const pressure =
+      this.state.trafficFlow.arrivalQueue.length / density.holdingCapacity;
+    if (pressure <= 0.5) return 1;
+    return 1 + Math.min(0.75, (pressure - 0.5) * 1.5);
   }
 
   private departureSlotSpacing(): number {
