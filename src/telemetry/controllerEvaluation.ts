@@ -8,6 +8,7 @@ import {
   requiredControllerStation,
 } from "../simulation/controllerOperations";
 import type { OperationQueueSnapshot } from "../simulation/operationQueues";
+import { digitalClearanceSnapshot } from "../simulation/digitalClearances";
 import type {
   AirportState,
   ConflictPrediction,
@@ -117,6 +118,14 @@ export interface ControllerEvaluationSnapshot {
     acceptancePercent: number | null;
     commandQualityScore: number | null;
     commandQualityRating: ControllerEvaluationRating;
+  };
+  digitalClearances: {
+    total: number;
+    active: number;
+    delivered: number;
+    standby: number;
+    unable: number;
+    byKind: Record<string, number>;
   };
   stations: ControllerEvaluationStationSnapshot[];
   actors: ControllerEvaluationActorSnapshot[];
@@ -260,6 +269,17 @@ export function controllerEvaluationSnapshot(
       unnecessaryHolds.map((candidate) => candidate.avoidableSeconds),
     ),
   });
+  const digital = digitalClearanceSnapshot(inputs.state);
+  const digitalActive = digital.messages.filter(
+    (message) =>
+      message.status === "draft" ||
+      message.status === "sent" ||
+      message.status === "delivered" ||
+      message.status === "standby",
+  ).length;
+  const digitalByKind: Record<string, number> = {};
+  for (const message of digital.messages)
+    digitalByKind[message.kind] = (digitalByKind[message.kind] ?? 0) + 1;
 
   return {
     schemaVersion: CONTROLLER_EVALUATION_SCHEMA_VERSION,
@@ -307,6 +327,14 @@ export function controllerEvaluationSnapshot(
       acceptancePercent: acceptancePercent(decisions),
       commandQualityScore: overallScore,
       commandQualityRating: qualityRating(overallScore),
+    },
+    digitalClearances: {
+      total: digital.messages.length,
+      active: digitalActive,
+      delivered: digital.counts.delivered,
+      standby: digital.counts.standby,
+      unable: digital.counts.unable,
+      byKind: digitalByKind,
     },
     stations: stationSnapshots,
     actors: actorSnapshots(inputs, evaluatedCommands),

@@ -94,6 +94,7 @@ function evaluate(overrides = {}) {
 const evaluation = evaluate();
 assert(evaluation.schemaVersion === 1 && evaluation.methodVersion === '1.0.0', 'evaluation schema identity is incorrect');
 assert(evaluation.safetyBoundary === 'read-only', 'evaluation does not declare its read-only safety boundary');
+assert(evaluation.digitalClearances.total >= 0 && evaluation.digitalClearances.active >= 0 && evaluation.digitalClearances.byKind && typeof evaluation.digitalClearances.byKind === 'object', 'digital-clearance evaluation summary is incomplete');
 assert(evaluation.operations.completed === 3 && evaluation.operations.throughputPerHour === 180, 'throughput calculation is incorrect');
 assert(evaluation.operations.delayPerOperationSeconds === 30, 'delay per operation is incorrect');
 assert(evaluation.fuel.holdingBurnPercent === 10, 'holding fuel impact is incorrect');

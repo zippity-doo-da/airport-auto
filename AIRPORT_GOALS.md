@@ -378,6 +378,10 @@ and overdue state.
 The latest authoritative flight-plan amendment also appears as a Revision
 message with its amendment kind, revision number, and cause text; the full
 bounded amendment history remains part of the flight-plan/replay state.
+Controller evaluation now carries a read-only digital-clearance summary with
+active, delivered, standby, Unable, and per-kind counts, so a human, replay
+reviewer, or agent evaluator can measure message workload without receiving
+shared free text as a command.
 
 ### Gameplay and UX
 
@@ -419,7 +423,10 @@ bounded amendment history remains part of the flight-plan/replay state.
       accept a route issued by the prior authority. Other clearance kinds and
       full timeout/coordination coverage remain open.
 - [ ] Include messages in replay, analytics, controller evaluation, and remote
-      projections with free text excluded from shared exports.
+      projections with free text excluded from shared exports. Replay frames
+      and remote snapshots already derive messages from authoritative state;
+      controller evaluation now includes bounded status/kind counts. Dedicated
+      analytics rollups and redacted message envelopes remain open.
 
 ### Acceptance gate
 
