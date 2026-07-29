@@ -292,6 +292,14 @@ stream alive while reducing self-inflicted bursts; it does not alter separation,
 runway, gate, or surface safety rules. Rush, fixed-step, trajectory, and
 long-session flow validators continue to pass with the relief active.
 
+Runway-entry commitment now has a single direction of authority: before line-up,
+the departure sweep protects the runway from taxi traffic; after line-up, the
+surface arbiter protects the committed departure from taxi traffic. Takeoff
+reservation no longer re-applies the pre-entry sweep, which previously allowed a
+departure and its blocker to hold one another indefinitely. The ORD rush
+fixed-step gate now requires multiple completed departures, while longer
+multi-hour flow and fuel comparisons remain open.
+
 ### Gameplay and UX
 
 - [~] Add a timeline showing demand, runway capacity, target crossing times,

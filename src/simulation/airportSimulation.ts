@@ -2961,12 +2961,20 @@ export class AirportSimulation {
         `takeoff held: ${blocker.callsign} is ${blocker.phase} in the protected zone`,
         flight,
       );
-    const pathBlocker = this.departurePathBlocker(flight);
-    if (pathBlocker)
-      return this.rejectDecision(
-        `takeoff held: ${pathBlocker.callsign} has not cleared the departure envelope`,
-        flight,
-      );
+    // The departure sweep is a runway-entry protection check. Once Tower has
+    // already issued runway-entry clearance, surface traffic is committed to
+    // yield to the lined-up aircraft through the shared surface arbiter. Re-
+    // applying the pre-entry sweep here can create a circular wait: the
+    // taxiing aircraft holds for this departure while the departure waits for
+    // that same taxiing aircraft to clear the sweep.
+    if (!flight.runwayEntryCleared) {
+      const pathBlocker = this.departurePathBlocker(flight);
+      if (pathBlocker)
+        return this.rejectDecision(
+          `takeoff held: ${pathBlocker.callsign} has not cleared the departure envelope`,
+          flight,
+        );
+    }
     flight.takeoffCleared = true;
     this.recordRunwayOperation(flight, "departure");
     this.decisionReason = `takeoff clearance accepted for ${this.activeRunwayDesignation(flight.runway)}`;
@@ -6213,7 +6221,10 @@ export class AirportSimulation {
       return false;
     if (this.priorityRunwayCrossing(flight.runway, flight.id)) return false;
     if (this.runwayBlocker(flight.runway, flight.id)) return false;
-    if (this.departurePathBlocker(flight)) return false;
+    // Runway-entry clearance commits the aircraft to the protected runway
+    // corridor; do not reintroduce the pre-entry sweep as a second gate.
+    if (!flight.runwayEntryCleared && this.departurePathBlocker(flight))
+      return false;
     if (flight.phase === "taxi-out") {
       return !this.nextUnclearedCrossing(flight);
     }
@@ -8616,7 +8627,12 @@ export class AirportSimulation {
       if (protectsAssignedRunway && this.runwaysConflict(runway, other.runway))
         return false;
     }
-    if (this.departurePathBlocker(flight)) return false;
+    // This method is reached after runway-entry clearance in the normal
+    // lifecycle. Keep the sweep guard for defensive callers that have not
+    // committed the aircraft yet, but do not make a lined-up departure wait
+    // on surface traffic that is already required to yield to it.
+    if (!flight.runwayEntryCleared && this.departurePathBlocker(flight))
+      return false;
     this.runwayReservations.set(runway, flight.id);
     for (const crossing of this.intersectingRunways(runway))
       this.runwayReservations.set(crossing, flight.id);

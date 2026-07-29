@@ -105,7 +105,7 @@ advanceInPattern(ordTwin, 300, partitionPattern);
 assert(canonicalSnapshot(ord) === canonicalSnapshot(ordTwin), 'ORD: seeded hub run was not deterministic');
 const ordSnapshot = ord.snapshot();
 assert(ordSnapshot.state.arrivals > 0, 'ORD: fixed-step run produced no arrivals');
-assert(ordSnapshot.state.departures > 0, 'ORD: fixed-step run produced no departures ' + JSON.stringify(ordSnapshot.flights.map((flight) => ({ id: flight.id, phase: flight.phase, progress: flight.progress, duration: flight.duration, elapsed: flight.phaseElapsed, runway: flight.runway, automaticHold: flight.automaticHold, hold: flight.safetyHoldReason, routeNode: flight.surfaceNode, routeEdge: flight.surfaceEdge }))));
+assert(ordSnapshot.state.departures >= 2, 'ORD: fixed-step rush did not sustain multiple departures after runway-entry commitment ' + JSON.stringify({ departures: ordSnapshot.state.departures, flights: ordSnapshot.flights.map((flight) => ({ id: flight.id, phase: flight.phase, progress: flight.progress, duration: flight.duration, elapsed: flight.phaseElapsed, runway: flight.runway, automaticHold: flight.automaticHold, hold: flight.safetyHoldReason, routeNode: flight.surfaceNode, routeEdge: flight.surfaceEdge })) }));
 assert(ordSnapshot.diagnostics.collisionPairs.length === 0, 'ORD: collision in fixed-step run');
 assert(ordSnapshot.diagnostics.obstacleCollisions.length === 0, 'ORD: aircraft-building collision in fixed-step run');
 assert(ordSnapshot.diagnostics.metrics.collisionAlerts === 0, 'ORD: collision alert in fixed-step run');
