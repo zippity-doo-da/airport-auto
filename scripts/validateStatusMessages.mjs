@@ -46,11 +46,26 @@ assert(boundedSnapshot.queued.some((message) => message.priority === 'warning'),
 assert(inferStatusMessagePriority('Flight selected', 'Following aircraft') === 'operational', 'ordinary interaction priority changed');
 assert(inferStatusMessagePriority('Aircraft emergency', 'Priority handling active') === 'critical', 'emergency priority changed');
 
+const calmPresented = [];
+const calm = new StatusMessageCoordinator((message) => calmPresented.push(message));
+calm.enqueue({ label: 'Gate planned', detail: 'Routine stand schedule' }, 0);
+calm.setPolicy('rare-high');
+calm.enqueue({ label: 'Gate planned', detail: 'Routine stand schedule' }, 1);
+calm.enqueue({ label: 'Runway incursion', detail: 'Protected pavement entered' }, 2);
+assert(calmPresented.length === 3 && calmPresented[1] === null && calmPresented[2].priority === 'critical', 'rare-high policy must suppress chatter but retain critical safety alerts');
+calm.setPolicy('advisory');
+calm.advance(10_000);
+calm.enqueue({ label: 'United held', detail: 'Separation advisory', priority: 'warning' }, 10_001);
+assert(calmPresented.length === 4 && calmPresented[3].priority === 'warning', 'advisory policy must present warning-level notices');
+calm.setPolicy('off');
+assert(calm.snapshot().policy === 'off', 'policy should be observable in the status snapshot');
+
 console.log(JSON.stringify({
   firstDwellMs: STATUS_MESSAGE_DWELL_MS.warning,
   criticalDwellMs: STATUS_MESSAGE_DWELL_MS.critical,
   transitions: presented.length,
   boundedQueue: boundedSnapshot.queued.length,
+  policy: calm.snapshot().policy,
 }));
 `;
 

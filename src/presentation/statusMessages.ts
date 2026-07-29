@@ -1,6 +1,22 @@
 export type StatusMessagePriority =
   "ambient" | "operational" | "warning" | "critical";
 
+/** Controls how much transient UI chatter is presented to the observer. */
+export type StatusMessagePolicy =
+  | "off"
+  | "advisory"
+  | "operational"
+  | "rare-high";
+
+export const STATUS_MESSAGE_POLICY_LABELS: Readonly<
+  Record<StatusMessagePolicy, string>
+> = {
+  off: "Off · critical safety only",
+  advisory: "Advisory only",
+  operational: "Operational",
+  "rare-high": "Rare high impact",
+};
+
 export interface StatusMessageInput {
   label: string;
   detail: string;
@@ -20,6 +36,7 @@ export interface StatusMessageView {
 }
 
 export interface StatusMessageSnapshot {
+  policy: StatusMessagePolicy;
   current: StatusMessageView | null;
   queued: ReadonlyArray<{
     key: string;
@@ -106,11 +123,28 @@ export class StatusMessageCoordinator {
   private currentMessage: StatusMessageView | null = null;
   private sequence = 0;
   private transitionCount = 0;
+  private policy: StatusMessagePolicy = "operational";
 
   constructor(
-    private readonly present: (message: StatusMessageView) => void,
+    private readonly present: (message: StatusMessageView | null) => void,
     private readonly maxQueued = 8,
   ) {}
+
+  setPolicy(policy: StatusMessagePolicy): StatusMessageSnapshot {
+    this.policy = policy;
+    for (let index = this.queue.length - 1; index >= 0; index -= 1) {
+      if (!this.isAllowed(this.queue[index].priority)) this.queue.splice(index, 1);
+    }
+    if (this.currentMessage && !this.isAllowed(this.currentMessage.priority)) {
+      this.currentMessage = null;
+      this.present(null);
+    }
+    return this.snapshot();
+  }
+
+  getPolicy(): StatusMessagePolicy {
+    return this.policy;
+  }
 
   enqueue(input: StatusMessageInput, nowMs?: number): StatusMessageSnapshot {
     const now = safeNow(nowMs);
@@ -121,6 +155,8 @@ export class StatusMessageCoordinator {
     const key = input.key ?? statusMessageKey(label, detail);
     const priority =
       input.priority ?? inferStatusMessagePriority(label, detail);
+
+    if (!this.isAllowed(priority)) return this.snapshot();
 
     if (this.currentMessage?.key === key) return this.snapshot();
     const queuedMatch = this.queue.find((message) => message.key === key);
@@ -178,6 +214,7 @@ export class StatusMessageCoordinator {
 
   snapshot(): StatusMessageSnapshot {
     return {
+      policy: this.policy,
       current: this.currentMessage ? { ...this.currentMessage } : null,
       queued: this.queue.map(
         ({ key, label, detail, priority, enqueuedAtMs }) => ({
@@ -239,5 +276,13 @@ export class StatusMessageCoordinator {
       }
       this.queue.splice(dropIndex, 1);
     }
+  }
+
+  private isAllowed(priority: StatusMessagePriority): boolean {
+    // Never hide a safety-critical event; calm policies only govern chatter.
+    if (priority === "critical") return true;
+    if (this.policy === "off" || this.policy === "rare-high") return false;
+    if (this.policy === "advisory") return priority === "warning";
+    return true;
   }
 }

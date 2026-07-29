@@ -576,8 +576,10 @@ open.
   Diversion, tow/recovery, runway/taxiway closure, reroute, and timed reopening
   are implemented; cancellation, gate-swap, and named controller playbooks
   remain open.
-- [ ] Add calm severity controls: Off, Advisory Only, Operational, and Rare High
-      Impact. Watch defaults must remain suitable for unattended ASMR use.
+- [x] Add calm severity controls: Off, Advisory Only, Operational, and Rare High
+      Impact. The shared status broker filters ambient/operational/warning
+      chatter, retains critical safety alerts, persists the choice in Watch
+      presets, and defaults Watch to Rare High Impact.
 
 ### Acceptance gate
 

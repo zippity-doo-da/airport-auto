@@ -122,6 +122,7 @@ import {
 } from "./presentation/focusTargets";
 import {
   StatusMessageCoordinator,
+  type StatusMessagePolicy,
   type StatusMessagePriority,
   type StatusMessageView,
 } from "./presentation/statusMessages";
@@ -667,6 +668,9 @@ const lightingModeSelect = $<HTMLSelectElement>("#lighting-mode-select");
 const seasonModeSelect = $<HTMLSelectElement>("#season-mode-select");
 const accessibilityPaletteSelect = $<HTMLSelectElement>(
   "#accessibility-palette-select",
+);
+const statusMessagePolicySelect = $<HTMLSelectElement>(
+  "#status-message-policy-select",
 );
 const cameraDirectorEnabledControl = $<HTMLInputElement>(
   "#camera-director-enabled",
@@ -1472,6 +1476,16 @@ accessibilityPaletteSelect.addEventListener("change", () => {
   applyAccessibilityPalette(accessibilityPaletteSelect.value);
   const definition = accessibilityPaletteDefinition(accessibilityPalette);
   setStatus(`${definition.label} palette active`, definition.description);
+});
+statusMessagePolicySelect.addEventListener("change", () => {
+  const policy = statusMessagePolicySelect.value as StatusMessagePolicy;
+  if (!["off", "advisory", "operational", "rare-high"].includes(policy))
+    return;
+  setStatusMessagePolicy(policy);
+  setStatus(
+    "Alert policy updated",
+    statusMessagePolicySelect.selectedOptions[0]?.textContent ?? policy,
+  );
 });
 cameraDirectorEnabledControl.addEventListener("change", () => {
   const accepted = setCameraDirectorEnabled(
@@ -6649,7 +6663,13 @@ function updateReplayUi(): void {
   });
 }
 
-function presentStatusMessage(message: StatusMessageView): void {
+function presentStatusMessage(message: StatusMessageView | null): void {
+  if (!message) {
+    status.hidden = true;
+    statusTransition?.cancel();
+    return;
+  }
+  status.hidden = false;
   statusTransition?.cancel();
   statusLabel.textContent = message.label;
   statusDetail.textContent = message.detail;
@@ -6675,6 +6695,13 @@ function setStatus(
 ): void {
   const snapshot = statusMessages.enqueue({ label, detail, priority });
   status.dataset.queueDepth = String(snapshot.queued.length);
+}
+
+function setStatusMessagePolicy(policy: StatusMessagePolicy): void {
+  const snapshot = statusMessages.setPolicy(policy);
+  statusMessagePolicySelect.value = policy;
+  status.dataset.queueDepth = String(snapshot.queued.length);
+  status.dataset.policy = policy;
 }
 
 function setAirportLifeVisible(visible: boolean): void {
@@ -7023,6 +7050,7 @@ function currentWatchPreset(): WatchPreset {
     windOverlayVisible,
     serviceVehiclesVisible,
     airportLifeVisible,
+    alertPolicy: statusMessages.getPolicy(),
   };
 }
 
@@ -7067,6 +7095,7 @@ function restoreWatchPreset(): void {
   setWindOverlayVisible(preset.windOverlayVisible);
   setServiceVehiclesVisible(preset.serviceVehiclesVisible);
   setAirportLifeVisible(preset.airportLifeVisible);
+  setStatusMessagePolicy(preset.alertPolicy);
   updateNightControl();
   updateWeatherUi();
   setStatus(
@@ -7692,6 +7721,7 @@ function selectControl(mode: ControlMode): boolean {
     setFlightStripCollapsed(true);
     audioPreset.value = "calm";
     audio.setPreset("calm");
+    setStatusMessagePolicy("rare-high");
   }
   renderFlightStrip();
   setStatus(modeName(mode), modeDescription(mode));

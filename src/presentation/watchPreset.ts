@@ -3,6 +3,7 @@ import {
   type AudioPreset,
 } from "../audio/ambientAudio";
 import { AMBIENT_PROGRAM_IDS, type AmbientProgramId } from "../simulation/ambientPrograms";
+import type { StatusMessagePolicy } from "./statusMessages";
 
 export const WATCH_PRESET_STORAGE_KEY = "airport-auto.watch-preset.v1";
 
@@ -16,6 +17,7 @@ export interface WatchPreset {
   windOverlayVisible: boolean;
   serviceVehiclesVisible: boolean;
   airportLifeVisible: boolean;
+  alertPolicy: StatusMessagePolicy;
 }
 
 export function loadWatchPreset(storage: Storage | null): WatchPreset | null {
@@ -51,7 +53,8 @@ export function parseWatchPreset(raw: string | null): WatchPreset | null {
       !isBoolean(value.cameraDirectorEnabled) ||
       !isBoolean(value.windOverlayVisible) ||
       !isBoolean(value.serviceVehiclesVisible) ||
-      !isBoolean(value.airportLifeVisible)
+      !isBoolean(value.airportLifeVisible) ||
+      (value.alertPolicy !== undefined && !isStatusMessagePolicy(value.alertPolicy))
     )
       return null;
     return {
@@ -64,6 +67,9 @@ export function parseWatchPreset(raw: string | null): WatchPreset | null {
       windOverlayVisible: value.windOverlayVisible,
       serviceVehiclesVisible: value.serviceVehiclesVisible,
       airportLifeVisible: value.airportLifeVisible,
+      alertPolicy: isStatusMessagePolicy(value.alertPolicy)
+        ? value.alertPolicy
+        : "rare-high",
     };
   } catch {
     return null;
@@ -72,4 +78,13 @@ export function parseWatchPreset(raw: string | null): WatchPreset | null {
 
 function isBoolean(value: unknown): value is boolean {
   return typeof value === "boolean";
+}
+
+function isStatusMessagePolicy(value: unknown): value is StatusMessagePolicy {
+  return (
+    value === "off" ||
+    value === "advisory" ||
+    value === "operational" ||
+    value === "rare-high"
+  );
 }

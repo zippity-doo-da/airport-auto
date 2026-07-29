@@ -17,6 +17,9 @@ bypassing the command arbiter. Direct-to and controller-frequency handoff
 messages are now represented as distinct structured message kinds as well, and
 the latest flight-plan amendment is exposed as a Revision message. Controller
 evaluation also records bounded digital-message status and kind counts.
+The status broker now exposes selectable calm severity policies (Off, Advisory,
+Operational, Rare High Impact), keeps critical safety alerts visible, and saves
+the policy in Watch presets.
 This batch is intentionally not deployed yet.
 
 This file is the status ledger. A checked item is implemented and tested; any release intentionally held locally is labeled as such. Future ideas are kept in a separate, explicitly deferred section so implemented work is never duplicated as an unchecked task.
