@@ -10964,7 +10964,13 @@ export class AirportSimulation {
         SURFACE_RESERVATION_RECOVERY_WAIT_SECONDS
       )
         continue;
-      const reason = flight.automaticHoldReason;
+      // A projected-path safety hold is also a named wait-for edge.  The
+      // collision arbiter is authoritative for the current pose, but a
+      // surface aircraft that has waited for several minutes should be given
+      // the same bounded pavement-only detour opportunity as a reservation
+      // hold.  Do not generalize this to physical-overlap or runway-protection
+      // holds: those remain exactly where the safety layer placed them.
+      const reason = flight.automaticHoldReason ?? flight.safetyHoldReason;
       // A short junction queue is normal, but a named graph resource that has
       // held an aircraft for the recovery threshold is a wait-for edge. Do not
       // let one-way sections and derived intersections form an unbounded
@@ -10972,7 +10978,7 @@ export class AirportSimulation {
       // authorities and must remain untouched here.
       if (
         !reason ||
-        flight.safetyHold ||
+        (flight.safetyHold && !/^projected path conflict with flight \d+$/.test(reason)) ||
         /protected (?:departure|taxi) corridor|ramp-control zone|departure slot/.test(
           reason,
         )

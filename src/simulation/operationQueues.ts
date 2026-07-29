@@ -248,7 +248,11 @@ function diagnoseFlightQueue(
   // queue/API projection also needs a causal edge for agents and focus tools.
   // Preserve the authoritative runway blockers and add any explicitly named
   // flight from the same reason without inventing a future route.
-  const namedBlockers = [...holdReason.matchAll(/\(flight (\d+)\)/g)].map(
+  // Reasons from both the reservation ledger and the collision arbiter name
+  // flights in slightly different prose ("(flight 12)" versus "with flight
+  // 12"). Normalize both forms so queue cards, focus targets, and agent
+  // snapshots expose the same causal blocker.
+  const namedBlockers = [...holdReason.matchAll(/\bflight (\d+)\b/g)].map(
     (match) => Number(match[1]),
   );
   const blockerFlightIds = [

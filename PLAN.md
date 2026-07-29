@@ -583,6 +583,8 @@ This tranche is intentionally local-only. No source push or Pages deployment is 
 - [x] Add a conservative static obstacle spatial index to collision arbitration. Proposed aircraft movement still runs the unchanged exact vertical and boundary-envelope tests, but only nearby obstacle candidates are enumerated.
 - [x] Preserve collision behavior across the fixed-step, trajectory, surface-safety, and complete operations validators after the index change.
 - [x] Re-measure the hot loop locally: the one-minute Extreme-ORD profile improved simulation p95 from the earlier 4.076 ms reference to 2.914 ms with zero collision/incursion changes; no WASM boundary is justified by this measurement.
+- [x] Let a surface aircraft with a named projected-path safety hold enter the same bounded, pavement-only detour recovery as a reservation hold after the long-wait threshold; physical-overlap, runway-protection, and collision arbitration remain authoritative.
+- [x] Normalize queue blocker extraction for both `with flight N` and `(flight N)` reason forms so the UI, focus tools, and local agent snapshots expose the causal aircraft consistently.
 - [ ] Repeat the full three-hour Auto/Watch acceptance with queue and simulation-p95 budgets both satisfied; the latest honest baseline remains collision-free and traffic-moving but exceeds those two budgets.
 
 ## Airport Auto 2.40 — roadmap completion and release
