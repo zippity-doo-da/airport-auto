@@ -11081,15 +11081,22 @@ export class AirportSimulation {
       // let one-way sections and derived intersections form an unbounded
       // chain. Committed runway and ramp-capacity holds have separate
       // authorities and must remain untouched here.
+      const projectedPathHold = Boolean(
+        reason && /^projected path conflict with flight \d+$/.test(reason),
+      );
       if (
         !reason ||
-        (flight.safetyHold && !/^projected path conflict with flight \d+$/.test(reason)) ||
+        (flight.safetyHold && !projectedPathHold) ||
         /protected (?:departure|taxi) corridor|ramp-control zone|departure slot/.test(
           reason,
         )
       )
         continue;
-      const match = reason.match(/\(flight (\d+)\)$/);
+      const match = reason.match(
+        projectedPathHold
+          ? /^projected path conflict with flight (\d+)$/
+          : /\(flight (\d+)\)$/,
+      );
       if (!match) continue;
       const blocker = flightById.get(Number(match[1]));
       if (

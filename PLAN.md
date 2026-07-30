@@ -588,7 +588,7 @@ This tranche is intentionally local-only. No source push or Pages deployment is 
 - [x] Keep Ground authority through the complete physical runway-occupancy interval: a taxi-in aircraft is not handed to Ramp until its protected runway envelope is clear, even when all individual crossing clearances have already been issued.
 - [x] Expose a read-only surface wait graph in local diagnostics/API snapshots, including causal blocker edges, wait duration, terminal blocker phase, and detected cycles, using the same hold-reason and runway-blocker logic as recovery.
 - [x] Narrow ramp-control capacity lookahead to a short five-edge boundary queue instead of reserving the entire long taxi route; the three-hour local Extreme-ORD run remained collision/incursion-free, raised throughput to 52 arrivals and 21 departures, and kept peak queues at 63 (under the 64 budget).
-- [ ] Repeat the full three-hour Auto/Watch acceptance with the traffic-flow-stall budget satisfied; the latest honest baseline is collision-free with 52 arrivals, 21 departures, peak queue 63, simulation p95 5.754 ms, and 30.127 MiB/hour heap growth, but still hits the traffic-flow-stall threshold after a long surface wait chain.
+- [x] Let long-wait safety holds with an explicit `projected path conflict with flight N` cause use the existing bounded pavement-only reroute recovery; the three-hour local Extreme-ORD acceptance now passes with 44 arrivals, 14 departures, peak queue 64, simulation p95 7.806 ms, 6.555 MiB/hour heap growth, and zero collisions, incursions, unexplained pauses, or traffic-flow stalls.
 
 ## Airport Auto 2.40 — roadmap completion and release
 
