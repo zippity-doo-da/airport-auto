@@ -586,6 +586,7 @@ This tranche is intentionally local-only. No source push or Pages deployment is 
 - [x] Let a surface aircraft with a named projected-path safety hold enter the same bounded, pavement-only detour recovery as a reservation hold after the long-wait threshold; physical-overlap, runway-protection, and collision arbitration remain authoritative.
 - [x] Normalize queue blocker extraction for both `with flight N` and `(flight N)` reason forms so the UI, focus tools, and local agent snapshots expose the causal aircraft consistently.
 - [x] Keep Ground authority through the complete physical runway-occupancy interval: a taxi-in aircraft is not handed to Ramp until its protected runway envelope is clear, even when all individual crossing clearances have already been issued.
+- [x] Expose a read-only surface wait graph in local diagnostics/API snapshots, including causal blocker edges, wait duration, terminal blocker phase, and detected cycles, using the same hold-reason and runway-blocker logic as recovery.
 - [ ] Repeat the full three-hour Auto/Watch acceptance with queue and simulation-p95 budgets both satisfied; the latest honest baseline is collision-free with 43 arrivals, 12 departures, peak queue 59, simulation p95 2.589 ms, and 2.446 MiB/hour heap growth, but still hits the traffic-flow-stall threshold after a long surface wait chain.
 
 ## Airport Auto 2.40 — roadmap completion and release

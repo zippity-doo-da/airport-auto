@@ -5463,6 +5463,109 @@ export class AirportSimulation {
     };
   }
 
+  /**
+   * Read-only causal projection for surface stalls.  This deliberately uses
+   * the same named reasons and runway blocker lookup as recovery, so telemetry
+   * does not invent a second notion of who is holding whom.
+   */
+  surfaceWaitGraph(): {
+    generatedAtSeconds: number;
+    edges: Array<{
+      flightId: number;
+      blockerId: number;
+      waitSeconds: number;
+      reason: string;
+    }>;
+    terminals: Array<{
+      flightId: number;
+      blockerId: number;
+      blockerPhase: FlightPhase;
+      waitSeconds: number;
+      reason: string;
+    }>;
+    cycles: number[][];
+  } {
+    const surfaceFlights = this.state.flights.filter(
+      (flight) => flight.phase === "taxi-in" || flight.phase === "taxi-out",
+    );
+    const allFlights = new Map(this.state.flights.map((flight) => [flight.id, flight]));
+    const edges: Array<{
+      flightId: number;
+      blockerId: number;
+      waitSeconds: number;
+      reason: string;
+    }> = [];
+    const terminals: Array<{
+      flightId: number;
+      blockerId: number;
+      blockerPhase: FlightPhase;
+      waitSeconds: number;
+      reason: string;
+    }> = [];
+    const waitFor = new Map<number, number>();
+    for (const flight of surfaceFlights) {
+      const waitSeconds = this.stationarySeconds.get(flight.id) ?? 0;
+      if (waitSeconds < 1) continue;
+      const reason = flight.safetyHoldReason ?? flight.automaticHoldReason ?? "";
+      let blockerId = reason.match(/\bflight (\d+)\b/)?.[1]
+        ? Number(reason.match(/\bflight (\d+)\b/)?.[1])
+        : undefined;
+      if (
+        blockerId === undefined &&
+        reason.startsWith("pushback corridor protected for ")
+      ) {
+        const callsign = reason.slice("pushback corridor protected for ".length);
+        blockerId = surfaceFlights.find((candidate) => candidate.callsign === callsign)?.id;
+      }
+      if (
+        blockerId === undefined &&
+        ((flight.crossingHoldRunway !== undefined) ||
+          (flight.pendingCrossingCount ?? 0) > 0)
+      ) {
+        const crossing = this.nextUnclearedCrossing(flight);
+        const blocker = crossing
+          ? this.runwayBlocker(crossing.runwayId, flight.id)
+          : null;
+        if (blocker) blockerId = blocker.id;
+      }
+      if (blockerId === undefined || blockerId === flight.id) continue;
+      const blocker = allFlights.get(blockerId);
+      if (!blocker) continue;
+      const edge = { flightId: flight.id, blockerId, waitSeconds, reason };
+      if (blocker.phase === "taxi-in" || blocker.phase === "taxi-out") {
+        edges.push(edge);
+        waitFor.set(flight.id, blockerId);
+      } else {
+        terminals.push({ ...edge, blockerPhase: blocker.phase });
+      }
+    }
+    const completed = new Set<number>();
+    const cycles: number[][] = [];
+    for (const start of waitFor.keys()) {
+      if (completed.has(start)) continue;
+      const path: number[] = [];
+      const pathIndex = new Map<number, number>();
+      let cursor: number | undefined = start;
+      while (cursor !== undefined && waitFor.has(cursor) && !completed.has(cursor)) {
+        const cycleStart = pathIndex.get(cursor);
+        if (cycleStart !== undefined) {
+          cycles.push(path.slice(cycleStart));
+          break;
+        }
+        pathIndex.set(cursor, path.length);
+        path.push(cursor);
+        cursor = waitFor.get(cursor);
+      }
+      for (const id of path) completed.add(id);
+    }
+    return {
+      generatedAtSeconds: Number(this.state.elapsed.toFixed(3)),
+      edges: edges.sort((first, second) => second.waitSeconds - first.waitSeconds || first.flightId - second.flightId),
+      terminals: terminals.sort((first, second) => second.waitSeconds - first.waitSeconds || first.flightId - second.flightId),
+      cycles: cycles.map((cycle) => [...cycle].sort((first, second) => first - second)),
+    };
+  }
+
   diagnostics(): {
     flow: "continuous";
     approachCapacity: number;
@@ -5481,6 +5584,7 @@ export class AirportSimulation {
     >;
     surfaceDisruptions: SurfaceDisruptionState[];
     queues: OperationQueueSnapshot;
+    surfaceWaitGraph: ReturnType<AirportSimulation["surfaceWaitGraph"]>;
     trafficManagement: TrafficFlowSnapshot;
     deicing: {
       facilities: ReturnType<typeof deicingFacilities>;
@@ -5537,6 +5641,7 @@ export class AirportSimulation {
         reroutedFlightIds: [...disruption.reroutedFlightIds],
       })),
       queues: this.queueSnapshot(),
+      surfaceWaitGraph: this.surfaceWaitGraph(),
       trafficManagement: this.trafficFlowSnapshot(),
       deicing: {
         facilities: deicingFacilities(this.config.surfaceGraph),
