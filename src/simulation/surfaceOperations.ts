@@ -217,6 +217,11 @@ const geometricJunctionCaches = new WeakMap<AirportSurfaceGraph, Map<string, Geo
 const TAXIWAY_FLOW_SECTION_LENGTH_M = 180;
 const GEOMETRIC_JUNCTION_DISTANCE_M = 15;
 const GEOMETRIC_JUNCTION_CLUSTER_M = 30;
+// Ramp capacity is a physical occupancy limit, not a reservation of every
+// future apron edge on a long taxi route. Keep a short arrival/departure
+// queue at the zone boundary while allowing traffic farther upstream to use
+// independent pavement and avoid starving the zone's current occupants.
+const RAMP_ZONE_LOOKAHEAD_EDGES = 5;
 
 export function surfaceRampControlZones(graph: AirportSurfaceGraph): SurfaceRampControlZone[] {
   return operationsIndex(graph).rampZones.map((zone) => ({
@@ -393,7 +398,7 @@ export function surfaceRouteReservationClaims(
     }
     const zone = index.rampZoneByEdgeId.get(edge.id)
       ?? (leadStand ? index.rampZoneByStandId.get(leadStand.id) : undefined);
-    if (zone) {
+    if (zone && edgeIndex <= sample.edgeIndex + RAMP_ZONE_LOOKAHEAD_EDGES) {
       addClaim(claims, {
         kind: 'ramp-zone',
         id: zone.id,
