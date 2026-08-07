@@ -11410,7 +11410,15 @@ export class AirportSimulation {
     signature: string,
     blockedTransition?: { flight: Flight; next: FlightPhase },
   ): boolean {
-    for (const direction of ["forward", "reverse"] as const) {
+    // A multi-aircraft wait cycle is usually an opposing stand-off on a
+    // shared taxiway. Trying to advance first can repeatedly request motion
+    // into the aircraft already occupying that corridor, so give Ground a
+    // verified tug-back opportunity before attempting a forward release.
+    const directions =
+      members.length > 1
+        ? (["reverse", "forward"] as const)
+        : (["forward", "reverse"] as const);
+    for (const direction of directions) {
       const distances =
         direction === "forward"
           ? SURFACE_YIELD_FORWARD_DISTANCES_M

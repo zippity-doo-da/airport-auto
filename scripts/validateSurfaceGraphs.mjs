@@ -105,6 +105,48 @@ for (const config of configs) {
     const crosswind = config.runwayConfigurations.find((configuration) => configuration.id === 'ORD-CROSSWIND-22');
     if (crosswind.runwayRoles[6] !== 'arrival' || crosswind.runwayRoles[7] !== 'departure') throw new Error('ORD: 22 contingency roles are incorrect');
   }
+
+  if (config.code === 'DFW') {
+    const taxiwayReferences = new Set(config.surfaceGraph.taxiways.map((taxiway) => taxiway.reference).filter(Boolean));
+    for (const reference of ['A', 'B', 'C', 'E', 'G', 'K', 'L', 'M', 'P', 'Q', 'Y', 'Z']) {
+      if (!taxiwayReferences.has(reference)) throw new Error('DFW: missing major taxiway ' + reference);
+    }
+    if (config.surfaceGraph.schemaVersion !== 3) throw new Error('DFW: imported surface graph is not schema v3');
+    if (config.runways.length !== 7) throw new Error('DFW: expected seven imported runways');
+    if (validation.counts.passengerFacilities !== 10) throw new Error('DFW: expected five terminals and five concourses');
+    for (const terminal of ['A', 'B', 'C', 'D', 'E']) {
+      if (!config.surfaceGraph.passengerFacilities.some((facility) => facility.id === 'DFW-' + terminal)) {
+        throw new Error('DFW: missing sourced terminal ' + terminal);
+      }
+      if (config.surfaceGraph.stands.filter((stand) => stand.concourse === terminal).length < 2) {
+        throw new Error('DFW: insufficient sourced stands for Terminal ' + terminal);
+      }
+    }
+    if (validation.counts.hotspots !== 0) throw new Error('DFW: imported source should not invent FAA hot spots');
+    if (validation.counts.gradeSeparatedEdges < 12) throw new Error('DFW: imported bridge and tunnel edge set is incomplete');
+    if (validation.counts.controlPoints < 200) throw new Error('DFW: imported control point set is incomplete');
+    // Preserve the kinds actually represented by the sourced DFW graph;
+    // do not fabricate GA or deicing areas where the source has none.
+    const requiredZones = ['terminal-complex', 'terminal-apron', 'cargo-ramp', 'holding-pad', 'maintenance', 'remote-ramp', 'perimeter-route'];
+    const zoneKinds = new Set(config.surfaceGraph.zones.map((zone) => zone.kind));
+    for (const kind of requiredZones) {
+      if (!zoneKinds.has(kind)) throw new Error('DFW: missing operational zone kind ' + kind);
+    }
+    const expectedConfigurations = ['DFW-SOUTH-PARALLEL', 'DFW-NORTH-PARALLEL', 'DFW-SOUTH-INSTRUMENT'];
+    if (config.runwayConfigurations.length !== expectedConfigurations.length) throw new Error('DFW: incomplete runway configuration set');
+    for (const id of expectedConfigurations) {
+      const configuration = config.runwayConfigurations.find((candidate) => candidate.id === id);
+      if (!configuration) throw new Error('DFW: runway configuration missing ' + id);
+      if (Object.keys(configuration.runwayRoles).length !== config.runways.length) throw new Error('DFW: incomplete runway roles for ' + id);
+      if (Object.keys(configuration.operatingEnds).length !== config.runways.length) throw new Error('DFW: incomplete operating ends for ' + id);
+      if (!configuration.restrictions.conditions.length || !configuration.restrictions.note) throw new Error('DFW: undocumented restrictions for ' + id);
+      if (!configuration.source?.url.startsWith('https://www.faa.gov/')) throw new Error('DFW: non-FAA runway configuration source for ' + id);
+    }
+    const southParallel = config.runwayConfigurations.find((configuration) => configuration.id === 'DFW-SOUTH-PARALLEL');
+    if (southParallel.runwayRoles[0] !== 'arrival' || southParallel.runwayRoles[1] !== 'departure') {
+      throw new Error('DFW: south parallel roles are incorrect');
+    }
+  }
 }
 
 for (const seed of [1, 17, 991, 42_424]) {

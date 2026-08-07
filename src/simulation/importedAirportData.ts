@@ -2,6 +2,8 @@ import kordSurfaceGraphJson from '../data/airports/KORD.surfaceGraph.mjs';
 import kordSurfaceManifestJson from '../data/airports/KORD.surface.manifest.json';
 import katlSurfaceGraphJson from '../data/airports/KATL.surfaceGraph.mjs';
 import katlSurfaceManifestJson from '../data/airports/KATL.surface.manifest.json';
+import kdfwSurfaceGraphJson from '../data/airports/KDFW.surfaceGraph.mjs';
+import kdfwSurfaceManifestJson from '../data/airports/KDFW.surface.manifest.json';
 import { airportAutoAssetPath } from '../assets/assetManifest';
 import { requireCurrentAirportAsset } from '../assets/airportAssetMigrations';
 import type { AirportSurfaceGraph } from './surfaceGraph';
@@ -80,9 +82,22 @@ const KATL_SURFACE_GRAPH = requireCurrentAirportAsset(
   katlSurfaceGraphJson,
 ) as unknown as AirportSurfaceGraph;
 
+const KDFW_SURFACE_MANIFEST = {
+  ...(requireCurrentAirportAsset(
+    'surface-manifest',
+    kdfwSurfaceManifestJson,
+  ) as unknown as AirportSurfaceDataManifest),
+  assetPath: airportAutoAssetPath('airport.DFW.surface-source'),
+};
+const KDFW_SURFACE_GRAPH = requireCurrentAirportAsset(
+  'surface-graph',
+  kdfwSurfaceGraphJson,
+) as unknown as AirportSurfaceGraph;
+
 export function airportSurfaceDataManifest(airportCode: string): AirportSurfaceDataManifest | undefined {
   if (airportCode === 'ORD') return KORD_SURFACE_MANIFEST;
   if (airportCode === 'ATL') return KATL_SURFACE_MANIFEST;
+  if (airportCode === 'DFW') return KDFW_SURFACE_MANIFEST;
   return undefined;
 }
 
@@ -91,6 +106,8 @@ export function importedAirportSurfaceGraph(airportCode: string, seed: number): 
     ? KORD_SURFACE_GRAPH
     : airportCode === 'ATL'
       ? KATL_SURFACE_GRAPH
+      : airportCode === 'DFW'
+        ? KDFW_SURFACE_GRAPH
       : undefined;
   if (!source) return undefined;
   return {

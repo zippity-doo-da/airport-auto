@@ -8,6 +8,9 @@ export type AirportAutoAssetKey =
   | "airport.ATL.vector"
   | "airport.ATL.surface-source"
   | "airport.ATL.context"
+  | "airport.DFW.vector"
+  | "airport.DFW.surface-source"
+  | "airport.DFW.context"
   | "airport.ORD.vector"
   | "airport.ORD.surface-source"
   | "airport.ORD.context";

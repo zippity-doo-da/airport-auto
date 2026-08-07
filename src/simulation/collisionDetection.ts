@@ -943,7 +943,15 @@ export function findProposedConflict(
           protectedFutureEnvelope,
           flight.wakeClass,
           other.wakeClass,
-          runwaysConflict(config, flight.runway, other.runway),
+          // A taxiing aircraft can be assigned to one runway while it is
+          // physically crossing another. The collision envelopes are the
+          // authoritative positions and runway occupations, so arbitrate on
+          // their runway IDs rather than the stale flight assignments.
+          runwaysConflict(
+            config,
+            proposed.runway,
+            protectedFutureEnvelope.runway,
+          ),
           false,
         );
         if (conflict) return conflict;
@@ -961,12 +969,17 @@ export function findProposedConflict(
     if (other.id === flight.id) continue;
     if (collisionPerformanceTrace)
       collisionPerformanceTrace.flightPairChecks += 1;
+    const otherEnvelope = aircraftCollisionEnvelope(
+      config,
+      other,
+      otherProgress,
+    );
     const conflict = detectFlightConflict(
       proposed,
-      aircraftCollisionEnvelope(config, other, otherProgress),
+      otherEnvelope,
       flight.wakeClass,
       other.wakeClass,
-      runwaysConflict(config, flight.runway, other.runway),
+      runwaysConflict(config, proposed.runway, otherEnvelope.runway),
     );
     if (!conflict) continue;
 
@@ -1001,7 +1014,7 @@ export function findProposedConflict(
       currentOther,
       flight.wakeClass,
       other.wakeClass,
-      runwaysConflict(config, flight.runway, other.runway),
+      runwaysConflict(config, current.runway, currentOther.runway),
     );
 
     const otherIsMoving = Math.abs(otherProgress - other.progress) > 1e-6;

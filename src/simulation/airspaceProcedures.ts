@@ -384,7 +384,21 @@ function buildRunwayProcedures(
   };
 
   const farRunwayEnd: [number, number] = [threshold[0] + travel.x * runway.length, threshold[1] + travel.y * runway.length];
-  const turnSign = (runway.id + (operatingEnd === 1 ? 0 : 1)) % 2 ? 1 : -1;
+  // Parallel departures must fan outward from the airfield, not alternate a
+  // left/right turn by runway ID. The latter can aim two separate runway
+  // centerlines at the same climb-out corridor (particularly DFW's paired
+  // runway complexes). Use the signed lateral position relative to the
+  // airport center whenever the geometry supplies one; the ID fallback keeps
+  // a deterministic choice for a lone centerline.
+  const airfieldCenter = airportCenter(definition.runways);
+  const lateralOffset =
+    (runway.center[0] - airfieldCenter[0]) * -travel.y +
+    (runway.center[1] - airfieldCenter[1]) * travel.x;
+  const turnSign = Math.abs(lateralOffset) > 0.5
+    ? Math.sign(lateralOffset)
+    : (runway.id + (operatingEnd === 1 ? 0 : 1)) % 2
+      ? 1
+      : -1;
   const departureAngle = Math.atan2(travel.y, travel.x) + turnSign * (definition.scope === 'center' ? 0.28 : 0.2);
   const departureFix: AirspaceFix = {
     id: `${prefix}-DEP`,

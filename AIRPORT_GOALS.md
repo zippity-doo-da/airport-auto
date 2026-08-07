@@ -542,6 +542,32 @@ runway incursions, and zero unexplained pauses. ATL's multi-hour retained-heap
 and sustained-flow acceptance remains open; it is not represented as complete
 by the short-run safety result.
 
+### DFW parity track — August 7, 2026
+
+KDFW is the first additional hub being brought through the same sourced-asset
+path rather than receiving a second hand-authored schematic. Its committed FAA
+Airport Mapping vector records seven runways, 706 taxiways, 61 aprons, 45
+buildings, 14 stopways, a beacon, and 20 wind indicators. Its OSM surface graph
+contains 1,266 nodes, 1,577 edges, 311 named taxiways, 40 aircraft-compatible
+stands, five terminals/five concourses, 232 control points, 66 operational
+zones, 12 sourced grade-separated edges, and 188 modeled runway-crossing edges.
+The stable asset manifest now validates its vector, surface-source, and
+surroundings assets alongside ORD and ATL. FAA-derived South Parallel, North
+Parallel, and South Instrument configurations expose complete roles and
+operating ends with an explicit non-navigational disclosure.
+
+The shared safety arbiter now judges runway conflicts using the runway actually
+occupied by each authoritative collision envelope—not a flight's stale assigned
+runway. This prevents a taxiing aircraft from being released across the runway
+a departure is using. A second shared recovery correction tries a verified,
+pavement-only tug-back before a forward move in a multi-aircraft surface
+deadlock. In a four-hour DFW Extreme Auto soak, the result was 51 arrivals and
+33 departures with zero collision contacts, runway incursions, or unexplained
+pauses; no all-stopped traffic state occurred. This is evidence for DFW's
+surface safety and sustained flow, not a claim of navigation-grade real-world
+operations. Visual recognizability, full workstation/mobile/replay review, and
+the remaining named hubs are still open.
+
 ### Source and asset work
 
 - [~] Record current official airport-diagram, FAA geometry, airport-facility,

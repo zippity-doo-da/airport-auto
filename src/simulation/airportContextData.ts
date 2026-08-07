@@ -1,5 +1,6 @@
 import kordContextManifestJson from '../data/airports/KORD.context.manifest.json';
 import katlContextManifestJson from '../data/airports/KATL.context.manifest.json';
+import kdfwContextManifestJson from '../data/airports/KDFW.context.manifest.json';
 import { airportAutoAssetPath } from '../assets/assetManifest';
 import { requireCurrentAirportAsset } from '../assets/airportAssetMigrations';
 
@@ -67,8 +68,17 @@ const KATL_CONTEXT_MANIFEST = {
   assetPath: airportAutoAssetPath('airport.ATL.context'),
 };
 
+const KDFW_CONTEXT_MANIFEST = {
+  ...(requireCurrentAirportAsset(
+    'context-manifest',
+    kdfwContextManifestJson,
+  ) as unknown as AirportContextDataManifest),
+  assetPath: airportAutoAssetPath('airport.DFW.context'),
+};
+
 export function airportContextDataManifest(airportCode: string): AirportContextDataManifest | undefined {
   if (airportCode === 'ORD') return KORD_CONTEXT_MANIFEST;
   if (airportCode === 'ATL') return KATL_CONTEXT_MANIFEST;
+  if (airportCode === 'DFW') return KDFW_CONTEXT_MANIFEST;
   return undefined;
 }

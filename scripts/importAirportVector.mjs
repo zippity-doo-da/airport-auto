@@ -42,6 +42,21 @@ const AIRPORTS = {
       ["04R/22L", "inactive"],
     ],
   },
+  KDFW: {
+    faaId: "DFW",
+    icaoId: "KDFW",
+    name: "Dallas Fort Worth International",
+    runtimeRunways: [
+      ["18R/36L", "arrival"],
+      ["18L/36R", "departure"],
+      ["17R/35L", "arrival"],
+      ["17C/35C", "departure"],
+      ["17L/35R", "mixed"],
+      ["13R/31L", "inactive"],
+      ["13L/31R", "inactive"],
+    ],
+    optionalLayers: ["hotspots"],
+  },
 };
 
 const LAYERS = [
@@ -367,7 +382,7 @@ function verifySource(layer, item, service, collection, count, airport) {
     throw new Error(
       `${layer.key}: fetched ${collection.features.length} of ${count} features`,
     );
-  if (count === 0)
+  if (count === 0 && !airport.optionalLayers?.includes(layer.key))
     throw new Error(`${layer.key}: no ${airport.icaoId} features found`);
   for (const feature of collection.features) {
     if (

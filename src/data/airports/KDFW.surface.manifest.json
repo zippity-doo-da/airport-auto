@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 3,
+  "airport": {
+    "faaId": "DFW",
+    "icaoId": "KDFW",
+    "name": "Dallas Fort Worth International",
+    "fidelity": "faa-airport-mapping",
+    "navigationUse": false
+  },
+  "assetPath": "data/airports/KDFW.osm-surface.json",
+  "graphPath": "src/data/airports/KDFW.surfaceGraph.json",
+  "assetSha256": "8e9f486e293f22af0c34a2f7d1f1aec6c057d23e875c6aaf04fe3a432105d6ae",
+  "graphSha256": "bd85548e07ea353db01083bad86bb404afd0b4a8e68332bced07008bdebbd235",
+  "retrievedOn": "2026-08-07",
+  "coordinateSystem": {
+    "source": "EPSG:4326",
+    "local": "local-tangent-plane",
+    "originWgs84": [
+      -97.0419841,
+      32.8953879
+    ],
+    "axes": {
+      "x": "east",
+      "y": "north"
+    },
+    "unit": "meter",
+    "earthRadiusMeters": 6378137,
+    "coordinatePrecisionMeters": 0.1
+  },
+  "source": {
+    "provider": "OpenStreetMap",
+    "endpoint": "https://overpass-api.de/api/interpreter",
+    "query": "[out:json][timeout:180];(way(32.8625123,-97.0949674,32.9321110,-96.9892361)[\"aeroway\"~\"^(taxiway|taxilane|runway)$\"];node(32.8625123,-97.0949674,32.9321110,-96.9892361)[\"aeroway\"=\"parking_position\"];way(32.8625123,-97.0949674,32.9321110,-96.9892361)[\"aeroway\"=\"parking_position\"];node(32.8625123,-97.0949674,32.9321110,-96.9892361)[\"aeroway\"=\"gate\"];node(32.8625123,-97.0949674,32.9321110,-96.9892361)[\"aeroway\"=\"terminal\"];way(32.8625123,-97.0949674,32.9321110,-96.9892361)[\"aeroway\"=\"terminal\"];);out body center;>;out skel qt;",
+    "osmBaseTimestamp": "2026-08-07T15:13:51Z",
+    "license": "Open Data Commons Open Database License 1.0",
+    "attribution": "© OpenStreetMap contributors",
+    "copyrightUrl": "https://www.openstreetmap.org/copyright"
+  },
+  "passengerFacilityReference": {
+    "provider": "Dallas Fort Worth International Airport",
+    "url": "https://www.dfwairport.com/business/about/facts/",
+    "retrievedOn": "2026-08-07",
+    "totalPassengerGates": 0
+  },
+  "validationRules": {
+    "minimumBuildingClearanceMeters": 51,
+    "minimumStandReferenceClearanceMeters": 42,
+    "minimumStandReferenceOffsetMeters": 24,
+    "standLeadInWidthWorld": 0.7
+  },
+  "counts": {
+    "sourceNodes": 3225,
+    "sourceWays": 387,
+    "parkingPositions": 369,
+    "passengerParkingPositions": 357,
+    "gates": 168,
+    "passengerFacilities": 10,
+    "passengerTerminals": 5,
+    "passengerConcourses": 5,
+    "excludedWays": 5,
+    "excludedSegments": 20,
+    "graphNodes": 1266,
+    "graphEdges": 1577,
+    "taxiways": 311,
+    "stands": 40,
+    "passengerStands": 29,
+    "runwayAccess": 14,
+    "controlPoints": 232,
+    "operationalZones": 66,
+    "hotspots": 0,
+    "gradeSeparatedEdges": 12,
+    "runwayCrossingEdges": 188
+  },
+  "license": "Open Data Commons Open Database License 1.0",
+  "attribution": "© OpenStreetMap contributors",
+  "copyrightUrl": "https://www.openstreetmap.org/copyright"
+}

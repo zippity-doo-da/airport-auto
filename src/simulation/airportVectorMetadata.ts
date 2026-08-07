@@ -1,5 +1,6 @@
 import kordManifestJson from "../data/airports/KORD.manifest.json";
 import katlManifestJson from "../data/airports/KATL.manifest.json";
+import kdfwManifestJson from "../data/airports/KDFW.manifest.json";
 import { airportAutoAssetPath } from "../assets/assetManifest";
 import { requireCurrentAirportAsset } from "../assets/airportAssetMigrations";
 
@@ -91,10 +92,19 @@ const KATL_MANIFEST = {
   assetPath: airportAutoAssetPath("airport.ATL.vector"),
 };
 
+const KDFW_MANIFEST = {
+  ...(requireCurrentAirportAsset(
+    "vector-manifest",
+    kdfwManifestJson,
+  ) as unknown as AirportVectorManifest),
+  assetPath: airportAutoAssetPath("airport.DFW.vector"),
+};
+
 export function airportVectorManifest(
   airportCode: string,
 ): AirportVectorManifest | undefined {
   if (airportCode === "ORD") return KORD_MANIFEST;
   if (airportCode === "ATL") return KATL_MANIFEST;
+  if (airportCode === "DFW") return KDFW_MANIFEST;
   return undefined;
 }

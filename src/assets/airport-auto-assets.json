@@ -51,6 +51,33 @@
       "licenseRef": "src/data/airports/KATL.context.manifest.json"
     },
     {
+      "key": "airport.DFW.vector",
+      "kind": "airport-vector",
+      "path": "data/airports/KDFW.vector.json",
+      "contentType": "application/json",
+      "sha256": "fb957a735e3df0435eabba096f4994e2256fa67b1edff620599ba5618d856ef1",
+      "offlineRequired": true,
+      "licenseRef": "src/data/airports/KDFW.manifest.json"
+    },
+    {
+      "key": "airport.DFW.surface-source",
+      "kind": "airport-surface-source",
+      "path": "data/airports/KDFW.osm-surface.json",
+      "contentType": "application/json",
+      "sha256": "8e9f486e293f22af0c34a2f7d1f1aec6c057d23e875c6aaf04fe3a432105d6ae",
+      "offlineRequired": true,
+      "licenseRef": "src/data/airports/KDFW.surface.manifest.json"
+    },
+    {
+      "key": "airport.DFW.context",
+      "kind": "airport-context",
+      "path": "data/airports/KDFW.context.json",
+      "contentType": "application/json",
+      "sha256": "615656b7a604ea57f19c854a7f5062c916cfa8dbe8028130d264b602ac843290",
+      "offlineRequired": true,
+      "licenseRef": "src/data/airports/KDFW.context.manifest.json"
+    },
+    {
       "key": "airport.ORD.surface-source",
       "kind": "airport-surface-source",
       "path": "data/airports/KORD.osm-surface.json",

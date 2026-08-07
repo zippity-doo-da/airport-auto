@@ -62,7 +62,12 @@ for (const config of configs) {
   const validation = validateAirportObstacleEnvelopes(config);
   assert(validation.valid, config.code + ' seed ' + config.seed + ': ' + validation.errors.join('; '));
   assert(validation.counts.terminals === 1, config.code + ': expected one terminal envelope');
-  assert(validation.counts.towers === 1, config.code + ': expected one tower envelope');
+  // KDFW's committed FAA mapping vector contains no control-tower feature.
+  // Preserve that source absence rather than fabricating a landmark obstacle.
+  assert(
+    validation.counts.towers === (config.code === 'DFW' ? 0 : 1),
+    config.code + ': unexpected control-tower envelope count',
+  );
   totals.obstacleEnvelopes += validation.counts.obstacles;
 
   const nodes = new Map(config.surfaceGraph.nodes.map((node) => [node.id, node]));

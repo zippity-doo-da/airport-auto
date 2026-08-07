@@ -113,8 +113,8 @@ function parseArguments(arguments_) {
     else throw new Error(`Unknown option ${argument}`);
     index += 1;
   }
-  if (!/^(KORD|KATL)$/.test(icaoId))
-    throw new Error('Supported context airports: KORD, KATL');
+  if (!/^(KORD|KATL|KDFW)$/.test(icaoId))
+    throw new Error('Supported context airports: KORD, KATL, KDFW');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(retrievedOn)) throw new Error('--retrieved-on must use YYYY-MM-DD');
   if (!Number.isFinite(radiusX) || !Number.isFinite(radiusY) || radiusX < 5_000 || radiusY < 5_000) {
     throw new Error('Context radii must be finite and at least 5 km');
@@ -148,6 +148,12 @@ function contextBounds(coordinateSystem, radiusX, radiusY) {
 
 function buildQueries(bounds, icaoId) {
   const bbox = [bounds.south, bounds.west, bounds.north, bounds.east].map((value) => value.toFixed(7)).join(',');
+  // DFW's wide airport context includes several very large multipolygon
+  // relations. Their recursive geometry expansion has repeatedly exceeded
+  // public Overpass limits. Ways preserve the relevant visible land-use and
+  // water shapes while the separately keyed aerodrome relation still supplies
+  // the authoritative airport boundary.
+  const contextFeatureSelector = icaoId === 'KDFW' ? 'way' : 'nwr';
   return {
     roads: `[out:json][timeout:180];(`
       + `way(${bbox})["highway"~"^(motorway|motorway_link|trunk|trunk_link|primary|primary_link)$"];`
@@ -160,9 +166,9 @@ function buildQueries(bounds, icaoId) {
       + `nwr(${bbox})["aeroway"="aerodrome"]["icao"="${icaoId}"];`
       + ');out body geom;',
     areas: `[out:json][timeout:180];(`
-      + `nwr(${bbox})["landuse"~"^(industrial|commercial|retail|railway|cemetery)$"];`
-      + `nwr(${bbox})["leisure"~"^(park|golf_course)$"];`
-      + `nwr(${bbox})["natural"="water"];`
+      + `${contextFeatureSelector}(${bbox})["landuse"~"^(industrial|commercial|retail|railway|cemetery)$"];`
+      + `${contextFeatureSelector}(${bbox})["leisure"~"^(park|golf_course)$"];`
+      + `${contextFeatureSelector}(${bbox})["natural"="water"];`
       + ');out body geom;',
   };
 }

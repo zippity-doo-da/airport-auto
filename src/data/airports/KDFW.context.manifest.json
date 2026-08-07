@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "airport": {
+    "faaId": "DFW",
+    "icaoId": "KDFW",
+    "name": "Dallas Fort Worth International",
+    "fidelity": "faa-airport-mapping",
+    "navigationUse": false
+  },
+  "assetPath": "data/airports/KDFW.context.json",
+  "assetSha256": "615656b7a604ea57f19c854a7f5062c916cfa8dbe8028130d264b602ac843290",
+  "retrievedOn": "2026-08-07",
+  "coordinateSystem": {
+    "source": "EPSG:4326",
+    "local": "local-tangent-plane",
+    "originWgs84": [
+      -97.0419841,
+      32.8953879
+    ],
+    "axes": {
+      "x": "east",
+      "y": "north"
+    },
+    "unit": "meter",
+    "earthRadiusMeters": 6378137,
+    "coordinatePrecisionMeters": 0.1
+  },
+  "boundsMeters": {
+    "min": [
+      -5999.999999999918,
+      -5999.999999999954
+    ],
+    "max": [
+      5999.999999999918,
+      5999.999999999954
+    ]
+  },
+  "source": {
+    "provider": "OpenStreetMap",
+    "endpoint": "https://overpass-api.de/api/interpreter",
+    "queries": {
+      "roads": "[out:json][timeout:180];(way(32.8414890,-97.1061752,32.9492868,-96.9777930)[\"highway\"~\"^(motorway|motorway_link|trunk|trunk_link|primary|primary_link)$\"];way(32.8414890,-97.1061752,32.9492868,-96.9777930)[\"highway\"=\"secondary\"][\"name\"];way(32.8414890,-97.1061752,32.9492868,-96.9777930)[\"highway\"=\"secondary\"][\"ref\"];);out tags geom;",
+      "transport": "[out:json][timeout:180];(way(32.8414890,-97.1061752,32.9492868,-96.9777930)[\"railway\"~\"^(rail|light_rail)$\"];way(32.8414890,-97.1061752,32.9492868,-96.9777930)[\"waterway\"~\"^(river|canal)$\"];nwr(32.8414890,-97.1061752,32.9492868,-96.9777930)[\"aeroway\"=\"aerodrome\"][\"icao\"=\"KDFW\"];);out body geom;",
+      "areas": "[out:json][timeout:180];(way(32.8414890,-97.1061752,32.9492868,-96.9777930)[\"landuse\"~\"^(industrial|commercial|retail|railway|cemetery)$\"];way(32.8414890,-97.1061752,32.9492868,-96.9777930)[\"leisure\"~\"^(park|golf_course)$\"];way(32.8414890,-97.1061752,32.9492868,-96.9777930)[\"natural\"=\"water\"];);out body geom;"
+    },
+    "osmBaseTimestamp": "2026-08-07T15:28:06Z",
+    "license": "Open Data Commons Open Database License 1.0",
+    "attribution": "© OpenStreetMap contributors",
+    "copyrightUrl": "https://www.openstreetmap.org/copyright"
+  },
+  "counts": {
+    "roads": 2627,
+    "roadPoints": 5716,
+    "rails": 123,
+    "railPoints": 330,
+    "waterways": 26,
+    "waterwayPoints": 458,
+    "areas": 313,
+    "areaPoints": 2518,
+    "boundaryRings": 1,
+    "boundaryPoints": 221
+  },
+  "license": "Open Data Commons Open Database License 1.0",
+  "attribution": "© OpenStreetMap contributors",
+  "copyrightUrl": "https://www.openstreetmap.org/copyright"
+}

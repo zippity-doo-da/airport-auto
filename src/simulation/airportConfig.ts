@@ -518,6 +518,84 @@ function buildRunwayConfigurations(code: string, runways: RunwayConfig[]): Airpo
       ),
     ];
   }
+  if (code === 'DFW') {
+    const source: RunwayConfigurationSource = {
+      title: 'FAA KDFW Airport Mapping and terminal-procedure data',
+      url: 'https://www.faa.gov/air_traffic/flight_info/aeronav/digital_products/dtpp/search/results/',
+      published: 'KDFW source geometry retrieved 2026-08-07',
+    };
+    const dfwConfiguration = (
+      id: string,
+      name: string,
+      description: string,
+      end: -1 | 1,
+      arrivalRunwayIds: number[],
+      departureRunwayIds: number[],
+      procedure: RunwayProcedureClass,
+      restrictions: RunwayConfigurationRestrictions,
+      selectionPriority = 0,
+    ): AirportRunwayConfiguration => {
+      const arrivals = new Set(arrivalRunwayIds);
+      const departures = new Set(departureRunwayIds);
+      return {
+        id,
+        name,
+        description,
+        procedure,
+        arrivalRunwayIds: [...arrivalRunwayIds],
+        departureRunwayIds: [...departureRunwayIds],
+        operatingEnds: Object.fromEntries(runways.map((runway) => [runway.id, end])) as Record<number, -1 | 1>,
+        runwayRoles: Object.fromEntries(runways.map((runway) => [
+          runway.id,
+          arrivals.has(runway.id) && departures.has(runway.id)
+            ? 'mixed'
+            : arrivals.has(runway.id)
+              ? 'arrival'
+              : departures.has(runway.id)
+                ? 'departure'
+                : 'inactive',
+        ])) as Record<number, RunwayOperationalRole>,
+        restrictions,
+        selectionPriority,
+        source,
+      };
+    };
+    return [
+      dfwConfiguration(
+        'DFW-SOUTH-PARALLEL',
+        'South parallel',
+        'Schematic south-flow bank: outer parallel runways receive arrivals and adjacent parallels depart; the short eastern runway remains mixed.',
+        -1,
+        [0, 2, 4],
+        [1, 3, 4],
+        'parallel',
+        { conditions: ['clear', 'haze', 'rain', 'fog', 'snow', 'thunderstorm'], autoSelectable: true, note: 'Game-scale configuration from KDFW sourced geometry; not a live runway-use plan.' },
+        0.08,
+      ),
+      dfwConfiguration(
+        'DFW-NORTH-PARALLEL',
+        'North parallel',
+        'Schematic reciprocal north-flow bank using the same separated arrival and departure pairs.',
+        1,
+        [0, 2, 4],
+        [1, 3, 4],
+        'parallel',
+        { conditions: ['clear', 'haze', 'rain', 'fog', 'snow', 'thunderstorm'], autoSelectable: true, note: 'Game-scale reciprocal configuration from KDFW sourced geometry; not a live runway-use plan.' },
+        0.09,
+      ),
+      dfwConfiguration(
+        'DFW-SOUTH-INSTRUMENT',
+        'South instrument',
+        'Lower-visibility south-flow variant that preserves independent arrival and departure corridors while reducing mixed-runway demand.',
+        -1,
+        [0, 2],
+        [1, 3],
+        'instrument-parallel',
+        { conditions: ['haze', 'rain', 'fog', 'thunderstorm'], autoSelectable: true, note: 'Game-scale instrument configuration from KDFW sourced geometry; not an operational authorization.' },
+        0.12,
+      ),
+    ];
+  }
   const defaultEnd = runways.find((runway) => runway.role !== 'inactive')?.landingEnd ?? 1;
   return [
     configuration(`${code}-PRIMARY`, 'Primary flow', 'Published schematic runway roles and their primary operating ends.', defaultEnd),

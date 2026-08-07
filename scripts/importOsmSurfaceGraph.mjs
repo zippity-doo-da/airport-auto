@@ -100,6 +100,25 @@ const FACILITY_REFERENCES = Object.freeze({
       },
     ],
   },
+  KDFW: {
+    airportCode: "DFW",
+    provider: "Dallas Fort Worth International Airport",
+    url: "https://www.dfwairport.com/business/about/facts/",
+    retrievedOn: "2026-08-07",
+    // The official airport fact page confirms the terminal complex, but its
+    // published gate total changes with the ongoing terminal program. Preserve
+    // OSM's individually mapped stand identities as the import authority until
+    // a stable terminal-by-terminal public gate inventory is available.
+    totalPassengerGates: 0,
+    gateReferencePattern: /^([ABCDE])\d/i,
+    terminals: [
+      { id: "A", name: "Terminal A", osmNamePattern: /^Terminal\s*A(?:\b|\s|-)/i, concourses: [{ id: "A", publishedGateCount: 0 }] },
+      { id: "B", name: "Terminal B", osmNamePattern: /^Terminal\s*B(?:\b|\s|-)/i, concourses: [{ id: "B", publishedGateCount: 0 }] },
+      { id: "C", name: "Terminal C", osmNamePattern: /^Terminal\s*C(?:\b|\s|-)/i, concourses: [{ id: "C", publishedGateCount: 0 }] },
+      { id: "D", name: "Terminal D", osmNamePattern: /^Terminal\s*D(?:\b|\s|-)/i, concourses: [{ id: "D", publishedGateCount: 0 }] },
+      { id: "E", name: "Terminal E", osmNamePattern: /^Terminal\s*E(?:\b|\s|-)/i, concourses: [{ id: "E", publishedGateCount: 0 }] },
+    ],
+  },
 });
 let activeFacilityReference = FACILITY_REFERENCES.KORD;
 let activeConcourseToTerminal = new Map();
@@ -306,7 +325,12 @@ function buildQuery(faa, marginMeters) {
   const box = [southwest[1], southwest[0], northeast[1], northeast[0]]
     .map((value) => value.toFixed(7))
     .join(",");
-  return `[out:json][timeout:180];(way(${box})["aeroway"~"^(taxiway|taxilane|runway)$"];nwr(${box})["aeroway"="parking_position"];node(${box})["aeroway"="gate"];nwr(${box})["aeroway"="terminal"];);out body center;>;out skel qt;`;
+  // Airport terminal and stand features are represented by nodes and ways in
+  // the OSM data used by this runtime. Asking Overpass for every matching
+  // relation can recursively expand large airport-site multipolygons and
+  // time out before the actual taxiway graph is returned (notably at DFW).
+  // Keep the source query to the feature kinds the normalizer consumes.
+  return `[out:json][timeout:180];(way(${box})["aeroway"~"^(taxiway|taxilane|runway)$"];node(${box})["aeroway"="parking_position"];way(${box})["aeroway"="parking_position"];node(${box})["aeroway"="gate"];node(${box})["aeroway"="terminal"];way(${box})["aeroway"="terminal"];);out body center;>;out skel qt;`;
 }
 
 async function fetchOverpass(endpoint, query) {
