@@ -7708,6 +7708,72 @@ export class AirportSimulation {
         return first.id - second.id;
       });
     const reservations = new SurfaceReservationLedger();
+    // Before individual aircraft extend their lookahead claims, choose one
+    // direction for each currently-clear shared taxiway section. This is a
+    // small deterministic ground-flow controller: it never displaces an
+    // aircraft already on the section, and it releases naturally as demand
+    // changes, but it prevents simultaneous opposite-side entries from
+    // creating a nose-to-nose reservation cycle.
+    const activeTaxiwayFlows = new Map<string, Set<string>>();
+    const taxiwayFlowDemand = new Map<
+      string,
+      { label: string; directions: Map<string, number> }
+    >();
+    for (const flight of surfaceFlights) {
+      const occupiedClaims = surfaceRouteReservationClaims(
+        this.config.surfaceGraph,
+        flight.surfaceRoute,
+        flight.surfaceRouteEdges,
+        flight.progress,
+        flight.phase,
+        0,
+        0,
+      );
+      for (const claim of occupiedClaims) {
+        if (claim.kind !== "taxiway-flow" || !claim.direction) continue;
+        const directions = activeTaxiwayFlows.get(claim.id) ?? new Set();
+        directions.add(claim.direction);
+        activeTaxiwayFlows.set(claim.id, directions);
+      }
+      const demandClaims = surfaceRouteReservationClaims(
+        this.config.surfaceGraph,
+        flight.surfaceRoute,
+        flight.surfaceRouteEdges,
+        flight.progress,
+        flight.phase,
+        12,
+        SURFACE_RESERVATION_LOOKAHEAD_M / WORLD_METERS_PER_UNIT,
+      );
+      for (const claim of demandClaims) {
+        if (claim.kind !== "taxiway-flow" || !claim.direction) continue;
+        const demand = taxiwayFlowDemand.get(claim.id) ?? {
+          label: claim.label,
+          directions: new Map(),
+        };
+        demand.directions.set(
+          claim.direction,
+          (demand.directions.get(claim.direction) ?? 0) + 1,
+        );
+        taxiwayFlowDemand.set(claim.id, demand);
+      }
+    }
+    for (const [flowId, demand] of taxiwayFlowDemand) {
+      if (activeTaxiwayFlows.has(flowId)) continue;
+      const direction = [...demand.directions.entries()].sort(
+        ([firstDirection, firstCount], [secondDirection, secondCount]) =>
+          secondCount - firstCount || firstDirection.localeCompare(secondDirection),
+      )[0]?.[0];
+      if (!direction) continue;
+      reservations.reserve(`flow:${flowId}`, [
+        {
+          kind: "taxiway-flow",
+          id: flowId,
+          label: demand.label,
+          direction,
+          capacity: Infinity,
+        },
+      ]);
+    }
     const protectedTaxiCorridors: Array<{
       flight: Flight;
       sweep: AircraftCollisionSweep;
