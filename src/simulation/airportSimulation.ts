@@ -10711,6 +10711,18 @@ export class AirportSimulation {
       holdIfUnavailable?: boolean;
     } = {},
   ): boolean {
+    // A fixed obstruction can otherwise cause the same automatic amendment to
+    // be reconsidered every few simulation ticks. Let reservations and the
+    // wait-cycle recovery arbitrate during that interval; repeatedly rewriting
+    // an unchanged suffix neither clears pavement nor improves safety.
+    const previousReroute = flight.surfaceReroute;
+    if (
+      options.reason &&
+      previousReroute?.status === "rerouted" &&
+      previousReroute.reason === options.reason &&
+      this.state.elapsed - previousReroute.selectedAtSeconds < 30
+    )
+      return false;
     // A crossing clearance commits the aircraft to vacating the protected
     // runway on its present route. Route amendments resume after it is clear.
     if (this.occupiesClearedRunwayCrossing(flight)) return false;
@@ -11230,7 +11242,10 @@ export class AirportSimulation {
       // Retry a bounded pair of graph amendments every few minutes while the
       // same wait remains genuine; this preserves fairness without thrashing
       // the route planner every fixed step.
-      const signature = `${blocker.id}:${flight.surfaceEdge ?? ""}:${flight.surfaceReroute?.revision ?? 0}`;
+      // Route revision is deliberately not part of this key: each failed
+      // amendment used to create a fresh recovery identity, resetting the
+      // bounded-attempt guard and allowing thousands of identical retries.
+      const signature = `${blocker.id}:${flight.surfaceEdge ?? ""}`;
       const previous = this.surfaceReservationBlockerRecovery.get(flight);
       const recovery =
         previous?.signature === signature
