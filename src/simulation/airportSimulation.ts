@@ -732,6 +732,10 @@ export class AirportSimulation {
     Flight,
     { signature: string; blockedStandIds: Set<string> }
   >();
+  private readonly arrivalRouteParkedConflictCache = new WeakMap<
+    Flight,
+    Map<string, { signature: string; conflicts: boolean }>
+  >();
   private readonly pushbackPreviewCache = new WeakMap<
     Flight,
     {
@@ -8379,6 +8383,35 @@ export class AirportSimulation {
     flight: Flight,
     assignment: FlightGateAssignment,
   ): boolean {
+    const parkedTraffic = this.state.flights.filter(
+      (other) =>
+        other.id !== flight.id &&
+        (other.phase === "resting" ||
+          (other.phase === "taxi-out" &&
+            (other.tugAttached || other.pushbackProgress < 1))),
+    );
+    const signature = parkedTraffic
+      .map((other) =>
+        [
+          other.id,
+          other.phase,
+          other.aircraft,
+          other.gateSlot,
+          other.standId ?? "",
+          Math.round(other.progress * 1_000),
+        ].join(":"),
+      )
+      .join("|");
+    const cacheKey = [
+      assignment.standId,
+      assignment.revision,
+      flight.runway,
+      flight.operatingEnd,
+    ].join(":");
+    const cached = this.arrivalRouteParkedConflictCache
+      .get(flight)
+      ?.get(cacheKey);
+    if (cached?.signature === signature) return cached.conflicts;
     const preview: Flight = {
       ...flight,
       phase: "taxi-in",
@@ -8398,21 +8431,20 @@ export class AirportSimulation {
       motion: { ...flight.motion },
     };
     this.assignSurfaceRoute(preview, "taxi-in");
-    if (!preview.surfaceRouteEdges?.length) return true;
+    if (!preview.surfaceRouteEdges?.length) {
+      const cache =
+        this.arrivalRouteParkedConflictCache.get(flight) ?? new Map();
+      cache.set(cacheKey, { signature, conflicts: true });
+      this.arrivalRouteParkedConflictCache.set(flight, cache);
+      return true;
+    }
     syncFlightMotion(this.config, preview);
     const routeSweep = buildAircraftCollisionSweep(
       Array.from({ length: 129 }, (_, index) =>
         aircraftCollisionEnvelope(this.config, preview, index / 128),
       ),
     );
-    return this.state.flights.some((other) => {
-      if (
-        other.id === flight.id ||
-        (other.phase !== "resting" &&
-          !(other.phase === "taxi-out" &&
-            (other.tugAttached || other.pushbackProgress < 1)))
-      )
-        return false;
+    const conflicts = parkedTraffic.some((other) => {
       const parked = aircraftCollisionEnvelope(this.config, other);
       return routeSweep.envelopes.some(
         (moving) =>
@@ -8429,6 +8461,10 @@ export class AirportSimulation {
           ),
       );
     });
+    const cache = this.arrivalRouteParkedConflictCache.get(flight) ?? new Map();
+    cache.set(cacheKey, { signature, conflicts });
+    this.arrivalRouteParkedConflictCache.set(flight, cache);
+    return conflicts;
   }
 
   /**
