@@ -470,15 +470,29 @@ function operationsIndex(graph: AirportSurfaceGraph): SurfaceOperationsIndex {
   const rampZones = graph.zones
     .filter((zone) => RAMP_ZONE_KINDS.has(zone.kind))
     .filter((zone) => zone.edgeIds.length > 0 || zone.standIds.length > 0)
-    .map((zone) => ({
-      id: `RAMP-${zone.id}`,
-      name: zone.name,
-      kind: zone.kind,
-      operationalZoneId: zone.id,
-      edgeIds: [...zone.edgeIds],
-      standIds: [...zone.standIds],
-      capacity: rampZoneCapacity(zone),
-    }));
+    .map((zone) => {
+      // Imported apron polygons do not always repeat their parking-position
+      // membership. Join stands by their authoritative zone ID so a large
+      // terminal apron is not incorrectly treated as a two-aircraft alley.
+      const standIds = [
+        ...new Set([
+          ...zone.standIds,
+          ...graph.stands
+            .filter((stand) => stand.zoneId === zone.id)
+            .map((stand) => stand.id),
+        ]),
+      ];
+      const capacityZone = { ...zone, standIds };
+      return {
+        id: `RAMP-${zone.id}`,
+        name: zone.name,
+        kind: zone.kind,
+        operationalZoneId: zone.id,
+        edgeIds: [...zone.edgeIds],
+        standIds,
+        capacity: rampZoneCapacity(capacityZone),
+      };
+    });
   const rampZoneByEdgeId = new Map<string, SurfaceRampControlZone>();
   const rampZoneByStandId = new Map<string, SurfaceRampControlZone>();
   for (const zone of rampZones) {
@@ -779,7 +793,7 @@ function rampZoneCapacity(zone: SurfaceOperationalZone): number {
   if (zone.kind === 'general-aviation') return 2;
   if (zone.kind === 'cargo-ramp') return 2;
   if (zone.kind === 'remote-ramp') return Math.max(1, Math.min(3, Math.ceil(Math.max(zone.edgeIds.length, zone.standIds.length) / 8)));
-  return Math.max(2, Math.min(6, Math.ceil(Math.max(zone.edgeIds.length / 48, zone.standIds.length / 6))));
+  return Math.max(2, Math.min(8, Math.ceil(Math.max(zone.edgeIds.length / 36, zone.standIds.length / 4))));
 }
 
 function rampAlleyId(edge: SurfaceEdge, leadStand: SurfaceStand | undefined): string | null {
