@@ -8,15 +8,26 @@ const requestedHours = Number(
 const hours = Number.isFinite(requestedHours)
   ? Math.min(12, Math.max(0.05, requestedHours))
   : 4;
-const traceFlightIds = (process.argv.find((argument) => argument.startsWith('--trace-flights='))?.split('=')[1] ?? '')
-  .split(',')
+const traceFlightIds = (
+  process.argv
+    .find((argument) => argument.startsWith("--trace-flights="))
+    ?.split("=")[1] ?? ""
+)
+  .split(",")
   .map((value) => Number(value))
   .filter((value) => Number.isFinite(value));
+const requestedAirport = (
+  process.argv
+    .find((argument) => argument.startsWith("--airport="))
+    ?.split("=")[1] ?? "ORD"
+)
+  .trim()
+  .toUpperCase();
 
 const source = `
 import { performance } from 'node:perf_hooks';
 import { RuntimePerformanceMonitor } from './src/telemetry/runtimePerformance.ts';
-import { generateHubConfig } from './src/simulation/airportConfig.ts';
+import { generateHubConfig, HUB_AIRPORTS } from './src/simulation/airportConfig.ts';
 import { AirportSimulation } from './src/simulation/airportSimulation.ts';
 import { aircraftProfile } from './src/simulation/aircraftProfiles.ts';
 import { sampleSurfaceRouteWithEdges } from './src/simulation/surfaceGraph.ts';
@@ -26,12 +37,18 @@ import { WORLD_METERS_PER_UNIT } from './src/simulation/runwayPerformance.ts';
 
 const requestedHours = ${JSON.stringify(hours)};
 const traceFlightIds = new Set(${JSON.stringify(traceFlightIds)});
+const requestedAirport = ${JSON.stringify(requestedAirport)};
 // Match the production fixed-step loop exactly; a 100 ms diagnostic step
 // measures twice the work of any tick the browser is allowed to execute.
 const stepSeconds = 0.05;
 const pace = 3;
 const targetModeledSeconds = requestedHours * 3_600;
-const configuration = generateHubConfig(4);
+const hubIndex = HUB_AIRPORTS.findIndex((airport) => airport.code === requestedAirport);
+if (hubIndex < 0)
+  throw new Error(
+    \`Unknown hub \${requestedAirport}. Use one of: \${HUB_AIRPORTS.map((airport) => airport.code).join(', ')}.\`,
+  );
+const configuration = generateHubConfig(hubIndex);
 const simulation = new AirportSimulation(configuration, 'extreme');
 simulation.setMode('auto');
 simulation.setPace(pace);

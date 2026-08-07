@@ -510,7 +510,7 @@ shared free text as a command.
 Promote KATL from schematic to the second sourced, recognizable hub using the
 existing vector, surface-graph, context, asset-manifest, and acceptance pipeline.
 
-### Current progress — July 28, 2026
+### Current progress — August 7, 2026
 
 Atlanta now has a committed FAA Airport Mapping vector asset, retrieved through
 the same versioned importer and stable-asset manifest used for ORD. Its five
@@ -529,6 +529,18 @@ presentation remains open. Atlanta now also has East Parallel, West
 Parallel, and East Instrument game configurations with explicit FAA terminal-
 procedure disclosure; they model compatible runway ends and weather/capacity
 choices but are not live ATC runway-use authorizations.
+
+The common local Rush acceptance runner can now target a named hub with
+`--airport=ATL`, rather than silently measuring ORD. A regression in the
+airborne/surface envelope rule was also corrected: a surface aircraft's fixed
+ground altitude could previously make a safely high arrival look like a
+runway incursion. The rule now gates that alert on the airborne aircraft's
+lower envelope, while retaining protection through flare and rollout. The
+full deterministic collision suite (74 generated airport configurations) and
+ATL Rush runs through one modeled hour now report zero collision alerts, zero
+runway incursions, and zero unexplained pauses. ATL's multi-hour retained-heap
+and sustained-flow acceptance remains open; it is not represented as complete
+by the short-run safety result.
 
 ### Source and asset work
 
@@ -579,8 +591,10 @@ choices but are not live ATC runway-use authorizations.
   validator now proves 800 stand-to-runway and runway-to-stand routes across all
   40 imported stands, five runways, and both ends; property/visual coverage
   remains open.
-- [ ] Extreme traffic drains through multiple nonconflicting surface movements
-      rather than one airport-wide lock.
+- [~] Extreme traffic drains through multiple nonconflicting surface movements
+      rather than one airport-wide lock. ATL's first modeled hour now sustains
+      arrivals and departures without a safety breach; its multi-hour
+      retained-heap and sustained-flow acceptance remains open.
 - [ ] The airport is visually recognizable from its runway/terminal relationship
       before labels are enabled.
 - [ ] Auto, Assisted, Manual, Watch, weather, replay, radar, agent control, and

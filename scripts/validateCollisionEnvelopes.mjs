@@ -1,4 +1,4 @@
-import { build } from 'esbuild';
+import { build } from "esbuild";
 
 const validationSource = `
 import { AIRCRAFT_ROSTER, aircraftProfile } from './src/simulation/aircraftProfiles.ts';
@@ -152,6 +152,18 @@ const verticalSeparation = detectFlightConflict(
   'medium', 'medium', false,
 );
 assert(!verticalSeparation, 'vertically separated aircraft were reported as overlapping');
+const highArrivalAboveRunwayCrossing = detectFlightConflict(
+  { ...baseEnvelope, id: 1, x: 0, y: 0, altitude: 30, minimumAltitude: 28, maximumAltitude: 32, protectedSurface: true },
+  { ...baseEnvelope, id: 2, x: 0, y: 0, altitude: 2, minimumAltitude: 1, maximumAltitude: 3, airborne: false, surface: true, protectedSurface: true, taxiway: 'RWY-EXIT' },
+  'medium', 'medium', true,
+);
+assert(!highArrivalAboveRunwayCrossing, 'a high arrival was incorrectly reported as a runway incursion over a surface crossing');
+const lowArrivalAtRunwayCrossing = detectFlightConflict(
+  { ...baseEnvelope, id: 1, x: 0, y: 0, altitude: 8, minimumAltitude: 6, maximumAltitude: 10, protectedSurface: true },
+  { ...baseEnvelope, id: 2, x: 0, y: 0, altitude: 2, minimumAltitude: 1, maximumAltitude: 3, airborne: false, surface: true, protectedSurface: true, taxiway: 'RWY-EXIT' },
+  'medium', 'medium', true,
+);
+assert(lowArrivalAtRunwayCrossing?.type === 'runway-incursion', 'a low arrival did not protect the runway crossing');
 const operationalSurfaceSpacing = detectFlightConflict(
   { ...baseEnvelope, id: 1, x: 0, y: 0, altitude: 2, minimumAltitude: 1, maximumAltitude: 3, airborne: false, surface: true, taxiway: 'TWY-A' },
   { ...baseEnvelope, id: 2, x: 9, y: 0, altitude: 2, minimumAltitude: 1, maximumAltitude: 3, airborne: false, surface: true, taxiway: 'TWY-A' },
@@ -251,22 +263,25 @@ const result = await build({
   absWorkingDir: process.cwd(),
   stdin: {
     contents: validationSource,
-    loader: 'ts',
+    loader: "ts",
     resolveDir: process.cwd(),
-    sourcefile: 'collision-envelope-validation.ts',
+    sourcefile: "collision-envelope-validation.ts",
   },
   bundle: true,
-  format: 'esm',
-  platform: 'node',
-  target: 'node22',
+  format: "esm",
+  platform: "node",
+  target: "node22",
   write: false,
-  logLevel: 'silent',
+  logLevel: "silent",
 });
 
 const bundled = result.outputFiles[0]?.text;
-if (!bundled) throw new Error('Collision envelope validation bundle was empty.');
+if (!bundled)
+  throw new Error("Collision envelope validation bundle was empty.");
 try {
-  await import(`data:text/javascript;base64,${Buffer.from(bundled).toString('base64')}`);
+  await import(
+    `data:text/javascript;base64,${Buffer.from(bundled).toString("base64")}`
+  );
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
