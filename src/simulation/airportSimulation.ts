@@ -19,6 +19,7 @@ import type {
   EnvironmentLightingMode,
   EnvironmentSeasonMode,
   Flight,
+  FlightGateAssignment,
   FlightHandoffState,
   FlightInstruction,
   FlightNavigationState,
@@ -8267,6 +8268,9 @@ export class AirportSimulation {
     const assignment = flight.gateAssignment;
     const routeConflictingStandIds =
       this.standsConflictingWithActiveSurfaceRoutes(flight);
+    const routeConflictsWithParkedAircraft = assignment
+      ? this.arrivalRouteConflictsWithParkedAircraft(flight, assignment)
+      : false;
     const blocker = assignment
       ? this.state.flights.find(
           (other) =>
@@ -8288,11 +8292,19 @@ export class AirportSimulation {
     const corridorConflict = Boolean(
       assignment && routeConflictingStandIds.has(assignment.standId),
     );
-    if (assignment && !blocker && !corridorConflict) return true;
+    if (
+      assignment &&
+      !blocker &&
+      !corridorConflict &&
+      !routeConflictsWithParkedAircraft
+    )
+      return true;
     const reason = blocker
       ? `${assignment?.gateRef ?? assignment?.zoneName ?? assignment?.standId} still occupied by ${blocker.callsign}`
       : corridorConflict
         ? `${assignment?.gateRef ?? assignment?.zoneName ?? assignment?.standId} conflicts with an occupied stand's active movement corridor`
+        : routeConflictsWithParkedAircraft
+          ? `${assignment?.gateRef ?? assignment?.zoneName ?? assignment?.standId} arrival route is blocked by parked traffic`
         : "arrival had no usable stand plan";
     return this.reassignArrivalGate(flight, reason, routeConflictingStandIds);
   }
@@ -8305,7 +8317,10 @@ export class AirportSimulation {
     const previous = flight.gateAssignment;
     const nextDestination =
       previous?.nextDestination ?? this.originFor(flight.id + 5);
-    const decision = planGateAssignment({
+    const rejectedStandIds = new Set(excludedStandIds);
+    let decision: FlightGateAssignment | null = null;
+    for (let attempt = 0; attempt < this.config.surfaceGraph.stands.length; attempt += 1) {
+      decision = planGateAssignment({
       config: this.config,
       flightId: flight.id,
       aircraft: flight.aircraft,
@@ -8324,8 +8339,12 @@ export class AirportSimulation {
       planning: this.surfaceRoutePlanning(flight.id),
       revision: (previous?.revision ?? -1) + 1,
       previousStandId: previous?.standId,
-      excludedStandIds,
-    });
+        excludedStandIds: rejectedStandIds,
+      });
+      if (!decision || !this.arrivalRouteConflictsWithParkedAircraft(flight, decision)) break;
+      rejectedStandIds.add(decision.standId);
+      decision = null;
+    }
     if (!decision) return false;
     const stand = this.config.surfaceGraph.stands.find(
       (candidate) => candidate.id === decision.standId,
@@ -8353,6 +8372,63 @@ export class AirportSimulation {
     if (flight.phase === "approach")
       this.planRunwayExit(flight, "destination stand changed");
     return true;
+  }
+
+  /** Reject a gate whose own taxi-in route would pass through parked aircraft. */
+  private arrivalRouteConflictsWithParkedAircraft(
+    flight: Flight,
+    assignment: FlightGateAssignment,
+  ): boolean {
+    const preview: Flight = {
+      ...flight,
+      phase: "taxi-in",
+      gateAssignment: assignment,
+      gateSlot: assignment.gateSlot,
+      standId: assignment.standId,
+      progress: 0,
+      phaseElapsed: 0,
+      surfaceRoute: undefined,
+      surfaceRouteEdges: undefined,
+      surfaceCongestedEdgeIds: undefined,
+      requiredCrossings: [],
+      crossingClearances: [],
+      crossingClearanceIds: [],
+      deicing: { ...flight.deicing },
+      kinematics: { ...flight.kinematics },
+      motion: { ...flight.motion },
+    };
+    this.assignSurfaceRoute(preview, "taxi-in");
+    if (!preview.surfaceRouteEdges?.length) return true;
+    syncFlightMotion(this.config, preview);
+    const routeSweep = buildAircraftCollisionSweep(
+      Array.from({ length: 129 }, (_, index) =>
+        aircraftCollisionEnvelope(this.config, preview, index / 128),
+      ),
+    );
+    return this.state.flights.some((other) => {
+      if (
+        other.id === flight.id ||
+        (other.phase !== "resting" &&
+          !(other.phase === "taxi-out" &&
+            (other.tugAttached || other.pushbackProgress < 1)))
+      )
+        return false;
+      const parked = aircraftCollisionEnvelope(this.config, other);
+      return routeSweep.envelopes.some(
+        (moving) =>
+          aircraftEnvelopeBoxesOverlap(parked, moving) &&
+          Boolean(
+            detectFlightConflict(
+              parked,
+              moving,
+              other.wakeClass,
+              flight.wakeClass,
+              this.runwaysConflict(other.runway, flight.runway),
+              false,
+            ),
+          ),
+      );
+    });
   }
 
   /**
