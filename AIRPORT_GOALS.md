@@ -789,10 +789,11 @@ lighting that naturally strengthens at night without adding moving entities.
 - [~] Add terminal train, employee shuttle, perimeter road, highway, parking,
       gate-lighting, and restrained landside traffic as nonblocking ambient systems.
   Terminal access now has a compact, instanced curbside/parking program with
-  slow landside shuttles, canopies, and parked vehicles at each terminal. It is
-  rendered outside the aircraft surface graph, so it cannot create a runway
-  crossing or affect taxi reservations. A sourced terminal train, a real
-  perimeter-road network, and broader background-worker traffic remain open.
+  slow landside shuttles, canopies, parked vehicles, and a presentation-only
+  terminal train at each terminal. It is rendered outside the aircraft surface
+  graph, so it cannot create a runway crossing or affect taxi reservations. A
+  sourced terminal train alignment, a real perimeter-road network, and broader
+  background-worker traffic remain open.
 - [~] Add jet-bridge docking, door state, baggage transfer, fuel connection, and
   service choreography without requiring micromanagement in Auto or Watch.
   Baggage/fuel/service choreography and non-micromanaged Auto/Watch behavior
