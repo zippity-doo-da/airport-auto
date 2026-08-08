@@ -995,6 +995,10 @@ service or a full workload/debrief experience.
   performance investigation is initial browser delivery: the airport entry
   bundle still contains static imported hub-data assets and should be split only
   through an async configuration boundary that preserves deterministic replay.
+  A browser-safe per-airport async asset loader now has exact equivalence
+  coverage against the synchronous ATL, DFW, and ORD manifests and cloned
+  surface graphs; the browser configuration factory has not yet been migrated
+  to consume it, so startup delivery remains open.
 - [ ] Split coordinators when ownership becomes ambiguous; do not split files
       solely to satisfy a line-count target.
   The stand-activity light lifecycle is now isolated in a dedicated renderer

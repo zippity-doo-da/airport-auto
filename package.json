@@ -77,6 +77,7 @@
     "test:atc-commands": "node scripts/validateAtcCommandVocabulary.mjs",
     "test:manual-departure": "node scripts/validateManualDepartureLifecycle.mjs",
     "test:manual-arrival": "node scripts/validateManualArrivalLifecycle.mjs",
+    "test:async-assets": "node scripts/validateAsyncAirportAssets.mjs",
     "test:group-commands": "node scripts/validateGroupedFlightInstructions.mjs",
     "test:training": "node scripts/validateTrainingProgram.mjs",
     "test:challenges": "node scripts/validateChallengeProgram.mjs",
