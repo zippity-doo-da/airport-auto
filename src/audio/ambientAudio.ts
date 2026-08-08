@@ -32,6 +32,7 @@ export const AUDIO_CHANNELS = [
 
 export interface PresentationAudioVisibility {
   serviceVehicles: boolean;
+  airportLife: boolean;
 }
 
 export function isPresentationAudioEventEnabled(
@@ -170,6 +171,7 @@ export class AmbientAudio {
   private captionsEnabled = true;
   private readonly presentationAudio: PresentationAudioVisibility = {
     serviceVehicles: true,
+    airportLife: false,
   };
   private playedEvents = 0;
   private suppressedEvents = 0;
@@ -235,6 +237,15 @@ export class AmbientAudio {
     this.presentationAudio.serviceVehicles = enabled;
   }
 
+  /**
+   * Terminal-room and parked-aircraft APU beds are presentation ambience, not
+   * operational alerts. Keep them bound to the same airport-life switch as
+   * the gate/landside visuals without muting independently enabled vehicles.
+   */
+  setAirportLifeAudioEnabled(enabled: boolean): void {
+    this.presentationAudio.airportLife = enabled;
+  }
+
   setCaptionsEnabled(enabled: boolean): void {
     this.captionsEnabled = enabled;
   }
@@ -270,10 +281,15 @@ export class AmbientAudio {
       : 0;
     this.environment.field = Math.min(0.026, 0.009 + moving * 0.00075)
       * (1 - this.environment.lowVisibility * 0.32);
-    this.environment.room = (state.mode === "watch" ? 0.01 : 0.014)
-      + this.environment.lowVisibility * 0.005;
-    this.environment.ramp = Math.min(0.024, rampVehicles * 0.0018);
-    this.environment.apu = Math.min(0.018, gateActivity * 0.0014);
+    this.environment.room = this.presentationAudio.airportLife
+      ? (state.mode === "watch" ? 0.01 : 0.014) + this.environment.lowVisibility * 0.005
+      : 0;
+    this.environment.ramp = this.presentationAudio.serviceVehicles
+      ? Math.min(0.024, rampVehicles * 0.0018)
+      : 0;
+    this.environment.apu = this.presentationAudio.airportLife
+      ? Math.min(0.018, gateActivity * 0.0014)
+      : 0;
 
     if (
       !this.context ||

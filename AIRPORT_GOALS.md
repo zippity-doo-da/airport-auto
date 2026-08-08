@@ -856,8 +856,8 @@ radio, audio, notification, or traffic patterns.
   has an independent cue/caption toggle, and hiding service vehicles now also
   suppresses only their service/ramp audio cues. Airport-life now owns dedicated
   terminal-access and gate-activity render layers, both suppressed by its
-  toggle; a dedicated airport-life audio layer and full end-to-end acceptance
-  evidence remain open.
+  toggle, plus the terminal-room and parked-aircraft APU beds; full end-to-end
+  acceptance evidence remains open.
 
 ## A8 — Shared human and agent shifts
 

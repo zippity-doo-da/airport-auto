@@ -6830,6 +6830,7 @@ function setAirportLifeVisible(visible: boolean): void {
   airportLifeVisible = visible;
   airportLifeToggle.checked = visible;
   world.setAirportLifeVisible(visible);
+  audio.setAirportLifeAudioEnabled(visible);
   lastFlightStripRender = -Infinity;
   renderFlightStrip();
 }

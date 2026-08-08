@@ -30,9 +30,9 @@ const sleep = AUDIO_PRESET_MIX.sleep;
 assert(sleep.radio === 0 && sleep.ui === 0, "Sleep mix must suppress radio and UI alerts");
 assert(sleep.ambience > 0 && sleep.weather > 0 && sleep.terminal > 0, "Sleep mix lost its ambient field layers");
 assert(sleep.aircraft > 0 && sleep.aircraft < 0.2, "Sleep mix aircraft layer is not suitably restrained");
-assert(!isPresentationAudioEventEnabled({ kind: "service-vehicle" }, { serviceVehicles: false }), "hidden service vehicles still produce service audio");
-assert(!isPresentationAudioEventEnabled({ kind: "ramp-clatter" }, { serviceVehicles: false }), "hidden service vehicles still produce ramp audio");
-assert(isPresentationAudioEventEnabled({ kind: "touchdown" }, { serviceVehicles: false }), "service-vehicle toggle muted unrelated aircraft audio");
+assert(!isPresentationAudioEventEnabled({ kind: "service-vehicle" }, { serviceVehicles: false, airportLife: true }), "hidden service vehicles still produce service audio");
+assert(!isPresentationAudioEventEnabled({ kind: "ramp-clatter" }, { serviceVehicles: false, airportLife: true }), "hidden service vehicles still produce ramp audio");
+assert(isPresentationAudioEventEnabled({ kind: "touchdown" }, { serviceVehicles: false, airportLife: false }), "presentation toggles muted unrelated aircraft audio");
 console.log(JSON.stringify({ channels: AUDIO_CHANNELS, sleep }));
 `;
 
