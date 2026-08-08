@@ -433,6 +433,9 @@ export function createWorld(
   const zoomGroundPoint = new THREE.Vector3();
   let nightMix = 0;
   let lastGateLightState = "";
+  let lastEnvironmentMaterialKey = "";
+  let gateActivityUpdateIn = 0;
+  let disruptionUpdateIn = 0;
   let currentState: AirportState | null = null;
   let runwayLabelsVisible = false;
   let serviceVehiclesVisible = true;
@@ -500,7 +503,16 @@ export function createWorld(
     );
     hemisphere.intensity = environment.hemisphereIntensity;
     renderer.toneMappingExposure = environment.exposure;
-    updateEnvironmentMaterials(environmentMaterials, environment);
+    const environmentMaterialKey = [
+      environment.terrainTint,
+      environment.snowTint,
+      environment.wetPavement.toFixed(3),
+      environment.snowCover.toFixed(3),
+    ].join(":");
+    if (environmentMaterialKey !== lastEnvironmentMaterialKey) {
+      updateEnvironmentMaterials(environmentMaterials, environment);
+      lastEnvironmentMaterialKey = environmentMaterialKey;
+    }
     for (let index = 0; index < runwayLights.length; index += 1) {
       const light = runwayLights[index];
       const activeEnd =
@@ -528,10 +540,7 @@ export function createWorld(
         1,
       );
     }
-    const runwayProtection = runwayProtectionStatuses(
-      state,
-      config.runways.length,
-    );
+    const runwayProtection = runwayProtectionStatuses(state, config.runways.length);
     for (const light of runwayProtectionLights) {
       const status = runwayProtection[light.runwayId];
       const visible =
@@ -574,7 +583,8 @@ export function createWorld(
       visual.closure.visible = closed;
       for (const label of visual.labels) label.visible = runwayLabelsVisible;
     }
-    updateSurfaceProtectionOverlay(airportBuild.surfaceProtection, state);
+    if (airportBuild.surfaceProtection.group.visible)
+      updateSurfaceProtectionOverlay(airportBuild.surfaceProtection, state);
     if (airportBuild.surfaceProjections.group.visible)
       updateSurfaceProjectionOverlay(
         airportBuild.surfaceProjections,
@@ -582,23 +592,33 @@ export function createWorld(
         config.vectorData?.runtimeReference.worldMetersPerUnit ?? 38,
         serviceVehiclesVisible,
       );
-    if (airportBuild.gateLights)
+    gateActivityUpdateIn -= delta;
+    if (airportBuild.gateLights && gateActivityUpdateIn <= 0) {
       lastGateLightState = updateGateActivityLights(
         airportBuild.gateLights,
         state,
         environment.runwayLightIntensity,
         lastGateLightState,
       );
-    updateSurfaceDisruptionVisuals({
-      state,
-      graph: config.surfaceGraph,
-      scope: config.scope,
-      layer: disruptionLayer,
-      visuals: disruptionVisuals,
-      pools: disruptionPools,
-      poolBudget: disruptionPoolBudget,
-      dispose: disposeObject,
-    });
+      // Gate assignments and night lighting do not need per-display-frame
+      // instance uploads. Five updates per second remains visibly immediate
+      // while avoiding string/set work for every stand at render rate.
+      gateActivityUpdateIn = 0.2;
+    }
+    disruptionUpdateIn -= delta;
+    if (disruptionUpdateIn <= 0) {
+      updateSurfaceDisruptionVisuals({
+        state,
+        graph: config.surfaceGraph,
+        scope: config.scope,
+        layer: disruptionLayer,
+        visuals: disruptionVisuals,
+        pools: disruptionPools,
+        poolBudget: disruptionPoolBudget,
+        dispose: disposeObject,
+      });
+      disruptionUpdateIn = 0.1;
+    }
     airspaceOverlay.update(state, delta);
     updateRain(rain, state, delta);
     for (const visual of flightVisuals.values()) visual.active = false;

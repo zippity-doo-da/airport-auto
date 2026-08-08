@@ -975,6 +975,19 @@ let mapOrientationVisible = false;
 let lastOrientationUpdate = -Infinity;
 let lastRadarUpdate = -Infinity;
 let previousPresentation = capturePresentation(simulation.state);
+// The render adapter interpolates fixed-step authority at display rate. Keep
+// that presentation data in a stable buffer: allocating a complete wrapped
+// airport/flight/motion tree every frame becomes visible as GC hitches at busy
+// hubs even though the underlying simulation is deterministic and cheap.
+let presentationStateCache: typeof simulation.state | null = null;
+let presentationStateSource: typeof simulation.state | null = null;
+const presentationFlightCache = new Map<number, Flight>();
+const presentationServiceVehicleCache = new Map<
+  string,
+  (typeof simulation.state.serviceVehicles)[number]
+>();
+const activePresentationFlightIds = new Set<number>();
+const activePresentationServiceVehicleIds = new Set<string>();
 let lastFlightStripRender = -Infinity;
 let lastSurfaceSafetyRender = -Infinity;
 let renderedFrames = 0;
@@ -3258,138 +3271,171 @@ function presentationState(): typeof simulation.state {
   );
   const mix = (first: number, second: number) =>
     first + (second - first) * alpha;
-  return {
-    ...current,
-    elapsed: mix(previousPresentation.elapsed, current.elapsed),
-    environment: {
-      ...current.environment,
-      localMinute: mix(
-        previousPresentation.environment.localMinute,
-        current.environment.localMinute,
+  if (presentationStateSource !== current || !presentationStateCache) {
+    presentationStateSource = current;
+    presentationStateCache = {
+      ...current,
+      environment: { ...current.environment },
+      flights: [],
+      serviceVehicles: [],
+    };
+    presentationFlightCache.clear();
+    presentationServiceVehicleCache.clear();
+  }
+  const presentation = presentationStateCache;
+  presentation.elapsed = mix(previousPresentation.elapsed, current.elapsed);
+  Object.assign(presentation.environment, current.environment);
+  presentation.environment.localMinute = mix(
+    previousPresentation.environment.localMinute,
+    current.environment.localMinute,
+  );
+  presentation.environment.daylight = mix(
+    previousPresentation.environment.daylight,
+    current.environment.daylight,
+  );
+  presentation.environment.sunAzimuthRadians =
+    previousPresentation.environment.sunAzimuthRadians +
+    Math.atan2(
+      Math.sin(
+        current.environment.sunAzimuthRadians -
+          previousPresentation.environment.sunAzimuthRadians,
       ),
-      daylight: mix(
-        previousPresentation.environment.daylight,
-        current.environment.daylight,
+      Math.cos(
+        current.environment.sunAzimuthRadians -
+          previousPresentation.environment.sunAzimuthRadians,
       ),
-      sunAzimuthRadians:
-        previousPresentation.environment.sunAzimuthRadians +
+    ) *
+      alpha;
+  presentation.environment.sunElevationRadians = mix(
+    previousPresentation.environment.sunElevationRadians,
+    current.environment.sunElevationRadians,
+  );
+  presentation.environment.cloudCover = mix(
+    previousPresentation.environment.cloudCover,
+    current.environment.cloudCover,
+  );
+  presentation.environment.snowCover = mix(
+    previousPresentation.environment.snowCover,
+    current.environment.snowCover,
+  );
+  presentation.environment.wetPavement = mix(
+    previousPresentation.environment.wetPavement,
+    current.environment.wetPavement,
+  );
+  presentation.environment.runwayLightIntensity = mix(
+    previousPresentation.environment.runwayLightIntensity,
+    current.environment.runwayLightIntensity,
+  );
+
+  activePresentationServiceVehicleIds.clear();
+  presentation.serviceVehicles.length = 0;
+  for (const vehicle of current.serviceVehicles) {
+    const previous = previousPresentation.serviceVehicles.get(vehicle.id);
+    let rendered = presentationServiceVehicleCache.get(vehicle.id);
+    if (!rendered || !previous || previous.status !== vehicle.status) {
+      rendered = { ...vehicle };
+      presentationServiceVehicleCache.set(vehicle.id, rendered);
+    } else {
+      Object.assign(rendered, vehicle);
+      rendered.progress = mix(previous.progress, vehicle.progress);
+      rendered.x = mix(previous.x, vehicle.x);
+      rendered.y = mix(previous.y, vehicle.y);
+      rendered.heading =
+        previous.heading +
         Math.atan2(
-          Math.sin(
-            current.environment.sunAzimuthRadians -
-              previousPresentation.environment.sunAzimuthRadians,
-          ),
-          Math.cos(
-            current.environment.sunAzimuthRadians -
-              previousPresentation.environment.sunAzimuthRadians,
-          ),
+          Math.sin(vehicle.heading - previous.heading),
+          Math.cos(vehicle.heading - previous.heading),
         ) *
-          alpha,
-      sunElevationRadians: mix(
-        previousPresentation.environment.sunElevationRadians,
-        current.environment.sunElevationRadians,
-      ),
-      cloudCover: mix(
-        previousPresentation.environment.cloudCover,
-        current.environment.cloudCover,
-      ),
-      snowCover: mix(
-        previousPresentation.environment.snowCover,
-        current.environment.snowCover,
-      ),
-      wetPavement: mix(
-        previousPresentation.environment.wetPavement,
-        current.environment.wetPavement,
-      ),
-      runwayLightIntensity: mix(
-        previousPresentation.environment.runwayLightIntensity,
-        current.environment.runwayLightIntensity,
-      ),
-    },
-    serviceVehicles: current.serviceVehicles.map((vehicle) => {
-      const previous = previousPresentation.serviceVehicles.get(vehicle.id);
-      if (!previous || previous.status !== vehicle.status) return vehicle;
-      const mix = (first: number, second: number) =>
-        first + (second - first) * alpha;
-      return {
-        ...vehicle,
-        progress: mix(previous.progress, vehicle.progress),
-        x: mix(previous.x, vehicle.x),
-        y: mix(previous.y, vehicle.y),
-        heading:
-          previous.heading +
-          Math.atan2(
-            Math.sin(vehicle.heading - previous.heading),
-            Math.cos(vehicle.heading - previous.heading),
-          ) *
-            alpha,
-        groundSpeedMps: mix(previous.groundSpeedMps, vehicle.groundSpeedMps),
-      };
-    }),
-    flights: current.flights.map((flight) => {
-      const previous = previousPresentation.flights.get(flight.id);
-      if (!previous || previous.phase !== flight.phase) return flight;
-      const mix = (first: number, second: number) =>
-        first + (second - first) * alpha;
-      return {
+          alpha;
+      rendered.groundSpeedMps = mix(
+        previous.groundSpeedMps,
+        vehicle.groundSpeedMps,
+      );
+    }
+    activePresentationServiceVehicleIds.add(vehicle.id);
+    presentation.serviceVehicles.push(rendered);
+  }
+  for (const id of presentationServiceVehicleCache.keys())
+    if (!activePresentationServiceVehicleIds.has(id))
+      presentationServiceVehicleCache.delete(id);
+
+  activePresentationFlightIds.clear();
+  presentation.flights.length = 0;
+  for (const flight of current.flights) {
+    const previous = previousPresentation.flights.get(flight.id);
+    let rendered = presentationFlightCache.get(flight.id);
+    if (!rendered || !previous || previous.phase !== flight.phase) {
+      rendered = {
         ...flight,
-        progress: mix(previous.progress, flight.progress),
-        phaseElapsed: mix(previous.phaseElapsed, flight.phaseElapsed),
-        kinematics: {
-          airspeedKts: mix(
-            previous.kinematics.airspeedKts,
-            flight.kinematics.airspeedKts,
-          ),
-          groundSpeedKts: mix(
-            previous.kinematics.groundSpeedKts,
-            flight.kinematics.groundSpeedKts,
-          ),
-          altitudeFt: mix(
-            previous.kinematics.altitudeFt,
-            flight.kinematics.altitudeFt,
-          ),
-          verticalSpeedFpm: mix(
-            previous.kinematics.verticalSpeedFpm,
-            flight.kinematics.verticalSpeedFpm,
-          ),
-          accelerationMps2: mix(
-            previous.kinematics.accelerationMps2,
-            flight.kinematics.accelerationMps2,
-          ),
-          fuelPercent: mix(
-            previous.kinematics.fuelPercent,
-            flight.kinematics.fuelPercent,
-          ),
-        },
-        motion: {
-          ...flight.motion,
-          x: mix(previous.motion.x, flight.motion.x),
-          y: mix(previous.motion.y, flight.motion.y),
-          z: mix(previous.motion.z, flight.motion.z),
-          heading:
-            previous.motion.heading +
-            Math.atan2(
-              Math.sin(flight.motion.heading - previous.motion.heading),
-              Math.cos(flight.motion.heading - previous.motion.heading),
-            ) *
-              alpha,
-          pitch: mix(previous.motion.pitch, flight.motion.pitch),
-          bank: mix(previous.motion.bank, flight.motion.bank),
-          distanceAlongM: mix(
-            previous.motion.distanceAlongM,
-            flight.motion.distanceAlongM,
-          ),
-          totalDistanceM: mix(
-            previous.motion.totalDistanceM,
-            flight.motion.totalDistanceM,
-          ),
-          stageProgress: mix(
-            previous.motion.stageProgress,
-            flight.motion.stageProgress,
-          ),
-        },
+        kinematics: { ...flight.kinematics },
+        motion: { ...flight.motion },
       };
-    }),
-  };
+      presentationFlightCache.set(flight.id, rendered);
+    } else {
+      const renderedKinematics = rendered.kinematics;
+      const renderedMotion = rendered.motion;
+      Object.assign(rendered, flight);
+      rendered.kinematics = renderedKinematics;
+      rendered.motion = renderedMotion;
+      rendered.progress = mix(previous.progress, flight.progress);
+      rendered.phaseElapsed = mix(previous.phaseElapsed, flight.phaseElapsed);
+      Object.assign(renderedKinematics, flight.kinematics);
+      renderedKinematics.airspeedKts = mix(
+        previous.kinematics.airspeedKts,
+        flight.kinematics.airspeedKts,
+      );
+      renderedKinematics.groundSpeedKts = mix(
+        previous.kinematics.groundSpeedKts,
+        flight.kinematics.groundSpeedKts,
+      );
+      renderedKinematics.altitudeFt = mix(
+        previous.kinematics.altitudeFt,
+        flight.kinematics.altitudeFt,
+      );
+      renderedKinematics.verticalSpeedFpm = mix(
+        previous.kinematics.verticalSpeedFpm,
+        flight.kinematics.verticalSpeedFpm,
+      );
+      renderedKinematics.accelerationMps2 = mix(
+        previous.kinematics.accelerationMps2,
+        flight.kinematics.accelerationMps2,
+      );
+      renderedKinematics.fuelPercent = mix(
+        previous.kinematics.fuelPercent,
+        flight.kinematics.fuelPercent,
+      );
+      Object.assign(renderedMotion, flight.motion);
+      renderedMotion.x = mix(previous.motion.x, flight.motion.x);
+      renderedMotion.y = mix(previous.motion.y, flight.motion.y);
+      renderedMotion.z = mix(previous.motion.z, flight.motion.z);
+      renderedMotion.heading =
+        previous.motion.heading +
+        Math.atan2(
+          Math.sin(flight.motion.heading - previous.motion.heading),
+          Math.cos(flight.motion.heading - previous.motion.heading),
+        ) *
+          alpha;
+      renderedMotion.pitch = mix(previous.motion.pitch, flight.motion.pitch);
+      renderedMotion.bank = mix(previous.motion.bank, flight.motion.bank);
+      renderedMotion.distanceAlongM = mix(
+        previous.motion.distanceAlongM,
+        flight.motion.distanceAlongM,
+      );
+      renderedMotion.totalDistanceM = mix(
+        previous.motion.totalDistanceM,
+        flight.motion.totalDistanceM,
+      );
+      renderedMotion.stageProgress = mix(
+        previous.motion.stageProgress,
+        flight.motion.stageProgress,
+      );
+    }
+    activePresentationFlightIds.add(flight.id);
+    presentation.flights.push(rendered);
+  }
+  for (const id of presentationFlightCache.keys())
+    if (!activePresentationFlightIds.has(id)) presentationFlightCache.delete(id);
+  return presentation;
 }
 
 function cloneAirportState(
