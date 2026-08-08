@@ -380,6 +380,22 @@ const report = {
         ))
         .map((other) => ({ id: other.id, callsign: other.callsign, phase: other.phase, runway: other.runway })),
     })),
+  phaseTransitionDiagnostics: simulation.state.flights
+    .filter((flight) => flight.phase === 'landing' && flight.progress >= 1 - 1e-9)
+    .map((flight) => ({
+      id: flight.id,
+      callsign: flight.callsign,
+      runway: flight.runway,
+      taxiInConflict: simulation['transitionConflict'](flight, 'taxi-in'),
+    })),
+  pushbackAdmissionDiagnostics: simulation.state.flights
+    .filter((flight) => flight.phase === 'resting' && flight.turnaround.status === 'ready')
+    .map((flight) => ({
+      id: flight.id,
+      callsign: flight.callsign,
+      flowAdmission: simulation['surfaceFlowPushbackAdmissionReason'](flight),
+      releasesBlockedArrival: simulation['pushbackReleasesBlockedArrival'](flight),
+    })),
   heldServiceVehicles: simulation.state.serviceVehicles
     .filter((vehicle) => vehicle.held)
     .map((vehicle) => ({
@@ -598,6 +614,21 @@ const compact = {
   longestWaitQueue: report.longestWaitQueue,
   longestSurfaceQueueWaitSeconds: report.longestSurfaceWaitQueue?.waitSeconds ?? 0,
   longestSurfaceWaitQueue: report.longestSurfaceWaitQueue,
+  longHeldFlights: report.activeFlights
+    .filter((flight) => flight.stationarySeconds >= 300)
+    .map((flight) => ({
+      id: flight.id,
+      callsign: flight.callsign,
+      phase: flight.phase,
+      progress: flight.progress,
+      stationarySeconds: flight.stationarySeconds,
+      gate: flight.gate,
+      surfaceNode: flight.surfaceNode,
+      surfaceEdge: flight.surfaceEdge,
+      hold: flight.hold,
+      surfaceYield: flight.surfaceYield,
+    })),
+  pushbackAdmissionDiagnostics: report.pushbackAdmissionDiagnostics,
   simulationTickP95Ms: report.performance.simulationTickMs.p95,
   safety: report.safety,
 };

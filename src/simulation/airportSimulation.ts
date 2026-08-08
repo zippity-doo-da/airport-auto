@@ -459,6 +459,7 @@ const SURFACE_YIELD_RETRY_COOLDOWN_SECONDS = 60;
 const SERVICE_VEHICLE_PREPOSITION_PROGRESS = 0.72;
 const SERVICE_VEHICLE_PREPOSITION_LEAD_SECONDS = 90;
 const ARRIVAL_ADMISSION_RETRY_SECONDS = 5;
+const ACTIVE_GATE_RESERVATION_HORIZON_SECONDS = 24 * 60 * 60;
 
 type AircraftCollisionSweep = {
   envelopes: Array<ReturnType<typeof aircraftCollisionEnvelope>>;
@@ -2871,7 +2872,11 @@ export class AirportSimulation {
       );
     }
     const flowAdmission = this.surfaceFlowPushbackAdmissionReason(flight);
-    if (flowAdmission && this.stationRunsAutomatically("ramp")) {
+    if (
+      flowAdmission &&
+      this.stationRunsAutomatically("ramp") &&
+      !this.pushbackReleasesBlockedArrival(flight)
+    ) {
       return this.rejectDecision(`pushback held: ${flowAdmission}`, flight);
     }
     if (
@@ -5047,6 +5052,7 @@ export class AirportSimulation {
       this.resolveParkedAircraftSurfaceBlockers();
       this.resolveReciprocalSurfaceDeadlocks();
       this.resolvePhaseTransitionSurfaceBlockers();
+      this.resolvePushbackTransitionBlockers();
       this.resolveSurfaceWaitCycles();
       this.metrics.maxConcurrent = Math.max(
         this.metrics.maxConcurrent,
@@ -8682,6 +8688,24 @@ export class AirportSimulation {
               Math.max(0, flight.pushbackReleaseProgress - flight.progress),
           );
       }
+      if (
+        flight.phase === "approach" ||
+        flight.phase === "landing" ||
+        flight.phase === "taxi-in" ||
+        flight.phase === "resting"
+      ) {
+        // An active aircraft owns its stand until it physically releases the
+        // gate during pushback. Optimistic schedule windows allowed several
+        // active flights to reserve M1/C17/B9 simultaneously; one delayed turn
+        // then produced an unsolvable queue at the lead-in. The long horizon is
+        // intentionally bounded for arithmetic, but active state—not forecast
+        // timing—is the actual release authority.
+        startSeconds = Math.min(startSeconds, now);
+        endSeconds = Math.max(
+          endSeconds,
+          now + ACTIVE_GATE_RESERVATION_HORIZON_SECONDS,
+        );
+      }
       return [
         {
           flightId: flight.id,
@@ -8697,13 +8721,20 @@ export class AirportSimulation {
 
   private ensureArrivalGate(flight: Flight): boolean {
     const assignment = flight.gateAssignment;
+    // Once rollout is complete, dynamic traffic farther along the assigned
+    // taxi route must not leave the aircraft parked on an active runway. The
+    // phase-transition sweep protects the runway exit and the per-tick surface
+    // arbiters protect every subsequent movement. Occupied stands and parked
+    // aircraft remain hard gate-assignment blockers.
+    const mustVacateRunway =
+      flight.phase === "landing" && flight.progress >= 1 - 1e-9;
     // A provisional approach assignment only needs a free compatible stand
     // and a conflict-free terminal route. The more expensive whole-stand
     // corridor screen runs immediately before surface entry (and for the
     // opening-bank aircraft that start on the ground), when it can act on the
     // current traffic picture instead of repeatedly screening future traffic.
     const screenActiveStandCorridors =
-      flight.phase === "landing" ||
+      (!mustVacateRunway && flight.phase === "landing") ||
       flight.phase === "taxi-in" ||
       flight.phase === "resting";
     const routeConflictingStandIds = screenActiveStandCorridors
@@ -8712,7 +8743,7 @@ export class AirportSimulation {
     const routeConflictsWithParkedAircraft = assignment
       ? this.arrivalRouteConflictsWithParkedAircraft(flight, assignment)
       : false;
-    const routeConflictsWithSurfaceTraffic = assignment
+    const routeConflictsWithSurfaceTraffic = assignment && !mustVacateRunway
       ? this.arrivalRouteConflictsWithSurfaceTraffic(flight, assignment)
       : false;
     const blocker = assignment
@@ -11637,11 +11668,11 @@ export class AirportSimulation {
           )
         )
           continue;
-        this.holdForUnavailableSurfaceRoute(
-          flight,
-          [`parked:${blocker.id}`],
-          `parked aircraft conflict with ${blocker.callsign}`,
-        );
+        // Keep the current collision hold live rather than converting it into
+        // a permanent route-unavailable state. The parked blocker may receive
+        // pushback later; once its body clears, the unchanged authoritative
+        // taxi route is valid again and the normal arbiter can release this
+        // aircraft without a stale manual intervention.
         continue;
       }
       recovery.attempts += 1;
@@ -11783,11 +11814,23 @@ export class AirportSimulation {
         previous?.signature === signature
           ? previous
           : { signature, attempts: 0, retryAtSeconds: this.state.elapsed };
-      if (
-        recovery.attempts >= 2 ||
-        this.state.elapsed + 1e-6 < recovery.retryAtSeconds
-      )
+      if (this.state.elapsed + 1e-6 < recovery.retryAtSeconds) continue;
+      if (recovery.attempts >= 2) {
+        if (
+          this.startSurfaceYieldRecovery(
+            [outbound, inbound],
+            `pushback-corridor-${outbound.id}-${inbound.id}`,
+          )
+        ) {
+          this.stationarySeconds.set(outbound.id, 0);
+          this.stationarySeconds.set(inbound.id, 0);
+          this.pushbackCorridorRecovery.delete(inbound);
+        } else {
+          recovery.retryAtSeconds = this.state.elapsed + 45;
+          this.pushbackCorridorRecovery.set(inbound, recovery);
+        }
         continue;
+      }
       recovery.attempts += 1;
       recovery.retryAtSeconds = this.state.elapsed + 45;
       this.pushbackCorridorRecovery.set(inbound, recovery);
@@ -11861,7 +11904,13 @@ export class AirportSimulation {
           holdIfUnavailable: false,
         },
       );
-      if (!rerouted) continue;
+      if (!rerouted) {
+        this.startSurfaceYieldRecovery(
+          [flight],
+          `taxiway-flow-${flowHold.id}-${flight.id}`,
+        );
+        continue;
+      }
       flight.safetyHold = false;
       flight.safetyHoldReason = undefined;
       flight.automaticHold = false;
@@ -11991,7 +12040,14 @@ export class AirportSimulation {
           holdIfUnavailable: false,
         },
       );
-      if (!rerouted) continue;
+      if (!rerouted) {
+        if (waitSeconds >= 180)
+          this.startSurfaceYieldRecovery(
+            [flight, blocker],
+            `reservation-${flight.id}-${blocker.id}`,
+          );
+        continue;
+      }
       flight.safetyHold = false;
       flight.safetyHoldReason = undefined;
       flight.automaticHold = false;
@@ -12093,6 +12149,25 @@ export class AirportSimulation {
           firstPriority[2] < secondPriority[2]);
       const winner = flightWins ? flight : other;
       const loser = flightWins ? other : flight;
+      const reciprocalWaitSeconds = Math.min(
+        this.stationarySeconds.get(flight.id) ?? 0,
+        this.stationarySeconds.get(other.id) ?? 0,
+      );
+      // A repeated graph detour cannot solve a nose-to-nose stand-off inside a
+      // single terminal lead-in: every legal suffix rejoins the same narrow
+      // pavement. Once the reciprocal dependency has remained stable long
+      // enough to rule out a transient merge, use the swept-envelope recovery
+      // before another accepted-but-equivalent route amendment resets the
+      // aircraft timers. No pose is accepted off pavement or through another
+      // aircraft, stand, obstacle, or protected runway.
+      if (
+        reciprocalWaitSeconds >= 30 &&
+        this.startSurfaceYieldRecovery(
+          [loser, winner],
+          `reciprocal-${pairKey}`,
+        )
+      )
+        continue;
       const trafficRerouteAt = (candidate: Flight): number =>
         candidate.surfaceReroute?.reason.includes("reciprocal traffic conflict")
           ? candidate.surfaceReroute.selectedAtSeconds
@@ -12335,36 +12410,13 @@ export class AirportSimulation {
             )
           )
             continue;
-          const targetClaims = surfaceRouteReservationClaims(
-            this.config.surfaceGraph,
-            flight.surfaceRoute,
-            flight.surfaceRouteEdges,
-            targetProgress,
-            flight.phase,
-            0,
-          );
-          const cycleOccupancy = new SurfaceReservationLedger();
-          for (const other of members) {
-            if (other.id === flight.id) continue;
-            cycleOccupancy.reserve(
-              other.id,
-              surfaceRouteReservationClaims(
-                this.config.surfaceGraph,
-                other.surfaceRoute,
-                other.surfaceRouteEdges,
-                other.progress,
-                other.phase,
-                0,
-              ),
-            );
-          }
-          // The parking point must release the resource that formed the cycle,
-          // not merely create visual distance on the same controlled section.
-          if (
-            direction === "reverse" &&
-            cycleOccupancy.firstConflictDetail(targetClaims, flight.id)
-          )
-            continue;
+          // Do not reject an otherwise-clear recovery because both endpoints
+          // retain the same coarse OSM edge/alley claim. Long imported edges
+          // can contain hundreds of metres of pavement; the swept-envelope
+          // check above proves actual separation along the complete move, and
+          // the ordinary ledger/collision arbiters still authorize every fixed
+          // step. Requiring the target to leave the coarse resource made safe
+          // tug-backs impossible inside terminal lead-ins.
 
           if (direction === "reverse") {
             // A clearance not yet entered can be cancelled before a tug backs
@@ -12458,8 +12510,19 @@ export class AirportSimulation {
           return false;
         const reason =
           flight.safetyHoldReason ?? flight.automaticHoldReason ?? "";
-        return new RegExp(`(?:flight |\\(flight )${rollout.id}\\)?$`).test(
-          reason,
+        if (
+          new RegExp(`(?:flight |\\(flight )${rollout.id}\\)?$`).test(reason)
+        )
+          return true;
+        // A crossing hold names the protected runway, not the aircraft on it.
+        // Expose that dependency when the runway occupant is a completed
+        // rollout that also cannot create its taxi-in phase. The recovery below
+        // still has to prove, on the sourced graph, that moving this aircraft
+        // resolves the blocked transition.
+        const crossing = this.nextUnclearedCrossing(flight);
+        return Boolean(
+          crossing &&
+            this.runwayBlocker(crossing.runwayId, flight.id)?.id === rollout.id,
         );
       });
       if (!blocker) continue;
@@ -12468,6 +12531,45 @@ export class AirportSimulation {
           [blocker],
           `phase-transition-${rollout.id}-${blocker.id}`,
           { flight: rollout, next: "taxi-in" },
+        )
+      )
+        return;
+    }
+  }
+
+  /**
+   * A departure can be safely cleared to push and still fail the taxi-out
+   * phase transition because an arrival is stopped beside its stand. Move the
+   * arrival only along its authoritative taxi route until the complete
+   * pushback transition sweep is clear. This is the ramp equivalent of a tug
+   * reposition; the normal collision, vehicle, pavement, and runway checks
+   * remain authoritative for every sampled pose.
+   */
+  private resolvePushbackTransitionBlockers(): void {
+    const blockedArrivals = this.state.flights.filter(
+      (flight): flight is Flight & { phase: "taxi-in" } =>
+        flight.phase === "taxi-in" &&
+        (this.stationarySeconds.get(flight.id) ?? 0) >= 90,
+    );
+    if (!blockedArrivals.length) return;
+    for (const departure of this.state.flights) {
+      if (
+        departure.phase !== "resting" ||
+        !departure.pushbackCleared ||
+        !this.transitionConflict(departure, "taxi-out")
+      )
+        continue;
+      const blocker = blockedArrivals.find(
+        (arrival) =>
+          arrival.safetyHoldReason ===
+          `projected path conflict with flight ${departure.id}`,
+      );
+      if (!blocker) continue;
+      if (
+        this.startSurfaceYieldRecovery(
+          [blocker],
+          `pushback-transition-${departure.id}-${blocker.id}`,
+          { flight: departure, next: "taxi-out" },
         )
       )
         return;
@@ -12493,10 +12595,21 @@ export class AirportSimulation {
     const waitFor = new Map<number, number>();
     for (const flight of surfaceFlights) {
       if ((this.stationarySeconds.get(flight.id) ?? 0) < 30) continue;
+      const runwayEntryBlocker =
+        flight.phase === "taxi-out" &&
+        flight.progress >= 0.985 &&
+        !flight.runwayEntryCleared
+          ? this.departurePathBlocker(flight)
+          : undefined;
       const numeric = (
         flight.safetyHoldReason ?? flight.automaticHoldReason
       )?.match(/(?:flight |\(flight )(\d+)\)?$/);
-      let blockerId = numeric ? Number(numeric[1]) : undefined;
+      // Tower can reject entry without setting a movement hold. When the
+      // surface aircraft occupying the departure sweep is itself held by this
+      // departure, this supplies the missing half of the wait cycle so normal
+      // pavement-only reroute/tug recovery can resolve it.
+      let blockerId =
+        runwayEntryBlocker?.id ?? (numeric ? Number(numeric[1]) : undefined);
       if (
         blockerId === undefined &&
         flight.automaticHoldReason?.startsWith(
@@ -13744,6 +13857,23 @@ export class AirportSimulation {
     return this.surfaceFlowPlanner.admissionReason(claims, this.state.elapsed);
   }
 
+  /**
+   * A strategic one-way window must not keep a parked aircraft at its stand
+   * when that same body is the physical blocker preventing an arrival from
+   * reaching another stand. The pushback preview and swept-envelope test have
+   * already proved the immediate movement clear; admitting the departure lets
+   * the ordinary surface arbiter expose and resolve any downstream dependency.
+   */
+  private pushbackReleasesBlockedArrival(flight: Flight): boolean {
+    return this.state.flights.some(
+      (candidate) =>
+        candidate.phase === "taxi-in" &&
+        (this.stationarySeconds.get(candidate.id) ?? 0) >= 90 &&
+        candidate.safetyHoldReason ===
+          `projected path conflict with flight ${flight.id}`,
+    );
+  }
+
   /** Protect the complete tug-release corridor before the aircraft moves. */
   private pushbackSurfaceBlocker(
     flight: Flight,
@@ -13932,7 +14062,11 @@ export class AirportSimulation {
         (candidate) =>
           candidate.id !== preview.id &&
           (candidate.phase === "taxi-in" || candidate.phase === "taxi-out") &&
-          candidate.emergency !== "disabled",
+          candidate.emergency !== "disabled" &&
+          !(
+            candidate.safetyHold &&
+            candidate.safetyHoldReason?.includes(`flight ${preview.id}`)
+          ),
       )
       .sort(
         (first, second) =>
