@@ -26,6 +26,10 @@ const restoredNext = restored.plan(280, [{ ...north, count: 9 }, { ...south, cou
 assert(JSON.stringify(originalNext) === JSON.stringify(restoredNext), 'planner checkpoint restore changed its deterministic decision');
 const claims = SurfaceFlowPlanner.claims([restoredNext]);
 assert(claims.length === 1 && claims[0].kind === 'taxiway-flow' && claims[0].direction === restoredNext.direction, 'planner did not project its decision into a reservation claim');
+const admissionPlanner = new SurfaceFlowPlanner();
+admissionPlanner.plan(0, [north, south]);
+assert(admissionPlanner.admissionReason([{ kind: 'taxiway-flow', id: 'TWY-H', label: 'Taxiway H', direction: 'south', capacity: Infinity }], 10)?.includes('Taxiway H north flow window'), 'planner did not explain an opposite-direction pushback admission hold');
+assert(admissionPlanner.admissionReason([{ kind: 'taxiway-flow', id: 'TWY-H', label: 'Taxiway H', direction: 'north', capacity: Infinity }], 10) === null, 'planner blocked compatible pushback admission');
 console.log('surface flow planner validation passed');
 `;
 

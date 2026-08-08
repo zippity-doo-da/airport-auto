@@ -102,4 +102,21 @@ export class SurfaceFlowPlanner {
   holdReason(decision: SurfaceFlowDecision, nowSeconds: number): string {
     return `${decision.label} ${decision.direction} flow window for ${Math.max(0, Math.ceil(decision.releaseAtSeconds - nowSeconds))}s`;
   }
+
+  /**
+   * Auto/Watch use this before releasing a parked aircraft. Manual callers can
+   * present the same reason as advice while retaining the controller's choice.
+   */
+  admissionReason(
+    claims: readonly SurfaceReservationClaim[],
+    nowSeconds: number,
+  ): string | null {
+    for (const claim of claims) {
+      if (claim.kind !== "taxiway-flow" || !claim.direction) continue;
+      const window = this.state.windows[claim.id];
+      if (!window || window.direction === claim.direction) continue;
+      return `${claim.label} ${window.direction} flow window for ${Math.max(0, Math.ceil(window.releaseAtSeconds - nowSeconds))}s`;
+    }
+    return null;
+  }
 }

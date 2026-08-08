@@ -562,6 +562,14 @@ work is downstream admission control for queued gate departures and terminal
 arrivals before either enters a shared surface corridor; no hub is marked
 complete until the longer acceptance gate passes.
 
+The first admission-control slice now prevents Auto/Watch pushback into an
+opposing live section and meters new arrivals before the finite taxi/ramp
+network is saturated. It passed ATL Extreme Auto for four hours with 45
+arrivals and 15 departures, no acceptance failures, and zero collision,
+incursion, or unexplained-pause diagnostics. ORD remains open: its equivalent
+four-hour run stays safety-clean but reaches a graph-specific long surface wait
+state, so ORD is not represented as accepted by the ATL result.
+
 ### DFW parity track — August 7, 2026
 
 KDFW is the first additional hub being brought through the same sourced-asset

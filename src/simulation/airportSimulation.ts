@@ -2833,6 +2833,10 @@ export class AirportSimulation {
         flight,
       );
     }
+    const flowAdmission = this.surfaceFlowPushbackAdmissionReason(flight);
+    if (flowAdmission && this.stationRunsAutomatically("ramp")) {
+      return this.rejectDecision(`pushback held: ${flowAdmission}`, flight);
+    }
     if (
       winterDeicingRequired(this.state.weather) &&
       flight.deicing.status === "unavailable"
@@ -6027,6 +6031,18 @@ export class AirportSimulation {
           `${activeApproaches}/${this.weatherApproachCapacity()} approach positions occupied`,
           ARRIVAL_ADMISSION_RETRY_SECONDS,
         );
+      } else if (
+        this.state.flights.filter(
+          (flight) => flight.phase === "taxi-in" || flight.phase === "taxi-out",
+        ).length >= this.surfaceArrivalAdmissionCapacity()
+      ) {
+        markArrivalHolding(
+          flow,
+          arrival,
+          now,
+          `surface meter holding for ${this.surfaceArrivalAdmissionCapacity()} active taxi positions`,
+          ARRIVAL_ADMISSION_RETRY_SECONDS,
+        );
       } else if (this.state.flights.length >= this.effectiveTrafficCap()) {
         markArrivalHolding(
           flow,
@@ -6092,6 +6108,19 @@ export class AirportSimulation {
         objective.arrivalDemandIntervalMultiplier) /
         density.demandMultiplier,
     );
+  }
+
+  /**
+   * Keep strategic delay in the arrival queue instead of admitting enough
+   * aircraft to seal every ramp and connector. This is a hub-scaled movement
+   * area capacity, not a replacement for graph reservations or ATC spacing.
+   */
+  private surfaceArrivalAdmissionCapacity(): number {
+    const standCapacity = Math.floor(this.config.surfaceGraph.stands.length * 0.35);
+    const runwayCapacity = this.config.runways.filter(
+      (runway) => this.runwayRole(runway.id) !== "inactive",
+    ).length * 2;
+    return Math.max(6, Math.min(18, Math.max(standCapacity, runwayCapacity)));
   }
 
   /**
@@ -13055,6 +13084,22 @@ export class AirportSimulation {
       taxiway: flight.taxiway,
       detail: `${automatic ? "automatic" : "ground"} · push ${flight.pushbackDirection}`,
     });
+  }
+
+  /** Auto/Watch do not release an aircraft into the opposite live taxiway wave. */
+  private surfaceFlowPushbackAdmissionReason(flight: Flight): string | null {
+    const preview = this.pushbackPreviewCache.get(flight)?.preview;
+    if (!preview) return null;
+    const claims = surfaceRouteReservationClaims(
+      this.config.surfaceGraph,
+      preview.surfaceRoute,
+      preview.surfaceRouteEdges,
+      preview.progress,
+      "taxi-out",
+      12,
+      SURFACE_RESERVATION_LOOKAHEAD_M / WORLD_METERS_PER_UNIT,
+    );
+    return this.surfaceFlowPlanner.admissionReason(claims, this.state.elapsed);
   }
 
   /** Protect the complete tug-release corridor before the aircraft moves. */
