@@ -26,6 +26,7 @@ export const SCRIPTED_CONTROLLER_CADENCE_SECONDS = 0.25;
 export const SCRIPTED_CONTROLLER_HISTORY_LIMIT = 64;
 export const SCRIPTED_CONTROLLER_TRANSITION_HISTORY_LIMIT = 32;
 const SCRIPTED_RETRY_SECONDS = 2;
+const SCRIPTED_RUNWAY_RETRY_SECONDS = 12;
 const CROSSING_CLEARANCE_RANGE_M = 60;
 
 export interface ScriptedControllerPlannedAction {
@@ -195,13 +196,17 @@ function actionRecentlyRejected(
       decision.flightId === candidate.flightId &&
       decision.runway === candidate.runway &&
       decision.targetStation === candidate.targetStation
-    )
-      return (
-        elapsed - decision.resolvedAtSeconds <
-        (decision.disposition === "deferred"
+    ) {
+      const retrySeconds =
+        decision.disposition === "deferred"
           ? runtime.stations[candidate.station].policy.deferralReviewSeconds
-          : SCRIPTED_RETRY_SECONDS)
-      );
+          : candidate.action === "clear-runway-entry" ||
+              candidate.action === "clear-takeoff" ||
+              candidate.action === "clear-runway-crossing"
+            ? SCRIPTED_RUNWAY_RETRY_SECONDS
+            : SCRIPTED_RETRY_SECONDS;
+      return elapsed - decision.resolvedAtSeconds < retrySeconds;
+    }
   }
   return false;
 }
