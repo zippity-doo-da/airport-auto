@@ -2,7 +2,7 @@
 
 Status: active product and implementation ledger  
 Last reconciled: July 28, 2026  
-Baseline: Airport Auto 2.40 plus the additive Research Annex navigation  
+Baseline: Airport Auto 2.41 plus the additive Research Annex navigation
 Companion ledger: [Combat Simulation Goals](COMBAT_GOALS.md)
 
 ## Purpose
@@ -323,6 +323,16 @@ inspector and agent-facing snapshot expose the same wait-for edge. The current
 three-hour extreme run no longer trips the traffic-stall condition and remains
 collision/incursion-free; queue-volume calibration and long individual holds
 remain open acceptance work.
+
+The local soak runner now accepts `--mode=auto|watch` so unattended behavior is
+measured rather than inferred from a presentation label. On August 8, an ORD
+Extreme three-hour run in each mode completed 40 arrivals and 25 departures,
+with a 41-aircraft maximum queue against the 64-entity budget, zero collision,
+incursion, or unexplained-pause diagnostics, and simulation-tick p95 below the
+10 ms budget. This is concrete Auto/Watch sustained-flow evidence, but it does
+not close the acceptance gate: the captured wait-for graph still contained
+individual flights held for implausibly long periods, so recovery fairness and
+queue-quality calibration remain required.
 
 ### Gameplay and UX
 

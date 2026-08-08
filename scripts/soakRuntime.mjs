@@ -23,6 +23,15 @@ const requestedAirport = (
 )
   .trim()
   .toUpperCase();
+const requestedMode = (
+  process.argv
+    .find((argument) => argument.startsWith("--mode="))
+    ?.split("=")[1] ?? "auto"
+)
+  .trim()
+  .toLowerCase();
+if (requestedMode !== "auto" && requestedMode !== "watch")
+  throw new Error("--mode must be auto or watch");
 
 const source = `
 import { performance } from 'node:perf_hooks';
@@ -38,6 +47,7 @@ import { WORLD_METERS_PER_UNIT } from './src/simulation/runwayPerformance.ts';
 const requestedHours = ${JSON.stringify(hours)};
 const traceFlightIds = new Set(${JSON.stringify(traceFlightIds)});
 const requestedAirport = ${JSON.stringify(requestedAirport)};
+const requestedMode = ${JSON.stringify(requestedMode)};
 // Match the production fixed-step loop exactly; a 100 ms diagnostic step
 // measures twice the work of any tick the browser is allowed to execute.
 const stepSeconds = 0.05;
@@ -50,7 +60,7 @@ if (hubIndex < 0)
   );
 const configuration = generateHubConfig(hubIndex);
 const simulation = new AirportSimulation(configuration, 'extreme');
-simulation.setMode('auto');
+simulation.setMode(requestedMode);
 simulation.setPace(pace);
 simulation.setPaused(false);
 const openingFlights = simulation.state.flights.map((flight) => ({
@@ -307,6 +317,7 @@ const report = {
   failures,
   airport: configuration.code,
   density: 'extreme',
+  mode: requestedMode,
   requestedHours,
   modeledHours: Number((simulation.state.elapsed / 3_600).toFixed(3)),
   wallMinutes: Number(((performance.now() - wallStarted) / 60_000).toFixed(3)),
