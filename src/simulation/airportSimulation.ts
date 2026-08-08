@@ -11348,11 +11348,31 @@ export class AirportSimulation {
               attempts: 0,
               retryAtSeconds: this.state.elapsed,
             };
-      if (
-        recovery.attempts >= 2 ||
-        this.state.elapsed + 1e-6 < recovery.retryAtSeconds
-      )
+      if (this.state.elapsed + 1e-6 < recovery.retryAtSeconds) continue;
+      if (recovery.attempts >= 3) continue;
+      // Two graph detours are enough to establish that a stationary gate body
+      // cannot be routed around from this point. Release the shared alley by
+      // towing the mover back on its own already-authoritative pavement route;
+      // if that is physically unavailable, retain an explicit hold instead of
+      // allowing other generic recovery passes to replan it forever.
+      if (recovery.attempts === 2) {
+        recovery.attempts = 3;
+        recovery.retryAtSeconds = this.state.elapsed + 90;
+        this.parkedBlockerRecovery.set(flight.id, recovery);
+        if (
+          this.startSurfaceYieldRecovery(
+            [flight as Flight & { phase: "taxi-in" | "taxi-out" }],
+            `parked-blocker-${blocker.id}-${flight.id}`,
+          )
+        )
+          continue;
+        this.holdForUnavailableSurfaceRoute(
+          flight,
+          [`parked:${blocker.id}`],
+          `parked aircraft conflict with ${blocker.callsign}`,
+        );
         continue;
+      }
       recovery.attempts += 1;
       recovery.retryAtSeconds = this.state.elapsed + 45;
       this.parkedBlockerRecovery.set(flight.id, recovery);
@@ -11543,6 +11563,7 @@ export class AirportSimulation {
       surfaceFlights.map((flight) => [flight.id, flight]),
     );
     for (const flight of surfaceFlights) {
+      if (flight.surfaceReroute?.status === "holding") continue;
       if (
         (this.stationarySeconds.get(flight.id) ?? 0) <
         SURFACE_RESERVATION_RECOVERY_WAIT_SECONDS
