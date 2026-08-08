@@ -439,6 +439,7 @@ const RUNWAY_HOLD_SHORT_NOSE_BUFFER_M = 5;
 const RUNWAY_CROSSING_TAIL_BUFFER_M = 5;
 const RUNWAY_CROSSING_PRIORITY_WAIT_SECONDS = 20;
 const RUNWAY_HOLD_POSITION_TOLERANCE_M = 1;
+const RUNWAY_ENTRY_METER_DISTANCE_M = 90;
 const RUNWAY_CROSSING_ADVISORY_LOOKAHEAD_M = 500;
 const SURFACE_DEADLOCK_AVOIDANCE_M = 750;
 const SERVICE_VEHICLE_AVOIDANCE_EDGES = 8;
@@ -5089,6 +5090,47 @@ export class AirportSimulation {
               Math.max(0, motion.totalDistanceM);
         const deicingHold =
           deicingLimit !== null && flight.progress >= deicingLimit - 0.0002;
+        // Meter an uncleared departure before a shared runway-access choke
+        // point while a sustained crossing sequence owns that runway. The
+        // aircraft stays on its assigned taxi route; Tower still owns the
+        // later runway-entry decision.
+        const priorityCrossing =
+          onSurface &&
+          flight.phase === "taxi-out" &&
+          !flight.runwayEntryCleared
+            ? this.priorityRunwayCrossing(flight.runway, flight.id)
+            : null;
+        const candidateDepartureMeterLimit = priorityCrossing
+          ? this.progressBeforeTravelDistance(
+              flight,
+              RUNWAY_ENTRY_METER_DISTANCE_M,
+            )
+          : null;
+        // Do not turn a very short gate-to-runway route into a gate hold. A
+        // meter point is useful only when it leaves real taxiway pavement
+        // between the aircraft and the shared runway-access segment.
+        const departureMeterLimit =
+          candidateDepartureMeterLimit !== null &&
+          candidateDepartureMeterLimit > 0.05
+            ? candidateDepartureMeterLimit
+            : null;
+        const departureMeterDistanceM =
+          departureMeterLimit === null
+            ? Infinity
+            : Math.max(0, departureMeterLimit - flight.progress) *
+              Math.max(0, motion.totalDistanceM);
+        const departureMeterHold =
+          departureMeterLimit !== null &&
+          flight.progress >= departureMeterLimit - 0.0002;
+        if (departureMeterHold) {
+          flight.automaticHold = true;
+          flight.automaticHoldReason = `departure metering behind ${priorityCrossing?.callsign} runway-crossing sequence`;
+        } else if (
+          flight.automaticHoldReason?.startsWith("departure metering behind ")
+        ) {
+          flight.automaticHold = false;
+          flight.automaticHoldReason = undefined;
+        }
         flight.crossingHoldRunway = crossingHold
           ? crossing?.runwayId
           : undefined;
@@ -5106,6 +5148,7 @@ export class AirportSimulation {
           routeMissing ||
           crossingHold ||
           deicingHold ||
+          departureMeterHold ||
           awaitingTakeoffClearance ||
           disabledOnSurface ||
           disruptionHold ||
@@ -5120,7 +5163,11 @@ export class AirportSimulation {
               : forwardSurfaceRecovery
                 ? Math.min(8, this.targetGroundSpeedKts(flight))
                 : this.targetGroundSpeedKts(flight);
-        const stopDistanceM = Math.min(crossingDistanceM, deicingDistanceM);
+        const stopDistanceM = Math.min(
+          crossingDistanceM,
+          deicingDistanceM,
+          departureMeterDistanceM,
+        );
         if (Number.isFinite(stopDistanceM)) {
           const braking =
             aircraftProfile(flight.aircraft).taxiBrakingMps2 *
@@ -5160,6 +5207,7 @@ export class AirportSimulation {
                 ? Math.min(requestedProgress, crossing.holdProgress)
                 : requestedProgress,
               deicingLimit ?? Infinity,
+              departureMeterLimit ?? Infinity,
             );
         const reachedStop =
           movingSurfaceRecovery && flight.surfaceYield
@@ -5172,6 +5220,7 @@ export class AirportSimulation {
               Math.min(
                 crossing?.holdProgress ?? Infinity,
                 deicingLimit ?? Infinity,
+                departureMeterLimit ?? Infinity,
               ) -
                 1e-6;
         requestedSpeedById.set(flight.id, reachedStop ? 0 : nextSpeed);
