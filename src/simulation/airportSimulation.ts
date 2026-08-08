@@ -6089,8 +6089,12 @@ export class AirportSimulation {
     for (const flight of this.state.flights) {
       const departureCandidate =
         (flight.phase === "resting" && flight.turnaround.status === "ready") ||
-        flight.phase === "taxi-out" ||
-        flight.phase === "takeoff";
+        // The release meter owns a departure only until Tower has committed it
+        // at the runway hold line. Re-registering a lined-up or rolling
+        // aircraft on every fixed step creates a fresh gate-bank slot after it
+        // has already been released, which can strand it at the threshold and
+        // artificially serialize otherwise independent departures.
+        (flight.phase === "taxi-out" && !flight.runwayEntryCleared);
       if (!departureCandidate) continue;
       if (
         flight.flightPlan.direction !== "departure" ||
@@ -6713,6 +6717,13 @@ export class AirportSimulation {
       flight.phaseElapsed = 0;
       flight.cleared = true;
       flight.clearanceLeft = 99;
+      // The generated gate assignment may carry a later scheduled turn from
+      // its former inbound leg. Establish the opening-bank release before
+      // constructing its departure flight plan; otherwise a taxiing starter
+      // reaches the hold line and waits for that stale, many-minute schedule.
+      if (flight.gateAssignment)
+        flight.gateAssignment.scheduledDepartureSeconds =
+          this.state.elapsed + (taxiing ? 0 : 8);
       this.prepareDepartureFlightPlan(
         flight,
         taxiing ? this.state.elapsed : this.state.elapsed + 8,
