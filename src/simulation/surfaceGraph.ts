@@ -899,6 +899,12 @@ interface SurfaceRouteTreeCache {
 // the exact same live routing picture, rather than accidentally reusing a
 // route from a different traffic state.
 const surfaceRouteTreeCaches = new WeakMap<AirportSurfaceGraph, SurfaceRouteTreeCache>();
+// Static route requests can originate at any imported node and with several
+// aircraft envelopes. A complete tree is sizeable, so an unbounded cache
+// quietly turns a long-running hub session into a memory leak. The live
+// planning cache below is already scoped to its short-lived planning snapshot;
+// keep only the most recently useful static trees as well.
+const MAX_STATIC_SURFACE_ROUTE_TREES = 12;
 
 function buildSurfaceRouteTree(
   adjacency: ReadonlyMap<string, Array<{ nodeId: string; edge: SurfaceEdge; cost: number }>>,
@@ -959,13 +965,24 @@ function cachedSurfaceRouteTree(
     trees = cache.staticTrees;
   }
   const existing = trees.get(key);
-  if (existing) return existing;
+  if (existing) {
+    if (!planning) {
+      // Map insertion order supplies a tiny, allocation-free LRU policy.
+      trees.delete(key);
+      trees.set(key, existing);
+    }
+    return existing;
+  }
   // A complete tree costs slightly more than an early-exit search once, but a
   // gate reassignment asks about several candidate stands. It is therefore
   // both faster and more deterministic to derive every candidate route from
   // one authoritative snapshot tree.
   const tree = buildSurfaceRouteTree(adjacency, hubNodeId, [], requirements, planning);
   trees.set(key, tree);
+  if (!planning && trees.size > MAX_STATIC_SURFACE_ROUTE_TREES) {
+    const oldestKey = trees.keys().next().value;
+    if (oldestKey !== undefined) trees.delete(oldestKey);
+  }
   return tree;
 }
 

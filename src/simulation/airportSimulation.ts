@@ -749,7 +749,11 @@ export class AirportSimulation {
   >();
   private readonly restingTaxiOutRouteCache = new WeakMap<
     Flight,
-    { signature: string; routeEdges: string[] | undefined }
+    {
+      signature: string;
+      routeNodes: string[] | undefined;
+      routeEdges: string[] | undefined;
+    }
   >();
   private readonly pushbackPreviewCache = new WeakMap<
     Flight,
@@ -8809,6 +8813,7 @@ export class AirportSimulation {
           outgoingEdges = preview.surfaceRouteEdges;
           this.restingTaxiOutRouteCache.set(other, {
             signature,
+            routeNodes: preview.surfaceRoute,
             routeEdges: outgoingEdges,
           });
         }
@@ -8881,6 +8886,14 @@ export class AirportSimulation {
           return [candidate];
         if (candidate.phase !== "resting" || !candidate.gateAssignment)
           return [];
+        const routeSignature = [
+          candidate.gateAssignment.standId,
+          candidate.gateAssignment.revision,
+          candidate.departureRunway,
+          this.preferredOperatingEnd(candidate.departureRunway),
+          candidate.surfaceReroute?.revision ?? 0,
+        ].join(":");
+        const cachedRoute = this.restingTaxiOutRouteCache.get(candidate);
         const preview: Flight = {
           ...candidate,
           phase: "taxi-out",
@@ -8894,17 +8907,30 @@ export class AirportSimulation {
           requiredCrossings: [...(candidate.requiredCrossings ?? [])],
           crossingClearances: [...(candidate.crossingClearances ?? [])],
           crossingClearanceIds: [...(candidate.crossingClearanceIds ?? [])],
-          surfaceRoute: candidate.surfaceRoute
-            ? [...candidate.surfaceRoute]
-            : undefined,
-          surfaceRouteEdges: candidate.surfaceRouteEdges
-            ? [...candidate.surfaceRouteEdges]
-            : undefined,
+          surfaceRoute:
+            cachedRoute?.signature === routeSignature
+              ? cachedRoute.routeNodes
+              : candidate.surfaceRoute
+                ? [...candidate.surfaceRoute]
+                : undefined,
+          surfaceRouteEdges:
+            cachedRoute?.signature === routeSignature
+              ? cachedRoute.routeEdges
+              : candidate.surfaceRouteEdges
+                ? [...candidate.surfaceRouteEdges]
+                : undefined,
           surfaceCongestedEdgeIds: candidate.surfaceCongestedEdgeIds
             ? [...candidate.surfaceCongestedEdgeIds]
             : undefined,
         };
-        this.assignSurfaceRoute(preview, "taxi-out");
+        if (cachedRoute?.signature !== routeSignature) {
+          this.assignSurfaceRoute(preview, "taxi-out");
+          this.restingTaxiOutRouteCache.set(candidate, {
+            signature: routeSignature,
+            routeNodes: preview.surfaceRoute,
+            routeEdges: preview.surfaceRouteEdges,
+          });
+        }
         if (!preview.surfaceRouteEdges?.length) return [];
         syncFlightMotion(this.config, preview);
         return [preview];
