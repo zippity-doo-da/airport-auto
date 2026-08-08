@@ -8067,6 +8067,15 @@ export class AirportSimulation {
         flight.automaticHoldReason = coordinationHold ?? undefined;
         continue;
       }
+      // A departure at its runway hold point has stopped by instruction. It
+      // must retain its current edge/node reservation, but it cannot enter
+      // the runway-access suffix until Tower grants runway-entry clearance.
+      // Reserving the normal twelve-edge look-ahead here made an uncleared
+      // aircraft block unrelated taxi traffic through the future corridor.
+      const awaitingRunwayEntry =
+        flight.phase === "taxi-out" &&
+        flight.progress >= 0.985 &&
+        !flight.runwayEntryCleared;
       const claims = surfaceRouteReservationClaims(
         this.config.surfaceGraph,
         flight.surfaceRoute,
@@ -8078,8 +8087,10 @@ export class AirportSimulation {
         // transport-category aircraft enough pavement to decelerate before a
         // shared node, instead of discovering opposing flow only after both
         // noses are committed to the same junction.
-        12,
-        SURFACE_RESERVATION_LOOKAHEAD_M / WORLD_METERS_PER_UNIT,
+        awaitingRunwayEntry ? 0 : 12,
+        awaitingRunwayEntry
+          ? 0
+          : SURFACE_RESERVATION_LOOKAHEAD_M / WORLD_METERS_PER_UNIT,
       );
       const occupiedFlowClaims = surfaceRouteReservationClaims(
         this.config.surfaceGraph,
