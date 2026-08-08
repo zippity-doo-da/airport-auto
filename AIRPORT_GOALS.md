@@ -566,9 +566,12 @@ The first admission-control slice now prevents Auto/Watch pushback into an
 opposing live section and meters new arrivals before the finite taxi/ramp
 network is saturated. It passed ATL Extreme Auto for four hours with 45
 arrivals and 15 departures, no acceptance failures, and zero collision,
-incursion, or unexplained-pause diagnostics. ORD remains open: its equivalent
-four-hour run stays safety-clean but reaches a graph-specific long surface wait
-state, so ORD is not represented as accepted by the ATL result.
+incursion, or unexplained-pause diagnostics. ORD remains open: a refined
+physical-versus-strategic reservation boundary and bounded taxi-in/taxi-out
+fairness improve the four-hour result to 31 arrivals and 17 departures, with
+the same zero safety diagnostics, but it still reaches a graph-specific long
+surface-wait state. ORD is therefore not represented as accepted by the ATL
+result.
 
 ### DFW parity track — August 7, 2026
 

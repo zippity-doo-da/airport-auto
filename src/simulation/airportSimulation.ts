@@ -7723,6 +7723,15 @@ export class AirportSimulation {
           return committedRunwayCrossers.has(first.id) ? -1 : 1;
         }
         if (first.phase !== second.phase) {
+          const firstWait = this.stationarySeconds.get(first.id) ?? 0;
+          const secondWait = this.stationarySeconds.get(second.id) ?? 0;
+          // Arrival flow is normally favored to clear runway exits. Once an
+          // opposite-direction aircraft has waited long enough to represent a
+          // real fairness failure, give it the next reservation opportunity.
+          // This is deliberately bounded and still follows every physical,
+          // runway, ramp, and collision constraint below.
+          if (Math.max(firstWait, secondWait) >= 90 && Math.abs(firstWait - secondWait) >= 30)
+            return secondWait - firstWait;
           // Gate-bound traffic keeps priority until it is off the movement
           // area. In particular, a newly pushed outbound behind an inbound
           // must not reserve hundreds of metres through the inbound's exit.
@@ -7760,6 +7769,9 @@ export class AirportSimulation {
         0,
         0,
       );
+      const retainsDirectionalWindow =
+        (this.stationarySeconds.get(flight.id) ?? 0) < 30 ||
+        !(flight.automaticHold || flight.safetyHold || flight.controlHold);
       for (const claim of occupiedClaims) {
         if (claim.kind !== "taxiway-flow" || !claim.direction) continue;
         const key = `${claim.id}:${claim.direction}`;
@@ -7768,7 +7780,7 @@ export class AirportSimulation {
           id: claim.id,
           label: claim.label,
           direction: claim.direction,
-          active: true,
+          active: retainsDirectionalWindow,
           count: (current?.count ?? 0) + 1,
         });
       }
@@ -7843,17 +7855,20 @@ export class AirportSimulation {
       // to approach under the collision arbiter. Its actual body envelope
       // remains authoritative and cannot be crossed.
       if (flight.surfaceYield?.status === "holding") continue;
-      reservations.reserve(
-        flight.id,
-        surfaceRouteReservationClaims(
+      // Current pavement remains exclusive through edge/node/stand/ramp
+      // claims. Directional section ownership is intentionally supplied by
+      // the persistent planner, rather than by a stationary aircraft's one
+      // edge claim. Otherwise a blocked lead could reserve an entire named
+      // taxiway indefinitely and prevent a safe downstream drain.
+      const occupancyClaims = surfaceRouteReservationClaims(
           this.config.surfaceGraph,
           flight.surfaceRoute,
           flight.surfaceRouteEdges,
           flight.progress,
           flight.phase,
           0,
-        ),
-      );
+        ).filter((claim) => claim.kind !== "taxiway-flow");
+      reservations.reserve(flight.id, occupancyClaims);
     }
     for (const vehicle of orderedVehicles) {
       reservations.reserve(
