@@ -11818,19 +11818,7 @@ export class AirportSimulation {
           holdIfUnavailable: false,
         },
       );
-      if (!rerouted) {
-        // A named junction/edge blocker can leave no legal graph suffix even
-        // though the aircraft has enough already-authoritative pavement to
-        // yield. After a second failed detour, use the shared collision- and
-        // runway-checked yield routine rather than accumulating an endless
-        // explicit reservation hold.
-        if (recovery.attempts >= 2 && waitSeconds >= 180)
-          this.startSurfaceYieldRecovery(
-            [flight],
-            `reservation-blocker-${blocker.id}-${flight.id}`,
-          );
-        continue;
-      }
+      if (!rerouted) continue;
       flight.safetyHold = false;
       flight.safetyHoldReason = undefined;
       flight.automaticHold = false;
