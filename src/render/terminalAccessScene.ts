@@ -5,6 +5,7 @@ export interface TerminalAccessDiagnostics {
   terminals: number;
   parkingBays: number;
   curbsideShuttles: number;
+  terminalTrains: number;
   drawGroups: number;
 }
 
@@ -42,6 +43,7 @@ export function createTerminalAccessScene(
   const parkingTransforms: THREE.Matrix4[] = [];
   const canopyTransforms: THREE.Matrix4[] = [];
   const shuttleAnchors: Array<{ terminal: AccessTerminal; phase: number }> = [];
+  const trainAnchors: Array<{ terminal: AccessTerminal; phase: number }> = [];
   const dummy = new THREE.Object3D();
 
   const curbMaterial = new THREE.MeshStandardMaterial({
@@ -119,6 +121,20 @@ export function createTerminalAccessScene(
       canopyTransforms.push(dummy.matrix.clone());
     }
     shuttleAnchors.push({ terminal, phase: shuttleAnchors.length * 1.9 });
+    trainAnchors.push({ terminal, phase: trainAnchors.length * 2.7 });
+
+    const rail = new THREE.Mesh(
+      new THREE.BoxGeometry(accessWidth + 18, 0.38, 0.08),
+      new THREE.MeshStandardMaterial({ color: 0x4d5b59, roughness: 0.72 }),
+    );
+    rail.name = "terminal-train-guideway";
+    rail.position.copy(parkingCenter).addScaledVector(
+      new THREE.Vector3(terminal.landside.x, terminal.landside.y, 0),
+      6.5,
+    );
+    rail.position.z = 1.72;
+    rail.rotation.z = curb.rotation.z;
+    group.add(rail);
   }
 
   const parkedCars = createInstanced(
@@ -149,12 +165,28 @@ export function createTerminalAccessScene(
     group.add(shuttle);
     return { shuttle, ...anchor };
   });
+  const trains = trainAnchors.map((anchor, index) => {
+    const train = new THREE.Mesh(
+      new THREE.BoxGeometry(4.8, 0.72, 0.7),
+      new THREE.MeshStandardMaterial({
+        color: index % 2 ? 0x7898a4 : 0xc2a767,
+        roughness: 0.52,
+        metalness: 0.14,
+      }),
+    );
+    train.name = "terminal-landside-train";
+    train.castShadow = true;
+    train.position.z = 2.08;
+    group.add(train);
+    return { train, ...anchor };
+  });
 
   const diagnostics: TerminalAccessDiagnostics = {
     terminals: terminals.length,
     parkingBays: parkingTransforms.length,
     curbsideShuttles: shuttles.length,
-    drawGroups: 2 + terminals.length * 2 + shuttles.length,
+    terminalTrains: trains.length,
+    drawGroups: 2 + terminals.length * 3 + shuttles.length + trains.length,
   };
 
   return {
@@ -169,6 +201,16 @@ export function createTerminalAccessScene(
           2.04,
         );
         shuttle.rotation.z = Math.atan2(terminal.tangent.y, terminal.tangent.x) + (progress < 0 ? Math.PI : 0);
+      }
+      for (const { train, terminal, phase } of trains) {
+        const progress = Math.sin(elapsed * 0.075 + phase);
+        const along = progress * Math.max(8, terminal.width * 0.56);
+        train.position.set(
+          terminal.center[0] + terminal.landside.x * 19 + terminal.tangent.x * along,
+          terminal.center[1] + terminal.landside.y * 19 + terminal.tangent.y * along,
+          2.08,
+        );
+        train.rotation.z = Math.atan2(terminal.tangent.y, terminal.tangent.x) + (progress < 0 ? Math.PI : 0);
       }
     },
     setVisible(visible) {
