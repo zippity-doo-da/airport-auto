@@ -5,6 +5,8 @@ export interface SurfaceFlowWindow {
   openedAtSeconds: number;
   releaseAtSeconds: number;
   lastServedAtSeconds: number;
+  /** Direction waiting for the current physical occupants to clear. */
+  pendingDirection?: string;
 }
 
 export interface SurfaceFlowPlannerState {
@@ -25,6 +27,8 @@ export interface SurfaceFlowDecision {
   label: string;
   direction: string;
   releaseAtSeconds: number;
+  /** Existing occupants may leave; new entrants wait for the direction change. */
+  draining: boolean;
 }
 
 const MINIMUM_WINDOW_SECONDS = 60;
@@ -85,6 +89,7 @@ export class SurfaceFlowPlanner {
       // collision/reservation layer stop new entries rather than inventing a
       // reversal through occupied pavement.
       const activeDirection = activeDirections.size === 1 ? [...activeDirections][0] : undefined;
+      let draining = false;
       if (!window) {
         const direction = activeDirection ?? preferred;
         window = { direction, openedAtSeconds: nowSeconds, releaseAtSeconds: nowSeconds + MINIMUM_WINDOW_SECONDS, lastServedAtSeconds: nowSeconds };
@@ -92,6 +97,32 @@ export class SurfaceFlowPlanner {
         window = { direction: activeDirection, openedAtSeconds: nowSeconds, releaseAtSeconds: nowSeconds + MINIMUM_WINDOW_SECONDS, lastServedAtSeconds: nowSeconds };
       } else if (activeDirection) {
         window.lastServedAtSeconds = nowSeconds;
+        const waitingDirection = [...counts.entries()]
+          .filter(([direction]) => direction !== window.direction)
+          .sort(([firstDirection, firstCount], [secondDirection, secondCount]) =>
+            secondCount - firstCount || firstDirection.localeCompare(secondDirection),
+          )[0]?.[0];
+        // A window can only change after its physical occupants have cleared.
+        // Once its minimum service time has elapsed, stop admitting *new*
+        // current-direction traffic if the other direction is waiting. This
+        // creates a bounded drain instead of permanently extending a busy
+        // direction, while incumbents retain their pavement unconditionally.
+        if (
+          waitingDirection &&
+          nowSeconds >= window.releaseAtSeconds
+        ) {
+          window.pendingDirection = waitingDirection;
+          draining = true;
+        } else if (!waitingDirection) {
+          window.pendingDirection = undefined;
+        }
+      } else if (window.pendingDirection) {
+        window = {
+          direction: window.pendingDirection,
+          openedAtSeconds: nowSeconds,
+          releaseAtSeconds: nowSeconds + MINIMUM_WINDOW_SECONDS,
+          lastServedAtSeconds: nowSeconds,
+        };
       } else if (window.direction !== preferred) {
         const windowExpired = nowSeconds >= window.releaseAtSeconds;
         const currentDemand = counts.get(window.direction) ?? 0;
@@ -101,7 +132,13 @@ export class SurfaceFlowPlanner {
         }
       }
       this.state.windows[id] = window;
-      decisions.push({ id, label, direction: window.direction, releaseAtSeconds: window.releaseAtSeconds });
+      decisions.push({
+        id,
+        label,
+        direction: window.direction,
+        releaseAtSeconds: window.releaseAtSeconds,
+        draining,
+      });
     }
     return decisions;
   }
@@ -124,11 +161,25 @@ export class SurfaceFlowPlanner {
   admissionReason(
     claims: readonly SurfaceReservationClaim[],
     nowSeconds: number,
+    occupancyClaims: readonly SurfaceReservationClaim[] = [],
   ): string | null {
     for (const claim of claims) {
       if (claim.kind !== "taxiway-flow" || !claim.direction) continue;
       const window = this.state.windows[claim.id];
-      if (!window || window.direction === claim.direction) continue;
+      if (!window) continue;
+      if (window.direction === claim.direction) {
+        const alreadyOccupiesSection = occupancyClaims.some(
+          (occupancy) =>
+            occupancy.kind === "taxiway-flow" && occupancy.id === claim.id,
+        );
+        if (
+          window.pendingDirection &&
+          nowSeconds >= window.releaseAtSeconds &&
+          !alreadyOccupiesSection
+        )
+          return `${claim.label} ${window.direction} flow section draining for ${window.pendingDirection} traffic`;
+        continue;
+      }
       const remainingSeconds = Math.ceil(window.releaseAtSeconds - nowSeconds);
       return remainingSeconds > 0
         ? `${claim.label} ${window.direction} flow window for ${remainingSeconds}s`

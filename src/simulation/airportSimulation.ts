@@ -8069,6 +8069,30 @@ export class AirportSimulation {
         12,
         SURFACE_RESERVATION_LOOKAHEAD_M / WORLD_METERS_PER_UNIT,
       );
+      const occupiedFlowClaims = surfaceRouteReservationClaims(
+        this.config.surfaceGraph,
+        flight.surfaceRoute,
+        flight.surfaceRouteEdges,
+        flight.progress,
+        flight.phase,
+        0,
+        0,
+      );
+      const drainingFlowClaim = claims.find((claim) => {
+        if (claim.kind !== "taxiway-flow" || !claim.direction) return false;
+        const window = this.surfaceFlowPlanner.currentWindow(claim.id);
+        if (
+          !window ||
+          window.direction !== claim.direction ||
+          !window.pendingDirection ||
+          this.state.elapsed < window.releaseAtSeconds
+        )
+          return false;
+        return !occupiedFlowClaims.some(
+          (occupied) =>
+            occupied.kind === "taxiway-flow" && occupied.id === claim.id,
+        );
+      });
       const conflict = reservations.firstConflictDetail(claims, flight.id);
       const flowConflict =
         conflict &&
@@ -8092,7 +8116,8 @@ export class AirportSimulation {
       const reservationHold =
         vehicleConflict ||
         Boolean(corridorOwner) ||
-        (this.stationRunsAutomatically("ground") && Boolean(conflict));
+        (this.stationRunsAutomatically("ground") &&
+          (Boolean(conflict) || Boolean(drainingFlowClaim)));
       const shouldHold = Boolean(coordinationHold) || reservationHold;
       if (reservationHold && !flight.automaticHold)
         this.metrics.preventedConflicts += 1;
@@ -8101,7 +8126,13 @@ export class AirportSimulation {
         coordinationHold ??
         (corridorOwner
           ? `protected taxi corridor for ${corridorOwner.callsign} (flight ${corridorOwner.id})`
-          : flowConflict
+          : drainingFlowClaim
+            ? this.surfaceFlowPlanner.admissionReason(
+                claims,
+                this.state.elapsed,
+                occupiedFlowClaims,
+              ) ?? undefined
+            : flowConflict
             ? this.surfaceFlowPlanner.holdReason(
                 flowDecisionById.get(conflict.claim.id)!,
                 this.state.elapsed,
@@ -8112,11 +8143,12 @@ export class AirportSimulation {
                   conflict.ownerId,
                 )
               : undefined);
-      if (flowConflict)
+      const heldFlowClaim = drainingFlowClaim ?? (flowConflict ? conflict.claim : undefined);
+      if (heldFlowClaim)
         this.surfaceFlowHoldByFlight.set(flight, {
-          id: conflict.claim.id,
-          label: conflict.claim.label,
-          direction: conflict.claim.direction ?? "",
+          id: heldFlowClaim.id,
+          label: heldFlowClaim.label,
+          direction: heldFlowClaim.direction ?? "",
         });
       if (shouldHold) continue;
       reservations.reserve(flight.id, claims);

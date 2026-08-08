@@ -27,6 +27,10 @@ decision = planner.plan(70, [{ ...north, count: 1 }, { ...south, count: 9 }])[0]
 assert(decision.direction === 'south', 'planner did not release a clear section to opposing queued traffic');
 decision = planner.plan(200, [{ ...north, count: 9 }, { ...south, active: true, count: 1 }])[0];
 assert(decision.direction === 'south', 'planner reversed a physically occupied taxiway section');
+assert(decision.draining, 'planner did not drain an expired direction before serving opposing traffic');
+const southClaim = [{ kind: 'taxiway-flow', id: 'TWY-H', label: 'Taxiway H', direction: 'south', capacity: Infinity }];
+assert(planner.admissionReason(southClaim, 200)?.includes('draining for north traffic'), 'planner admitted new traffic into a draining section');
+assert(planner.admissionReason(southClaim, 200, southClaim) === null, 'planner stopped an aircraft already occupying the draining section');
 const restored = new SurfaceFlowPlanner();
 restored.restore(planner.snapshot());
 const originalNext = planner.plan(280, [{ ...north, count: 9 }, { ...south, count: 0 }])[0];
