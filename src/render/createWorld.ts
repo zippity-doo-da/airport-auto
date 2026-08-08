@@ -137,6 +137,7 @@ export type WorldDiagnostics = {
   heldServiceVehicles: number;
   pooledServiceVehicles: number;
   serviceVehiclesVisible: boolean;
+  airportLifeVisible: boolean;
   contrailsVisible: boolean;
   accessibilityPalette: AccessibilityPalette;
   activeContrails: number;
@@ -284,6 +285,7 @@ export interface AirportWorld {
   resetCamera(): void;
   setRunwayLabelsVisible(visible: boolean): void;
   setServiceVehiclesVisible(visible: boolean): void;
+  setAirportLifeVisible(visible: boolean): void;
   setAccessibilityPalette(palette: AccessibilityPalette): void;
   setPerformanceDegraded(degraded: boolean): void;
   setSurfaceLayerVisible(layer: SurfaceLayer, visible: boolean): void;
@@ -450,6 +452,9 @@ export function createWorld(
   let currentState: AirportState | null = null;
   let runwayLabelsVisible = false;
   let serviceVehiclesVisible = true;
+  let airportLifeVisible = false;
+  terminalAccess.setVisible(airportLifeVisible);
+  terminalGates.setVisible(airportLifeVisible);
   let accessibilityPalette: AccessibilityPalette = "standard";
   applySemanticPalette(semanticMaterials, accessibilityPalette);
   const reducedMotion = window.matchMedia(
@@ -1408,6 +1413,11 @@ export function createWorld(
       for (const visual of serviceVehicleVisuals.values())
         visual.root.visible = visible;
     },
+    setAirportLifeVisible(visible) {
+      airportLifeVisible = visible;
+      terminalAccess.setVisible(visible);
+      terminalGates.setVisible(visible);
+    },
     setAccessibilityPalette(palette) {
       accessibilityPalette = palette;
       applySemanticPalette(semanticMaterials, palette);
@@ -1485,6 +1495,7 @@ export function createWorld(
           0,
         ),
         serviceVehiclesVisible,
+        airportLifeVisible,
         // API 2.x compatibility fields: the feature and render allocation are gone.
         contrailsVisible: false,
         accessibilityPalette,

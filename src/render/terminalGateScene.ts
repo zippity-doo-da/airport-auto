@@ -11,6 +11,7 @@ export interface TerminalGateSceneDiagnostics {
 
 export interface TerminalGateSceneRuntime {
   update(state: AirportState, deltaSeconds: number, nightMix: number): void;
+  setVisible(visible: boolean): void;
   diagnostics(): TerminalGateSceneDiagnostics;
   dispose(): void;
 }
@@ -184,6 +185,7 @@ export function createTerminalGateScene(
 
   return {
     update(state, deltaSeconds, nightMix) {
+      if (!group.visible) return;
       const occupiedFlightsByStand = new Map(
         state.flights
           .filter(
@@ -238,6 +240,9 @@ export function createTerminalGateScene(
       }
       cabMaterial.emissiveIntensity = 0.12 + nightMix * 0.4;
       doorMaterial.emissiveIntensity = 0.08 + nightMix * 0.3;
+    },
+    setVisible(visible) {
+      group.visible = visible;
     },
     diagnostics: () => ({
       bridges: anchors.length,

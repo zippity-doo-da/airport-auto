@@ -59,6 +59,9 @@ const terminalConfig = generateHubConfig(ordIndex);
 const terminalSimulation = new AirportSimulation(terminalConfig);
 const terminalRoot = new THREE.Group();
 const terminalGates = createTerminalGateScene(terminalRoot, terminalConfig, false);
+terminalGates.setVisible(false);
+assert(!terminalRoot.children[0].visible, 'terminal gate layer ignored its airport-life visibility setting');
+terminalGates.setVisible(true);
 const dockedFlight = terminalSimulation.state.flights[0];
 const dockedStand = terminalConfig.surfaceGraph.stands.find((stand) =>
   terminalConfig.surfaceGraph.passengerFacilities.some((facility) => facility.standIds.includes(stand.id)),

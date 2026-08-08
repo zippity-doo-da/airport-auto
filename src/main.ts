@@ -6829,6 +6829,7 @@ function setStatusMessagePolicy(policy: StatusMessagePolicy): void {
 function setAirportLifeVisible(visible: boolean): void {
   airportLifeVisible = visible;
   airportLifeToggle.checked = visible;
+  world.setAirportLifeVisible(visible);
   lastFlightStripRender = -Infinity;
   renderFlightStrip();
 }
@@ -7569,6 +7570,7 @@ function newSession(
   world.setPerformanceDegraded(adaptiveRenderDegraded);
   world.setRunwayLabelsVisible(runwayLabelsVisible);
   world.setServiceVehiclesVisible(serviceVehiclesVisible);
+  world.setAirportLifeVisible(airportLifeVisible);
   world.setAccessibilityPalette(accessibilityPalette);
   for (const [layer, visible] of Object.entries(
     surfaceLayerVisibility,

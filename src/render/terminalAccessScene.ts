@@ -10,6 +10,7 @@ export interface TerminalAccessDiagnostics {
 
 export interface TerminalAccessRuntime {
   update(elapsed: number): void;
+  setVisible(visible: boolean): void;
   diagnostics(): TerminalAccessDiagnostics;
   dispose(): void;
 }
@@ -158,6 +159,7 @@ export function createTerminalAccessScene(
 
   return {
     update(elapsed) {
+      if (!group.visible) return;
       for (const { shuttle, terminal, phase } of shuttles) {
         const progress = Math.sin(elapsed * 0.16 + phase);
         const along = progress * Math.max(3.5, terminal.width * 0.28);
@@ -168,6 +170,9 @@ export function createTerminalAccessScene(
         );
         shuttle.rotation.z = Math.atan2(terminal.tangent.y, terminal.tangent.x) + (progress < 0 ? Math.PI : 0);
       }
+    },
+    setVisible(visible) {
+      group.visible = visible;
     },
     diagnostics: () => diagnostics,
     dispose() {

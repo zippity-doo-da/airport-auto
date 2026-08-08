@@ -854,8 +854,10 @@ radio, audio, notification, or traffic patterns.
       disables the corresponding sound and presentation layers.
   Weather/wind state already controls its generated and offline layers, radio
   has an independent cue/caption toggle, and hiding service vehicles now also
-  suppresses only their service/ramp audio cues. Airport-life presentation still
-  needs a dedicated render/audio layer before this gate can be closed.
+  suppresses only their service/ramp audio cues. Airport-life now owns dedicated
+  terminal-access and gate-activity render layers, both suppressed by its
+  toggle; a dedicated airport-life audio layer and full end-to-end acceptance
+  evidence remain open.
 
 ## A8 — Shared human and agent shifts
 
@@ -937,8 +939,9 @@ service or a full workload/debrief experience.
 - [ ] Split coordinators when ownership becomes ambiguous; do not split files
       solely to satisfy a line-count target.
   The stand-activity light lifecycle is now isolated in a dedicated renderer
-  module rather than expanding the world coordinator; further splits should
-  follow the same ownership boundary.
+      module rather than expanding the world coordinator. Terminal gate and
+      landside-access runtimes now follow the same ownership boundary; further
+      splits should follow the same ownership boundary.
 
 ### Performance targets
 
