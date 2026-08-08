@@ -130,6 +130,7 @@ export type WorldDiagnostics = {
   geometries: number;
   textures: number;
   detail: "low" | "high";
+  adaptivePerformanceMode: "standard" | "reduced";
   pooledAircraft: number;
   activeServiceVehicles: number;
   heldServiceVehicles: number;
@@ -278,6 +279,7 @@ export interface AirportWorld {
   setRunwayLabelsVisible(visible: boolean): void;
   setServiceVehiclesVisible(visible: boolean): void;
   setAccessibilityPalette(palette: AccessibilityPalette): void;
+  setPerformanceDegraded(degraded: boolean): void;
   setSurfaceLayerVisible(layer: SurfaceLayer, visible: boolean): void;
   setAirspaceLayerVisible(layer: AirspaceLayer, visible: boolean): void;
   diagnostics(): WorldDiagnostics;
@@ -331,7 +333,9 @@ export function createWorld(
     alpha: false,
     powerPreference: "high-performance",
   });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, lowDetail ? 1 : 1.5));
+  const standardPixelRatio = Math.min(devicePixelRatio, lowDetail ? 1 : 1.5);
+  let performanceDegraded = false;
+  renderer.setPixelRatio(standardPixelRatio);
   renderer.shadowMap.enabled = !lowDetail;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -913,6 +917,21 @@ export function createWorld(
     updateProjection();
   }
 
+  function setPerformanceDegraded(degraded: boolean): void {
+    if (performanceDegraded === degraded) return;
+    performanceDegraded = degraded;
+    // Keep the visual language intact on a struggling device, but trade the
+    // least gameplay-relevant work first: shadow-map passes and supersampled
+    // pixels. Simulation authority and aircraft detail are never reduced.
+    const pixelRatio = degraded
+      ? Math.min(1, standardPixelRatio)
+      : standardPixelRatio;
+    renderer.setPixelRatio(pixelRatio);
+    renderer.shadowMap.enabled = !lowDetail && !degraded;
+    sun.castShadow = !lowDetail && !degraded;
+    renderer.setSize(viewportWidth, viewportHeight, false);
+  }
+
   function groundPointAt(
     clientX: number,
     clientY: number,
@@ -1385,6 +1404,7 @@ export function createWorld(
       accessibilityPalette = palette;
       applySemanticPalette(semanticMaterials, palette);
     },
+    setPerformanceDegraded,
     setSurfaceLayerVisible(layer, visible) {
       airportBuild.surfaceLayers[layer].visible = visible;
     },
@@ -1446,6 +1466,7 @@ export function createWorld(
         geometries: renderer.info.memory.geometries,
         textures: renderer.info.memory.textures,
         detail: lowDetail ? "low" : "high",
+        adaptivePerformanceMode: performanceDegraded ? "reduced" : "standard",
         pooledAircraft,
         activeServiceVehicles: serviceVehicleVisuals.size,
         heldServiceVehicles: [...serviceVehicleVisuals.values()].filter(

@@ -993,6 +993,9 @@ let lastSurfaceSafetyRender = -Infinity;
 let renderedFrames = 0;
 let frameWindowStarted = performance.now();
 let measuredFps = 0;
+let adaptiveRenderDegraded = false;
+let adaptiveRenderOverBudgetSeconds = 0;
+let adaptiveRenderRecoverySeconds = 0;
 let modalReturnFocus: HTMLElement | null = null;
 let lastDebugSecond = -1;
 const replayFrames: ReplayFrame[] = [];
@@ -2702,6 +2705,7 @@ function frame(now: number): void {
       textures: renderer.textures,
       detail: renderer.detail,
     });
+    updateAdaptiveRenderQuality();
     updateOperationsHealth();
     renderSurfaceDisruptionControls();
     if (queueInspectorVisible) renderQueueInspector();
@@ -6666,6 +6670,37 @@ function updateOperationsHealth(): void {
   operationsHealth.dataset.state = state.toLowerCase();
 }
 
+function updateAdaptiveRenderQuality(): void {
+  const runtime = runtimePerformance.snapshot();
+  // A brief asset upload or a single browser pause is not a quality signal.
+  // Require several consecutive one-second observations before changing the
+  // render adapter, then require a longer calm period before restoring it.
+  const overloaded =
+    runtime.frameWorkMs.samples >= 120 &&
+    (runtime.frameWorkMs.p95 > 18 || runtime.frameGapMs.p95 > 26);
+  const recovered =
+    runtime.frameWorkMs.samples >= 180 &&
+    runtime.frameWorkMs.p95 < 11 &&
+    runtime.frameGapMs.p95 < 20;
+  adaptiveRenderOverBudgetSeconds = overloaded
+    ? adaptiveRenderOverBudgetSeconds + 1
+    : 0;
+  adaptiveRenderRecoverySeconds = recovered
+    ? adaptiveRenderRecoverySeconds + 1
+    : 0;
+  if (!adaptiveRenderDegraded && adaptiveRenderOverBudgetSeconds >= 3) {
+    adaptiveRenderDegraded = true;
+    adaptiveRenderRecoverySeconds = 0;
+    world.setPerformanceDegraded(true);
+    return;
+  }
+  if (adaptiveRenderDegraded && adaptiveRenderRecoverySeconds >= 12) {
+    adaptiveRenderDegraded = false;
+    adaptiveRenderOverBudgetSeconds = 0;
+    world.setPerformanceDegraded(false);
+  }
+}
+
 function updatePerformancePanelControl(): void {
   debugPanel.hidden = !performancePanelVisible;
   performanceButton.classList.toggle(
@@ -6699,7 +6734,7 @@ function renderDebugPanel(): void {
     `${config.code} · ${simulation.state.mode.toUpperCase()} · ${simulation.state.station.toUpperCase()}`,
     `${runtime.status.toUpperCase()} · ${measuredFps.toFixed(1)} fps · ${runtime.frameGapMs.p95.toFixed(1)} ms gap p95 · ${runtime.frameWorkMs.p95.toFixed(1)} ms work p95`,
     `${runtime.simulationTickMs.p95.toFixed(2)} ms sim p95 · ${runtime.droppedSimulationSeconds.toFixed(2)} s dropped · ${runtime.maximumTicksPerFrame} max ticks/frame`,
-    `${renderer.drawCalls} draws · ${renderer.geometries} geometries · ${renderer.triangles.toLocaleString()} tris`,
+    `${renderer.drawCalls} draws · ${renderer.geometries} geometries · ${renderer.triangles.toLocaleString()} tris · ${renderer.adaptivePerformanceMode} render`,
     `${simulation.state.flights.length} aircraft · ${diagnostics.runwayReservations.length} runway reservations`,
     `${diagnostics.metrics.collisionAlerts} conflicts · ${diagnostics.metrics.runwayIncursions} incursions · ${diagnostics.metrics.unexplainedPauses} pauses`,
     budgetIssues
@@ -7531,6 +7566,7 @@ function newSession(
   surfaceSafetyAnnouncements.reset();
   updateSafetyUi([]);
   world = createWorld(canvas, config);
+  world.setPerformanceDegraded(adaptiveRenderDegraded);
   world.setRunwayLabelsVisible(runwayLabelsVisible);
   world.setServiceVehiclesVisible(serviceVehiclesVisible);
   world.setAccessibilityPalette(accessibilityPalette);
@@ -7547,6 +7583,10 @@ function newSession(
   lastOrientationUpdate = -Infinity;
   simulationAccumulator = 0;
   runtimePerformance.reset();
+  adaptiveRenderDegraded = false;
+  adaptiveRenderOverBudgetSeconds = 0;
+  adaptiveRenderRecoverySeconds = 0;
+  world.setPerformanceDegraded(false);
   previousPresentation = capturePresentation(simulation.state);
   updateAirportUi();
   clearRoute();
