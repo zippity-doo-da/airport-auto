@@ -292,6 +292,12 @@ normal three-aircraft approach picture. Departure starters are staged without
 consuming approach capacity, then pass through the same stand, meter, runway,
 wake, and surface-reservation rules as every later flight.
 
+Opening taxi departures now also rewrite the carried-over gate schedule before
+their departure flight plan is created. That prevents an aircraft already
+taxiing in the opening picture from inheriting a stale inbound-turn release
+time, reaching the threshold, and waiting through an artificial future slot.
+The ORD flow validator asserts this release-time invariant directly.
+
 Inbound demand now applies bounded queue-pressure relief to its next-demand
 clock once the holding buffer is more than half full. This keeps the rolling
 stream alive while reducing self-inflicted bursts; it does not alter separation,
