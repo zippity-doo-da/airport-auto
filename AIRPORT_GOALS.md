@@ -498,8 +498,12 @@ shared free text as a command.
       cancellation after takeoff-roll begins remains deliberately rejected.
       The broader stop, rejected-takeoff, conflict, and spoken-action work remains
       open.
-- [ ] Show aircraft capability and station/data-authority limitations without
-      turning the interface into avionics configuration management.
+- [~] Show aircraft capability and station/data-authority limitations without
+      turning the interface into avionics configuration management. The selected
+      flight panel now shows aircraft/wake class, required takeoff and landing
+      runway length, current data authority, and whether the selected desk can
+      issue a clearance or must obtain a transfer. Broader capability limits and
+      per-message limitation presentation remain open.
 - [~] Provide concise keyboard flows and an Assisted composer that explains why
   a message is valid, delayed, or rejected. Clearance rows are keyboard
   focusable and move to the existing flight workflow; the advisor now offers a
