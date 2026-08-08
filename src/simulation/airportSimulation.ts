@@ -11173,8 +11173,15 @@ export class AirportSimulation {
     if (!routingStartNodeId) return false;
     const prefixNodes = routeNodes.slice(0, routingStartNodeIndex + 1);
     const prefixEdges = routeEdges.slice(0, routingStartNodeIndex);
+    // Initial taxi routes exclude parked aircraft, but an amendment used to
+    // rebuild only against dynamic disruptions and the caller's narrow
+    // avoidance set. That allowed a detour to select a suffix through a gate
+    // body that the original route would never have accepted. Preserve the
+    // same physical pavement constraint for every route source.
+    const parkedBlockedEdges = this.parkedAircraftBlockedEdgeIds(flight);
     const additionallyBlocked = new Set([
       ...prefixEdges,
+      ...parkedBlockedEdges,
       ...(options.additionallyBlockedEdgeIds ?? []),
     ]);
     const planning = this.surfaceRoutePlanning(flight.id, additionallyBlocked);
