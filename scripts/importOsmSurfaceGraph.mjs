@@ -1783,34 +1783,12 @@ function chooseRunwayAccessNode(
       candidates.set(node.id, {
         node,
         score: Math.abs(along - targetAlong) + across * 0.08,
-        // The closest OSM vertex is often where a feeder meets a through
-        // taxiway. Treating that junction as the runway hold point leaves a
-        // departure physically parked in the shared intersection while it
-        // awaits Tower clearance. Prefer an equally-close ordinary taxiway
-        // vertex, so the hold point remains on a paved lead-in without
-        // turning a surface intersection into a runway queue.
-        junctionRisk:
-          Math.max(0, node.taxiwayIds.length - 1) * 2 +
-          Math.max(
-            0,
-            edges.filter((edge) => edge.from === node.id || edge.to === node.id)
-              .length - 2,
-          ) * 2,
       });
     }
   }
-  const candidatesByProximity = [...candidates.values()].sort(
+  const selected = [...candidates.values()].sort(
     (first, second) => first.score - second.score,
-  );
-  const nearestScore = candidatesByProximity[0]?.score;
-  // Keep the geometric choice authoritative. Topology is a tie-break only
-  // among candidates within roughly 23 m of the closest mapped access.
-  const selected = candidatesByProximity
-    .filter((candidate) => candidate.score <= (nearestScore ?? Infinity) + 0.6)
-    .sort(
-      (first, second) =>
-        first.junctionRisk - second.junctionRisk || first.score - second.score,
-    )[0]?.node;
+  )[0]?.node;
   if (!selected)
     throw new Error(`No OSM access node found for runway ${runway.runwayId}`);
   return selected;

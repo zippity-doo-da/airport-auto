@@ -10,7 +10,7 @@
   "assetPath": "data/airports/KORD.osm-surface.json",
   "graphPath": "src/data/airports/KORD.surfaceGraph.json",
   "assetSha256": "d955485e2c03d3d5f999f3af41f784088773c1680896a38011808efb2ecaf2d0",
-  "graphSha256": "8c060d8d4e52a95adccfc7978379a5cc304430748a04356e9bbd1a274951d23d",
+  "graphSha256": "15a0dd16822bacddd027b676786af07ed8c218675213bec23500f7d131126860",
   "retrievedOn": "2026-08-08",
   "coordinateSystem": {
     "source": "EPSG:4326",

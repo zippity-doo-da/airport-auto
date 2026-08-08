@@ -456,21 +456,6 @@ for (const access of graph.runwayAccess ?? []) {
     `${key} hold-short point lies inside runway pavement`,
   );
 }
-// 09R/27L's two access points are deliberately on the short paved feeder
-// segments rather than the TT intersections immediately beside them. A hold
-// point at either junction turns a normal Tower queue into a physical block of
-// through-taxi traffic; keep this imported ORD topology invariant explicit.
-for (const [end, nodeId] of [[-1, "OSM-N9418328591"], [1, "OSM-N1085471100"]])
-  check(
-    graph.runwayAccess.some(
-      (access) =>
-        access.runwayId === 2 &&
-        access.end === end &&
-        access.holdShortNodeId === nodeId,
-    ),
-    `09R/27L ${end === -1 ? "west" : "east"} hold-short must remain on its paved feeder`,
-  );
-
 const controlPoints = new Map();
 const validControlKinds = new Set([
   "hold-short",
