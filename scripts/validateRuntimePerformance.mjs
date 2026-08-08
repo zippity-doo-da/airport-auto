@@ -8,6 +8,29 @@ import { generateHubConfig } from './src/simulation/airportConfig.ts';
 import { AirportSimulation } from './src/simulation/airportSimulation.ts';
 
 const MiB = 1_048_576;
+const cleanupSimulation = new AirportSimulation(generateHubConfig(4), 'quiet');
+const cleanupFlight = cleanupSimulation.state.flights.find((flight) => flight.phase === 'taxi-out');
+assert(cleanupFlight, 'ORD cleanup fixture needs an initial taxi-out departure');
+cleanupFlight.phase = 'takeoff';
+cleanupSimulation['stationarySeconds'].set(cleanupFlight.id, 12);
+cleanupSimulation['surfaceYieldCooldownUntil'].set(cleanupFlight.id, 20);
+cleanupSimulation['phaseTransitionRetryAt'].set(cleanupFlight.id, 30);
+cleanupSimulation['parkedBlockerRecovery'].set(cleanupFlight.id, {
+  blockerId: cleanupFlight.id,
+  attempts: 1,
+  retryAtSeconds: 40,
+});
+cleanupSimulation['runwayReservations'].set(cleanupFlight.runway, cleanupFlight.id);
+cleanupSimulation['advance'](cleanupFlight);
+assert(!cleanupSimulation.state.flights.some((flight) => flight.id === cleanupFlight.id), 'departed flight remained in the live state');
+assert(
+  !cleanupSimulation['stationarySeconds'].has(cleanupFlight.id)
+    && !cleanupSimulation['surfaceYieldCooldownUntil'].has(cleanupFlight.id)
+    && !cleanupSimulation['phaseTransitionRetryAt'].has(cleanupFlight.id)
+    && !cleanupSimulation['parkedBlockerRecovery'].has(cleanupFlight.id)
+    && ![...cleanupSimulation['runwayReservations'].values()].includes(cleanupFlight.id),
+  'departed flight retained ID-keyed runtime state',
+);
 const monitor = new RuntimePerformanceMonitor();
 for (let index = 0; index < 180; index += 1) {
   monitor.recordFrame(6 + index % 3, 16 + index % 4, index % 3);

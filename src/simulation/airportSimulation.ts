@@ -6109,8 +6109,25 @@ export class AirportSimulation {
       (vehicle) => vehicle.flightId !== flight.id,
     );
     this.events = this.events.filter((event) => event.flight.id !== flight.id);
-    this.stationarySeconds.delete(flight.id);
+    this.releaseFlightRuntimeState(flight);
     removeDepartureDemand(this.state.trafficFlow, flight.id);
+  }
+
+  /**
+   * Release per-flight runtime bookkeeping when an aircraft leaves the live
+   * simulation. IDs are monotonic, so retaining cooldown/retry entries after
+   * departure cannot help a future aircraft; it only turns a long Watch
+   * session into an avoidable retained-memory slope. WeakMap-backed route
+   * caches intentionally need no explicit release.
+   */
+  private releaseFlightRuntimeState(flight: Flight): void {
+    this.stationarySeconds.delete(flight.id);
+    this.surfaceYieldCooldownUntil.delete(flight.id);
+    this.phaseTransitionRetryAt.delete(flight.id);
+    this.parkedBlockerRecovery.delete(flight.id);
+    for (const [runway, owner] of this.runwayReservations) {
+      if (owner === flight.id) this.runwayReservations.delete(runway);
+    }
   }
 
   private updateTrafficFlow(): void {
@@ -7323,9 +7340,6 @@ export class AirportSimulation {
 
   private advance(flight: Flight): void {
     if (flight.phase === "approach" && flight.diversion) {
-      for (const [runway, owner] of this.runwayReservations) {
-        if (owner === flight.id) this.runwayReservations.delete(runway);
-      }
       this.archiveFlightPlan(flight);
       this.events.push({
         type: "divert",
@@ -7336,7 +7350,7 @@ export class AirportSimulation {
       this.state.serviceVehicles = this.state.serviceVehicles.filter(
         (vehicle) => vehicle.flightId !== flight.id,
       );
-      this.stationarySeconds.delete(flight.id);
+      this.releaseFlightRuntimeState(flight);
       return;
     }
     if (flight.phase === "approach" && flight.navigation.hold) {
@@ -7363,9 +7377,6 @@ export class AirportSimulation {
       return;
     }
     if (flight.phase === "takeoff") {
-      for (const [runway, owner] of this.runwayReservations) {
-        if (owner === flight.id) this.runwayReservations.delete(runway);
-      }
       this.state.departures += 1;
       this.metrics.safeDepartures += 1;
       flight.flightPlan.status = "completed";
@@ -7376,7 +7387,7 @@ export class AirportSimulation {
       this.state.serviceVehicles = this.state.serviceVehicles.filter(
         (vehicle) => vehicle.flightId !== flight.id,
       );
-      this.stationarySeconds.delete(flight.id);
+      this.releaseFlightRuntimeState(flight);
       return;
     }
 
@@ -11086,9 +11097,7 @@ export class AirportSimulation {
     this.state.surfaceDisruptions = this.state.surfaceDisruptions.filter(
       (candidate) => candidate.id !== disruption.id,
     );
-    for (const [runway, owner] of this.runwayReservations)
-      if (owner === flight.id) this.runwayReservations.delete(runway);
-    this.stationarySeconds.delete(flight.id);
+    this.releaseFlightRuntimeState(flight);
     this.syncClosedRunwayState();
     this.replanSurfaceTrafficAroundDisruptions(disruption.id, true);
     this.updateActiveRunwayConfiguration();
