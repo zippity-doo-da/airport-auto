@@ -415,7 +415,14 @@ advisory-only flow records; action-specific release policy remains open.
       queues and no all-aircraft stopped state.
 - [ ] Manual can ignore an advisory, recover the schedule, and understand the
       consequences without hidden score manipulation.
-- [ ] Fixed-step partitioning produces the same slots, commands, and outcomes.
+- [x] Fixed-step partitioning produces the same slots, commands, and outcomes.
+  `npm run test:simulation` compares complete canonical fixed-step snapshots
+  across five partitioned runs, including seeded ORD Rush. Those snapshots
+  include `trafficFlow`, scripted-controller decisions, captured command/event
+  history, aircraft state, and completed arrivals/departures, so a changed slot,
+  command, or outcome fails the comparison. August 8 local run: 57,644 ticks,
+  68 modeled minutes, 2,215 captured events, 10 ORD arrivals, and four ORD
+  departures with zero deterministic safety failures.
 
 ## A3 — Digital clearances and flight data
 
