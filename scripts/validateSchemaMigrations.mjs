@@ -13,6 +13,7 @@ import {
   migrateStandaloneControlCommand,
 } from './src/control/controlMigrations.ts';
 import { migrateStandaloneTelemetryEvent } from './src/control/eventMigrations.ts';
+import { CONTROL_API_VERSION, CONTROL_PROTOCOL_VERSION } from './src/control/controlProtocol.ts';
 import { migrateAirportAssetDocument } from './src/assets/airportAssetMigrations.ts';
 import { schemaMigrationCatalog, schemaMigrationTools } from './src/persistence/schemaMigrationCatalog.ts';
 import { migrateReplayRecording } from './src/replay/replayRecording.ts';
@@ -90,7 +91,7 @@ const legacyEvent = migrateStandaloneTelemetryEvent(
   { sessionId: 'migration-test', airport: 'ORD', eventId: 8 },
 );
 assert(legacyEvent.accepted && legacyEvent.value?.event.eventKey === 'migration-test:8', 'legacy event causality was not filled');
-assert(legacyEvent.value?.event.protocolVersion === '1.2.0' && legacyEvent.value.event.apiVersion === '2.40.0', 'legacy event protocol fields were not upgraded');
+assert(legacyEvent.value?.event.protocolVersion === CONTROL_PROTOCOL_VERSION && legacyEvent.value.event.apiVersion === CONTROL_API_VERSION, 'legacy event protocol fields were not upgraded');
 assert(!migrateStandaloneTelemetryEvent({ schemaVersion: 2, event: legacyEvent.value?.event }).accepted, 'future standalone event was accepted');
 
 const airport = { faaId: 'TST', icaoId: 'KTST', name: 'Test Airport' };
