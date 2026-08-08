@@ -342,7 +342,12 @@ export function createWorld(
     alpha: false,
     powerPreference: "high-performance",
   });
-  const standardPixelRatio = Math.min(devicePixelRatio, lowDetail ? 1 : 1.5);
+  // A 1.5× backing store looks excellent on a light scene, but it turns into
+  // more than twice the fragment work of a 1× canvas once a busy hub adds
+  // terminal glass, runway lighting, weather, and aircraft shadows.  1.25×
+  // keeps the miniature look crisp on ordinary laptop displays while giving
+  // the adaptive fallback enough headroom to preserve smooth motion.
+  const standardPixelRatio = Math.min(devicePixelRatio, lowDetail ? 1 : 1.25);
   let performanceDegraded = false;
   renderer.setPixelRatio(standardPixelRatio);
   renderer.shadowMap.enabled = !lowDetail;

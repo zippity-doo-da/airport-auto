@@ -1,7 +1,7 @@
 # Airport Auto Goals
 
 Status: active product and implementation ledger  
-Last reconciled: July 28, 2026  
+Last reconciled: August 8, 2026
 Baseline: Airport Auto 2.41 plus the additive Research Annex navigation
 Companion ledger: [Combat Simulation Goals](COMBAT_GOALS.md)
 
@@ -990,6 +990,14 @@ service or a full workload/debrief experience.
       34 ms in supported Watch/Assisted interactions.
 - [ ] No simulation catch-up burst, asset load, panel update, or garbage
       collection pause may visibly freeze aircraft motion after warm-up.
+  The renderer now starts high-detail scenes at a restrained 1.25× pixel-ratio
+  cap instead of 1.5×, and the existing adaptive quality governor enters its
+  shadow-free 1× fallback after two sustained overloaded observations (with a
+  60-frame measurement floor). This keeps simulation authority, aircraft
+  detail, and safety rules intact while reducing avoidable GPU work. Local
+  TypeScript, lint, production-build, and Extreme ORD runtime checks passed on
+  August 8; device-specific visual-frame pacing and the required async hub-data
+  split remain open.
 - [ ] Pools, histories, alerts, analytics, audio voices, labels, and remote queues
       remain explicitly bounded during a four-hour run.
 

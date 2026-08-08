@@ -6689,8 +6689,8 @@ function updateAdaptiveRenderQuality(): void {
   // Require several consecutive one-second observations before changing the
   // render adapter, then require a longer calm period before restoring it.
   const overloaded =
-    runtime.frameWorkMs.samples >= 120 &&
-    (runtime.frameWorkMs.p95 > 18 || runtime.frameGapMs.p95 > 26);
+    runtime.frameWorkMs.samples >= 60 &&
+    (runtime.frameWorkMs.p95 > 16 || runtime.frameGapMs.p95 > 24);
   const recovered =
     runtime.frameWorkMs.samples >= 180 &&
     runtime.frameWorkMs.p95 < 11 &&
@@ -6701,7 +6701,7 @@ function updateAdaptiveRenderQuality(): void {
   adaptiveRenderRecoverySeconds = recovered
     ? adaptiveRenderRecoverySeconds + 1
     : 0;
-  if (!adaptiveRenderDegraded && adaptiveRenderOverBudgetSeconds >= 3) {
+  if (!adaptiveRenderDegraded && adaptiveRenderOverBudgetSeconds >= 2) {
     adaptiveRenderDegraded = true;
     adaptiveRenderRecoverySeconds = 0;
     world.setPerformanceDegraded(true);
