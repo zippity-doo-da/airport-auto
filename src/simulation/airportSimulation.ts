@@ -121,6 +121,11 @@ import {
   type SurfaceTrafficMovement,
 } from "./surfaceOperations";
 import {
+  SurfaceFlowPlanner,
+  type SurfaceFlowDemand,
+  type SurfaceFlowPlannerState,
+} from "./surfaceFlowPlanner";
+import {
   GATE_TURN_BUFFER_SECONDS,
   gateReservationsOverlap,
   planGateAssignment,
@@ -632,6 +637,7 @@ type TrainingCheckpoint = {
   metrics: ShiftMetrics;
   stationarySeconds: Array<[number, number]>;
   surfaceYieldCooldownUntil: Array<[number, number]>;
+  surfaceFlowPlanner: SurfaceFlowPlannerState;
   decisionReason: string;
   lastArrivalAdmissionReason: string;
 };
@@ -694,6 +700,7 @@ export class AirportSimulation {
   private readonly surfaceGraphValidation: SurfaceGraphValidation;
   private readonly obstacleEnvelopeValidation: AirportObstacleValidation;
   private readonly metrics: ShiftMetrics = createShiftMetrics();
+  private readonly surfaceFlowPlanner = new SurfaceFlowPlanner();
 
   private readonly stationarySeconds = new Map<number, number>();
   private readonly surfaceYieldCooldownUntil = new Map<number, number>();
@@ -1103,6 +1110,7 @@ export class AirportSimulation {
       metrics: { ...this.metrics },
       stationarySeconds: [...this.stationarySeconds.entries()],
       surfaceYieldCooldownUntil: [...this.surfaceYieldCooldownUntil.entries()],
+      surfaceFlowPlanner: this.surfaceFlowPlanner.snapshot(),
       decisionReason: this.decisionReason,
       lastArrivalAdmissionReason: this.lastArrivalAdmissionReason,
     };
@@ -1130,6 +1138,7 @@ export class AirportSimulation {
     Object.assign(this.metrics, checkpoint.metrics);
     this.stationarySeconds.clear();
     this.surfaceYieldCooldownUntil.clear();
+    this.surfaceFlowPlanner.restore(checkpoint.surfaceFlowPlanner);
     this.phaseTransitionRetryAt.clear();
     this.parkedAircraftEdgeMaskCache.clear();
     this.parkedBlockerRecovery.clear();
@@ -7708,17 +7717,10 @@ export class AirportSimulation {
         return first.id - second.id;
       });
     const reservations = new SurfaceReservationLedger();
-    // Before individual aircraft extend their lookahead claims, choose one
-    // direction for each currently-clear shared taxiway section. This is a
-    // small deterministic ground-flow controller: it never displaces an
-    // aircraft already on the section, and it releases naturally as demand
-    // changes, but it prevents simultaneous opposite-side entries from
-    // creating a nose-to-nose reservation cycle.
-    const activeTaxiwayFlows = new Map<string, Set<string>>();
-    const taxiwayFlowDemand = new Map<
-      string,
-      { label: string; directions: Map<string, number> }
-    >();
+    // Project current occupancy and near-term demand into the persistent
+    // planner. It owns strategic section direction; the ledger below retains
+    // physical edge/node/stand/runway conflict authority.
+    const flowDemand = new Map<string, SurfaceFlowDemand>();
     for (const flight of surfaceFlights) {
       const occupiedClaims = surfaceRouteReservationClaims(
         this.config.surfaceGraph,
@@ -7731,9 +7733,15 @@ export class AirportSimulation {
       );
       for (const claim of occupiedClaims) {
         if (claim.kind !== "taxiway-flow" || !claim.direction) continue;
-        const directions = activeTaxiwayFlows.get(claim.id) ?? new Set();
-        directions.add(claim.direction);
-        activeTaxiwayFlows.set(claim.id, directions);
+        const key = `${claim.id}:${claim.direction}`;
+        const current = flowDemand.get(key);
+        flowDemand.set(key, {
+          id: claim.id,
+          label: claim.label,
+          direction: claim.direction,
+          active: true,
+          count: (current?.count ?? 0) + 1,
+        });
       }
       const demandClaims = surfaceRouteReservationClaims(
         this.config.surfaceGraph,
@@ -7746,33 +7754,24 @@ export class AirportSimulation {
       );
       for (const claim of demandClaims) {
         if (claim.kind !== "taxiway-flow" || !claim.direction) continue;
-        const demand = taxiwayFlowDemand.get(claim.id) ?? {
+        const key = `${claim.id}:${claim.direction}`;
+        const current = flowDemand.get(key);
+        flowDemand.set(key, {
+          id: claim.id,
           label: claim.label,
-          directions: new Map(),
-        };
-        demand.directions.set(
-          claim.direction,
-          (demand.directions.get(claim.direction) ?? 0) + 1,
-        );
-        taxiwayFlowDemand.set(claim.id, demand);
+          direction: claim.direction,
+          active: current?.active ?? false,
+          count: (current?.count ?? 0) + 1,
+        });
       }
     }
-    for (const [flowId, demand] of taxiwayFlowDemand) {
-      if (activeTaxiwayFlows.has(flowId)) continue;
-      const direction = [...demand.directions.entries()].sort(
-        ([firstDirection, firstCount], [secondDirection, secondCount]) =>
-          secondCount - firstCount || firstDirection.localeCompare(secondDirection),
-      )[0]?.[0];
-      if (!direction) continue;
-      reservations.reserve(`flow:${flowId}`, [
-        {
-          kind: "taxiway-flow",
-          id: flowId,
-          label: demand.label,
-          direction,
-          capacity: Infinity,
-        },
-      ]);
+    const flowDecisions = this.surfaceFlowPlanner.plan(
+      this.state.elapsed,
+      [...flowDemand.values()],
+    );
+    const flowDecisionById = new Map(flowDecisions.map((decision) => [decision.id, decision]));
+    for (const decision of flowDecisions) {
+      reservations.reserve(`flow:${decision.id}`, SurfaceFlowPlanner.claims([decision]));
     }
     const protectedTaxiCorridors: Array<{
       flight: Flight;
@@ -7925,7 +7924,15 @@ export class AirportSimulation {
         coordinationHold ??
         (corridorOwner
           ? `protected taxi corridor for ${corridorOwner.callsign} (flight ${corridorOwner.id})`
-          : conflict
+          : conflict &&
+              typeof conflict.ownerId === "string" &&
+              conflict.ownerId.startsWith("flow:") &&
+              flowDecisionById.get(conflict.claim.id)
+            ? this.surfaceFlowPlanner.holdReason(
+                flowDecisionById.get(conflict.claim.id)!,
+                this.state.elapsed,
+              )
+            : conflict
             ? this.surfaceReservationConflictReason(
                 conflict.claim,
                 conflict.ownerId,

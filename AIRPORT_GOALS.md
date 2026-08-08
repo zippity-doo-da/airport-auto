@@ -542,6 +542,26 @@ runway incursions, and zero unexplained pauses. ATL's multi-hour retained-heap
 and sustained-flow acceptance remains open; it is not represented as complete
 by the short-run safety result.
 
+### Shared hub-flow track — August 8, 2026
+
+The former stateless per-tick named-taxiway direction lock has been replaced by
+a simulation-owned, checkpointable `SurfaceFlowPlanner`. It selects a
+deterministic minimum-duration direction window for each shared taxiway section,
+never reverses a physically occupied section, and reports the remaining window
+as the ordinary aircraft hold reason. The planner is enforced by Auto and Watch;
+Manual and Assisted retain controller authority while receiving the same hold
+explanation. Its small deterministic validator covers window persistence,
+safe reversal, occupancy protection, reservation projection, and checkpoint
+restore.
+
+This is only the strategic-section foundation, not a completed hub-flow claim.
+An August 8 two-hour ATL Extreme Auto soak remained safety-clean (43 arrivals,
+11 departures, zero collisions, incursions, and unexplained pauses), but still
+failed the queue, retained-heap, and sustained-flow gates. The next required
+work is downstream admission control for queued gate departures and terminal
+arrivals before either enters a shared surface corridor; no hub is marked
+complete until the longer acceptance gate passes.
+
 ### DFW parity track — August 7, 2026
 
 KDFW is the first additional hub being brought through the same sourced-asset
