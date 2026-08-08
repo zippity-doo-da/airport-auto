@@ -743,6 +743,14 @@ export class AirportSimulation {
     Flight,
     Map<string, { signature: string; conflicts: boolean }>
   >();
+  private readonly arrivalRouteSurfaceConflictCache = new WeakMap<
+    Flight,
+    Map<string, { signature: string; conflicts: boolean }>
+  >();
+  private readonly restingTaxiOutRouteCache = new WeakMap<
+    Flight,
+    { signature: string; routeEdges: string[] | undefined }
+  >();
   private readonly pushbackPreviewCache = new WeakMap<
     Flight,
     {
@@ -1725,13 +1733,23 @@ export class AirportSimulation {
       );
     const program = ambientProgram(id);
     if (!program) return this.rejectDecision("unknown ambient program");
-    const offset = program.localMinute - this.config.operationProfile.sessionStartLocalMinute;
+    const offset =
+      program.localMinute -
+      this.config.operationProfile.sessionStartLocalMinute;
     this.setOperationTimeOffsetMinutes(offset);
     this.setTrafficDensity(program.density);
-    setTrafficFlowObjective(this.state.trafficFlow, program.flowObjective, this.state.elapsed);
+    setTrafficFlowObjective(
+      this.state.trafficFlow,
+      program.flowObjective,
+      this.state.elapsed,
+    );
     this.setEnvironmentLightingMode(program.lightingMode);
     this.setEnvironmentSeasonMode(program.seasonMode);
-    this.setWeather(program.weather, program.windDirectionDegrees * Math.PI / 180, program.windSpeedKts);
+    this.setWeather(
+      program.weather,
+      (program.windDirectionDegrees * Math.PI) / 180,
+      program.windSpeedKts,
+    );
     this.setWeatherHazardsEnabled(false);
     this.decisionReason = `${program.label} ambient program active`;
     return true;
@@ -2221,7 +2239,9 @@ export class AirportSimulation {
             this.config.airspaceProgram.holds.find((hold) =>
               routeFixes.has(hold.fixId),
             ) ??
-            this.config.airspaceProgram.holds[flight.id % this.config.airspaceProgram.holds.length];
+            this.config.airspaceProgram.holds[
+              flight.id % this.config.airspaceProgram.holds.length
+            ];
           if (pattern) {
             proposals.push({
               id: `${flight.id}:hold:${pattern.id}`,
@@ -2406,8 +2426,7 @@ export class AirportSimulation {
           runway: flight.runway,
           station: "tower",
           label: `Line up ${this.activeRunwayDesignation(flight.runway)}`,
-          reason:
-            `Aircraft is stopped at the hold-short point and all required route crossings are clear. ${this.towerDepartureReleaseDetail(flight)}`,
+          reason: `Aircraft is stopped at the hold-short point and all required route crossings are clear. ${this.towerDepartureReleaseDetail(flight)}`,
           priority: "attention",
         });
       }
@@ -2423,8 +2442,7 @@ export class AirportSimulation {
           runway: flight.runway,
           station: "tower",
           label: `Clear takeoff ${this.activeRunwayDesignation(flight.runway)}`,
-          reason:
-            `Aircraft is lined up; runway protection and arrival spacing will be validated on approval. ${this.towerDepartureReleaseDetail(flight)}`,
+          reason: `Aircraft is lined up; runway protection and arrival spacing will be validated on approval. ${this.towerDepartureReleaseDetail(flight)}`,
           priority: "attention",
         });
       }
@@ -2472,8 +2490,7 @@ export class AirportSimulation {
         continue;
       const blocker = this.runwayBlocker(crossing.runwayId, flight.id);
       if (!blocker) continue;
-      const corridorPointId =
-        crossing.holdPointId ?? crossing.crossingPointId;
+      const corridorPointId = crossing.holdPointId ?? crossing.crossingPointId;
       const holdPoint = corridorPointId
         ? this.config.surfaceGraph.nodes.find(
             (node) => node.id === corridorPointId,
@@ -2488,14 +2505,20 @@ export class AirportSimulation {
         type: "crossing",
         flights: [flight.id, blocker.id],
         runway: crossing.runwayId,
-        etaSeconds: Math.max(1, Math.min(120, Math.round(Math.max(0, distanceM) / speedMps))),
+        etaSeconds: Math.max(
+          1,
+          Math.min(120, Math.round(Math.max(0, distanceM) / speedMps)),
+        ),
         detail: `${flight.callsign} is approaching ${this.activeRunwayDesignation(crossing.runwayId)} crossing${corridorPointId ? ` ${corridorPointId}` : ""}; ${blocker.callsign} is protecting the runway`,
         geometry: holdPoint
           ? {
               kind: "corridor" as const,
               points: [
                 [flight.motion.x, flight.motion.y] as [number, number],
-                [holdPoint.position[0], holdPoint.position[1]] as [number, number],
+                [holdPoint.position[0], holdPoint.position[1]] as [
+                  number,
+                  number,
+                ],
               ],
               width: Math.max(1, aircraftProfile(flight.aircraft).wingspanM),
             }
@@ -4892,7 +4915,10 @@ export class AirportSimulation {
         );
         continue;
       }
-      if (this.state.elapsed + 1e-6 >= (clearance.readbackDueSeconds ?? Infinity))
+      if (
+        this.state.elapsed + 1e-6 >=
+        (clearance.readbackDueSeconds ?? Infinity)
+      )
         this.resolveRouteReadback(flight);
     }
   }
@@ -5506,7 +5532,9 @@ export class AirportSimulation {
     const surfaceFlights = this.state.flights.filter(
       (flight) => flight.phase === "taxi-in" || flight.phase === "taxi-out",
     );
-    const allFlights = new Map(this.state.flights.map((flight) => [flight.id, flight]));
+    const allFlights = new Map(
+      this.state.flights.map((flight) => [flight.id, flight]),
+    );
     const edges: Array<{
       flightId: number;
       blockerId: number;
@@ -5524,7 +5552,8 @@ export class AirportSimulation {
     for (const flight of surfaceFlights) {
       const waitSeconds = this.stationarySeconds.get(flight.id) ?? 0;
       if (waitSeconds < 1) continue;
-      const reason = flight.safetyHoldReason ?? flight.automaticHoldReason ?? "";
+      const reason =
+        flight.safetyHoldReason ?? flight.automaticHoldReason ?? "";
       let blockerId = reason.match(/\bflight (\d+)\b/)?.[1]
         ? Number(reason.match(/\bflight (\d+)\b/)?.[1])
         : undefined;
@@ -5532,12 +5561,16 @@ export class AirportSimulation {
         blockerId === undefined &&
         reason.startsWith("pushback corridor protected for ")
       ) {
-        const callsign = reason.slice("pushback corridor protected for ".length);
-        blockerId = surfaceFlights.find((candidate) => candidate.callsign === callsign)?.id;
+        const callsign = reason.slice(
+          "pushback corridor protected for ".length,
+        );
+        blockerId = surfaceFlights.find(
+          (candidate) => candidate.callsign === callsign,
+        )?.id;
       }
       if (
         blockerId === undefined &&
-        ((flight.crossingHoldRunway !== undefined) ||
+        (flight.crossingHoldRunway !== undefined ||
           (flight.pendingCrossingCount ?? 0) > 0)
       ) {
         const crossing = this.nextUnclearedCrossing(flight);
@@ -5564,7 +5597,11 @@ export class AirportSimulation {
       const path: number[] = [];
       const pathIndex = new Map<number, number>();
       let cursor: number | undefined = start;
-      while (cursor !== undefined && waitFor.has(cursor) && !completed.has(cursor)) {
+      while (
+        cursor !== undefined &&
+        waitFor.has(cursor) &&
+        !completed.has(cursor)
+      ) {
         const cycleStart = pathIndex.get(cursor);
         if (cycleStart !== undefined) {
           cycles.push(path.slice(cycleStart));
@@ -5578,9 +5615,19 @@ export class AirportSimulation {
     }
     return {
       generatedAtSeconds: Number(this.state.elapsed.toFixed(3)),
-      edges: edges.sort((first, second) => second.waitSeconds - first.waitSeconds || first.flightId - second.flightId),
-      terminals: terminals.sort((first, second) => second.waitSeconds - first.waitSeconds || first.flightId - second.flightId),
-      cycles: cycles.map((cycle) => [...cycle].sort((first, second) => first - second)),
+      edges: edges.sort(
+        (first, second) =>
+          second.waitSeconds - first.waitSeconds ||
+          first.flightId - second.flightId,
+      ),
+      terminals: terminals.sort(
+        (first, second) =>
+          second.waitSeconds - first.waitSeconds ||
+          first.flightId - second.flightId,
+      ),
+      cycles: cycles.map((cycle) =>
+        [...cycle].sort((first, second) => first - second),
+      ),
     };
   }
 
@@ -5705,7 +5752,11 @@ export class AirportSimulation {
   trafficFlowSnapshot(state: AirportState = this.state): TrafficFlowSnapshot {
     const weather = state.weather;
     const runwayCondition = Math.max(
-      weather.surfaceCondition === "dry" ? 0 : weather.surfaceCondition === "wet" ? 0.18 : 0.42,
+      weather.surfaceCondition === "dry"
+        ? 0
+        : weather.surfaceCondition === "wet"
+          ? 0.18
+          : 0.42,
       ...weather.runwayConditionReports.map((report) =>
         report.worstCode >= 4 ? 0.5 : report.worstCode >= 3 ? 0.28 : 0,
       ),
@@ -5722,14 +5773,24 @@ export class AirportSimulation {
               : 0.12;
     const windFactor = !weather.windEnabled
       ? 0
-      : Math.min(0.65, Math.max(0, (weather.windSpeed - 12) / 30) + Math.max(0, (weather.gustSpeed - weather.windSpeed) / 45));
+      : Math.min(
+          0.65,
+          Math.max(0, (weather.windSpeed - 12) / 30) +
+            Math.max(0, (weather.gustSpeed - weather.windSpeed) / 45),
+        );
     const overdueHandoffs = state.flights.filter(
       (flight) => flight.navigation.handoff?.status === "overdue",
     ).length;
     const pilotResponse = Math.min(
       0.55,
-      (state.trafficFlow.arrivalQueue.reduce((sum, entry) => sum + entry.attempts, 0) +
-        state.trafficFlow.departureQueue.reduce((sum, entry) => sum + entry.attempts, 0) +
+      (state.trafficFlow.arrivalQueue.reduce(
+        (sum, entry) => sum + entry.attempts,
+        0,
+      ) +
+        state.trafficFlow.departureQueue.reduce(
+          (sum, entry) => sum + entry.attempts,
+          0,
+        ) +
         overdueHandoffs) /
         Math.max(1, state.flights.length * 3),
     );
@@ -6116,10 +6177,13 @@ export class AirportSimulation {
    * area capacity, not a replacement for graph reservations or ATC spacing.
    */
   private surfaceArrivalAdmissionCapacity(): number {
-    const standCapacity = Math.floor(this.config.surfaceGraph.stands.length * 0.35);
-    const runwayCapacity = this.config.runways.filter(
-      (runway) => this.runwayRole(runway.id) !== "inactive",
-    ).length * 2;
+    const standCapacity = Math.floor(
+      this.config.surfaceGraph.stands.length * 0.35,
+    );
+    const runwayCapacity =
+      this.config.runways.filter(
+        (runway) => this.runwayRole(runway.id) !== "inactive",
+      ).length * 2;
     return Math.max(6, Math.min(18, Math.max(standCapacity, runwayCapacity)));
   }
 
@@ -7730,7 +7794,10 @@ export class AirportSimulation {
           // real fairness failure, give it the next reservation opportunity.
           // This is deliberately bounded and still follows every physical,
           // runway, ramp, and collision constraint below.
-          if (Math.max(firstWait, secondWait) >= 90 && Math.abs(firstWait - secondWait) >= 30)
+          if (
+            Math.max(firstWait, secondWait) >= 90 &&
+            Math.abs(firstWait - secondWait) >= 30
+          )
             return secondWait - firstWait;
           // Gate-bound traffic keeps priority until it is off the movement
           // area. In particular, a newly pushed outbound behind an inbound
@@ -7806,13 +7873,17 @@ export class AirportSimulation {
         });
       }
     }
-    const flowDecisions = this.surfaceFlowPlanner.plan(
-      this.state.elapsed,
-      [...flowDemand.values()],
+    const flowDecisions = this.surfaceFlowPlanner.plan(this.state.elapsed, [
+      ...flowDemand.values(),
+    ]);
+    const flowDecisionById = new Map(
+      flowDecisions.map((decision) => [decision.id, decision]),
     );
-    const flowDecisionById = new Map(flowDecisions.map((decision) => [decision.id, decision]));
     for (const decision of flowDecisions) {
-      reservations.reserve(`flow:${decision.id}`, SurfaceFlowPlanner.claims([decision]));
+      reservations.reserve(
+        `flow:${decision.id}`,
+        SurfaceFlowPlanner.claims([decision]),
+      );
     }
     const protectedTaxiCorridors: Array<{
       flight: Flight;
@@ -7861,13 +7932,13 @@ export class AirportSimulation {
       // edge claim. Otherwise a blocked lead could reserve an entire named
       // taxiway indefinitely and prevent a safe downstream drain.
       const occupancyClaims = surfaceRouteReservationClaims(
-          this.config.surfaceGraph,
-          flight.surfaceRoute,
-          flight.surfaceRouteEdges,
-          flight.progress,
-          flight.phase,
-          0,
-        ).filter((claim) => claim.kind !== "taxiway-flow");
+        this.config.surfaceGraph,
+        flight.surfaceRoute,
+        flight.surfaceRouteEdges,
+        flight.progress,
+        flight.phase,
+        0,
+      ).filter((claim) => claim.kind !== "taxiway-flow");
       reservations.reserve(flight.id, occupancyClaims);
     }
     for (const vehicle of orderedVehicles) {
@@ -7977,11 +8048,11 @@ export class AirportSimulation {
                 this.state.elapsed,
               )
             : conflict
-            ? this.surfaceReservationConflictReason(
-                conflict.claim,
-                conflict.ownerId,
-              )
-            : undefined);
+              ? this.surfaceReservationConflictReason(
+                  conflict.claim,
+                  conflict.ownerId,
+                )
+              : undefined);
       if (shouldHold) continue;
       reservations.reserve(flight.id, claims);
       protectedTaxiCorridors.push({ flight, sweep: movementSweep });
@@ -8387,10 +8458,23 @@ export class AirportSimulation {
 
   private ensureArrivalGate(flight: Flight): boolean {
     const assignment = flight.gateAssignment;
-    const routeConflictingStandIds =
-      this.standsConflictingWithActiveSurfaceRoutes(flight);
+    // A provisional approach assignment only needs a free compatible stand
+    // and a conflict-free terminal route. The more expensive whole-stand
+    // corridor screen runs immediately before surface entry (and for the
+    // opening-bank aircraft that start on the ground), when it can act on the
+    // current traffic picture instead of repeatedly screening future traffic.
+    const screenActiveStandCorridors =
+      flight.phase === "landing" ||
+      flight.phase === "taxi-in" ||
+      flight.phase === "resting";
+    const routeConflictingStandIds = screenActiveStandCorridors
+      ? this.standsConflictingWithActiveSurfaceRoutes(flight)
+      : new Set<string>();
     const routeConflictsWithParkedAircraft = assignment
       ? this.arrivalRouteConflictsWithParkedAircraft(flight, assignment)
+      : false;
+    const routeConflictsWithSurfaceTraffic = assignment
+      ? this.arrivalRouteConflictsWithSurfaceTraffic(flight, assignment)
       : false;
     const blocker = assignment
       ? this.state.flights.find(
@@ -8417,7 +8501,8 @@ export class AirportSimulation {
       assignment &&
       !blocker &&
       !corridorConflict &&
-      !routeConflictsWithParkedAircraft
+      !routeConflictsWithParkedAircraft &&
+      !routeConflictsWithSurfaceTraffic
     )
       return true;
     const reason = blocker
@@ -8426,7 +8511,9 @@ export class AirportSimulation {
         ? `${assignment?.gateRef ?? assignment?.zoneName ?? assignment?.standId} conflicts with an occupied stand's active movement corridor`
         : routeConflictsWithParkedAircraft
           ? `${assignment?.gateRef ?? assignment?.zoneName ?? assignment?.standId} arrival route is blocked by parked traffic`
-        : "arrival had no usable stand plan";
+          : routeConflictsWithSurfaceTraffic
+            ? `${assignment?.gateRef ?? assignment?.zoneName ?? assignment?.standId} arrival route conflicts with active surface traffic`
+            : "arrival had no usable stand plan";
     return this.reassignArrivalGate(flight, reason, routeConflictingStandIds);
   }
 
@@ -8440,29 +8527,40 @@ export class AirportSimulation {
       previous?.nextDestination ?? this.originFor(flight.id + 5);
     const rejectedStandIds = new Set(excludedStandIds);
     let decision: FlightGateAssignment | null = null;
-    for (let attempt = 0; attempt < this.config.surfaceGraph.stands.length; attempt += 1) {
+    for (
+      let attempt = 0;
+      attempt < this.config.surfaceGraph.stands.length;
+      attempt += 1
+    ) {
       decision = planGateAssignment({
-      config: this.config,
-      flightId: flight.id,
-      aircraft: flight.aircraft,
-      airline: flight.airline,
-      service: flight.service,
-      trafficClass: flight.operationPlan.trafficClass,
-      arrivalRunway: flight.runway,
-      arrivalOperatingEnd: flight.operatingEnd,
-      departureRunway: flight.departureRunway,
-      departureOperatingEnd: this.preferredOperatingEnd(flight.departureRunway),
-      readyForTaxiAtSeconds: this.gateReadyForTaxiAt(flight),
-      turnaroundSeconds: flight.turnaround.plannedDurationSeconds,
-      nextDestination,
-      assignedAtSeconds: this.state.elapsed,
-      reservations: this.gateReservations(flight.id),
-      planning: this.surfaceRoutePlanning(flight.id),
-      revision: (previous?.revision ?? -1) + 1,
-      previousStandId: previous?.standId,
+        config: this.config,
+        flightId: flight.id,
+        aircraft: flight.aircraft,
+        airline: flight.airline,
+        service: flight.service,
+        trafficClass: flight.operationPlan.trafficClass,
+        arrivalRunway: flight.runway,
+        arrivalOperatingEnd: flight.operatingEnd,
+        departureRunway: flight.departureRunway,
+        departureOperatingEnd: this.preferredOperatingEnd(
+          flight.departureRunway,
+        ),
+        readyForTaxiAtSeconds: this.gateReadyForTaxiAt(flight),
+        turnaroundSeconds: flight.turnaround.plannedDurationSeconds,
+        nextDestination,
+        assignedAtSeconds: this.state.elapsed,
+        reservations: this.gateReservations(flight.id),
+        planning: this.surfaceRoutePlanning(flight.id),
+        revision: (previous?.revision ?? -1) + 1,
+        previousStandId: previous?.standId,
         excludedStandIds: rejectedStandIds,
       });
-      if (!decision || !this.arrivalRouteConflictsWithParkedAircraft(flight, decision)) break;
+      if (
+        !decision ||
+        (!this.arrivalRouteConflictsWithParkedAircraft(flight, decision) &&
+          !this.arrivalRouteConflictsWithSurfaceTraffic(flight, decision))
+      )
+        break;
       rejectedStandIds.add(decision.standId);
       decision = null;
     }
@@ -8585,6 +8683,150 @@ export class AirportSimulation {
   }
 
   /**
+   * A gate can be physically clear yet reachable only through the active or
+   * imminent departure route of another aircraft. Keep that conflict in the
+   * arrival queue or select a different stand before taxi-in commits to the
+   * terminal corridor; the per-tick arbiter then remains a last safety net.
+   */
+  private arrivalRouteConflictsWithSurfaceTraffic(
+    flight: Flight,
+    assignment: FlightGateAssignment,
+  ): boolean {
+    // This is called while the approach scheduler asks whether a stand remains
+    // usable. Cache against a coarse surface-state signature: the expensive
+    // sweep remains authoritative at each meaningful graph/phase change, but
+    // does not become a per-render-frame O(flights * samples²) task.
+    // Only routes that originate at a stand can occupy this terminal corridor.
+    // Incoming aircraft use a different part of the graph and are covered by
+    // the real-time reservation arbiter; including them here used to bust this
+    // cache whenever any approach progressed.
+    const terminalTraffic = this.state.flights.filter(
+      (other) =>
+        other.id !== flight.id &&
+        (other.phase === "taxi-out" || other.phase === "resting"),
+    );
+    const trafficSignature = terminalTraffic
+      .map((other) =>
+        [
+          other.id,
+          other.phase,
+          other.aircraft,
+          other.runway,
+          other.departureRunway,
+          other.gateAssignment?.standId ?? "",
+          other.gateAssignment?.revision ?? -1,
+          surfaceRouteIdentity(other.surfaceRouteEdges),
+        ].join(":"),
+      )
+      .join("|");
+    const cacheKey = [
+      assignment.standId,
+      assignment.revision,
+      flight.runway,
+      flight.operatingEnd,
+    ].join(":");
+    const cached = this.arrivalRouteSurfaceConflictCache
+      .get(flight)
+      ?.get(cacheKey);
+    if (cached?.signature === trafficSignature) return cached.conflicts;
+    const incoming: Flight = {
+      ...flight,
+      phase: "taxi-in",
+      gateAssignment: assignment,
+      gateSlot: assignment.gateSlot,
+      standId: assignment.standId,
+      progress: 0,
+      phaseElapsed: 0,
+      surfaceRoute: undefined,
+      surfaceRouteEdges: undefined,
+      surfaceCongestedEdgeIds: undefined,
+      requiredCrossings: [],
+      crossingClearances: [],
+      crossingClearanceIds: [],
+      deicing: { ...flight.deicing },
+      kinematics: { ...flight.kinematics },
+      motion: { ...flight.motion },
+    };
+    this.assignSurfaceRoute(incoming, "taxi-in");
+    const incomingEdges = incoming.surfaceRouteEdges;
+    if (!incomingEdges?.length) {
+      const cache =
+        this.arrivalRouteSurfaceConflictCache.get(flight) ?? new Map();
+      cache.set(cacheKey, { signature: trafficSignature, conflicts: true });
+      this.arrivalRouteSurfaceConflictCache.set(flight, cache);
+      return true;
+    }
+    // The final taxi-in segment and initial pushback/taxi-out segment are the
+    // contested terminal alley. Comparing graph resources is intentional: the
+    // exact collision solver is still used while moving, whereas this is a
+    // lightweight advance-admission test that may run across many candidate
+    // stands at a busy hub.
+    const incomingTerminalEdges = new Set(
+      incomingEdges.slice(Math.floor(incomingEdges.length * 0.58)),
+    );
+    let conflicts = false;
+    for (const other of terminalTraffic) {
+      let outgoingEdges = other.surfaceRouteEdges;
+      if (
+        !outgoingEdges?.length &&
+        other.phase === "resting" &&
+        other.gateAssignment
+      ) {
+        const signature = [
+          other.gateAssignment.standId,
+          other.gateAssignment.revision,
+          other.departureRunway,
+          this.preferredOperatingEnd(other.departureRunway),
+          other.surfaceReroute?.revision ?? 0,
+        ].join(":");
+        const cachedRoute = this.restingTaxiOutRouteCache.get(other);
+        if (cachedRoute?.signature === signature) {
+          outgoingEdges = cachedRoute.routeEdges;
+        } else {
+          const preview: Flight = {
+            ...other,
+            phase: "taxi-out",
+            progress: 0,
+            phaseElapsed: 0,
+            runway: other.departureRunway,
+            operatingEnd: this.preferredOperatingEnd(other.departureRunway),
+            deicing: { ...other.deicing },
+            kinematics: { ...other.kinematics },
+            motion: { ...other.motion },
+            requiredCrossings: [],
+            crossingClearances: [],
+            crossingClearanceIds: [],
+            surfaceRoute: undefined,
+            surfaceRouteEdges: undefined,
+            surfaceCongestedEdgeIds: undefined,
+          };
+          this.assignSurfaceRoute(preview, "taxi-out");
+          outgoingEdges = preview.surfaceRouteEdges;
+          this.restingTaxiOutRouteCache.set(other, {
+            signature,
+            routeEdges: outgoingEdges,
+          });
+        }
+      }
+      if (!outgoingEdges?.length) continue;
+      const exitEdgeCount = Math.max(1, Math.ceil(outgoingEdges.length * 0.42));
+      if (
+        outgoingEdges
+          .slice(0, exitEdgeCount)
+          .some((edge) => incomingTerminalEdges.has(edge))
+      ) {
+        conflicts = true;
+        break;
+      }
+    }
+    const cache =
+      this.arrivalRouteSurfaceConflictCache.get(flight) ?? new Map();
+    cache.set(cacheKey, { signature: trafficSignature, conflicts });
+    this.arrivalRouteSurfaceConflictCache.set(flight, cache);
+    return conflicts;
+  }
+
+  /**
    * Find stands whose parked aircraft envelope intersects an active taxi path
    * or the departure corridor of an occupied stand. The check runs at the
    * opening bank and again before an arrival commits to taxi-in, so a delayed
@@ -8613,7 +8855,11 @@ export class AirportSimulation {
           surfaceRouteIdentity(candidate.surfaceRouteEdges),
           candidate.phase === "resting"
             ? 0
-            : Math.floor(Math.max(0, Math.min(1, candidate.progress)) * 128),
+            : // Gate-route screening is an advance planner, not the movement
+              // collision authority. Sixteen route buckets keep it responsive
+              // in a busy bank; the fixed-step reservation/collision arbiter
+              // continues to check every moving tick between buckets.
+              Math.floor(Math.max(0, Math.min(1, candidate.progress)) * 16),
           candidate.surfaceReroute?.revision ?? 0,
         ].join(":"),
       ),
@@ -8664,8 +8910,8 @@ export class AirportSimulation {
           (candidate.surfaceRouteEdges?.length ?? 1) * (1 - candidate.progress),
         );
         const sampleCount = Math.max(
-          48,
-          Math.min(512, Math.ceil(remainingEdges * 3)),
+          32,
+          Math.min(128, Math.ceil(remainingEdges * 2)),
         );
         return {
           flight: candidate,
@@ -10497,10 +10743,7 @@ export class AirportSimulation {
       returnRouteEdges: [...route.edgeIds].reverse(),
       // The response vehicle stops at a graph node on the affected surface;
       // it never receives a freehand route across grass or a runway.
-      standPath: [
-        [...destination.position],
-        [...destination.position],
-      ],
+      standPath: [[...destination.position], [...destination.position]],
       dispatchAtSeconds: this.state.elapsed,
       progress: 0,
       x: selected.depot.position[0],
@@ -10523,11 +10766,7 @@ export class AirportSimulation {
     delta: number,
   ): void {
     if (vehicle.status === "scheduled") {
-      setServiceVehicleStatus(
-        this.config.surfaceGraph,
-        vehicle,
-        "dispatching",
-      );
+      setServiceVehicleStatus(this.config.surfaceGraph, vehicle, "dispatching");
       return;
     }
     if (
@@ -10671,8 +10910,7 @@ export class AirportSimulation {
       (disruption) => disruption.source !== source,
     );
     this.state.serviceVehicles = this.state.serviceVehicles.filter(
-      (vehicle) =>
-        !removed.includes(vehicle.incidentResponseId ?? ""),
+      (vehicle) => !removed.includes(vehicle.incidentResponseId ?? ""),
     );
     this.syncClosedRunwayState();
     this.replanSurfaceTrafficAroundDisruptions(removed.join(","), true);
@@ -13587,7 +13825,8 @@ export class AirportSimulation {
   }
 
   private operationStateAt(
-    state: Pick<AirportState, "elapsed" | "operationTimeOffsetMinutes"> = this.state,
+    state: Pick<AirportState, "elapsed" | "operationTimeOffsetMinutes"> = this
+      .state,
     elapsedSeconds = state.elapsed,
   ) {
     const profile = this.config.operationProfile;
