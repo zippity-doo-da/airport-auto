@@ -513,7 +513,7 @@ shared free text as a command.
 
 ### Acceptance gate
 
-- [~] A normal Manual departure can complete pushback, coordination, taxi,
+- [x] A normal Manual departure can complete pushback, coordination, taxi,
   any required crossing, line-up, and takeoff through the standard action
   workflow, without developer telemetry. Deterministic ORD sandbox validators
   now exercise that sequence and the complete arrival sequence (approach
