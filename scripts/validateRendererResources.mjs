@@ -4,6 +4,9 @@ const validationSource = `
 import * as THREE from 'three';
 import { BoundedObjectPool } from './src/render/boundedObjectPool.ts';
 import { buildLandscape, landscapeDimensions } from './src/render/landscapeScene.ts';
+import { createTerminalGateScene } from './src/render/terminalGateScene.ts';
+import { AirportSimulation } from './src/simulation/airportSimulation.ts';
+import { generateHubConfig, HUB_AIRPORTS } from './src/simulation/airportConfig.ts';
 import {
   surfaceDisruptionPoolSize,
   updateSurfaceDisruptionVisuals,
@@ -51,6 +54,32 @@ assert(landscape.highwayInstances === 9, 'highway pavement/marking instance coun
 assert(landscape.instances === 63, 'landscape instance total drifted');
 assert(landscapeMeshes.length === 3 && landscapeMeshes.reduce((sum, mesh) => sum + mesh.count, 0) === 63, 'landscape diagnostics disagree with scene objects');
 
+const ordIndex = HUB_AIRPORTS.findIndex((airport) => airport.code === 'ORD');
+const terminalConfig = generateHubConfig(ordIndex);
+const terminalSimulation = new AirportSimulation(terminalConfig);
+const terminalRoot = new THREE.Group();
+const terminalGates = createTerminalGateScene(terminalRoot, terminalConfig, false);
+const dockedFlight = terminalSimulation.state.flights[0];
+const dockedStand = terminalConfig.surfaceGraph.stands.find((stand) =>
+  terminalConfig.surfaceGraph.passengerFacilities.some((facility) => facility.standIds.includes(stand.id)),
+);
+assert(dockedFlight && dockedStand, 'ORD needs a flight and passenger-facility stand for terminal-gate validation');
+for (const flight of terminalSimulation.state.flights) flight.standId = undefined;
+dockedFlight.standId = dockedStand.id;
+dockedFlight.phase = 'resting';
+dockedFlight.tugAttached = false;
+dockedFlight.service = 'passenger';
+dockedFlight.turnaround.status = 'servicing';
+terminalGates.update(terminalSimulation.state, 1, 0.4);
+assert(terminalGates.diagnostics().bridges > 0, 'terminal gates did not derive passenger-facility bridges');
+assert(terminalGates.diagnostics().docked >= 1, 'resting stand aircraft did not dock a terminal bridge');
+assert(terminalGates.diagnostics().openDoors >= 1, 'passenger turnaround did not open a terminal bridge door');
+assert(terminalGates.diagnostics().drawGroups === 4, 'terminal bridges did not remain instanced');
+dockedFlight.tugAttached = true;
+terminalGates.update(terminalSimulation.state, 1, 0.4);
+assert(terminalGates.diagnostics().docked === 0, 'pushback aircraft retained a docked terminal bridge');
+terminalGates.dispose();
+
 const disruptionLayer = new THREE.Group();
 const disruptionVisuals = new Map();
 const disruptionPools = new Map();
@@ -96,6 +125,7 @@ console.log(JSON.stringify({
   genericPoolCreated: poolSnapshot.created,
   genericPoolReused: poolSnapshot.reused,
   transientMarkersReused: 1,
+  terminalGateDrawGroups: 4,
 }));
 `;
 

@@ -784,7 +784,10 @@ lighting that naturally strengthens at night without adding moving entities.
 - [~] Add jet-bridge docking, door state, baggage transfer, fuel connection, and
   service choreography without requiring micromanagement in Auto or Watch.
   Baggage/fuel/service choreography and non-micromanaged Auto/Watch behavior
-  exist; explicit jet-bridge and door presentation remain open.
+  exist. Passenger-facility stands now drive an instanced visual jet-bridge
+  layer that docks only to resting aircraft, presents its boarding door during
+  a passenger turnaround, and retracts during pushback; richer per-service
+  visual choreography remains open.
 - [ ] Use stable asset-manifest keys, pooled/instanced repetitions, high/low LOD,
       and documented license/provenance. Prefer optimized GLB/glTF for authored
       assets; retain procedural assets where they are clearer and cheaper.

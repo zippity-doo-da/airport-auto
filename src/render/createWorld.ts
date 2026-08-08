@@ -58,6 +58,7 @@ import {
   type GateActivityLights,
 } from "./gateActivityLights";
 import { createTerminalAccessScene } from "./terminalAccessScene";
+import { createTerminalGateScene } from "./terminalGateScene";
 import {
   createSurfaceProjectionOverlay,
   createSurfaceProtectionOverlay,
@@ -169,6 +170,11 @@ export type WorldDiagnostics = {
     transientEvents: { available: number; capacity: number };
   };
   passengerFacilities: number;
+  terminalGateActivity: {
+    bridges: number;
+    docked: number;
+    drawGroups: number;
+  };
   surfaceDisruptions: {
     total: number;
     pending: number;
@@ -381,6 +387,7 @@ export function createWorld(
     : null;
   const airportBuild = buildAirport(world, config, lowDetail);
   const terminalAccess = createTerminalAccessScene(world, config, lowDetail);
+  const terminalGates = createTerminalGateScene(world, config, lowDetail);
   const airspaceOverlay = createAirspaceOverlay(config);
   world.add(airspaceOverlay.root);
   if (contextRuntime) {
@@ -491,6 +498,7 @@ export function createWorld(
       1 - environment.daylight,
       Math.min(1, delta * 2.2),
     );
+    terminalGates.update(state, delta, nightMix);
     environmentColorScratch.setHex(environment.sky);
     (scene.background as THREE.Color).lerp(
       environmentColorScratch,
@@ -1551,6 +1559,7 @@ export function createWorld(
           },
         },
         passengerFacilities: config.surfaceGraph.passengerFacilities.length,
+        terminalGateActivity: terminalGates.diagnostics(),
         surfaceDisruptions: {
           total: currentState?.surfaceDisruptions.length ?? 0,
           pending:
@@ -1655,6 +1664,7 @@ export function createWorld(
       canvas.removeEventListener("webglcontextrestored", onContextRestored);
       contextRuntime?.dispose();
       terminalAccess.dispose();
+      terminalGates.dispose();
       world.remove(airspaceOverlay.root);
       airspaceOverlay.dispose();
       for (const pool of flightPool.values())
