@@ -6736,6 +6736,7 @@ function renderDebugPanel(): void {
     `${runtime.simulationTickMs.p95.toFixed(2)} ms sim p95 · ${runtime.droppedSimulationSeconds.toFixed(2)} s dropped · ${runtime.maximumTicksPerFrame} max ticks/frame`,
     `${renderer.drawCalls} draws · ${renderer.geometries} geometries · ${renderer.triangles.toLocaleString()} tris · ${renderer.adaptivePerformanceMode} render`,
     `${simulation.state.flights.length} aircraft · ${diagnostics.runwayReservations.length} runway reservations`,
+    `${renderer.airportLifeVisible ? "Airport life on" : "Airport life off"} · ${renderer.terminalGateActivity.docked}/${renderer.terminalGateActivity.bridges} bridges docked · ${renderer.terminalGateActivity.openDoors} doors open`,
     `${diagnostics.metrics.collisionAlerts} conflicts · ${diagnostics.metrics.runwayIncursions} incursions · ${diagnostics.metrics.unexplainedPauses} pauses`,
     budgetIssues
       ? `Budget watch: ${budgetIssues}`
@@ -8256,6 +8257,7 @@ function cloneFocusTargetCatalog(
 
 function airportSnapshot() {
   const diagnostics = simulation.diagnostics();
+  const renderer = world.diagnostics();
   const operations = simulation.operationProfileSnapshot();
   const controllerEvaluation = buildControllerEvaluation(diagnostics);
   const analytics = operationsAnalyticsSnapshot(focusedFlightId);
@@ -8407,6 +8409,10 @@ function airportSnapshot() {
       capture: {
         ...localCapture.snapshot(),
         cleanView: capturePanel?.cleanView() ?? false,
+      },
+      airportLife: {
+        visible: renderer.airportLifeVisible,
+        terminalGates: { ...renderer.terminalGateActivity },
       },
     },
     liveData: liveDataPanel.snapshot(),

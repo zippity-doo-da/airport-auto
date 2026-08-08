@@ -174,6 +174,7 @@ export type WorldDiagnostics = {
   terminalGateActivity: {
     bridges: number;
     docked: number;
+    openDoors: number;
     drawGroups: number;
   };
   surfaceDisruptions: {
