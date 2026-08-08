@@ -936,6 +936,12 @@ service or a full workload/debrief experience.
       main-thread bottleneck.
 - [ ] Consider WASM only for a measured hot loop with a stable data boundary and
       a benchmark proving meaningful benefit over optimized TypeScript.
+  The current local Extreme-ORD runtime validator records a 2.939 ms p95
+  simulation tick with zero collision, incursion, or unexplained-pause events.
+  There is no measured TypeScript hot loop that justifies WASM. The outstanding
+  performance investigation is initial browser delivery: the airport entry
+  bundle still contains static imported hub-data assets and should be split only
+  through an async configuration boundary that preserves deterministic replay.
 - [ ] Split coordinators when ownership becomes ambiguous; do not split files
       solely to satisfy a line-count target.
   The stand-activity light lifecycle is now isolated in a dedicated renderer
