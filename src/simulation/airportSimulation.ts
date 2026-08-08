@@ -8016,6 +8016,7 @@ export class AirportSimulation {
       }
       if (flight.surfaceYield?.status === "moving") {
         const movementSweep = this.surfaceMovementReservationSweep(flight);
+        const reservesFutureCorridor = this.sweepHasFutureMovement(movementSweep);
         const blocker = this.surfaceYieldCorridorBlocker(flight, movementSweep);
         const reservedCorridorOwner = protectedTaxiCorridors.find((candidate) =>
           surfaceAircraftSweepsConflict(
@@ -8034,7 +8035,7 @@ export class AirportSimulation {
               : reservedCorridorOwner
                 ? `surface recovery corridor reserved for ${reservedCorridorOwner.callsign} (flight ${reservedCorridorOwner.id})`
                 : undefined;
-        if (!flight.automaticHold)
+        if (!flight.automaticHold && reservesFutureCorridor)
           protectedTaxiCorridors.push({ flight, sweep: movementSweep });
         continue;
       }
@@ -8101,6 +8102,7 @@ export class AirportSimulation {
         conflict.claim.kind === "taxiway-flow" &&
         flowDecisionById.get(conflict.claim.id);
       const movementSweep = this.surfaceMovementReservationSweep(flight);
+      const reservesFutureCorridor = this.sweepHasFutureMovement(movementSweep);
       const reservedCorridorOwner = protectedTaxiCorridors.find((candidate) =>
         surfaceAircraftSweepsConflict(
           flight,
@@ -8152,7 +8154,8 @@ export class AirportSimulation {
         });
       if (shouldHold) continue;
       reservations.reserve(flight.id, claims);
-      protectedTaxiCorridors.push({ flight, sweep: movementSweep });
+      if (reservesFutureCorridor)
+        protectedTaxiCorridors.push({ flight, sweep: movementSweep });
     }
     for (const flight of surfaceFlights.filter(
       (item) => item.emergency === "disabled",
@@ -8487,6 +8490,22 @@ export class AirportSimulation {
           flight.progress + ((horizon - flight.progress) * sampleIndex) / 24,
         ),
       ),
+    );
+  }
+
+  /**
+   * A stopped aircraft at a route endpoint must retain its physical body,
+   * graph occupancy, and runway protection, but it has no future taxi segment
+   * to reserve. Keeping a degenerate 80 m look-ahead sweep there can freeze a
+   * following aircraft far back while Tower waits to release the leader.
+   */
+  private sweepHasFutureMovement(sweep: AircraftCollisionSweep): boolean {
+    const first = sweep.envelopes[0];
+    const last = sweep.envelopes.at(-1);
+    return Boolean(
+      first &&
+        last &&
+        Math.hypot(last.x - first.x, last.y - first.y) > 0.01,
     );
   }
 
