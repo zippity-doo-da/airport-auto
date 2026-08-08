@@ -8526,6 +8526,11 @@ export class AirportSimulation {
     const nextDestination =
       previous?.nextDestination ?? this.originFor(flight.id + 5);
     const rejectedStandIds = new Set(excludedStandIds);
+    // Gate retries are a single ATC decision. Freeze their congestion and
+    // blocked-edge view so every candidate is judged against the same surface
+    // state and the route-tree cache can answer without rebuilding Dijkstra
+    // trees for each rejected stand.
+    const planning = this.surfaceRoutePlanning(flight.id);
     let decision: FlightGateAssignment | null = null;
     for (
       let attempt = 0;
@@ -8550,7 +8555,7 @@ export class AirportSimulation {
         nextDestination,
         assignedAtSeconds: this.state.elapsed,
         reservations: this.gateReservations(flight.id),
-        planning: this.surfaceRoutePlanning(flight.id),
+        planning,
         revision: (previous?.revision ?? -1) + 1,
         previousStandId: previous?.standId,
         excludedStandIds: rejectedStandIds,

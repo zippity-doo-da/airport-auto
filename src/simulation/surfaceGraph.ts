@@ -846,7 +846,7 @@ export function findSurfaceRoutesFromHub(
   const index = surfaceGraphIndex(graph);
   const targets = validSurfaceRouteTargets(index, hubNodeId, nodeIds);
   if (!targets.length) return new Map();
-  const tree = buildSurfaceRouteTree(index.adjacency, hubNodeId, targets, requirements, planning);
+  const tree = cachedSurfaceRouteTree(graph, index.adjacency, 'from', hubNodeId, requirements, planning);
   const routes = new Map<string, SurfaceRoute>();
   for (const nodeId of targets) {
     const route = surfaceRouteFromTree(index, hubNodeId, nodeId, tree, planning);
@@ -865,7 +865,7 @@ export function findSurfaceRoutesToHub(
   const index = surfaceGraphIndex(graph);
   const targets = validSurfaceRouteTargets(index, hubNodeId, nodeIds);
   if (!targets.length) return new Map();
-  const tree = buildSurfaceRouteTree(index.reverseAdjacency, hubNodeId, targets, requirements, planning);
+  const tree = cachedSurfaceRouteTree(graph, index.reverseAdjacency, 'to', hubNodeId, requirements, planning);
   const routes = new Map<string, SurfaceRoute>();
   for (const nodeId of targets) {
     const reversed = surfaceRouteFromTree(index, hubNodeId, nodeId, tree, planning);
@@ -888,6 +888,18 @@ interface SurfaceRouteTree {
   previous: Map<string, { nodeId: string; edge: SurfaceEdge }>;
 }
 
+interface SurfaceRouteTreeCache {
+  staticTrees: Map<string, SurfaceRouteTree>;
+  plannedTrees: WeakMap<SurfaceRoutePlanning, Map<string, SurfaceRouteTree>>;
+}
+
+// A routing-planning object is a snapshot: callers create it from the live
+// reservation/congestion state and do not mutate it while issuing a decision.
+// Keeping trees under that object means retries for a different stand reuse
+// the exact same live routing picture, rather than accidentally reusing a
+// route from a different traffic state.
+const surfaceRouteTreeCaches = new WeakMap<AirportSurfaceGraph, SurfaceRouteTreeCache>();
+
 function buildSurfaceRouteTree(
   adjacency: ReadonlyMap<string, Array<{ nodeId: string; edge: SurfaceEdge; cost: number }>>,
   fromNodeId: string,
@@ -899,7 +911,9 @@ function buildSurfaceRouteTree(
   const distanceByNode = new Map<string, number>([[fromNodeId, 0]]);
   const previous = new Map<string, { nodeId: string; edge: SurfaceEdge }>();
   const pending: Array<{ nodeId: string; distance: number }> = [{ nodeId: fromNodeId, distance: 0 }];
-  while (pending.length && remainingTargets.size) {
+  // An empty target list asks for a reusable complete tree. Otherwise stop as
+  // soon as every requested target has been settled.
+  while (pending.length && (targetNodeIds.length === 0 || remainingTargets.size)) {
     const candidate = popMinimumRouteNode(pending);
     if (!candidate) break;
     const current = candidate.nodeId;
@@ -918,6 +932,41 @@ function buildSurfaceRouteTree(
     }
   }
   return { distanceByNode, previous };
+}
+
+function cachedSurfaceRouteTree(
+  graph: AirportSurfaceGraph,
+  adjacency: ReadonlyMap<string, Array<{ nodeId: string; edge: SurfaceEdge; cost: number }>>,
+  direction: 'from' | 'to',
+  hubNodeId: string,
+  requirements?: SurfaceRouteRequirements,
+  planning?: SurfaceRoutePlanning,
+): SurfaceRouteTree {
+  const requirementsKey = requirements
+    ? `${requirements.wingspanM}:${requirements.minimumWingtipClearanceM}`
+    : 'any';
+  const key = `${direction}:${hubNodeId}:${requirementsKey}`;
+  let cache = surfaceRouteTreeCaches.get(graph);
+  if (!cache) {
+    cache = { staticTrees: new Map(), plannedTrees: new WeakMap() };
+    surfaceRouteTreeCaches.set(graph, cache);
+  }
+  let trees: Map<string, SurfaceRouteTree>;
+  if (planning) {
+    trees = cache.plannedTrees.get(planning) ?? new Map();
+    if (!cache.plannedTrees.has(planning)) cache.plannedTrees.set(planning, trees);
+  } else {
+    trees = cache.staticTrees;
+  }
+  const existing = trees.get(key);
+  if (existing) return existing;
+  // A complete tree costs slightly more than an early-exit search once, but a
+  // gate reassignment asks about several candidate stands. It is therefore
+  // both faster and more deterministic to derive every candidate route from
+  // one authoritative snapshot tree.
+  const tree = buildSurfaceRouteTree(adjacency, hubNodeId, [], requirements, planning);
+  trees.set(key, tree);
+  return tree;
 }
 
 function surfaceRouteFromTree(

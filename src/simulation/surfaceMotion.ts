@@ -81,7 +81,13 @@ export interface AircraftSurfaceMotionSample extends SurfaceRouteSample {
   limitingEdgeId?: string;
 }
 
-const planCaches = new WeakMap<AirportSurfaceGraph, WeakMap<string[], Map<string, SurfaceMotionPlan>>>();
+interface SurfaceMotionPlanCaches {
+  byRouteArray: WeakMap<string[], Map<string, SurfaceMotionPlan>>;
+  byRouteValue: Map<string, Map<string, SurfaceMotionPlan>>;
+}
+
+const MAX_CACHED_ROUTE_VALUES = 512;
+const planCaches = new WeakMap<AirportSurfaceGraph, SurfaceMotionPlanCaches>();
 
 /**
  * Sample the aircraft-specific, simulation-owned taxi path. Graph centerline
@@ -279,14 +285,27 @@ function aircraftSurfaceMotionPlan(
 ): SurfaceMotionPlan | null {
   let graphCache = planCaches.get(graph);
   if (!graphCache) {
-    graphCache = new WeakMap<string[], Map<string, SurfaceMotionPlan>>();
+    graphCache = {
+      byRouteArray: new WeakMap<string[], Map<string, SurfaceMotionPlan>>(),
+      byRouteValue: new Map<string, Map<string, SurfaceMotionPlan>>(),
+    };
     planCaches.set(graph, graphCache);
   }
   const routeKey = edgeIds ?? nodeIds;
-  let routeCache = graphCache.get(routeKey);
+  let routeCache = graphCache.byRouteArray.get(routeKey);
   if (!routeCache) {
-    routeCache = new Map<string, SurfaceMotionPlan>();
-    graphCache.set(routeKey, routeCache);
+    // Flights deliberately own copies of route arrays so later reroutes
+    // cannot mutate another aircraft. The geometric taxi plan is still
+    // immutable for equal node/edge values, so share it across those copies.
+    const routeValueKey = `${nodeIds.join('\u001f')}\u001e${edgeIds?.join('\u001f') ?? ''}`;
+    routeCache = graphCache.byRouteValue.get(routeValueKey);
+    if (!routeCache) {
+      if (graphCache.byRouteValue.size >= MAX_CACHED_ROUTE_VALUES)
+        graphCache.byRouteValue.clear();
+      routeCache = new Map<string, SurfaceMotionPlan>();
+      graphCache.byRouteValue.set(routeValueKey, routeCache);
+    }
+    graphCache.byRouteArray.set(routeKey, routeCache);
   }
   const profileKey = [
     profile.model,
