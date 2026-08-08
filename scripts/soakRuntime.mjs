@@ -73,6 +73,17 @@ const openingFlights = simulation.state.flights.map((flight) => ({
   progress: Number(flight.progress.toFixed(4)),
 }));
 const monitor = new RuntimePerformanceMonitor();
+// Heap-use samples without a collection boundary are dominated by young-space
+// timing and V8's allocation growth.  When the runner is deliberately started
+// with node --expose-gc, sample the retained low-water mark instead. Keep
+// the ambient fallback for ordinary local runs and report which measurement was
+// used; an unavailable forced collector must never be mistaken for a clean
+// retention result.
+const forceGarbageCollection =
+  typeof globalThis.gc === 'function' ? globalThis.gc : null;
+const heapMeasurement = forceGarbageCollection
+  ? 'forced-gc-low-water'
+  : 'ambient-process-heap';
 let maximumAircraft = 0;
 let maximumVehicles = 0;
 let maximumQueues = 0;
@@ -255,6 +266,7 @@ while (simulation.state.elapsed < targetModeledSeconds) {
     maximumAircraft = Math.max(maximumAircraft, simulation.state.flights.length);
     maximumVehicles = Math.max(maximumVehicles, simulation.state.serviceVehicles.length);
     maximumQueues = Math.max(maximumQueues, queues.total);
+    if (forceGarbageCollection) forceGarbageCollection();
     monitor.sample({
       elapsedSeconds: simulation.state.elapsed,
       heapBytes: process.memoryUsage().heapUsed,
@@ -281,6 +293,7 @@ while (simulation.state.elapsed < targetModeledSeconds) {
       secondsSinceCompletedOperation: Number((simulation.state.elapsed - lastCompletedOperationAtSeconds).toFixed(1)),
       simP95Ms: monitor.snapshot().simulationTickMs.p95,
       heapMiBPerHour: monitor.snapshot().growth.heapMiBPerHour,
+      heapMeasurement,
       collisions: diagnostics.metrics.collisionAlerts,
       incursions: diagnostics.metrics.runwayIncursions,
       unexplainedPauses: diagnostics.metrics.unexplainedPauses,
@@ -320,6 +333,7 @@ const report = {
   airport: configuration.code,
   density: 'extreme',
   mode: requestedMode,
+  heapMeasurement,
   requestedHours,
   modeledHours: Number((simulation.state.elapsed / 3_600).toFixed(3)),
   wallMinutes: Number(((performance.now() - wallStarted) / 60_000).toFixed(3)),

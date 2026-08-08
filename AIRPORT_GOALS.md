@@ -1007,6 +1007,13 @@ service or a full workload/debrief experience.
   split remain open.
 - [ ] Pools, histories, alerts, analytics, audio voices, labels, and remote queues
       remain explicitly bounded during a four-hour run.
+  The local soak runner now samples retained heap at an explicit forced-GC
+  low-water mark when invoked through `npm run soak:runtime`, and reports the
+  measurement mode in every checkpoint and final report. This avoids treating
+  V8 young-space timing as a retained-memory leak while keeping the 32 MiB/hour
+  budget intact. An August 8 ORD Extreme Auto one-hour check passed at 29.177
+  MiB/hour, with 23 arrivals, 11 departures, and zero collision, incursion, or
+  unexplained-pause diagnostics. Four-hour retention proof remains open.
 
 ### Release gate
 

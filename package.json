@@ -88,7 +88,7 @@
     "test:remote-clearances": "node scripts/validateRemoteClearanceProjection.mjs",
     "remote:gateway": "node server/remoteGatewayCli.mjs",
     "profile:runtime": "node scripts/profileRuntime.mjs",
-    "soak:runtime": "node scripts/soakRuntime.mjs --hours=4",
+    "soak:runtime": "node --expose-gc scripts/soakRuntime.mjs --hours=4",
     "test:simulation": "node scripts/validateFixedStep.mjs",
     "test:trajectories": "node scripts/validateFlightTrajectories.mjs",
     "test:collisions": "node scripts/validateCollisionEnvelopes.mjs"
