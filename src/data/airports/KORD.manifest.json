@@ -8,8 +8,8 @@
     "navigationUse": false
   },
   "assetPath": "data/airports/KORD.vector.json",
-  "assetSha256": "93c0a55b78d5a151de2425435f7d0955926c56c92ccf246368cbdb7cb3f57431",
-  "retrievedOn": "2026-07-23",
+  "assetSha256": "91092fda2d235b8037022e862aa4c3f79b9e5e688c6c00e913320080f20ad07f",
+  "retrievedOn": "2026-08-08",
   "effective": {
     "from": "0901Z 09 Jul 2026",
     "to": "0901Z 03 Sep 2026"
@@ -9393,7 +9393,7 @@
       {
         "id": "FAA-buildings:780",
         "kind": "terminal",
-        "label": "O'Hare terminal complex",
+        "label": "ORD terminal complex",
         "shape": "polygon",
         "center": [
           6.3957,
@@ -10951,7 +10951,7 @@
       {
         "id": "FAA-buildings:782",
         "kind": "control-tower",
-        "label": "O'Hare control tower",
+        "label": "ORD control tower",
         "shape": "polygon",
         "center": [
           5.1533,

@@ -9,9 +9,9 @@
   },
   "assetPath": "data/airports/KORD.osm-surface.json",
   "graphPath": "src/data/airports/KORD.surfaceGraph.json",
-  "assetSha256": "e7d614ab31bf650741aa7109749caeefc446e7e36c12901b09ed0edc0befdbf9",
-  "graphSha256": "4ca4bba51ed8e6c777f5288fc7e4910958f459167e4f6854497d8c4d5d7ac7bc",
-  "retrievedOn": "2026-07-24",
+  "assetSha256": "d955485e2c03d3d5f999f3af41f784088773c1680896a38011808efb2ecaf2d0",
+  "graphSha256": "8c060d8d4e52a95adccfc7978379a5cc304430748a04356e9bbd1a274951d23d",
+  "retrievedOn": "2026-08-08",
   "coordinateSystem": {
     "source": "EPSG:4326",
     "local": "local-tangent-plane",
