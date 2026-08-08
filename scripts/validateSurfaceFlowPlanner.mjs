@@ -2,6 +2,9 @@ import { build } from 'esbuild';
 
 const source = `
 import { SurfaceFlowPlanner } from './src/simulation/surfaceFlowPlanner.ts';
+import { generateHubConfig, HUB_AIRPORTS } from './src/simulation/airportConfig.ts';
+import { AirportSimulation } from './src/simulation/airportSimulation.ts';
+import { surfaceRouteReservationClaims, surfaceTaxiwayFlowSectionEdgeIds } from './src/simulation/surfaceOperations.ts';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -30,6 +33,16 @@ const admissionPlanner = new SurfaceFlowPlanner();
 admissionPlanner.plan(0, [north, south]);
 assert(admissionPlanner.admissionReason([{ kind: 'taxiway-flow', id: 'TWY-H', label: 'Taxiway H', direction: 'south', capacity: Infinity }], 10)?.includes('Taxiway H north flow window'), 'planner did not explain an opposite-direction pushback admission hold');
 assert(admissionPlanner.admissionReason([{ kind: 'taxiway-flow', id: 'TWY-H', label: 'Taxiway H', direction: 'north', capacity: Infinity }], 10) === null, 'planner blocked compatible pushback admission');
+const ord = generateHubConfig(HUB_AIRPORTS.findIndex((airport) => airport.code === 'ORD'));
+const ordSimulation = new AirportSimulation(ord);
+const flowFlight = ordSimulation.state.flights.find((flight) => flight.phase === 'taxi-out');
+assert(flowFlight, 'ORD opening bank contains no taxi-out aircraft for flow-section validation');
+const flowClaim = surfaceRouteReservationClaims(ord.surfaceGraph, flowFlight.surfaceRoute, flowFlight.surfaceRouteEdges, flowFlight.progress, flowFlight.phase, 12)
+  .find((claim) => claim.kind === 'taxiway-flow');
+assert(flowClaim, 'ORD opening taxi route has no taxiway-flow section');
+const governedEdges = surfaceTaxiwayFlowSectionEdgeIds(ord.surfaceGraph, flowClaim.id);
+assert(governedEdges.length > 0, 'flow-section lookup returned no sourced graph edges');
+assert(governedEdges.some((edgeId) => flowFlight.surfaceRouteEdges?.includes(edgeId)), 'flow-section lookup did not contain the claimed route edge');
 console.log('surface flow planner validation passed');
 `;
 

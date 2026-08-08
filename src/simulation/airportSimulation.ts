@@ -117,6 +117,7 @@ import {
   surfaceCongestionPlanning,
   surfaceRouteOperationalState,
   surfaceRouteReservationClaims,
+  surfaceTaxiwayFlowSectionEdgeIds,
   type SurfaceReservationClaim,
   type SurfaceTrafficMovement,
 } from "./surfaceOperations";
@@ -721,6 +722,14 @@ export class AirportSimulation {
       retryAtSeconds: number;
       lastAttemptSeconds: number;
     }
+  >();
+  private readonly surfaceFlowBlockerRecovery = new WeakMap<
+    Flight,
+    { signature: string; retryAtSeconds: number }
+  >();
+  private readonly surfaceFlowHoldByFlight = new WeakMap<
+    Flight,
+    { id: string; label: string; direction: string }
   >();
   private readonly pushbackCorridorRecovery = new WeakMap<
     Flight,
@@ -4988,6 +4997,7 @@ export class AirportSimulation {
       this.runScriptedControllers();
       this.updateRouteReadbacks();
       this.updateSurfaceYields();
+      this.resolveTaxiwayFlowBlockers();
       this.resolveSurfaceReservationBlockers();
       this.resolvePushbackCorridorBlockers();
       this.resolveServiceVehicleSurfaceBlockers();
@@ -7992,6 +8002,7 @@ export class AirportSimulation {
       );
     }
     for (const flight of candidates) {
+      this.surfaceFlowHoldByFlight.delete(flight);
       const coordinationHold = this.surfaceHandoffHoldReason(flight);
       const departureCorridorOwner = this.committedDepartureCorridorBlocker(
         flight,
@@ -8058,6 +8069,12 @@ export class AirportSimulation {
         SURFACE_RESERVATION_LOOKAHEAD_M / WORLD_METERS_PER_UNIT,
       );
       const conflict = reservations.firstConflictDetail(claims, flight.id);
+      const flowConflict =
+        conflict &&
+        typeof conflict.ownerId === "string" &&
+        conflict.ownerId.startsWith("flow:") &&
+        conflict.claim.kind === "taxiway-flow" &&
+        flowDecisionById.get(conflict.claim.id);
       const movementSweep = this.surfaceMovementReservationSweep(flight);
       const reservedCorridorOwner = protectedTaxiCorridors.find((candidate) =>
         surfaceAircraftSweepsConflict(
@@ -8083,10 +8100,7 @@ export class AirportSimulation {
         coordinationHold ??
         (corridorOwner
           ? `protected taxi corridor for ${corridorOwner.callsign} (flight ${corridorOwner.id})`
-          : conflict &&
-              typeof conflict.ownerId === "string" &&
-              conflict.ownerId.startsWith("flow:") &&
-              flowDecisionById.get(conflict.claim.id)
+          : flowConflict
             ? this.surfaceFlowPlanner.holdReason(
                 flowDecisionById.get(conflict.claim.id)!,
                 this.state.elapsed,
@@ -8097,6 +8111,12 @@ export class AirportSimulation {
                   conflict.ownerId,
                 )
               : undefined);
+      if (flowConflict)
+        this.surfaceFlowHoldByFlight.set(flight, {
+          id: conflict.claim.id,
+          label: conflict.claim.label,
+          direction: conflict.claim.direction ?? "",
+        });
       if (shouldHold) continue;
       reservations.reserve(flight.id, claims);
       protectedTaxiCorridors.push({ flight, sweep: movementSweep });
@@ -11627,6 +11647,58 @@ export class AirportSimulation {
   }
 
   /**
+   * A strategic taxiway-flow window deliberately has no aircraft owner, so the
+   * ordinary named-blocker and wait-cycle recoveries cannot amend an aircraft
+   * that has waited behind it. After a sustained hold, try one graph-valid
+   * suffix that avoids that exact sourced section. This never changes the
+   * direction window or asks an aircraft to leave pavement; if no legal
+   * bypass exists, the authoritative hold remains in place.
+   */
+  private resolveTaxiwayFlowBlockers(): void {
+    const surfaceFlights = this.state.flights.filter(
+      (flight): flight is Flight & { phase: "taxi-in" | "taxi-out" } =>
+        flight.phase === "taxi-in" || flight.phase === "taxi-out",
+    );
+    for (const flight of surfaceFlights) {
+      if ((this.stationarySeconds.get(flight.id) ?? 0) < 180) continue;
+      const flowHold = this.surfaceFlowHoldByFlight.get(flight);
+      if (!flowHold) continue;
+      const signature = `${flowHold.id}:${flowHold.direction}:${flight.surfaceEdge ?? ""}`;
+      const previous = this.surfaceFlowBlockerRecovery.get(flight);
+      if (
+        previous?.signature === signature &&
+        this.state.elapsed + 1e-6 < previous.retryAtSeconds
+      )
+        continue;
+      this.surfaceFlowBlockerRecovery.set(flight, {
+        signature,
+        retryAtSeconds: this.state.elapsed + 180,
+      });
+      const blockedEdges = new Set(
+        surfaceTaxiwayFlowSectionEdgeIds(this.config.surfaceGraph, flowHold.id),
+      );
+      if (!blockedEdges.size) continue;
+      const rerouted = this.replanSurfaceFlight(
+        flight,
+        [`taxiway-flow:${flowHold.id}`],
+        true,
+        {
+          additionallyBlockedEdgeIds: blockedEdges,
+          reason: `taxiway flow recovery on ${flowHold.label}`,
+          holdIfUnavailable: false,
+        },
+      );
+      if (!rerouted) continue;
+      flight.safetyHold = false;
+      flight.safetyHoldReason = undefined;
+      flight.automaticHold = false;
+      flight.automaticHoldReason = undefined;
+      this.surfaceFlowHoldByFlight.delete(flight);
+      this.stationarySeconds.set(flight.id, 0);
+    }
+  }
+
+  /**
    * Amend a route when the graph ledger first establishes a persistent
    * aircraft-to-aircraft wait. Waiting for the collision arbiter to report a
    * reciprocal stand-off leaves no room to turn at dense imported junctions;
@@ -11746,7 +11818,19 @@ export class AirportSimulation {
           holdIfUnavailable: false,
         },
       );
-      if (!rerouted) continue;
+      if (!rerouted) {
+        // A named junction/edge blocker can leave no legal graph suffix even
+        // though the aircraft has enough already-authoritative pavement to
+        // yield. After a second failed detour, use the shared collision- and
+        // runway-checked yield routine rather than accumulating an endless
+        // explicit reservation hold.
+        if (recovery.attempts >= 2 && waitSeconds >= 180)
+          this.startSurfaceYieldRecovery(
+            [flight],
+            `reservation-blocker-${blocker.id}-${flight.id}`,
+          );
+        continue;
+      }
       flight.safetyHold = false;
       flight.safetyHoldReason = undefined;
       flight.automaticHold = false;

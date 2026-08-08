@@ -526,6 +526,40 @@ const report = {
     waitSeconds: entry.waitSeconds,
     blockerFlightIds: entry.blockerFlightIds,
   })),
+  longestWaitQueue: [...finalQueues.entries]
+    .sort((first, second) => second.waitSeconds - first.waitSeconds)
+    .slice(0, 1)
+    .map((entry) => ({
+      id: entry.id,
+      flightId: entry.flightId ?? null,
+      category: entry.category,
+      priority: entry.priority,
+      entity: entry.entity,
+      label: entry.label,
+      detail: entry.detail,
+      waitSeconds: entry.waitSeconds,
+      blockerFlightIds: entry.blockerFlightIds,
+    }))[0] ?? null,
+  longestSurfaceWaitQueue: [...finalQueues.entries]
+    .filter((entry) => {
+      const flight = entry.flightId === undefined || entry.flightId === null
+        ? undefined
+        : simulation.state.flights.find((candidate) => candidate.id === entry.flightId);
+      return flight?.phase === 'taxi-in' || flight?.phase === 'taxi-out';
+    })
+    .sort((first, second) => second.waitSeconds - first.waitSeconds)
+    .slice(0, 1)
+    .map((entry) => ({
+      id: entry.id,
+      flightId: entry.flightId ?? null,
+      category: entry.category,
+      priority: entry.priority,
+      entity: entry.entity,
+      label: entry.label,
+      detail: entry.detail,
+      waitSeconds: entry.waitSeconds,
+      blockerFlightIds: entry.blockerFlightIds,
+    }))[0] ?? null,
   performance: snapshot,
   safety: {
     collisions: diagnostics.metrics.collisionAlerts,
@@ -545,8 +579,11 @@ const compact = {
   maximumVehicles: report.maximumVehicles,
   maximumQueues: report.maximumQueues,
   secondsSinceCompletedOperation: report.secondsSinceCompletedOperation,
-  longestQueueWaitSeconds: Math.max(0, ...report.longestQueues.map((entry) => entry.waitSeconds)),
+  longestQueueWaitSeconds: report.longestWaitQueue?.waitSeconds ?? 0,
   longestQueue: report.longestQueues[0] ?? null,
+  longestWaitQueue: report.longestWaitQueue,
+  longestSurfaceQueueWaitSeconds: report.longestSurfaceWaitQueue?.waitSeconds ?? 0,
+  longestSurfaceWaitQueue: report.longestSurfaceWaitQueue,
   simulationTickP95Ms: report.performance.simulationTickMs.p95,
   safety: report.safety,
 };

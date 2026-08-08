@@ -413,6 +413,17 @@ export function surfaceRouteReservationClaims(
   return result;
 }
 
+/** Return the sourced graph edges governed by one named taxiway-flow section. */
+export function surfaceTaxiwayFlowSectionEdgeIds(
+  graph: AirportSurfaceGraph,
+  sectionId: string,
+): string[] {
+  return [...operationsIndex(graph).taxiwayFlowByEdgeId.entries()]
+    .filter(([, section]) => section.id === sectionId)
+    .map(([edgeId]) => edgeId)
+    .sort();
+}
+
 /** Build live edge costs without changing the physical route geometry. */
 export function surfaceCongestionPlanning(
   graph: AirportSurfaceGraph,
