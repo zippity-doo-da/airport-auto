@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { BoundedObjectPool } from './src/render/boundedObjectPool.ts';
 import { buildLandscape, landscapeDimensions } from './src/render/landscapeScene.ts';
 import { createTerminalGateScene } from './src/render/terminalGateScene.ts';
+import { createTerminalAccessScene } from './src/render/terminalAccessScene.ts';
 import { AirportSimulation } from './src/simulation/airportSimulation.ts';
 import { generateHubConfig, HUB_AIRPORTS } from './src/simulation/airportConfig.ts';
 import {
@@ -83,6 +84,15 @@ terminalGates.update(terminalSimulation.state, 1, 0.4);
 assert(terminalGates.diagnostics().docked === 0, 'pushback aircraft retained a docked terminal bridge');
 terminalGates.dispose();
 
+const terminalAccessRoot = new THREE.Group();
+const terminalAccess = createTerminalAccessScene(terminalAccessRoot, terminalConfig, false);
+terminalAccess.setVisible(false);
+assert(!terminalAccessRoot.children[0].visible, 'terminal access ignored its airport-life visibility setting');
+terminalAccess.setVisible(true);
+terminalAccess.update(12);
+assert(terminalAccess.diagnostics().terminalTrains > 0, 'terminal access did not create landside trains');
+terminalAccess.dispose();
+
 const disruptionLayer = new THREE.Group();
 const disruptionVisuals = new Map();
 const disruptionPools = new Map();
@@ -129,6 +139,7 @@ console.log(JSON.stringify({
   genericPoolReused: poolSnapshot.reused,
   transientMarkersReused: 1,
   terminalGateDrawGroups: 4,
+  terminalTrains: terminalConfig.surfaceGraph.passengerFacilities.length,
 }));
 `;
 
