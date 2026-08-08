@@ -3,6 +3,7 @@ import { build } from "esbuild";
 const validationSource = `
 import { generateHubConfig, HUB_AIRPORTS } from './src/simulation/airportConfig.ts';
 import { AirportSimulation } from './src/simulation/airportSimulation.ts';
+import { syncFlightMotion } from './src/simulation/flightMotion.ts';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -34,7 +35,8 @@ function completePendingHandoff(simulation, flight) {
 
 const ordIndex = HUB_AIRPORTS.findIndex((airport) => airport.code === 'ORD');
 assert(ordIndex >= 0, 'ORD is required for manual departure validation');
-const simulation = new AirportSimulation(generateHubConfig(ordIndex), 'quiet');
+const config = generateHubConfig(ordIndex);
+const simulation = new AirportSimulation(config, 'quiet');
 assert(simulation.startSandbox(false), 'clean sandbox could not start');
 simulation.setMode('manual');
 simulation.setStation('supervisor');
@@ -85,6 +87,11 @@ assert(flight.takeoffCleared, 'takeoff clearance was not stored on the flight');
 assert(simulation.cancelTakeoffClearance(flight.id), 'Manual UI equivalent takeoff-cancellation was rejected: ' + simulation.lastCommandReason());
 assert(!flight.takeoffCleared, 'cancelled takeoff clearance remained active');
 assert(simulation.clearTakeoff(flight.id), 'Manual UI equivalent re-clearance was rejected: ' + simulation.lastCommandReason());
+flight.progress = 0.2;
+syncFlightMotion(config, flight);
+assert(flight.motion.stage === 'takeoff-roll', 'late cancellation fixture did not reach its takeoff roll');
+assert(!simulation.cancelTakeoffClearance(flight.id), 'takeoff cancellation was accepted after the roll began');
+assert(simulation.lastCommandReason().includes('no longer safe'), 'late takeoff-cancellation rejection did not explain the safety boundary');
 advanceUntil(simulation, () => !flight.motion.onGround, 'takeoff clearance did not produce a real airborne departure', 180);
 
 console.log(JSON.stringify({
