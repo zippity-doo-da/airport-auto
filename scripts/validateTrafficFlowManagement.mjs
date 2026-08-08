@@ -171,7 +171,9 @@ assert(objectiveSimulation.setTrafficFlowObjective('minimum-taxi-delay') && obje
 const hub = createHubSimulationHarness('ORD', { stepSeconds: 0.1, pace: 3, mode: 'auto', density: 'extreme' });
 const initialIds = new Set(hub.simulation.state.flights.map((flight) => flight.id));
 assert(initialIds.size >= 10, 'ORD: opening bank is too quiet for the hub-scale surface (' + initialIds.size + ' aircraft)');
-assert(hub.simulation.state.flights.filter((flight) => flight.phase === 'taxi-out').length >= 2, 'ORD: opening bank did not include simultaneous taxi-out traffic');
+const openingTaxiDepartures = hub.simulation.state.flights.filter((flight) => flight.phase === 'taxi-out');
+assert(openingTaxiDepartures.length >= 2, 'ORD: opening bank did not include simultaneous taxi-out traffic');
+assert(openingTaxiDepartures.every((flight) => flight.flightPlan.scheduledReleaseSeconds <= 8), 'ORD: opening taxi departure retained a stale future gate-release slot');
 let maximumActive = hub.simulation.state.flights.length;
 let previousProgress = new Map(hub.simulation.state.flights.map((flight) => [flight.id, flight.progress]));
 for (let tick = 0; tick < 2_400; tick += 1) {
