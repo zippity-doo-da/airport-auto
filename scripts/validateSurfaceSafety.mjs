@@ -153,6 +153,19 @@ assert(snapshot.schemaVersion === 2, "surface snapshot version changed unexpecte
 assert(snapshot.tracks.length >= 2, "surface snapshot omitted the known moving aircraft");
 assert(snapshot.tracks.every((track) => Number.isFinite(track.x) && Number.isFinite(track.y)), "surface snapshot emitted an invalid authoritative pose");
 assert(snapshot.tracks.every((track) => track.schemaVersion === 1), "surface tracks were not individually versioned");
+for (const track of snapshot.tracks) {
+  const flight = simulation.state.flights.find((candidate) => candidate.id === track.id);
+  assert(flight, "surface snapshot included an unknown flight track");
+  const envelope = aircraftCollisionEnvelope(config, flight, flight.progress);
+  assert(
+      track.x === flight.motion.x &&
+      track.y === flight.motion.y &&
+      track.headingDegrees === Math.round(((((flight.motion.heading * 180) / Math.PI) % 360) + 360) % 360) &&
+      envelope.x === track.x &&
+      envelope.y === track.y,
+    "surface track and collision envelope diverged from the authoritative pose for " + flight.callsign + ": " + JSON.stringify({ phase: flight.phase, progress: flight.progress, motion: [flight.motion.x, flight.motion.y], track: [track.x, track.y], envelope: [envelope.x, envelope.y] }),
+  );
+}
 const held = snapshot.tracks.find((track) => track.id === first.id);
 const protectedTrack = snapshot.tracks.find((track) => track.id === second.id);
 assert(held?.state === "controller-hold", "controller hold did not survive the surface projection");
