@@ -415,14 +415,18 @@ function emptyCounts(): Record<DigitalClearanceStatus, number> {
 
 function statusRank(status: DigitalClearanceStatus): number {
   return {
-    delivered: 9,
-    unable: 8,
-    draft: 7,
-    standby: 6,
-    sent: 5,
-    "timed-out": 4,
-    superseded: 3,
-    cancelled: 2,
+    // Terminal command outcomes need to remain visible above routine surface
+    // standby messages. Otherwise an authority-transfer cancellation can be
+    // present in state yet disappear from the top of the controller's Data
+    // Comm inbox behind a normal crossing reminder.
+    cancelled: 11,
+    superseded: 10,
+    "timed-out": 9,
+    delivered: 8,
+    unable: 7,
+    draft: 6,
+    standby: 5,
+    sent: 4,
     wilco: 1,
   }[status];
 }

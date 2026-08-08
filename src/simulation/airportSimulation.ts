@@ -3573,10 +3573,11 @@ export class AirportSimulation {
         flight,
       );
     }
-    if (
-      pending.issuedBy !== this.state.station &&
-      this.state.station !== "supervisor"
-    ) {
+    // A supervisor may issue a route on behalf of the current frequency, but
+    // cannot consume its pilot readback. Keeping the acknowledgement with the
+    // actual issuing desk prevents an accepted handoff from silently applying
+    // a stale command after control has changed.
+    if (pending.issuedBy !== this.state.station) {
       return this.rejectDecision(
         `${flight.callsign} route readback belongs to ${pending.issuedBy}; reissue after coordination`,
         flight,
