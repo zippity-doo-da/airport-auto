@@ -320,6 +320,18 @@ physical collision envelopes retain their independent 320 m preview. A one-hour
 ORD Rush soak remains collision-free and drains arrivals/departures, though
 individual taxi holds can still be long under extreme demand.
 
+Runway-entry coordination now meters an uncleared departure upstream on its
+assigned taxi route whenever a sustained crossing sequence has priority for the
+same runway. The departure retains normal braking and an explicit queue reason;
+it does not occupy the shared access node, enter the runway, or wait at its
+gate on a short route. Scripted Tower and Ground runway rejections now retry at
+a calmer twelve-second cadence instead of churning every two seconds. A local
+ORD Extreme Watch soak on August 8 completed 23 arrivals and 11 departures in
+one modeled hour with zero collisions, incursions, or unexplained pauses; its
+longest surface queue wait was 165.5 seconds. This is a meaningful regression
+improvement, not final proof of bounded hub flow under every prolonged demand
+configuration.
+
 Surface reservation recovery now scopes its retry budget to the current
 blocker/route position and permits a bounded re-attempt after downstream
 reservations have had time to change; a previously failed alternate route no
