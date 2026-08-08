@@ -3,6 +3,7 @@ import { build } from 'esbuild';
 const validationSource = `
 import { aircraftProfile } from './src/simulation/aircraftProfiles.ts';
 import { generateHubConfig } from './src/simulation/airportConfig.ts';
+import { AirportSimulation } from './src/simulation/airportSimulation.ts';
 import { FixedStepSimulationHarness } from './src/simulation/fixedStepHarness.ts';
 import {
   GATE_TURN_BUFFER_SECONDS,
@@ -146,6 +147,23 @@ assert(routeScores.length === departureRunways.length, 'forced ORD stand lacks a
 assert(new Set(routeScores.map((assignment) => assignment.departureRouteDistance)).size > 1, 'next departure runway did not affect gate route cost');
 assert(routeScores.every((assignment, index) => assignment.departureRunway === departureRunways[index].id), 'gate assignment lost its planned departure runway');
 
+const supervisorGateSimulation = new AirportSimulation(ord);
+const supervisorArrival = supervisorGateSimulation.state.flights.find(
+  (flight) => flight.phase === 'approach' && flight.gateAssignment,
+);
+assert(supervisorArrival, 'supervisor gate-reassignment test has no assigned arrival');
+const originalSupervisorStand = supervisorArrival.gateAssignment.standId;
+const gateSwapBaseline = supervisorGateSimulation.state.trafficFlow.totals.gateSwaps;
+supervisorGateSimulation.setStation('ground');
+assert(!supervisorGateSimulation.requestArrivalGateReassignment(supervisorArrival.id), 'non-supervisor station reassigned an arrival gate');
+assert(supervisorGateSimulation.lastCommandReason().includes('no gate reassignment authority'), 'gate reassignment rejection did not explain the authority boundary');
+supervisorGateSimulation.setStation('supervisor');
+assert(supervisorGateSimulation.requestArrivalGateReassignment(supervisorArrival.id), 'supervisor could not safely reassign the arriving aircraft gate: ' + supervisorGateSimulation.lastCommandReason());
+assert(supervisorArrival.gateAssignment?.standId !== originalSupervisorStand, 'supervisor gate reassignment retained the original stand');
+assert(supervisorArrival.flightPlan.amendments.at(-1)?.kind === 'gate-swap', 'supervisor gate reassignment did not record a gate-swap amendment');
+assert(supervisorGateSimulation.state.trafficFlow.totals.gateSwaps === gateSwapBaseline + 1, 'supervisor gate reassignment did not update gate-swap flow telemetry');
+assert(supervisorGateSimulation.drainEvents().some((event) => event.type === 'gate-reassignment'), 'supervisor gate reassignment emitted no domain event');
+
 const harness = new FixedStepSimulationHarness(ord, { stepSeconds: 0.1 });
 harness.simulation.setScenario('rush');
 harness.simulation.setTrafficDensity('rush');
@@ -203,6 +221,7 @@ console.log(JSON.stringify({
   safeStandReuse: later.standId,
   adjacentStandExclusion: true,
   departureRouteScores: routeScores.length,
+  supervisorGateReassignment: true,
   maximumPhysicalOccupancy,
   preferredAssignmentSamples: preferredAssignments,
   cargoAssignmentSamples: cargoAssignments,

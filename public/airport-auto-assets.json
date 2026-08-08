@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "manifestId": "airport-auto-assets",
-  "applicationVersion": "2.40.0",
+  "applicationVersion": "2.41.0",
   "basePath": "./",
   "generatedBundlesArePublicApi": false,
   "assets": [

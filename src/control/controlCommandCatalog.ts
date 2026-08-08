@@ -36,7 +36,7 @@ export { AIRPORT_DOMAIN_EVENT_TYPES } from "./eventTypes";
 export type { AirportDomainEventType } from "./eventTypes";
 
 export const CONTROL_PROTOCOL_VERSION = "1.2.0" as const;
-export const CONTROL_API_VERSION = "2.40.0" as const;
+export const CONTROL_API_VERSION = "2.41.0" as const;
 export const CONTROL_SNAPSHOT_SCHEMA_VERSION = 42 as const;
 export const CONTROL_REPLAY_SCHEMA_VERSION = 4 as const;
 export const CONTROL_BROADCAST_CHANNEL = "airport-auto" as const;
@@ -79,6 +79,7 @@ export interface AirportControlCommandParameters {
   setGamepadSensitivity: { sensitivity: number };
   selectAirport: { code: string };
   clearFlight: { flightId: number; runway: number };
+  reassignArrivalGate: { flightId: number };
   clearPushback: { flightId: number };
   clearRunwayEntry: { flightId: number };
   clearTakeoff: { flightId: number };
@@ -835,6 +836,13 @@ const COMMAND_SPECS = {
       runway: runwaySchema,
     },
     { flightId: 1, runway: 0 },
+  ),
+  reassignArrivalGate: command(
+    "operations",
+    "Reassign an arriving aircraft to another compatible, unoccupied gate before its terminal taxi route is committed.",
+    AUTHORITY.supervisor,
+    { flightId: flightIdSchema },
+    { flightId: 1 },
   ),
   clearPushback: command(
     "surface",

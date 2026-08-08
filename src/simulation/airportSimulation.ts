@@ -2877,6 +2877,46 @@ export class AirportSimulation {
     return true;
   }
 
+  /**
+   * A Supervisor may resolve an arrival-side gate conflict before the aircraft
+   * enters its terminal taxi route. The same planner used by automatic recovery
+   * makes the decision, so a manual reassignment cannot bypass stand, pavement,
+   * or parked-aircraft checks.
+   */
+  requestArrivalGateReassignment(id: number): boolean {
+    if (this.state.gameOver) return this.rejectDecision("shift is closed");
+    if (this.state.station !== "supervisor")
+      return this.rejectDecision(
+        `${this.state.station} station has no gate reassignment authority`,
+      );
+    const flight = this.state.flights.find((item) => item.id === id);
+    if (!flight)
+      return this.rejectDecision("flight is not active");
+    if (
+      (flight.phase !== "approach" && flight.phase !== "landing") ||
+      flight.progress >= 0.8
+    )
+      return this.rejectDecision(
+        "gate reassignment is available only before terminal routing is committed",
+        flight,
+      );
+    if (!flight.gateAssignment)
+      return this.rejectDecision("arrival has no gate assignment to revise", flight);
+    const previous = flight.gateAssignment;
+    const reassigned = this.reassignArrivalGate(
+      flight,
+      "Supervisor requested a revised gate plan",
+      new Set([previous.standId]),
+    );
+    if (!reassigned)
+      return this.rejectDecision(
+        "no compatible unoccupied gate has a clear pavement route",
+        flight,
+      );
+    this.decisionReason = `${flight.callsign} reassigned from ${previous.gateRef ?? previous.zoneName ?? previous.standId} to ${flight.gateAssignment?.gateRef ?? flight.gateAssignment?.zoneName ?? flight.gateAssignment?.standId}`;
+    return true;
+  }
+
   clearRunwayEntry(id: number): boolean {
     if (!this.canIssue("tower"))
       return this.rejectDecision(
@@ -8597,7 +8637,7 @@ export class AirportSimulation {
       flight,
       detail: `${reason} · ${previous?.gateRef ?? previous?.zoneName ?? previous?.standId ?? "unassigned"} → ${decision.gateRef ?? decision.zoneName ?? decision.standId}`,
     });
-    if (flight.phase === "approach")
+    if (flight.phase === "approach" || flight.phase === "landing")
       this.planRunwayExit(flight, "destination stand changed");
     return true;
   }

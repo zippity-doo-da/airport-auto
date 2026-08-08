@@ -5554,8 +5554,19 @@ function renderFlightActions(): void {
   );
   const airborne =
     flight.phase === "approach" ||
+    flight.phase === "landing" ||
     (flight.phase === "takeoff" && !flight.motion.onGround);
   if (airborne && !flight.diversion) {
+    if (
+      (flight.phase === "approach" || flight.phase === "landing") &&
+      flight.progress < 0.8 &&
+      flight.gateAssignment
+    )
+      add(
+        "gate-reassign",
+        "Reassign gate",
+        simulation.state.station !== "supervisor",
+      );
     if (
       flight.phase === "approach" &&
       !flight.navigation.approachCleared &&
@@ -6338,6 +6349,8 @@ function handleFlightAction(
       flightId,
       runway: flight.runway,
     });
+  if (action === "gate-reassign")
+    executeAirportRequest({ action: "reassignArrivalGate", flightId });
   if (action === "go-around")
     executeAirportRequest({
       action: "triggerEmergency",
@@ -9791,6 +9804,10 @@ function executeAirportRequest(
     accepted = simulation.clearFlight(command.flightId, command.runway);
     reason = simulation.lastCommandReason();
   }
+  if (command.action === "reassignArrivalGate") {
+    accepted = simulation.requestArrivalGateReassignment(command.flightId);
+    reason = simulation.lastCommandReason();
+  }
   if (command.action === "clearPushback") {
     accepted = simulation.clearPushback(command.flightId);
     reason = simulation.lastCommandReason();
@@ -10538,7 +10555,7 @@ window.airportControl = {
       validate:
         "airportControl.validate({ action: 'pause' }) // structural validation without execution",
       formalDispatch:
-        "airportControl.dispatch({ protocolVersion: '1.2.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.40.0', snapshotSchemaVersion: 42 }, command: { action: 'pause' } })",
+        "airportControl.dispatch({ protocolVersion: '1.2.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.41.0', snapshotSchemaVersion: 42 }, command: { action: 'pause' } })",
       liveData:
         "airportControl.liveData.snapshot() // redacted opt-in/cache/review state; credentials and raw feeds are never exposed",
       capture:

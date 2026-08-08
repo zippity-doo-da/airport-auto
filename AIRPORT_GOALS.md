@@ -718,8 +718,10 @@ open.
 - [~] Add diversion, cancellation, tow, gate swap, runway closure, reduced-rate
   configuration, and staged reopening recovery playbooks.
   Diversion, tow/recovery, runway/taxiway closure, reroute, and timed reopening
-  are implemented; cancellation, gate-swap, and named controller playbooks
-  remain open.
+  are implemented. A Supervisor can now explicitly reassign an arrival to a
+  compatible unoccupied gate before terminal routing is committed, using the
+  same stand and pavement-conflict planner as automatic recovery; cancellation
+  and named controller playbooks remain open.
 - [x] Add calm severity controls: Off, Advisory Only, Operational, and Rare High
       Impact. The shared status broker filters ambient/operational/warning
       chatter, retains critical safety alerts, persists the choice in Watch
