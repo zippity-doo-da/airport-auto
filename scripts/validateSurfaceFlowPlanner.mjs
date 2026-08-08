@@ -16,6 +16,11 @@ const south = { id: 'TWY-H', label: 'Taxiway H', direction: 'south', active: fal
 let decision = planner.plan(0, [north, south])[0];
 assert(decision.direction === 'north', 'planner did not choose the strongest initial demand');
 assert(decision.releaseAtSeconds === 60, 'planner did not create a minimum direction window');
+const window = planner.currentWindow('TWY-H');
+assert(window?.direction === 'north', 'planner did not expose the active flow window');
+if (!window) throw new Error('planner did not retain the active flow window');
+window.direction = 'south';
+assert(planner.currentWindow('TWY-H')?.direction === 'north', 'planner exposed mutable flow-window state');
 decision = planner.plan(20, [{ ...north, count: 1 }, { ...south, count: 9 }])[0];
 assert(decision.direction === 'north', 'planner reversed before its minimum window elapsed');
 decision = planner.plan(70, [{ ...north, count: 1 }, { ...south, count: 9 }])[0];
@@ -32,6 +37,7 @@ assert(claims.length === 1 && claims[0].kind === 'taxiway-flow' && claims[0].dir
 const admissionPlanner = new SurfaceFlowPlanner();
 admissionPlanner.plan(0, [north, south]);
 assert(admissionPlanner.admissionReason([{ kind: 'taxiway-flow', id: 'TWY-H', label: 'Taxiway H', direction: 'south', capacity: Infinity }], 10)?.includes('Taxiway H north flow window'), 'planner did not explain an opposite-direction pushback admission hold');
+assert(admissionPlanner.admissionReason([{ kind: 'taxiway-flow', id: 'TWY-H', label: 'Taxiway H', direction: 'south', capacity: Infinity }], 60)?.includes('release pending'), 'planner did not explain an occupied flow section after its minimum window elapsed');
 assert(admissionPlanner.admissionReason([{ kind: 'taxiway-flow', id: 'TWY-H', label: 'Taxiway H', direction: 'north', capacity: Infinity }], 10) === null, 'planner blocked compatible pushback admission');
 const ord = generateHubConfig(HUB_AIRPORTS.findIndex((airport) => airport.code === 'ORD'));
 const ordSimulation = new AirportSimulation(ord);

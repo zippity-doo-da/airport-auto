@@ -12360,6 +12360,51 @@ export class AirportSimulation {
             blockerId = crossingBlocker.id;
         }
       }
+      // A directional taxiway-flow window is a strategic reservation, not an
+      // aircraft, so it cannot be inserted directly into the wait graph. If
+      // an aircraft is physically in that same section and is retaining the
+      // window's direction, however, it is the real traffic dependency. This
+      // makes a chain such as A -> flow window -> B -> A visible to the
+      // existing cycle resolver without inventing an owner for an empty
+      // taxiway or reversing an occupied section.
+      if (blockerId === undefined) {
+        const flowHold = this.surfaceFlowHoldByFlight.get(flight);
+        const window = flowHold
+          ? this.surfaceFlowPlanner.currentWindow(flowHold.id)
+          : undefined;
+        if (flowHold && window && window.direction !== flowHold.direction) {
+          const retainer = surfaceFlights
+            .filter((candidate) => {
+              if (candidate.id === flight.id) return false;
+              const retainsWindow =
+                (this.stationarySeconds.get(candidate.id) ?? 0) < 30 ||
+                !(candidate.automaticHold || candidate.safetyHold || candidate.controlHold);
+              if (!retainsWindow) return false;
+              return surfaceRouteReservationClaims(
+                this.config.surfaceGraph,
+                candidate.surfaceRoute,
+                candidate.surfaceRouteEdges,
+                candidate.progress,
+                candidate.phase,
+                0,
+                0,
+              ).some(
+                (claim) =>
+                  claim.kind === "taxiway-flow" &&
+                  claim.id === flowHold.id &&
+                  claim.direction === window.direction,
+              );
+            })
+            .sort(
+              (first, second) =>
+                (this.stationarySeconds.get(first.id) ?? 0) -
+                  (this.stationarySeconds.get(second.id) ?? 0) ||
+                second.progress - first.progress ||
+                first.id - second.id,
+            )[0];
+          blockerId = retainer?.id;
+        }
+      }
       if (
         blockerId !== undefined &&
         blockerId !== flight.id &&

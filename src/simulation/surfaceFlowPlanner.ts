@@ -42,6 +42,17 @@ export class SurfaceFlowPlanner {
     return structuredClone(this.state);
   }
 
+  /**
+   * Read one strategic window without exposing mutable planner state. Surface
+   * recovery uses this only to connect a held aircraft to a *physical*
+   * incumbent that is retaining the same direction; the window itself never
+   * becomes a synthetic traffic owner.
+   */
+  currentWindow(id: string): SurfaceFlowWindow | undefined {
+    const window = this.state.windows[id];
+    return window ? { ...window } : undefined;
+  }
+
   restore(state: SurfaceFlowPlannerState): void {
     this.state = structuredClone(state);
   }
@@ -100,7 +111,10 @@ export class SurfaceFlowPlanner {
   }
 
   holdReason(decision: SurfaceFlowDecision, nowSeconds: number): string {
-    return `${decision.label} ${decision.direction} flow window for ${Math.max(0, Math.ceil(decision.releaseAtSeconds - nowSeconds))}s`;
+    const remainingSeconds = Math.ceil(decision.releaseAtSeconds - nowSeconds);
+    return remainingSeconds > 0
+      ? `${decision.label} ${decision.direction} flow window for ${remainingSeconds}s`
+      : `${decision.label} ${decision.direction} flow section occupied; release pending`;
   }
 
   /**
@@ -115,7 +129,10 @@ export class SurfaceFlowPlanner {
       if (claim.kind !== "taxiway-flow" || !claim.direction) continue;
       const window = this.state.windows[claim.id];
       if (!window || window.direction === claim.direction) continue;
-      return `${claim.label} ${window.direction} flow window for ${Math.max(0, Math.ceil(window.releaseAtSeconds - nowSeconds))}s`;
+      const remainingSeconds = Math.ceil(window.releaseAtSeconds - nowSeconds);
+      return remainingSeconds > 0
+        ? `${claim.label} ${window.direction} flow window for ${remainingSeconds}s`
+        : `${claim.label} ${window.direction} flow section occupied; release pending`;
     }
     return null;
   }
