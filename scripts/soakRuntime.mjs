@@ -16,6 +16,7 @@ const traceFlightIds = (
   .split(",")
   .map((value) => Number(value))
   .filter((value) => Number.isFinite(value));
+const compactReport = process.argv.includes("--compact");
 const requestedAirport = (
   process.argv
     .find((argument) => argument.startsWith("--airport="))
@@ -46,6 +47,7 @@ import { WORLD_METERS_PER_UNIT } from './src/simulation/runwayPerformance.ts';
 
 const requestedHours = ${JSON.stringify(hours)};
 const traceFlightIds = new Set(${JSON.stringify(traceFlightIds)});
+const compactReport = ${JSON.stringify(compactReport)};
 const requestedAirport = ${JSON.stringify(requestedAirport)};
 const requestedMode = ${JSON.stringify(requestedMode)};
 // Match the production fixed-step loop exactly; a 100 ms diagnostic step
@@ -531,7 +533,24 @@ const report = {
     unexplainedPauses: diagnostics.metrics.unexplainedPauses,
   },
 };
-console.log(JSON.stringify(report));
+const compact = {
+  accepted: report.accepted,
+  failures: report.failures,
+  airport: report.airport,
+  mode: report.mode,
+  modeledHours: report.modeledHours,
+  arrivals: report.arrivals,
+  departures: report.departures,
+  maximumAircraft: report.maximumAircraft,
+  maximumVehicles: report.maximumVehicles,
+  maximumQueues: report.maximumQueues,
+  secondsSinceCompletedOperation: report.secondsSinceCompletedOperation,
+  longestQueueWaitSeconds: Math.max(0, ...report.longestQueues.map((entry) => entry.waitSeconds)),
+  longestQueue: report.longestQueues[0] ?? null,
+  simulationTickP95Ms: report.performance.simulationTickMs.p95,
+  safety: report.safety,
+};
+console.log(JSON.stringify(compactReport ? compact : report));
 if (failures.length) process.exitCode = 1;
 `;
 
