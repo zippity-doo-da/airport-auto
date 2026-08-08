@@ -573,6 +573,17 @@ the same zero safety diagnostics, but it still reaches a graph-specific long
 surface-wait state. ORD is therefore not represented as accepted by the ATL
 result.
 
+An additional terminal-corridor admission guard now prevents an arriving
+aircraft from accepting a stand whose taxi-in terminal edges overlap a parked
+or taxiing departure's outbound path. The guard uses cached graph resources,
+not a second rendered trajectory, and the short ORD Extreme run is safety-clean
+within the simulation-tick budget. A one-hour ORD run is still not accepted:
+it reached 18 arrivals and 11 departures with zero collision/incursion/pause
+diagnostics, but a small set of stalled aircraft repeatedly amended routes
+around a projected conflict and pushed tick p95 to 53.49ms. The next required
+work is bounded recovery for those blocked pairs, followed by a fresh sustained
+ORD acceptance run.
+
 ### DFW parity track — August 7, 2026
 
 KDFW is the first additional hub being brought through the same sourced-asset
