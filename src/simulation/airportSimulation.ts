@@ -3142,6 +3142,47 @@ export class AirportSimulation {
     return true;
   }
 
+  /** Cancel a takeoff clearance only while the aircraft remains lined up. */
+  cancelTakeoffClearance(id: number): boolean {
+    if (!this.canIssue("tower"))
+      return this.rejectDecision(
+        `${this.state.station} station has no takeoff authority`,
+      );
+    const flight = this.state.flights.find(
+      (item) =>
+        item.id === id && item.phase === "takeoff" && item.runwayEntryCleared,
+    );
+    if (!flight)
+      return this.rejectDecision(
+        "flight is not lined up with runway-entry clearance",
+      );
+    if (!this.ownsFlight(flight))
+      return this.rejectDecision(
+        `${this.state.station} does not own ${flight.callsign}; handoff required`,
+        flight,
+      );
+    if (!flight.takeoffCleared)
+      return this.rejectDecision("takeoff clearance is not active", flight);
+    if (!flight.motion.onGround || flight.motion.stage !== "lineup")
+      return this.rejectDecision(
+        `${flight.callsign} has begun its takeoff roll; cancellation is no longer safe`,
+        flight,
+      );
+    flight.takeoffCleared = false;
+    this.runwayOperationHistory = this.runwayOperationHistory.filter(
+      (operation) =>
+        !(operation.flightId === flight.id && operation.kind === "departure"),
+    );
+    this.decisionReason = `takeoff clearance cancelled for ${flight.callsign} · hold position on ${this.activeRunwayDesignation(flight.runway)}`;
+    this.events.push({
+      type: "takeoff-clearance-cancelled",
+      flight,
+      runway: flight.runway,
+      detail: this.decisionReason,
+    });
+    return true;
+  }
+
   assignHeading(id: number, headingDegrees: number): boolean {
     if (!this.canIssue("approach"))
       return this.rejectDecision(

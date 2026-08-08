@@ -485,8 +485,14 @@ shared free text as a command.
       remain open.
 - [ ] Permit multi-part clearances only when the atomic preview says the complete
       instruction is safe and authorized.
-- [ ] Make urgent, immediate, go-around, stop, rejected-takeoff, and conflict
+- [~] Make urgent, immediate, go-around, stop, rejected-takeoff, and conflict
       instructions voice/action-first rather than queued behind digital messages.
+      Go-around and hold actions already bypass the message queue; Tower can now
+      cancel an active takeoff clearance while the aircraft is still lined up,
+      through both the standard Manual controls and typed control API. Late
+      cancellation after takeoff-roll begins remains deliberately rejected.
+      The broader stop, rejected-takeoff, conflict, and spoken-action work remains
+      open.
 - [ ] Show aircraft capability and station/data-authority limitations without
       turning the interface into avionics configuration management.
 - [~] Provide concise keyboard flows and an Assisted composer that explains why

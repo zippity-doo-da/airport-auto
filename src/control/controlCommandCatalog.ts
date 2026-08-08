@@ -83,6 +83,7 @@ export interface AirportControlCommandParameters {
   clearPushback: { flightId: number };
   clearRunwayEntry: { flightId: number };
   clearTakeoff: { flightId: number };
+  cancelTakeoffClearance: { flightId: number };
   clearRunwayCrossing: { flightId: number; runway: number };
   controlFlights: { flightIds: number[]; instruction: FlightInstruction };
   previewGroupInstruction: {
@@ -861,6 +862,13 @@ const COMMAND_SPECS = {
   clearTakeoff: command(
     "tower",
     "Clear a lined-up departure for takeoff.",
+    AUTHORITY.tower,
+    { flightId: flightIdSchema },
+    { flightId: 1 },
+  ),
+  cancelTakeoffClearance: command(
+    "tower",
+    "Cancel a takeoff clearance before the aircraft begins its takeoff roll.",
     AUTHORITY.tower,
     { flightId: flightIdSchema },
     { flightId: 1 },

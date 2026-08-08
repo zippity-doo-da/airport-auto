@@ -2975,6 +2975,12 @@ function frame(now: number): void {
         `${event.flight.callsign} cleared for takeoff`,
         `runway ${runwayDesignation(event.runway ?? event.flight.runway)} · full roll authorized`,
       );
+    if (event.type === "takeoff-clearance-cancelled")
+      setStatus(
+        `${event.flight.callsign} takeoff cancelled`,
+        event.detail ?? "hold position on the runway",
+        "warning",
+      );
     if (event.type === "runway-crossing")
       setStatus(
         `${event.flight.callsign} crossing clearance`,
@@ -5815,6 +5821,17 @@ function renderFlightActions(): void {
       `Take off ${runwayDesignation(flight.runway)}`,
       !simulation.canIssue("tower") || !ownsFlight,
     );
+  if (
+    flight.phase === "takeoff" &&
+    flight.takeoffCleared &&
+    flight.motion.onGround &&
+    flight.motion.stage === "lineup"
+  )
+    add(
+      "cancel-takeoff",
+      "Cancel takeoff",
+      !simulation.canIssue("tower") || !ownsFlight,
+    );
   if (flight.phase !== "resting" && flight.emergency !== "disabled") {
     const paceAuthority = ground
       ? simulation.canIssue(surfaceAuthority)
@@ -6363,6 +6380,8 @@ function handleFlightAction(
     executeAirportRequest({ action: "clearRunwayEntry", flightId });
   if (action === "takeoff")
     executeAirportRequest({ action: "clearTakeoff", flightId });
+  if (action === "cancel-takeoff")
+    executeAirportRequest({ action: "cancelTakeoffClearance", flightId });
   if (action === "cross")
     executeAirportRequest({
       action: "clearRunwayCrossing",
@@ -9818,6 +9837,10 @@ function executeAirportRequest(
   }
   if (command.action === "clearTakeoff") {
     accepted = simulation.clearTakeoff(command.flightId);
+    reason = simulation.lastCommandReason();
+  }
+  if (command.action === "cancelTakeoffClearance") {
+    accepted = simulation.cancelTakeoffClearance(command.flightId);
     reason = simulation.lastCommandReason();
   }
   if (command.action === "clearRunwayCrossing") {

@@ -82,6 +82,9 @@ assert(flight.runwayEntryCleared, 'departure entered takeoff without runway-entr
 assert(!flight.takeoffCleared, 'departure self-cleared for takeoff in Manual mode');
 assert(simulation.clearTakeoff(flight.id), 'Manual UI equivalent takeoff clearance was rejected: ' + simulation.lastCommandReason());
 assert(flight.takeoffCleared, 'takeoff clearance was not stored on the flight');
+assert(simulation.cancelTakeoffClearance(flight.id), 'Manual UI equivalent takeoff-cancellation was rejected: ' + simulation.lastCommandReason());
+assert(!flight.takeoffCleared, 'cancelled takeoff clearance remained active');
+assert(simulation.clearTakeoff(flight.id), 'Manual UI equivalent re-clearance was rejected: ' + simulation.lastCommandReason());
 advanceUntil(simulation, () => !flight.motion.onGround, 'takeoff clearance did not produce a real airborne departure', 180);
 
 console.log(JSON.stringify({

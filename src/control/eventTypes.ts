@@ -47,6 +47,7 @@ export const AIRPORT_DOMAIN_EVENT_TYPES = [
   "runway-entry",
   "runway-crossing",
   "takeoff-clearance",
+  "takeoff-clearance-cancelled",
   "vector",
   "route-preview",
   "route-clearance-issued",

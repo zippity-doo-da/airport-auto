@@ -28,7 +28,7 @@ assert(CONTROL_SNAPSHOT_SCHEMA_VERSION === 42, 'snapshot schema version changed 
 assert(CONTROL_REPLAY_SCHEMA_VERSION === 4, 'replay schema version changed unexpectedly');
 
 const definitions = Object.values(AIRPORT_CONTROL_COMMAND_DEFINITIONS);
-assert(definitions.length === 100, 'formal command catalog count changed unexpectedly');
+assert(definitions.length === 101, 'formal command catalog count changed unexpectedly');
 assert(validateAirportControlCommand({ action: 'setEnvironmentLightingMode', mode: 'automatic' }).valid, 'environment lighting command was rejected');
 assert(validateAirportControlCommand({ action: 'setEnvironmentSeasonMode', mode: 'winter' }).valid, 'environment season command was rejected');
 assert(validateAirportControlCommand({ action: 'applyAmbientProgram', id: 'quiet-overnight' }).valid, 'ambient program command was rejected');
@@ -57,6 +57,8 @@ assert(validateAirportControlCommand({ action: 'setAirportLifeVisible', enabled:
 assert(validateAirportControlCommand({ action: 'reassignArrivalGate', flightId: 1 }).valid, 'supervisor gate-reassignment command was rejected');
 assert(validateAirportControlCommand({ action: 'setWeather', condition: 'thunderstorm', directionDegrees: 240, windSpeed: 25 }).valid, 'thunderstorm weather command was rejected');
 assert(validateAirportControlCommand({ action: 'setWeatherHazardsEnabled', enabled: true }).valid, 'severe-weather opt-in command was rejected');
+assert(validateAirportControlCommand({ action: 'cancelTakeoffClearance', flightId: 1 }).valid, 'takeoff-cancellation command was rejected');
+assert(!validateAirportControlCommand({ action: 'cancelTakeoffClearance' }).valid, 'takeoff-cancellation command accepted without a flight ID');
 assert(!validateAirportControlCommand({ action: 'setControllerPolicyPreset', preset: 'reckless' }).valid, 'unknown controller policy was accepted');
 
 const envelope = {
