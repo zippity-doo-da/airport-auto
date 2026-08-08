@@ -239,8 +239,13 @@ grant clearance or change movement arbitration.
 
 ### Acceptance gate
 
-- [ ] Zero false disagreement between 3D pose, graph occupancy, track position,
+- [~] Zero false disagreement between 3D pose, graph occupancy, track position,
       and collision diagnostics across deterministic crossings and pushbacks.
+      The surface-safety validator cross-checks each displayed track against the
+      authoritative pose and collision envelope, and the Manual departure
+      lifecycle repeats that assertion through real pushback, taxi, runway
+      entry, lineup, and takeoff-roll movement. Renderer capture and live
+      crossing-motion coverage remain open.
 - [ ] Every seeded runway-incursion test produces an advisory before protected
       envelopes overlap; safe parallel operations do not produce a critical alert.
 - [ ] The panel remains usable at 1440×900, 1024×600, and 390×844 without hiding

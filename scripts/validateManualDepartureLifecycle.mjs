@@ -4,14 +4,19 @@ const validationSource = `
 import { generateHubConfig, HUB_AIRPORTS } from './src/simulation/airportConfig.ts';
 import { AirportSimulation } from './src/simulation/airportSimulation.ts';
 import { syncFlightMotion } from './src/simulation/flightMotion.ts';
+import { aircraftCollisionEnvelope } from './src/simulation/collisionDetection.ts';
+import { surfaceSafetySnapshot } from './src/simulation/surfaceSafety.ts';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-function advanceUntil(simulation, predicate, description, seconds = 300) {
+function advanceUntil(simulation, predicate, description, seconds = 300, afterTick) {
   const ticks = Math.ceil(seconds / 0.05);
-  for (let tick = 0; tick < ticks && !predicate(); tick += 1) simulation.update(0.05);
+  for (let tick = 0; tick < ticks && !predicate(); tick += 1) {
+    simulation.update(0.05);
+    afterTick?.();
+  }
   assert(predicate(), description + ': ' + simulation.state.flights.map((flight) =>
     flight.callsign + ':' + flight.phase + ':' + flight.progress.toFixed(3) + ':' +
     (flight.crossingHoldRunway ?? 'no-crossing') + ':' +
@@ -33,10 +38,32 @@ function completePendingHandoff(simulation, flight) {
   return false;
 }
 
+function assertSurfacePoseAlignment(config, simulation) {
+  const snapshot = surfaceSafetySnapshot(config, simulation.state, [], {
+    collisionAlerts: simulation.metrics.collisionAlerts,
+    runwayIncursions: simulation.metrics.runwayIncursions,
+  });
+  for (const track of snapshot.tracks) {
+    const trackedFlight = simulation.state.flights.find((candidate) => candidate.id === track.id);
+    assert(trackedFlight, 'surface projection included an unknown flight');
+    const envelope = aircraftCollisionEnvelope(config, trackedFlight, trackedFlight.progress);
+    const headingDegrees = Math.round(((((trackedFlight.motion.heading * 180) / Math.PI) % 360) + 360) % 360);
+    assert(
+      track.x === trackedFlight.motion.x &&
+        track.y === trackedFlight.motion.y &&
+        track.headingDegrees === headingDegrees &&
+        envelope.x === track.x &&
+        envelope.y === track.y,
+      'surface pose diverged during ' + trackedFlight.phase + ' for ' + trackedFlight.callsign,
+    );
+  }
+}
+
 const ordIndex = HUB_AIRPORTS.findIndex((airport) => airport.code === 'ORD');
 assert(ordIndex >= 0, 'ORD is required for manual departure validation');
 const config = generateHubConfig(ordIndex);
 const simulation = new AirportSimulation(config, 'quiet');
+const assertCurrentSurfacePose = () => assertSurfacePoseAlignment(config, simulation);
 assert(simulation.startSandbox(false), 'clean sandbox could not start');
 simulation.setMode('manual');
 simulation.setStation('supervisor');
@@ -53,7 +80,7 @@ const flight = simulation.state.flights[0];
 assert(flight.phase === 'resting' && flight.turnaround.status === 'ready', 'sandbox departure was not ready at a stand');
 assert(simulation.clearPushback(flight.id), 'Manual UI equivalent pushback was rejected: ' + simulation.lastCommandReason());
 assert(flight.pushbackCleared, 'pushback clearance was not stored on the flight');
-advanceUntil(simulation, () => flight.phase === 'taxi-out', 'pushback did not begin taxi-out', 5);
+advanceUntil(simulation, () => flight.phase === 'taxi-out', 'pushback did not begin taxi-out', 5, assertCurrentSurfacePose);
 
 let crossingsCleared = 0;
 for (let tick = 0; tick < 12_000 && flight.phase === 'taxi-out'; tick += 1) {
@@ -68,6 +95,7 @@ for (let tick = 0; tick < 12_000 && flight.phase === 'taxi-out'; tick += 1) {
       'Manual UI equivalent line-up was rejected: ' + simulation.lastCommandReason());
   }
   simulation.update(0.05);
+  assertCurrentSurfacePose();
   completePendingHandoff(simulation, flight);
 }
 assert(flight.phase === 'takeoff', 'taxi-out did not reach the takeoff phase: ' + JSON.stringify({
@@ -92,7 +120,7 @@ syncFlightMotion(config, flight);
 assert(flight.motion.stage === 'takeoff-roll', 'late cancellation fixture did not reach its takeoff roll');
 assert(!simulation.cancelTakeoffClearance(flight.id), 'takeoff cancellation was accepted after the roll began');
 assert(simulation.lastCommandReason().includes('no longer safe'), 'late takeoff-cancellation rejection did not explain the safety boundary');
-advanceUntil(simulation, () => !flight.motion.onGround, 'takeoff clearance did not produce a real airborne departure', 180);
+advanceUntil(simulation, () => !flight.motion.onGround, 'takeoff clearance did not produce a real airborne departure', 180, assertCurrentSurfacePose);
 
 console.log(JSON.stringify({
   airport: 'ORD',
