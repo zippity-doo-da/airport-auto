@@ -342,7 +342,10 @@ const FAILED_GATE_REASSIGNMENT_RETRY_SECONDS = 10;
 // airport-wide queue. The collision arbiter remains the physical safety net;
 // this shorter horizon is only the predictive traffic-planning claim.
 const SURFACE_RESERVATION_LOOKAHEAD_M = 180;
-const SURFACE_PHYSICAL_RESERVATION_LOOKAHEAD_M = 320;
+// Establish geometric corridor ownership before transport aircraft reach a
+// shared junction. This is conservative separation look-ahead, not a speed-up;
+// the graph ledger above remains the shorter concurrency boundary.
+const SURFACE_PHYSICAL_RESERVATION_LOOKAHEAD_M = 400;
 const PUSHBACK_INBOUND_LOOKAHEAD_M = 300;
 const PUSHBACK_INBOUND_CACHE_BUFFER_M = 120;
 

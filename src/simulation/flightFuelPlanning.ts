@@ -183,8 +183,12 @@ export function fuelBurnPercentPerSecond(
   const phaseMultiplier: Record<Exclude<FlightPhase, "resting">, number> = {
     approach: 0.68,
     landing: 0.48,
-    "taxi-in": moving ? 0.22 : 0.12,
-    "taxi-out": moving ? 0.24 : 0.13,
+    // A metered stop is modeled as a reduced-engine/APU ground-hold state,
+    // rather than charging the aircraft nearly the same flow as active taxi.
+    // This keeps strategic delay at the gate/meter materially cheaper than
+    // stop-start movement without making a held aircraft fuel-free.
+    "taxi-in": moving ? 0.22 : 0.05,
+    "taxi-out": moving ? 0.24 : 0.055,
     takeoff: 1.65,
   };
   return (cruisePercentPerHour * phaseMultiplier[phase]) / 3_600;

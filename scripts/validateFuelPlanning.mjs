@@ -19,6 +19,9 @@ for (const model of AIRCRAFT_ROSTER) {
   for (const phase of ['approach', 'landing', 'taxi-in', 'taxi-out', 'takeoff']) {
     assert(fuelBurnPercentPerSecond(model, phase, true) > 0, model + ': non-positive fuel burn in ' + phase);
   }
+  assert(fuelBurnPercentPerSecond(model, 'taxi-in', false) < fuelBurnPercentPerSecond(model, 'taxi-in', true) * 0.3, model + ': stopped taxi-in does not model reduced-engine ground holding');
+  assert(fuelBurnPercentPerSecond(model, 'taxi-out', false) < fuelBurnPercentPerSecond(model, 'taxi-out', true) * 0.3, model + ': stopped taxi-out does not model reduced-engine ground holding');
+  assert(fuelBurnPercentPerSecond(model, 'taxi-out', false) > 0, model + ': stopped ground holding incorrectly burns no fuel');
 }
 
 const ordFrankfurt = estimateRouteDistanceNm('ORD', 'FRA', 'passenger', 1, 417);

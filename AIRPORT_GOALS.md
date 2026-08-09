@@ -381,8 +381,11 @@ multi-hour flow and fuel comparisons remain open.
 Surface flow also applies bounded fairness recovery to long waits behind an
 uncommitted pushback corridor and to named graph-resource reservations. These
 recoveries amend only the remaining sourced graph suffix and never move a
-runway-entry-cleared aircraft. The predictive reservation horizon is 180 m;
-physical collision envelopes retain their independent 320 m preview. A one-hour
+runway-entry-cleared aircraft. The predictive graph-reservation horizon is 180 m;
+physical collision sweeps retain an independent 400 m preview. The longer
+physical horizon establishes shared-corridor ownership before aircraft reach a
+late stop, while graph reservations remain short enough to permit independent
+movement. A one-hour
 ORD Rush soak remains collision-free and drains arrivals/departures, though
 individual taxi holds can still be long under extreme demand.
 
@@ -446,6 +449,16 @@ seconds and the longest airport-wide absence of traffic motion to 40 seconds,
 and reported zero collisions, incursions, or unexplained pauses. Simulation-tick
 p95 was 6.571 ms in Auto and 2.467 ms in Watch, both inside the runtime budget.
 
+The 2.40 comparison is now executable rather than anecdotal. A fixed 30-minute
+ORD Rush/Auto bank at 3x uses the same seed, fixed step, stop/restart thresholds,
+and safety diagnostics against the frozen `92a269c` release result. Current
+Balanced flow reduced stopped-ground holding fuel from 432.997 kg to 378.819 kg
+and taxi stop/restart cycles from 43 to 35, with zero collision or runway-
+incursion diagnostics. Reduced-engine/APU fuel flow is modeled during a stopped
+ground hold; moving taxi fuel flow is unchanged. A separate one-hour ORD Extreme
+Auto run completed 23 arrivals and eight departures with zero collisions,
+incursions, unexplained pauses, or airport-wide movement freezes.
+
 ### Gameplay and UX
 
 - [~] Add a timeline showing demand, runway capacity, target crossing times,
@@ -508,8 +521,12 @@ p95 was 6.571 ms in Auto and 2.467 ms in Watch, both inside the runtime budget.
 
 ### Acceptance gate
 
-- [ ] A seeded ORD rush bank produces less holding fuel burn and fewer stop-start
-      taxi holds than the 2.40 baseline without reducing separation.
+- [x] A seeded ORD rush bank produces less holding fuel burn and fewer stop-start
+      taxi holds than the 2.40 baseline without reducing separation. The
+      executable 30-minute comparison records 378.819 kg versus 432.997 kg and
+      35 versus 43 stop/restart cycles; both release and current runs report zero
+      collision and runway-incursion diagnostics. The frozen baseline is tied to
+      release commit `92a269c`, and `npm run test:traffic-flow` enforces it.
 - [x] Three-hour Auto and Watch runs sustain arrivals and departures with bounded
       queues and no all-aircraft stopped state. August 9 ORD Extreme evidence:
       58 arrivals, 38 departures, 43 peak queue records, 684.7 seconds maximum
