@@ -109,6 +109,7 @@ import { drawRadarInset } from "./render/radarInset";
 import {
   SurfaceSafetyAdvisoryTracker,
   surfaceSafetySnapshot,
+  type SurfaceSafetySnapshot,
 } from "./simulation/surfaceSafety";
 import { SurfaceSafetyAcknowledgements } from "./simulation/surfaceSafetyAcknowledgements";
 import { digitalClearanceSnapshot } from "./simulation/digitalClearances";
@@ -2658,11 +2659,13 @@ function frame(now: number): void {
     lastPredictionKey = predictionKey;
     const queues = simulation.queueSnapshot(displayedState);
     if (!replayMode) {
+      const surfaceSafety = currentSurfaceSafetySnapshot();
       operationsAnalytics.record({
         state: simulation.state,
         predictions,
         queues,
         metrics: simulation.shiftMetrics(),
+        surfaceSafety,
       });
       replayFrames.push({
         clock: Number(simulation.state.elapsed.toFixed(2)),
@@ -2678,6 +2681,7 @@ function frame(now: number): void {
           progress: Number(flight.progress.toFixed(3)),
         })),
         predictions,
+        surfaceSafety: structuredClone(surfaceSafety),
         state: cloneAirportState(simulation.state),
       });
       if (replayFrames.length > 900) replayFrames.shift();
@@ -2686,8 +2690,10 @@ function frame(now: number): void {
     }
     updateSafetyUi(predictions);
     if (!replayMode) {
+      const surfaceSafety =
+        replayFrames[replayFrames.length - 1]?.surfaceSafety;
       for (const advisory of surfaceSafetyAnnouncements.select(
-        currentSurfaceSafetySnapshot(),
+        surfaceSafety ?? currentSurfaceSafetySnapshot(),
       )) {
         setStatus(advisory.label, advisory.detail, advisory.priority);
       }
@@ -3655,6 +3661,9 @@ function replayRecordingDraft(): ReplayRecordingDraft {
     events: structuredClone(telemetryEvents),
     frames: replayFrames.map((frame) => ({
       ...frame,
+      surfaceSafety: frame.surfaceSafety
+        ? structuredClone(frame.surfaceSafety)
+        : undefined,
       state: cloneAirportState(frame.state),
     })),
   };
@@ -7451,7 +7460,11 @@ function renderSurfaceSafety(): void {
   );
 }
 
-function currentSurfaceSafetySnapshot() {
+function currentSurfaceSafetySnapshot(): SurfaceSafetySnapshot {
+  const replaySnapshot = replayMode
+    ? replayPlaybackFrames()[replayIndex]?.surfaceSafety
+    : undefined;
+  if (replaySnapshot) return structuredClone(replaySnapshot);
   const baseSnapshot = surfaceSafetySnapshot(
     config,
     displayState(),

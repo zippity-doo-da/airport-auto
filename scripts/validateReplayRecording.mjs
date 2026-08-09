@@ -44,6 +44,30 @@ const frames = [0, 1, 2].map((offset) => ({
   score: { landed: 2, departed: offset > 1 ? 1 : 0 },
   flights: [{ id: 7, callsign: 'AAL107', phase: 'takeoff', runway: 1, progress: offset / 2 }],
   predictions: [],
+  surfaceSafety: {
+    schemaVersion: 2,
+    generatedAtSeconds: 10 + offset,
+    tracks: [],
+    vehicles: [],
+    advisories: offset === 1 ? [{
+      schemaVersion: 1,
+      id: 'runway-crossing:7-9:1',
+      severity: 'warning',
+      kind: 'runway-crossing',
+      status: 'active',
+      flightIds: [7, 9],
+      causalTrackIds: ['aircraft:7', 'aircraft:9'],
+      runwayId: 1,
+      etaSeconds: 4,
+      firstSeenAtSeconds: 11,
+      lastSeenAtSeconds: 11,
+      predictedAtSeconds: 15,
+      detail: 'private surface advisory detail',
+      geometry: { kind: 'corridor', points: [[1, 2], [3, 4]], width: 2 },
+    }] : [],
+    protectedRunwayOccupancy: 0,
+    heldTracks: 0,
+  },
   state: structuredClone({ ...baseState, elapsed: 10 + offset }),
 }));
 const events = [
@@ -125,6 +149,8 @@ assert(shareable.sessionId === 'shared-session' && shareable.commands[0].clientI
 assert(!('reason' in shareable.commands[0].command) && !('detail' in shareable.events[0]) && !('payload' in shareable.events[0]), 'shared replay retained user text or payload data');
 assert(!JSON.stringify(shareable).includes('controller@example.test') && !JSON.stringify(shareable).includes('private user note'), 'shared replay serialized private identity or text');
 assert(verifyReplayRecording(shareable).exact, 'redacted shared replay was not re-fingerprinted exactly');
+assert(shareable.frames[1].surfaceSafety.advisories[0].detail === undefined, 'shared replay retained private surface advisory detail');
+assert(recording.frames[1].surfaceSafety.advisories[0].status === 'active', 'full replay omitted captured surface advisory lifecycle state');
 
 const legacy = structuredClone(recording);
 legacy.schemaVersion = 3;

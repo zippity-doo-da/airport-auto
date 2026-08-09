@@ -13,6 +13,7 @@ import type {
 import type { AirportDomainEventType } from "../control/eventTypes";
 import type { SeparationRulesetId } from "./separationRules";
 import type { RouteDistanceSource } from "./routeDistances";
+import type { SurfaceSafetySnapshot } from "./surfaceSafety";
 
 export type ControlMode = "auto" | "assisted" | "manual" | "watch";
 export type WeatherCondition =
@@ -1365,6 +1366,8 @@ export interface ReplayFrame {
     progress: number;
   }>;
   predictions: ConflictPrediction[];
+  /** Exact surface picture captured with this frame, including advisory lifecycle state. */
+  surfaceSafety?: SurfaceSafetySnapshot;
   /** Complete immutable render state so the replay scrubber drives the world, not only the label. */
   state: AirportState;
 }

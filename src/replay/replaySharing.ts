@@ -163,6 +163,11 @@ function sharedReplayDraft(recording: ReplayRecording): ReplayRecordingDraft {
       predictions: redactSharedValue(
         frame.predictions,
       ) as ReplayFrame["predictions"],
+      surfaceSafety: frame.surfaceSafety
+        ? (redactSharedValue(
+            frame.surfaceSafety,
+          ) as ReplayFrame["surfaceSafety"])
+        : undefined,
       state: redactSharedValue(frame.state) as AirportState,
     })),
   };

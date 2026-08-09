@@ -559,6 +559,7 @@ export class SurfaceSafetyAdvisoryTracker {
               lastSeenAtSeconds: snapshot.generatedAtSeconds,
               predictedAtSeconds:
                 snapshot.generatedAtSeconds + advisory.etaSeconds,
+              resolvedAtSeconds: undefined,
             }
           : advisory,
       );

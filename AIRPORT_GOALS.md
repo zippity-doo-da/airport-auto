@@ -129,7 +129,7 @@ FAA system fuses surface surveillance and flight-plan information to improve
 movement-area awareness; Airport Auto will model the concept, not replicate an
 operational display. Reference: [FAA ASDE-X](https://www.faa.gov/air_traffic/technology/asde-x).
 
-### Current progress — July 29, 2026
+### Current progress — August 9, 2026
 
 The first implementation slice is in place: a versioned, renderer-independent
 `SurfaceTrack`/`SurfaceVehicleTrack`/`SurfaceSafetyAdvisory` projection reads
@@ -183,6 +183,16 @@ protects the runway, imported control-point IDs resolve to their authoritative
 coordinates, and the warning is asserted before collision detection reports an
 incursion. Independent parallel runway movements are explicitly verified as
 noncritical.
+Each one-second replay frame now retains the exact tracked surface-safety
+snapshot, including active/resolved lifecycle state, acknowledgement, causal
+tracks, and geometry. Replay presentation reads that recorded snapshot rather
+than rebuilding advisory history from the scrubbed aircraft state. The local
+Operations Lab also keeps a bounded advisory rollup with activation count,
+highest severity, active duration, resolution, runway, and involved flights;
+the rollup is visible in the Safety picture metric and exportable as the
+`surface-advisories` dataset. Shareable replay redaction removes advisory detail
+while preserving its structural safety evidence. Recurring advisories now clear
+their old resolution timestamp when they become active again.
 
 ### Gameplay and UX
 
@@ -231,16 +241,16 @@ noncritical.
 - [x] Define one versioned `SurfaceTrack` projection sourced from authoritative
       entities and reservations. Surface tracks now carry their own schema
       version and authoritative pose, route intent, clearance, and freshness.
-- [~] Define one `SurfaceSafetyAdvisory` type with severity, geometry, causal
-  entities, first-seen time, predicted time, acknowledgement, and resolution.
-  Version 1 advisories now carry shared runway/corridor/system geometry and
-  causal tracks; lifecycle persistence is still completed by the advisory
-  tracker rather than the raw simulation snapshot.
-- [~] Route every alert through the existing status broker, replay, analytics,
-  and remote redaction policy. New active advisories now use the
-  dwell-based status broker without repeated-message churn; bounded surface
-  tracks, vehicles, and advisory geometry now reach the authenticated remote
-  projection, while replay and dedicated analytics rollups remain open.
+- [x] Define one `SurfaceSafetyAdvisory` type with severity, geometry, causal
+      entities, first-seen time, predicted time, acknowledgement, and resolution.
+      Version 1 advisories carry shared runway/corridor/system geometry and
+      causal tracks; the bounded tracker preserves active, resolved, expired,
+      and recurring lifecycle state without changing physical protection.
+- [x] Route every alert through the existing status broker, replay, analytics,
+      and remote redaction policy. Exact replay frames retain the tracked
+      snapshot, the local Operations Lab records bounded advisory episodes and
+      duration, the authenticated remote projection carries bounded geometry,
+      and shareable replay removes free-text detail.
 - [x] Expose display configuration and acknowledgement through typed commands;
       acknowledgement must never suppress physical protection.
 

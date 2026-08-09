@@ -393,7 +393,12 @@ assert(activeAdvisory?.status === "active" && activeAdvisory.causalTrackIds.join
 simulation.state.elapsed = 5;
 const resolved = tracker.update(surfaceSafetySnapshot(config, simulation.state, [], { collisionAlerts: 0, runwayIncursions: 0 }));
 assert(resolved.advisories.some((advisory) => advisory.id === activeAdvisory?.id && advisory.status === "resolved" && advisory.resolvedAtSeconds === 5), "cleared advisory did not remain visible as resolved");
-simulation.state.elapsed = 16;
+simulation.state.elapsed = 6;
+const reactivated = tracker.update(surfaceSafetySnapshot(config, simulation.state, predictions, { collisionAlerts: 0, runwayIncursions: 0 }));
+assert(reactivated.advisories.some((advisory) => advisory.id === activeAdvisory?.id && advisory.status === "active" && advisory.resolvedAtSeconds === undefined), "recurring advisory retained stale resolved state");
+simulation.state.elapsed = 7;
+tracker.update(surfaceSafetySnapshot(config, simulation.state, [], { collisionAlerts: 0, runwayIncursions: 0 }));
+simulation.state.elapsed = 18;
 const expired = tracker.update(surfaceSafetySnapshot(config, simulation.state, [], { collisionAlerts: 0, runwayIncursions: 0 }));
 assert(!expired.advisories.some((advisory) => advisory.id === activeAdvisory?.id), "resolved advisory was not removed after bounded retention");
 

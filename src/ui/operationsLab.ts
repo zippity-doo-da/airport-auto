@@ -190,7 +190,11 @@ export function createOperationsLab(
       metric('Flow', `${snapshot.summary.movementsPerHour.toFixed(1)}/hr`, `${snapshot.summary.arrivals} in · ${snapshot.summary.departures} out`),
       metric('Traffic', String(snapshot.summary.activeFlights), `${snapshot.summary.observedFlights} observed`),
       metric('Longest queue', formatDuration(snapshot.summary.longestQueueSeconds), `${snapshot.queueUtilization.filter((entry) => entry.averageEntries > 0).length} active categories`),
-      metric('Safety', String(snapshot.summary.safetyEvents), `${snapshot.summary.activeConflicts} active forecasts`),
+      metric(
+        'Safety picture',
+        String(snapshot.summary.surfaceAdvisoryEpisodes),
+        `${snapshot.summary.activeSurfaceAdvisories} active · ${snapshot.summary.activeConflicts} forecasts`,
+      ),
       metric('Fuel', `${Math.round(snapshot.summary.fuelBurnKg).toLocaleString()} kg`, `${Math.round(snapshot.summary.holdingFuelBurnKg).toLocaleString()} kg holding`),
     );
 
@@ -292,4 +296,3 @@ function renderHeatmap(elements: Elements, snapshot: OperationsAnalyticsSnapshot
   elements.heatmap.replaceChildren(...nodes);
   elements.heatmapEmpty.hidden = snapshot.conflictHeatmap.length > 0;
 }
-

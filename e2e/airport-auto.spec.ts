@@ -3512,7 +3512,7 @@ test("Operations data lab records authoritative traces and exports local analysi
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 1024, height: 600 });
   await page.goto("/?airport=ORD&mode=auto&autostart=1&detail=low&renderFps=4");
-  await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.41.0");
   await page.waitForFunction(
     () =>
       window.airportControl.snapshot().analytics.window.retainedSamples >= 2,
@@ -3535,8 +3535,9 @@ test("Operations data lab records authoritative traces and exports local analysi
       csv,
     };
   });
-  expect(api.overview.schemaVersion).toBe(1);
-  expect(api.overview.exportDatasets).toHaveLength(10);
+  expect(api.overview.schemaVersion).toBe(2);
+  expect(api.overview.exportDatasets).toHaveLength(11);
+  expect(api.overview.exportDatasets).toContain("surface-advisories");
   expect(api.analytics.flights.length).toBeGreaterThan(0);
   expect(api.analytics.selectedFlightSamples.length).toBeGreaterThan(0);
   expect(api.analytics.disclosure).toMatchObject({
@@ -3545,7 +3546,7 @@ test("Operations data lab records authoritative traces and exports local analysi
     shareableByDefault: false,
   });
   expect(api.json).toMatchObject({
-    schemaVersion: 1,
+    schemaVersion: 2,
     localOnly: true,
     cloudUpload: false,
   });
@@ -3560,6 +3561,9 @@ test("Operations data lab records authoritative traces and exports local analysi
     /control-panel--open/,
   );
   await expect(lab.locator("[data-operations-summary]")).toContainText("Flow");
+  await expect(lab.locator("[data-operations-summary]")).toContainText(
+    "Safety picture",
+  );
   await expect(lab.locator("[data-operations-flight-state]")).not.toContainText(
     "Select an observed",
   );
