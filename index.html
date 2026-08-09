@@ -1584,10 +1584,10 @@
         </section>
         <section
           class="queue-panel__capacity"
-          aria-label="Five minute traffic capacity outlook"
+          aria-label="Traffic capacity outlook"
         >
           <div>
-            <b>Five-minute outlook</b>
+            <b id="queue-capacity-heading">Five-minute outlook</b>
             <small>planned slots / current demand</small>
           </div>
           <div id="queue-capacity" class="queue-panel__capacity-list"></div>
@@ -1603,6 +1603,17 @@
             <option value="minimum-taxi-delay">Minimum taxi delay</option>
             <option value="weather-recovery">Weather recovery</option>
             <option value="watch-calm">Watch / calm</option>
+          </select></label
+        >
+        <label
+          ><span>Forecast window</span
+          ><select
+            id="queue-flow-horizon"
+            aria-label="Traffic flow forecast window"
+          >
+            <option value="300">5 minutes</option>
+            <option value="600">10 minutes</option>
+            <option value="900">15 minutes</option>
           </select></label
         >
         <label

@@ -77,6 +77,7 @@ export function operationQueueRenderKey(
     ...flow.capacityWindows.map((window) =>
       [
         window.direction,
+        window.horizonSeconds,
         window.demandCount,
         window.plannedReleaseCount,
         window.delayedCount,

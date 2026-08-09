@@ -346,11 +346,11 @@ Performance, Taxi, Demand, or Schedule. The category is derived from the
 authoritative detailed reason and retained with each slot revision; it improves
 scanability without creating a second scheduler or hiding the actual constraint.
 
-The Queue inspector now adds a bounded five-minute directional capacity
-outlook. It reports planned releases against current demand, delayed and
-revised slots, a confidence tier, and the reason for that confidence. The
-outlook is derived from the same authoritative slots and is presentation-only;
-it cannot move, release, or cancel an aircraft.
+The Queue inspector now adds a bounded directional capacity outlook. It reports
+planned releases against current demand, delayed and revised slots, a confidence
+tier, and the reason for that confidence across a 5-, 10-, or 15-minute window.
+The outlook is derived from the same authoritative slots and is
+presentation-only; it cannot move, release, or cancel an aircraft.
 
 ORD now seeds a bounded ten-aircraft opening bank: two independently reserved
 taxi-out departures, a live turn, additional gate/ramp departures, and the
@@ -470,7 +470,7 @@ state, so exact replay scrubbing preserves both the decision and its consequence
 snapshot. Deterministic simulation and desktop browser tests cover the complete
 Ignore → consequence → Recover loop.
 
-The five-minute forecast now includes every planned uncertainty domain.
+The rolling forecast now includes every planned uncertainty domain.
 Weather, wind, runway condition, and pilot response remain shared operational
 inputs; procedure complexity, taxi congestion, and gate readiness are derived
 separately for arrivals and departures from authoritative flight-plan/readback,
@@ -480,11 +480,18 @@ capacity only. They do not alter an assigned slot, reserve a resource, or move
 an aircraft. The Queue inspector names material procedure, taxi, and gate
 factors directly, while the typed snapshot retains every numeric input.
 
+The forecast horizon is no longer a hard-coded five minutes. Supervisor can
+select a replay-safe 5-, 10-, or 15-minute window in the Queue inspector or
+through the typed control API. Both directional demand and release-capacity
+projections use the selected window immediately, while existing meter slots,
+reservations, score, and aircraft movement remain unchanged. Other stations can
+inspect the active horizon but cannot alter the airport-wide planning window.
+
 ### Gameplay and UX
 
 - [~] Add a timeline showing demand, runway capacity, target crossing times,
   tolerance windows, expected delay, and confidence. The Queue inspector
-  now shows active arrival/departure slots, delay, a five-minute planned-slot
+  now shows active arrival/departure slots, delay, a configurable planned-slot
   outlook, bounded confidence, and route-aware meter targets with explicit
   tolerance windows; runway-capacity attribution and downstream uncertainty
   remain open.
@@ -524,9 +531,10 @@ factors directly, while the typed snapshot retains every numeric input.
   authority; procedure transitions and sourced surface crossings now create
   versioned target points, while the outlook projects release cadence beyond
   queued entries. Airport-specific capacity constraints remain open.
-- [~] Replace one-interval demand pressure with rolling predicted demand and
-  configurable capacity windows. The five-minute outlook now forecasts both
-  sides of the horizon instead of counting only known queue entries.
+- [x] Replace one-interval demand pressure with rolling predicted demand and
+  configurable capacity windows. The Queue outlook forecasts both sides of a
+  Supervisor-selected 5-, 10-, or 15-minute horizon instead of counting only
+  known queue entries; the selected window is retained in replay-safe flow state.
 - [x] Model uncertainty from wind, procedure, runway condition, pilot response,
   taxi congestion, and gate readiness. Forecast confidence now carries bounded,
   direction-specific procedure, taxi, and gate factors alongside weather,

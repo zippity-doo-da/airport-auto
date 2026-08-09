@@ -32,6 +32,7 @@ import {
 } from "./simulation/trafficDensity";
 import {
   cloneTrafficFlowState,
+  isTrafficFlowForecastHorizon,
   isTrafficFlowObjective,
   trafficFlowObjectiveProfile,
 } from "./simulation/trafficFlowManagement";
@@ -87,6 +88,7 @@ import type {
   SurfaceDisruptionKind,
   TrafficScenario,
   TrafficFlowObjective,
+  TrafficFlowForecastHorizonSeconds,
   TrainingLessonId,
   TurnaroundServiceType,
   WeatherCondition,
@@ -516,6 +518,8 @@ const queueClose = $<HTMLButtonElement>("#queue-close");
 const queueCount = $<HTMLElement>("#queue-count");
 const queueFilter = $<HTMLSelectElement>("#queue-filter");
 const queueFlowObjective = $<HTMLSelectElement>("#queue-flow-objective");
+const queueFlowHorizon = $<HTMLSelectElement>("#queue-flow-horizon");
+const queueCapacityHeading = $<HTMLElement>("#queue-capacity-heading");
 const queueList = $<HTMLElement>("#queue-list");
 const queueLongest = $<HTMLElement>("#queue-longest");
 const queueMeter = $<HTMLElement>("#queue-meter");
@@ -2449,6 +2453,24 @@ queueFlowObjective.addEventListener("change", () => {
   if (!result.accepted) {
     queueFlowObjective.value = simulation.state.trafficFlow.objective;
     setStatus("Flow objective unchanged", result.reason, "warning");
+    return;
+  }
+  queueInspectorUiKey = "";
+  renderQueueInspector();
+});
+
+queueFlowHorizon.addEventListener("change", () => {
+  const seconds = Number(queueFlowHorizon.value);
+  if (!isTrafficFlowForecastHorizon(seconds)) return;
+  const result = executeAirportRequest({
+    action: "setTrafficFlowForecastHorizon",
+    seconds,
+  });
+  if (!result.accepted) {
+    queueFlowHorizon.value = String(
+      simulation.state.trafficFlow.forecastHorizonSeconds,
+    );
+    setStatus("Forecast window unchanged", result.reason, "warning");
     return;
   }
   queueInspectorUiKey = "";
@@ -7615,6 +7637,7 @@ function renderQueueInspector(): void {
   const snapshot = simulation.queueSnapshot(displayState());
   const flow = simulation.trafficFlowSnapshot(displayState());
   updateQueueFlowObjectiveControl(flow.objective.id);
+  updateQueueFlowHorizonControl(flow.forecastHorizonSeconds);
   const focusedQueueId =
     activeFocusTarget?.kind === "queue" ? activeFocusTarget.id : null;
   const key = operationQueueRenderKey(
@@ -7646,6 +7669,18 @@ function renderQueueInspector(): void {
         simulation.state.station === "supervisor",
     },
   );
+}
+
+function updateQueueFlowHorizonControl(
+  seconds: TrafficFlowForecastHorizonSeconds,
+): void {
+  queueFlowHorizon.value = String(seconds);
+  queueCapacityHeading.textContent = `${seconds / 60}-minute outlook`;
+  const supervisor = simulation.state.station === "supervisor";
+  queueFlowHorizon.disabled = !supervisor;
+  queueFlowHorizon.title = supervisor
+    ? "Choose how far the rolling demand/capacity forecast looks ahead."
+    : "Select the Supervisor workstation to change the airport forecast window.";
 }
 
 function updateQueueFlowObjectiveControl(
@@ -8071,6 +8106,20 @@ function setTrafficFlowObjective(objective: TrafficFlowObjective): boolean {
   queueInspectorUiKey = "";
   renderQueueInspector();
   updateWeatherUi();
+  return true;
+}
+
+function setTrafficFlowForecastHorizon(
+  seconds: TrafficFlowForecastHorizonSeconds,
+): boolean {
+  const accepted = simulation.setTrafficFlowForecastHorizon(seconds);
+  if (!accepted) return false;
+  setStatus(
+    `${seconds / 60}-minute forecast`,
+    "Rolling demand and capacity horizon updated; existing slots and movements are unchanged.",
+  );
+  queueInspectorUiKey = "";
+  renderQueueInspector();
   return true;
 }
 
@@ -10306,6 +10355,13 @@ function executeAirportRequest(
     reason = valid
       ? simulation.lastCommandReason()
       : "unknown traffic-flow objective";
+  }
+  if (command.action === "setTrafficFlowForecastHorizon") {
+    const valid = isTrafficFlowForecastHorizon(command.seconds);
+    accepted = valid && setTrafficFlowForecastHorizon(command.seconds);
+    reason = valid
+      ? simulation.lastCommandReason()
+      : "traffic-flow forecast horizon must be 300, 600, or 900 seconds";
   }
   if (command.action === "ignoreTrafficFlowAdvisory") {
     accepted = simulation.ignoreTrafficFlowAdvisory(

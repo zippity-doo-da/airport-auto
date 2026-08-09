@@ -13,7 +13,11 @@ import type { AirspaceLayer } from "../render/airspaceOverlay";
 import type { SurfaceLayer } from "../render/createWorld";
 import type { SeparationRulesetId } from "../simulation/separationRules";
 import type { TrafficDensity } from "../simulation/trafficDensity";
-import type { TrafficFlowObjective } from "../simulation/types";
+import type {
+  TrafficFlowForecastHorizonSeconds,
+  TrafficFlowObjective,
+} from "../simulation/types";
+import { TRAFFIC_FLOW_FORECAST_HORIZONS } from "../simulation/trafficFlowManagement";
 import type {
   ChallengeId,
   ControlMode,
@@ -140,6 +144,9 @@ export interface AirportControlCommandParameters {
   setScenario: { scenario: TrafficScenario };
   setTrafficDensity: { density: TrafficDensity };
   setTrafficFlowObjective: { objective: TrafficFlowObjective };
+  setTrafficFlowForecastHorizon: {
+    seconds: TrafficFlowForecastHorizonSeconds;
+  };
   ignoreTrafficFlowAdvisory: { recommendationId: string };
   recoverTrafficFlowAdvisory: { recommendationId: string };
   setSeparationRuleset: { ruleset: SeparationRulesetId };
@@ -1263,6 +1270,19 @@ const COMMAND_SPECS = {
       ]),
     },
     { objective: "minimum-holding" },
+  ),
+  setTrafficFlowForecastHorizon: command(
+    "operations",
+    "Set the rolling strategic capacity horizon without changing any meter slot or aircraft movement.",
+    AUTHORITY.supervisor,
+    {
+      seconds: {
+        type: "integer",
+        description: "Traffic-flow forecast horizon in seconds.",
+        enum: TRAFFIC_FLOW_FORECAST_HORIZONS,
+      },
+    },
+    { seconds: 600 },
   ),
   ignoreTrafficFlowAdvisory: command(
     "operations",

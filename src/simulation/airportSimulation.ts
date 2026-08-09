@@ -199,6 +199,7 @@ import {
   enqueueArrivalDemand,
   expireTrafficFlow,
   ignoreTrafficFlowRecommendation,
+  isTrafficFlowForecastHorizon,
   isTrafficFlowObjective,
   markArrivalHolding,
   refreshTrafficFlow,
@@ -209,6 +210,7 @@ import {
   removeDepartureDemand,
   scheduleNextArrivalDemand,
   setTrafficFlowDensity,
+  setTrafficFlowForecastHorizon,
   setTrafficFlowMeterTargets,
   setTrafficFlowObjective,
   trafficFlowObjectiveProfile,
@@ -1708,6 +1710,18 @@ export class AirportSimulation {
     );
     const profile = trafficFlowObjectiveProfile(objective);
     this.decisionReason = `${profile.label} flow objective active`;
+    return true;
+  }
+
+  setTrafficFlowForecastHorizon(seconds: number): boolean {
+    if (this.state.station !== "supervisor")
+      return this.rejectDecision(
+        `${this.state.station} station cannot change the airport-wide forecast horizon`,
+      );
+    if (!isTrafficFlowForecastHorizon(seconds))
+      return this.rejectDecision("unknown traffic-flow forecast horizon");
+    setTrafficFlowForecastHorizon(this.state.trafficFlow, seconds);
+    this.decisionReason = `${seconds / 60}-minute traffic-flow forecast active`;
     return true;
   }
 

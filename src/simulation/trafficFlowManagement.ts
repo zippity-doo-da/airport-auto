@@ -3,6 +3,7 @@ import type {
   TrafficFlowConstraintCategory,
   TrafficFlowAdvisoryResponse,
   TrafficFlowEntry,
+  TrafficFlowForecastHorizonSeconds,
   TrafficFlowMeterTarget,
   TrafficFlowObjective,
   TrafficFlowState,
@@ -19,6 +20,17 @@ export const TRAFFIC_FLOW_OBJECTIVES: readonly TrafficFlowObjective[] = [
   "weather-recovery",
   "watch-calm",
 ];
+
+export const TRAFFIC_FLOW_FORECAST_HORIZONS: readonly TrafficFlowForecastHorizonSeconds[] =
+  [300, 600, 900];
+
+export function isTrafficFlowForecastHorizon(
+  value: number,
+): value is TrafficFlowForecastHorizonSeconds {
+  return TRAFFIC_FLOW_FORECAST_HORIZONS.includes(
+    value as TrafficFlowForecastHorizonSeconds,
+  );
+}
 
 export interface TrafficFlowObjectiveProfile {
   id: TrafficFlowObjective;
@@ -110,7 +122,7 @@ export function trafficFlowConstraint(reason: string): TrafficFlowConstraint {
 }
 
 export interface TrafficFlowSnapshot {
-  schemaVersion: 4;
+  schemaVersion: 5;
   density: ReturnType<typeof trafficDensityProfile>;
   objective: TrafficFlowObjectiveProfile;
   nextArrivalDemandInSeconds: number;
@@ -140,6 +152,7 @@ export interface TrafficFlowSnapshot {
    */
   recommendations: TrafficFlowRecommendation[];
   advisoryResponses: TrafficFlowAdvisoryResponseSnapshot[];
+  forecastHorizonSeconds: TrafficFlowForecastHorizonSeconds;
 }
 
 export interface TrafficFlowAdvisoryResponseSnapshot extends TrafficFlowAdvisoryResponse {
@@ -207,9 +220,10 @@ export function createTrafficFlowState(
   firstArrivalDemandInSeconds = 2,
 ): TrafficFlowState {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     density,
     objective: "balanced",
+    forecastHorizonSeconds: 300,
     nextDemandId: 1,
     nextArrivalDemandSeconds:
       nowSeconds + Math.max(0, firstArrivalDemandInSeconds),
@@ -393,6 +407,13 @@ export function setTrafficFlowObjective(
   refreshTrafficFlow(state, nowSeconds);
 }
 
+export function setTrafficFlowForecastHorizon(
+  state: TrafficFlowState,
+  seconds: TrafficFlowForecastHorizonSeconds,
+): void {
+  state.forecastHorizonSeconds = seconds;
+}
+
 export function releaseArrivalDemand(
   state: TrafficFlowState,
   entry: TrafficFlowEntry,
@@ -540,6 +561,11 @@ export function trafficFlowSnapshot(
 ): TrafficFlowSnapshot {
   refreshTrafficFlow(state, nowSeconds);
   const density = trafficDensityProfile(state.density);
+  const forecastHorizonSeconds = isTrafficFlowForecastHorizon(
+    state.forecastHorizonSeconds,
+  )
+    ? state.forecastHorizonSeconds
+    : 300;
   const capacityWindows = [
     capacityWindow(
       "arrival",
@@ -548,6 +574,7 @@ export function trafficFlowSnapshot(
       forecast.arrivalDemandIntervalSeconds,
       forecast.arrivalDemandIntervalSeconds,
       mergeUncertainty(forecast.uncertainty, forecast.arrivalUncertainty),
+      forecastHorizonSeconds,
     ),
     capacityWindow(
       "departure",
@@ -556,6 +583,7 @@ export function trafficFlowSnapshot(
       forecast.departureSpacingSeconds,
       forecast.departureSpacingSeconds,
       mergeUncertainty(forecast.uncertainty, forecast.departureUncertainty),
+      forecastHorizonSeconds,
     ),
   ];
   const recommendations = flowRecommendations(state, nowSeconds);
@@ -572,7 +600,7 @@ export function trafficFlowSnapshot(
       ),
     );
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     density: { ...density, assumptions: [...density.assumptions] },
     objective: { ...trafficFlowObjectiveProfile(state.objective) },
     nextArrivalDemandInSeconds: round(
@@ -602,6 +630,7 @@ export function trafficFlowSnapshot(
     capacityWindows,
     recommendations,
     advisoryResponses,
+    forecastHorizonSeconds,
   };
 }
 
@@ -813,8 +842,6 @@ function advisoryResponseSnapshot(
   };
 }
 
-const FLOW_LOOKAHEAD_SECONDS = 300;
-
 function capacityWindow(
   direction: TrafficFlowCapacityWindow["direction"],
   entries: TrafficFlowEntry[],
@@ -822,8 +849,9 @@ function capacityWindow(
   demandIntervalSeconds = 60,
   releaseSpacingSeconds = 60,
   uncertaintyInput: Partial<TrafficFlowCapacityWindow["uncertainty"]> = {},
+  horizonSeconds: TrafficFlowForecastHorizonSeconds = 300,
 ): TrafficFlowCapacityWindow {
-  const horizon = nowSeconds + FLOW_LOOKAHEAD_SECONDS;
+  const horizon = nowSeconds + horizonSeconds;
   const inWindow = entries.filter(
     (entry) => entry.scheduledAtSeconds <= horizon,
   );
@@ -914,7 +942,7 @@ function capacityWindow(
         : "No delayed, revised, or materially uncertain slots in the look-ahead.";
   return {
     direction,
-    horizonSeconds: FLOW_LOOKAHEAD_SECONDS,
+    horizonSeconds,
     demandCount,
     predictedDemandCount: forecastDemandCount,
     plannedReleaseCount,
@@ -954,6 +982,12 @@ export function cloneTrafficFlowState(
 ): TrafficFlowState {
   return {
     ...state,
+    schemaVersion: 3,
+    forecastHorizonSeconds: isTrafficFlowForecastHorizon(
+      state.forecastHorizonSeconds,
+    )
+      ? state.forecastHorizonSeconds
+      : 300,
     arrivalQueue: state.arrivalQueue.map(cloneEntry),
     departureQueue: state.departureQueue.map(cloneEntry),
     history: state.history.map(cloneEntry),

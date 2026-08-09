@@ -235,6 +235,17 @@ Ignore is accepted only by Supervisor or the advisory's named Approach/Tower aut
 
 Each `trafficManagement.capacityWindows[].uncertainty` object exposes bounded `weather`, `wind`, `runwayCondition`, `pilotResponse`, `procedure`, `taxiCongestion`, and `gateReadiness` factors from 0 through 1. Procedure, taxi, and gate factors are direction-specific. They are derived from authoritative route/readback and hold state, runway-plan transitions, operational queues, committed stands, and turnaround readiness. They affect forecast confidence and projected effective capacity only; they never change a slot, clearance, reservation, score, or aircraft motion.
 
+Supervisor can choose a replay-safe rolling capacity horizon of 5, 10, or 15 minutes. Other stations can inspect but cannot change it:
+
+```js
+airportControl.request({
+  action: "setTrafficFlowForecastHorizon",
+  seconds: 600, // 300 | 600 | 900
+});
+```
+
+`snapshot().trafficManagement.forecastHorizonSeconds` reports the selection, and both capacity windows repeat it in `horizonSeconds`. Changing the horizon recalculates forecast demand, capacity, utilization, and confidence only; it does not revise existing slots or move aircraft.
+
 Flight commands:
 
 ```js

@@ -25,12 +25,26 @@ test("Manual Supervisor can ignore a flow advisory, see consequences, and recove
     }),
   );
   await expect(page.locator("#queue-panel")).toBeVisible();
+  await page.locator("#queue-flow-horizon").selectOption("600");
+  await expect(page.locator("#queue-capacity-heading")).toHaveText(
+    "10-minute outlook",
+  );
+  await expect(page.locator("#queue-flow-horizon")).toHaveValue("600");
   const uncertainty = await page.evaluate(() =>
     window.airportControl
       .snapshot()
       .trafficManagement.capacityWindows.map((window) => window.uncertainty),
   );
   expect(uncertainty).toHaveLength(2);
+  expect(
+    await page.evaluate(() =>
+      window.airportControl
+        .snapshot()
+        .trafficManagement.capacityWindows.every(
+          (window) => window.horizonSeconds === 600,
+        ),
+    ),
+  ).toBeTruthy();
   expect(
     uncertainty.every(
       (factors) =>

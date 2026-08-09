@@ -28,9 +28,11 @@ assert(CONTROL_SNAPSHOT_SCHEMA_VERSION === 42, 'snapshot schema version changed 
 assert(CONTROL_REPLAY_SCHEMA_VERSION === 4, 'replay schema version changed unexpectedly');
 
 const definitions = Object.values(AIRPORT_CONTROL_COMMAND_DEFINITIONS);
-assert(definitions.length === 105, 'formal command catalog count changed unexpectedly');
+assert(definitions.length === 106, 'formal command catalog count changed unexpectedly');
 assert(validateAirportControlCommand({ action: 'ignoreTrafficFlowAdvisory', recommendationId: 'arrival:1:review' }).valid, 'flow-advisory ignore command was rejected');
 assert(validateAirportControlCommand({ action: 'recoverTrafficFlowAdvisory', recommendationId: 'arrival:1:review' }).valid, 'flow-advisory recovery command was rejected');
+assert(validateAirportControlCommand({ action: 'setTrafficFlowForecastHorizon', seconds: 600 }).valid, 'traffic-flow forecast horizon command was rejected');
+assert(!validateAirportControlCommand({ action: 'setTrafficFlowForecastHorizon', seconds: 450 }).valid, 'unsupported traffic-flow forecast horizon was accepted');
 assert(validateAirportControlCommand({ action: 'setEnvironmentLightingMode', mode: 'automatic' }).valid, 'environment lighting command was rejected');
 assert(validateAirportControlCommand({ action: 'setEnvironmentSeasonMode', mode: 'winter' }).valid, 'environment season command was rejected');
 assert(validateAirportControlCommand({ action: 'applyAmbientProgram', id: 'quiet-overnight' }).valid, 'ambient program command was rejected');

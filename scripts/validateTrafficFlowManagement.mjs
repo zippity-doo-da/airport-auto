@@ -18,6 +18,8 @@ import {
   releaseDepartureDemand,
   TRAFFIC_FLOW_OBJECTIVES,
   isTrafficFlowObjective,
+  isTrafficFlowForecastHorizon,
+  setTrafficFlowForecastHorizon,
   setTrafficFlowObjective,
   trafficFlowObjectiveProfile,
   trafficFlowSnapshot,
@@ -50,6 +52,7 @@ const totals = {
 assert(JSON.stringify(TRAFFIC_DENSITIES) === JSON.stringify(['quiet', 'realistic', 'busy', 'rush', 'extreme']), 'traffic-density order changed');
 assert(JSON.stringify(TRAFFIC_FLOW_OBJECTIVES) === JSON.stringify(['balanced', 'minimum-holding', 'minimum-taxi-delay', 'weather-recovery', 'watch-calm']), 'traffic-flow objective order changed');
 assert(TRAFFIC_FLOW_OBJECTIVES.every((objective) => isTrafficFlowObjective(objective) && trafficFlowObjectiveProfile(objective).arrivalDemandIntervalMultiplier > 0 && trafficFlowObjectiveProfile(objective).arrivalSpacingMultiplier > 0 && trafficFlowObjectiveProfile(objective).departureSpacingMultiplier > 0), 'traffic-flow objective profiles are incomplete');
+assert(isTrafficFlowForecastHorizon(300) && isTrafficFlowForecastHorizon(600) && isTrafficFlowForecastHorizon(900) && !isTrafficFlowForecastHorizon(450), 'traffic-flow forecast horizon guard is incomplete');
 assert(trafficFlowConstraint('weather recovery arrival metering').category === 'weather', 'weather slot reason lacks a stable category');
 assert(trafficFlowConstraint('no immediately available compatible stand').category === 'gate', 'gate slot reason lacks a stable category');
 assert(trafficFlowConstraint('protected arrival sweep occupied').category === 'runway', 'runway slot reason lacks a stable category');
@@ -185,9 +188,12 @@ assert(flow.totals.departureReleases === 1 && flow.departureQueue[0] === slotB, 
 const meterSnapshot = trafficFlowSnapshot(flow, 20);
 const meterRows = trafficFlowMeterRows(meterSnapshot);
 assert(meterSnapshot.capacityWindows.length === 2 && meterSnapshot.capacityWindows.every((window) => window.horizonSeconds === 300 && window.demandCount >= window.plannedReleaseCount && window.predictedDemandCount >= window.demandCount && window.predictedCapacityCount >= window.plannedReleaseCount && ['high', 'medium', 'low'].includes(window.confidence)), 'capacity outlook did not expose bounded directional confidence');
+setTrafficFlowForecastHorizon(flow, 600);
+const extendedMeterSnapshot = trafficFlowSnapshot(flow, 20);
+assert(extendedMeterSnapshot.forecastHorizonSeconds === 600 && extendedMeterSnapshot.capacityWindows.every((window, index) => window.horizonSeconds === 600 && window.predictedDemandCount >= meterSnapshot.capacityWindows[index].predictedDemandCount && window.predictedCapacityCount >= meterSnapshot.capacityWindows[index].predictedCapacityCount), 'configurable rolling horizon did not extend both demand and capacity forecasts');
 const uncertainForecast = trafficFlowSnapshot(flow, 20, { arrivalDemandIntervalSeconds: 12, departureSpacingSeconds: 18, uncertainty: { weather: 0.8, wind: 0.7, runwayCondition: 0.6, pilotResponse: 0.5 }, arrivalUncertainty: { procedure: 0.76, taxiCongestion: 0.72, gateReadiness: 0.64 }, departureUncertainty: { procedure: 0.54, taxiCongestion: 0.58, gateReadiness: 0.46 } });
 assert(uncertainForecast.capacityWindows.every((window) => window.predictedDemandCount >= window.demandCount && window.predictedCapacityCount >= window.plannedReleaseCount && window.confidence === 'low' && window.uncertainty.weather === 0.8 && window.uncertainty.procedure > 0.5 && window.uncertainty.taxiCongestion > 0.5 && window.uncertainty.gateReadiness > 0.4 && /procedure|taxi congestion|gate readiness/.test(window.confidenceReason)), 'rolling forecast did not expose bounded directional operational uncertainty');
-assert(uncertainForecast.schemaVersion === 4 && Array.isArray(uncertainForecast.advisoryResponses), 'traffic flow snapshot did not advance its schema for operational uncertainty');
+assert(uncertainForecast.schemaVersion === 5 && Array.isArray(uncertainForecast.advisoryResponses), 'traffic flow snapshot did not advance its schema for configurable forecast horizons');
 assert(uncertainForecast.recommendations.length > 0 && uncertainForecast.recommendations.every((recommendation) => recommendation.advisoryOnly && recommendation.requiresCommandArbiter && recommendation.authority && /^review-(arrival|departure)-release$/.test(recommendation.action)), 'flow recommendations were not explicitly advisory-only');
 const advisory = uncertainForecast.recommendations[0];
 const advisoryEntries = advisory.direction === 'arrival' ? flow.arrivalQueue : flow.departureQueue;
@@ -215,8 +221,10 @@ const objectiveSimulation = new AirportSimulation(ordConfig);
 objectiveSimulation.setMode('manual');
 objectiveSimulation.setStation('ground');
 assert(!objectiveSimulation.setTrafficFlowObjective('watch-calm'), 'non-supervisor station changed the airport flow objective');
+assert(!objectiveSimulation.setTrafficFlowForecastHorizon(900), 'non-supervisor station changed the airport forecast horizon');
 objectiveSimulation.setStation('supervisor');
 assert(objectiveSimulation.setTrafficFlowObjective('minimum-taxi-delay') && objectiveSimulation.state.trafficFlow.objective === 'minimum-taxi-delay', 'supervisor could not set the traffic-flow objective');
+assert(objectiveSimulation.setTrafficFlowForecastHorizon(900) && objectiveSimulation.trafficFlowSnapshot().capacityWindows.every((window) => window.horizonSeconds === 900), 'supervisor could not set the airport forecast horizon');
 enqueueArrivalDemand(objectiveSimulation.state.trafficFlow, objectiveSimulation.state.elapsed, 'manual advisory validation');
 const manualAdvisory = objectiveSimulation.trafficFlowSnapshot().recommendations[0];
 assert(manualAdvisory, 'manual simulation did not expose a flow advisory');

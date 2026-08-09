@@ -1170,6 +1170,7 @@ export interface TrafficFlowEntry {
 }
 
 export type TrafficFlowAdvisoryResponseStatus = "ignored" | "recovered";
+export type TrafficFlowForecastHorizonSeconds = 300 | 600 | 900;
 
 /**
  * Replay-safe controller response to one strategic flow recommendation.
@@ -1195,9 +1196,10 @@ export interface TrafficFlowAdvisoryResponse {
 }
 
 export interface TrafficFlowState {
-  schemaVersion: 2;
+  schemaVersion: 3;
   density: TrafficDensity;
   objective: TrafficFlowObjective;
+  forecastHorizonSeconds: TrafficFlowForecastHorizonSeconds;
   nextDemandId: number;
   nextArrivalDemandSeconds: number;
   nextArrivalReleaseSeconds: number;
