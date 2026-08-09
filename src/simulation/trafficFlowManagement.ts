@@ -110,7 +110,7 @@ export function trafficFlowConstraint(reason: string): TrafficFlowConstraint {
 }
 
 export interface TrafficFlowSnapshot {
-  schemaVersion: 3;
+  schemaVersion: 4;
   density: ReturnType<typeof trafficDensityProfile>;
   objective: TrafficFlowObjectiveProfile;
   nextArrivalDemandInSeconds: number;
@@ -142,8 +142,7 @@ export interface TrafficFlowSnapshot {
   advisoryResponses: TrafficFlowAdvisoryResponseSnapshot[];
 }
 
-export interface TrafficFlowAdvisoryResponseSnapshot
-  extends TrafficFlowAdvisoryResponse {
+export interface TrafficFlowAdvisoryResponseSnapshot extends TrafficFlowAdvisoryResponse {
   elapsedSeconds: number;
   additionalDelaySeconds: number;
   holdingFuelBurnDeltaKg: number;
@@ -185,14 +184,21 @@ export interface TrafficFlowCapacityWindow {
     wind: number;
     runwayCondition: number;
     pilotResponse: number;
+    procedure: number;
+    taxiCongestion: number;
+    gateReadiness: number;
   };
 }
+
+export type TrafficFlowUncertainty = TrafficFlowCapacityWindow["uncertainty"];
 
 export interface TrafficFlowForecastInput {
   arrivalDemandIntervalSeconds?: number;
   departureSpacingSeconds?: number;
   holdingFuelBurnKg?: number;
-  uncertainty?: Partial<TrafficFlowCapacityWindow["uncertainty"]>;
+  uncertainty?: Partial<TrafficFlowUncertainty>;
+  arrivalUncertainty?: Partial<TrafficFlowUncertainty>;
+  departureUncertainty?: Partial<TrafficFlowUncertainty>;
 }
 
 export function createTrafficFlowState(
@@ -541,7 +547,7 @@ export function trafficFlowSnapshot(
       nowSeconds,
       forecast.arrivalDemandIntervalSeconds,
       forecast.arrivalDemandIntervalSeconds,
-      forecast.uncertainty,
+      mergeUncertainty(forecast.uncertainty, forecast.arrivalUncertainty),
     ),
     capacityWindow(
       "departure",
@@ -549,7 +555,7 @@ export function trafficFlowSnapshot(
       nowSeconds,
       forecast.departureSpacingSeconds,
       forecast.departureSpacingSeconds,
-      forecast.uncertainty,
+      mergeUncertainty(forecast.uncertainty, forecast.departureUncertainty),
     ),
   ];
   const recommendations = flowRecommendations(state, nowSeconds);
@@ -566,7 +572,7 @@ export function trafficFlowSnapshot(
       ),
     );
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     density: { ...density, assumptions: [...density.assumptions] },
     objective: { ...trafficFlowObjectiveProfile(state.objective) },
     nextArrivalDemandInSeconds: round(
@@ -673,7 +679,10 @@ export function recoverTrafficFlowRecommendation(
     (candidate) => candidate.recommendationId === recommendationId,
   );
   if (!response)
-    return { accepted: false, reason: "ignore the flow advisory before recovering it" };
+    return {
+      accepted: false,
+      reason: "ignore the flow advisory before recovering it",
+    };
   if (response.status !== "ignored")
     return {
       accepted: false,
@@ -859,13 +868,23 @@ function capacityWindow(
     wind: clamp01(uncertaintyInput.wind ?? 0),
     runwayCondition: clamp01(uncertaintyInput.runwayCondition ?? 0),
     pilotResponse: clamp01(uncertaintyInput.pilotResponse ?? 0),
+    procedure: clamp01(uncertaintyInput.procedure ?? 0),
+    taxiCongestion: clamp01(uncertaintyInput.taxiCongestion ?? 0),
+    gateReadiness: clamp01(uncertaintyInput.gateReadiness ?? 0),
   };
-  const uncertaintyScore =
+  const environmentalUncertainty =
     (uncertainty.weather +
       uncertainty.wind +
       uncertainty.runwayCondition +
       uncertainty.pilotResponse) /
     4;
+  const operationalUncertainty =
+    (uncertainty.taxiCongestion + uncertainty.gateReadiness) / 2;
+  const uncertaintyScore = Math.max(
+    environmentalUncertainty,
+    uncertainty.procedure,
+    operationalUncertainty,
+  );
   const utilization = forecastDemandCount
     ? Number(
         Math.min(
@@ -883,7 +902,10 @@ function capacityWindow(
         : "high";
   const uncertaintyLabels = Object.entries(uncertainty)
     .filter(([, value]) => value >= 0.1)
-    .map(([key, value]) => `${key} ${(value * 100).toFixed(0)}%`);
+    .map(
+      ([key, value]) =>
+        `${UNCERTAINTY_LABELS[key as keyof TrafficFlowUncertainty]} ${(value * 100).toFixed(0)}%`,
+    );
   const confidenceReason =
     confidence === "low"
       ? `Several slots are delayed/revised or uncertain${uncertaintyLabels.length ? ` (${uncertaintyLabels.join(", ")})` : ""}.`
@@ -904,6 +926,23 @@ function capacityWindow(
     confidenceReason,
     uncertainty,
   };
+}
+
+const UNCERTAINTY_LABELS: Record<keyof TrafficFlowUncertainty, string> = {
+  weather: "weather",
+  wind: "wind",
+  runwayCondition: "runway condition",
+  pilotResponse: "pilot response",
+  procedure: "procedure",
+  taxiCongestion: "taxi congestion",
+  gateReadiness: "gate readiness",
+};
+
+function mergeUncertainty(
+  baseline: Partial<TrafficFlowUncertainty> | undefined,
+  directional: Partial<TrafficFlowUncertainty> | undefined,
+): Partial<TrafficFlowUncertainty> {
+  return { ...baseline, ...directional };
 }
 
 function clamp01(value: number): number {

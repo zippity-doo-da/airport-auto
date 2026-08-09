@@ -82,6 +82,7 @@ export function operationQueueRenderKey(
         window.delayedCount,
         window.revisedCount,
         window.confidence,
+        ...Object.values(window.uncertainty).map((value) => value.toFixed(2)),
       ].join(":"),
     ),
     ...flow.recommendations.map((recommendation) =>
@@ -292,7 +293,21 @@ function renderCapacitySummary(
       const heading = document.createElement("b");
       heading.textContent = `${window.direction === "arrival" ? "ARR" : "DEP"} · ${window.predictedCapacityCount}/${window.predictedDemandCount} forecast slots`;
       const detail = document.createElement("small");
-      detail.textContent = `${window.horizonSeconds / 60} min · ${window.confidence} confidence${window.delayedCount ? ` · ${window.delayedCount} delayed` : ""}${window.uncertainty.weather || window.uncertainty.wind || window.uncertainty.runwayCondition || window.uncertainty.pilotResponse ? " · uncertainty active" : ""}`;
+      const operationalFactors = [
+        window.uncertainty.procedure >= 0.1
+          ? `procedure ${Math.round(window.uncertainty.procedure * 100)}%`
+          : "",
+        window.uncertainty.taxiCongestion >= 0.1
+          ? `taxi ${Math.round(window.uncertainty.taxiCongestion * 100)}%`
+          : "",
+        window.uncertainty.gateReadiness >= 0.1
+          ? `gate ${Math.round(window.uncertainty.gateReadiness * 100)}%`
+          : "",
+      ].filter(Boolean);
+      const uncertaintyActive = Object.values(window.uncertainty).some(
+        (value) => value >= 0.1,
+      );
+      detail.textContent = `${window.horizonSeconds / 60} min · ${window.confidence} confidence${window.delayedCount ? ` · ${window.delayedCount} delayed` : ""}${uncertaintyActive ? " · uncertainty active" : ""}${operationalFactors.length ? ` · ${operationalFactors.join(" · ")}` : ""}`;
       detail.title = window.confidenceReason;
 
       const meter = document.createElement("span");

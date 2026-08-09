@@ -215,6 +215,7 @@ import {
   trafficFlowSnapshot,
   type TrafficFlowSnapshot,
 } from "./trafficFlowManagement";
+import { deriveTrafficFlowOperationalUncertainty } from "./trafficFlowUncertainty";
 import {
   amendFlightPlan,
   cloneFlightPlan,
@@ -6077,6 +6078,11 @@ export class AirportSimulation {
         overdueHandoffs) /
         Math.max(1, state.flights.length * 3),
     );
+    const operationalUncertainty = deriveTrafficFlowOperationalUncertainty(
+      this.config,
+      state,
+      this.queueSnapshot(state),
+    );
     return trafficFlowSnapshot(state.trafficFlow, state.elapsed, {
       arrivalDemandIntervalSeconds: this.arrivalDemandInterval(),
       departureSpacingSeconds: this.departureSlotSpacing(),
@@ -6090,6 +6096,8 @@ export class AirportSimulation {
         runwayCondition,
         pilotResponse,
       },
+      arrivalUncertainty: operationalUncertainty.arrival,
+      departureUncertainty: operationalUncertainty.departure,
     });
   }
 

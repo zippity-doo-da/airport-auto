@@ -233,6 +233,8 @@ Ignore is accepted only by Supervisor or the advisory's named Approach/Tower aut
 
 `snapshot().operations` contains the airport's complete operation profile plus its current compressed local time, named demand period, smoothly blended demand multiplier, arrival/departure share, passenger/cargo/regional/general-aviation mix, airline traffic program, active density assumptions, and flow snapshot. Top-level `trafficManagement` exposes bounded arrival/departure queues, release clocks, history, totals, back-pressure, recommendations, and advisory responses. Each `flights[].operationPlan` records the stream, direction, period, local schedule minute, and demand level that generated the leg. Each `flights[].flightPlan` adds origin, destination, schematic route, procedure, airline/aircraft, gate and runway intent, release/arrival time, status, revision, and amendments. These are deterministic offline plans, not live traffic data.
 
+Each `trafficManagement.capacityWindows[].uncertainty` object exposes bounded `weather`, `wind`, `runwayCondition`, `pilotResponse`, `procedure`, `taxiCongestion`, and `gateReadiness` factors from 0 through 1. Procedure, taxi, and gate factors are direction-specific. They are derived from authoritative route/readback and hold state, runway-plan transitions, operational queues, committed stands, and turnaround readiness. They affect forecast confidence and projected effective capacity only; they never change a slot, clearance, reservation, score, or aircraft motion.
+
 Flight commands:
 
 ```js

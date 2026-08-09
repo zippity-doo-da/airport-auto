@@ -470,6 +470,16 @@ state, so exact replay scrubbing preserves both the decision and its consequence
 snapshot. Deterministic simulation and desktop browser tests cover the complete
 Ignore → consequence → Recover loop.
 
+The five-minute forecast now includes every planned uncertainty domain.
+Weather, wind, runway condition, and pilot response remain shared operational
+inputs; procedure complexity, taxi congestion, and gate readiness are derived
+separately for arrivals and departures from authoritative flight-plan/readback,
+hold/go-around, runway-transition, queue, stand-commitment, and turnaround
+state. These bounded factors reduce forecast confidence and effective projected
+capacity only. They do not alter an assigned slot, reserve a resource, or move
+an aircraft. The Queue inspector names material procedure, taxi, and gate
+factors directly, while the typed snapshot retains every numeric input.
+
 ### Gameplay and UX
 
 - [~] Add a timeline showing demand, runway capacity, target crossing times,
@@ -517,12 +527,13 @@ Ignore → consequence → Recover loop.
 - [~] Replace one-interval demand pressure with rolling predicted demand and
   configurable capacity windows. The five-minute outlook now forecasts both
   sides of the horizon instead of counting only known queue entries.
-- [~] Model uncertainty from wind, procedure, runway condition, pilot response,
-  taxi congestion, and gate readiness. Forecast confidence carries bounded
-  weather, wind, runway-condition, and response factors without changing
-  separation, reservations, or movement commands.
+- [x] Model uncertainty from wind, procedure, runway condition, pilot response,
+  taxi congestion, and gate readiness. Forecast confidence now carries bounded,
+  direction-specific procedure, taxi, and gate factors alongside weather,
+  wind, runway condition, and pilot response without changing separation,
+  reservations, meter slots, or movement commands.
 - [~] Ensure schedule recommendations never move an aircraft directly; accepted
-  actions must pass through the existing command and safety layers. Version 3
+  actions must pass through the existing command and safety layers. Version 4
   flow snapshots expose advisory-only recommendations plus explicit Ignore and
   Recover responses. Recovery changes only the scheduler objective; aircraft
   remain behind the command and safety arbiters. Action-specific release policy
