@@ -135,9 +135,21 @@ assert(flow.arrivalQueue[0].slotRevisions.length === 2 && flow.arrivalQueue[0].s
 const revisionSnapshot = trafficFlowSnapshot(flow, 3);
 revisionSnapshot.arrivalQueue[0].slotRevisions[0].reason = 'mutated snapshot';
 assert(flow.arrivalQueue[0].slotRevisions[0].reason !== 'mutated snapshot', 'traffic-flow snapshot shared slot-revision references with state');
-const fakeArrival = { id: 11, callsign: 'TEST 11', runway: 1 };
+const fakeArrival = {
+  id: 11,
+  callsign: 'TEST 11',
+  runway: 1,
+  duration: 42,
+  flightPlan: {
+    route: ['METER'],
+    procedureProfile: { transitionName: 'METER ONE' },
+    runwayIntent: { designation: '27R' },
+  },
+};
 releaseArrivalDemand(flow, flow.arrivalQueue[0], 10, fakeArrival, 5);
 assert(flow.totals.arrivalReleases === 1 && flow.arrivalQueue.length === 3, 'arrival meter did not release its head entry');
+const releasedArrival = flow.history.at(-1);
+assert(releasedArrival.meterTargets.map((target) => target.kind).join(',') === 'arrival-meter-fix,runway-threshold' && releasedArrival.meterTargets[1].targetSeconds === 52, 'released arrival did not retain authoritative fix and threshold targets');
 const departureA = { id: 21, callsign: 'TEST 21', departureRunway: 2 };
 const departureB = { id: 22, callsign: 'TEST 22', departureRunway: 2 };
 const slotA = registerDepartureDemand(flow, departureA, 10, 12, 6);
@@ -145,6 +157,7 @@ const slotB = registerDepartureDemand(flow, departureB, 10, 12, 6);
 assert(slotB.releaseSlotSeconds >= slotA.releaseSlotSeconds + 6 && flow.departureQueue[0] === slotA, 'departure slots are not ordered');
 registerDepartureDemand(flow, departureB, 11, 24, 6);
 assert(slotB.slotRevisions.length === 2 && slotB.slotRevisions.at(-1)?.reason === 'departure readiness revised', 'departure slot revision did not retain its cause');
+assert(slotB.meterTargets.length === 1 && slotB.meterTargets[0].kind === 'departure-release' && slotB.meterTargets[0].targetSeconds === slotB.releaseSlotSeconds, 'departure slot revision did not move its authoritative release target');
 releaseDepartureDemand(flow, slotA, slotA.releaseSlotSeconds, 6);
 assert(flow.totals.departureReleases === 1 && flow.departureQueue[0] === slotB, 'departure release did not advance the queue');
 const meterSnapshot = trafficFlowSnapshot(flow, 20);
@@ -155,7 +168,7 @@ assert(uncertainForecast.capacityWindows.every((window) => window.predictedDeman
 assert(uncertainForecast.schemaVersion === 2, 'traffic flow snapshot did not advance its schema for recommendations');
 assert(uncertainForecast.recommendations.length > 0 && uncertainForecast.recommendations.every((recommendation) => recommendation.advisoryOnly && recommendation.requiresCommandArbiter && recommendation.authority && /^review-(arrival|departure)-release$/.test(recommendation.action)), 'flow recommendations were not explicitly advisory-only');
 assert(meterRows.length === 4 && meterRows.filter((row) => row.direction === 'arrival').length === 3 && meterRows.filter((row) => row.direction === 'departure').length === 1, 'meter plan did not expose the pending arrival and departure slots');
-assert(meterRows.every((row) => row.slotInSeconds >= 0 && row.label.length > 0 && row.reason.length > 0 && row.constraintLabel.length > 0 && row.constraintCategory.length > 0), 'meter plan contains incomplete slot context');
+assert(meterRows.every((row) => row.slotInSeconds >= 0 && row.label.length > 0 && row.reason.length > 0 && row.constraintLabel.length > 0 && row.constraintCategory.length > 0 && row.targets.length > 0 && row.targets.every((target) => target.id && target.label && target.targetInSeconds >= 0)), 'meter plan contains incomplete slot or target context');
 const expiry = expireTrafficFlow(flow, 500);
 assert(expiry.diverted.length === 3 && expiry.cancelled.length === 1, 'capacity expiry did not divert/cancel blocked demand');
 const flowSnapshot = trafficFlowSnapshot(flow, 500);
@@ -174,6 +187,15 @@ assert(initialIds.size >= 10, 'ORD: opening bank is too quiet for the hub-scale 
 const openingTaxiDepartures = hub.simulation.state.flights.filter((flight) => flight.phase === 'taxi-out');
 assert(openingTaxiDepartures.length >= 2, 'ORD: opening bank did not include simultaneous taxi-out traffic');
 assert(openingTaxiDepartures.every((flight) => flight.flightPlan.scheduledReleaseSeconds <= 8), 'ORD: opening taxi departure retained a stale future gate-release slot');
+hub.advanceTicks(1);
+const openingDepartureEntries = hub.simulation.state.trafficFlow.departureQueue.filter((entry) => openingTaxiDepartures.some((flight) => flight.id === entry.flightId));
+assert(openingDepartureEntries.length >= 2 && openingDepartureEntries.every((entry) => entry.meterTargets.some((target) => target.kind === 'departure-release') && entry.meterTargets.some((target) => target.kind === 'runway-threshold' && target.runwayId === entry.runwayId)), 'ORD: opening departures did not receive route-aware release and threshold targets');
+const crossingTargetFlight = openingTaxiDepartures.find((flight) => hub.simulation['surfaceCrossingPlan'](flight).windows.length > 0);
+if (crossingTargetFlight) {
+  const crossingEntry = openingDepartureEntries.find((entry) => entry.flightId === crossingTargetFlight.id);
+  const crossingWindows = hub.simulation['surfaceCrossingPlan'](crossingTargetFlight).windows;
+  assert(crossingEntry && crossingEntry.meterTargets.filter((target) => target.kind === 'runway-crossing').length === crossingWindows.length && crossingEntry.meterTargets.filter((target) => target.kind === 'runway-crossing').every((target) => target.crossingId && target.runwayId !== undefined), 'ORD: sourced route crossings did not receive individual meter targets');
+}
 let maximumActive = hub.simulation.state.flights.length;
 let previousProgress = new Map(hub.simulation.state.flights.map((flight) => [flight.id, flight.progress]));
 for (let tick = 0; tick < 2_400; tick += 1) {

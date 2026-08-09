@@ -1118,6 +1118,29 @@ export interface TrafficFlowSlotRevision {
   category?: TrafficFlowConstraintCategory;
 }
 
+export type TrafficFlowMeterPointKind =
+  | "arrival-meter-fix"
+  | "runway-threshold"
+  | "runway-crossing"
+  | "departure-release";
+
+/**
+ * One authoritative, replay-safe target in a flight's meter sequence. Times
+ * are simulation seconds; tolerances describe the controller's usable window
+ * and never bypass the command or safety arbiters.
+ */
+export interface TrafficFlowMeterTarget {
+  schemaVersion: 1;
+  id: string;
+  kind: TrafficFlowMeterPointKind;
+  label: string;
+  targetSeconds: number;
+  toleranceBeforeSeconds: number;
+  toleranceAfterSeconds: number;
+  runwayId?: number;
+  crossingId?: string;
+}
+
 export type TrafficFlowObjective =
   | "balanced"
   | "minimum-holding"
@@ -1139,6 +1162,7 @@ export interface TrafficFlowEntry {
   /** Classification is advisory only; the detailed reason remains authoritative. */
   constraintCategory?: TrafficFlowConstraintCategory;
   slotRevisions: TrafficFlowSlotRevision[];
+  meterTargets: TrafficFlowMeterTarget[];
   flightId?: number;
   callsign?: string;
   runwayId?: number;

@@ -191,7 +191,7 @@ noncritical.
   includes a compact authoritative surface diagram; advanced controls remain
   open.
 - [~] Render aircraft, tugs, authorized vehicles, runway occupancy, hold-short
-      state, crossing authority, and approach/departure protection zones.
+  state, crossing authority, and approach/departure protection zones.
   The optional **Runway protection** map layer now shades each authoritative
   protected runway and its hold-short points: red for occupied pavement, blue
   for a currently authorized crossing, and amber for a waiting hold. The
@@ -201,10 +201,10 @@ noncritical.
 - [x] Show track identity, movement state, route intent, last clearance, and
       surveillance freshness without exposing hidden future simulation state.
 - [~] Add configurable look-ahead conflict arcs with a quiet advisory tier and a
-      visually distinct immediate warning tier. The compact diagram now offers
-      15-, 30-, and 60-second horizons and draws only active forecast-backed
-      track arcs: dashed blue for advisory, solid amber for warning, and red
-      for critical. Full route/crossing geometry remains open.
+  visually distinct immediate warning tier. The compact diagram now offers
+  15-, 30-, and 60-second horizons and draws only active forecast-backed
+  track arcs: dashed blue for advisory, solid amber for warning, and red
+  for critical. Full route/crossing geometry remains open.
 - [x] Add modeled runway entrance lights and takeoff-hold lights driven by the
       authoritative protection state, not decorative animation.
 - [x] Add a toggleable, speed-scaled surface movement-vector layer for aircraft
@@ -232,27 +232,27 @@ noncritical.
       entities and reservations. Surface tracks now carry their own schema
       version and authoritative pose, route intent, clearance, and freshness.
 - [~] Define one `SurfaceSafetyAdvisory` type with severity, geometry, causal
-      entities, first-seen time, predicted time, acknowledgement, and resolution.
-      Version 1 advisories now carry shared runway/corridor/system geometry and
-      causal tracks; lifecycle persistence is still completed by the advisory
-      tracker rather than the raw simulation snapshot.
+  entities, first-seen time, predicted time, acknowledgement, and resolution.
+  Version 1 advisories now carry shared runway/corridor/system geometry and
+  causal tracks; lifecycle persistence is still completed by the advisory
+  tracker rather than the raw simulation snapshot.
 - [~] Route every alert through the existing status broker, replay, analytics,
-      and remote redaction policy. New active advisories now use the
-      dwell-based status broker without repeated-message churn; bounded surface
-      tracks, vehicles, and advisory geometry now reach the authenticated remote
-      projection, while replay and dedicated analytics rollups remain open.
+  and remote redaction policy. New active advisories now use the
+  dwell-based status broker without repeated-message churn; bounded surface
+  tracks, vehicles, and advisory geometry now reach the authenticated remote
+  projection, while replay and dedicated analytics rollups remain open.
 - [x] Expose display configuration and acknowledgement through typed commands;
       acknowledgement must never suppress physical protection.
 
 ### Acceptance gate
 
 - [~] Zero false disagreement between 3D pose, graph occupancy, track position,
-      and collision diagnostics across deterministic crossings and pushbacks.
-      The surface-safety validator cross-checks each displayed track against the
-      authoritative pose and collision envelope, and the Manual departure
-      lifecycle repeats that assertion through real pushback, taxi, runway
-      entry, lineup, and takeoff-roll movement. Renderer capture and live
-      crossing-motion coverage remain open.
+  and collision diagnostics across deterministic crossings and pushbacks.
+  The surface-safety validator cross-checks each displayed track against the
+  authoritative pose and collision envelope, and the Manual departure
+  lifecycle repeats that assertion through real pushback, taxi, runway
+  entry, lineup, and takeoff-roll movement. Renderer capture and live
+  crossing-motion coverage remain open.
 - [x] Every seeded runway-incursion test produces an advisory before protected
       envelopes overlap; safe parallel operations do not produce a critical alert.
       The surface-safety validator covers an uncleared crossing, a stale cleared
@@ -373,34 +373,45 @@ not close the acceptance gate: the captured wait-for graph still contained
 individual flights held for implausibly long periods, so recovery fairness and
 queue-quality calibration remain required.
 
+Traffic-flow entries now carry a versioned, replay-safe sequence of operational
+meter targets rather than only one generic release timestamp. Pending arrivals
+own an arrival-fix target and gain their procedure-named runway-threshold target
+when admitted. Taxi-out departures own a departure-release target, individual
+runway-crossing targets derived from the sourced surface graph, and a runway-
+threshold target derived from route distance and aircraft taxi speed. Slot
+revisions translate the full sequence together, and route changes regenerate it
+from the authoritative route. The Queue inspector shows each target and its
+early/late tolerance window without moving an aircraft or bypassing safety.
+
 ### Gameplay and UX
 
 - [~] Add a timeline showing demand, runway capacity, target crossing times,
   tolerance windows, expected delay, and confidence. The Queue inspector
   now shows active arrival/departure slots, delay, a five-minute planned-slot
-  outlook, and bounded confidence; runway-capacity attribution, tolerance
-  windows, and downstream uncertainty remain open.
+  outlook, bounded confidence, and route-aware meter targets with explicit
+  tolerance windows; runway-capacity attribution and downstream uncertainty
+  remain open.
 - [~] Let Supervisor choose Balanced, Minimum Holding, Minimum Taxi Delay,
   Weather Recovery, or Watch/Calm scheduling objectives. The Queue
   inspector and typed control API now select authoritative pacing profiles;
   bounded forecast-based slot reviews are now exposed without mutating
   aircraft; action-specific release policy remains open.
 - [~] Give Approach advisories for speed, vector, hold, direct-to, and sequence
-      changes that satisfy target times through existing legal commands. Assisted
-      mode now proposes legal speed, vector, hold, and direct-to guidance; the
-      flow layer also exposes read-only slot reviews with explicit command-arbiter
-      boundaries.
+  changes that satisfy target times through existing legal commands. Assisted
+  mode now proposes legal speed, vector, hold, and direct-to guidance; the
+  flow layer also exposes read-only slot reviews with explicit command-arbiter
+  boundaries.
 - [~] Give Tower a runway-ready sequence that respects wake, runway occupancy,
-      crossing queues, configuration transitions, and departure-release windows.
-Assisted Tower now offers only the next physically releasable line-up or
-takeoff in each conflicting-runway group after checking runway protection,
-crossing priority, weather, performance, wake release, and the departure
-envelope. Each proposal now also reports the authoritative planned departure
-release window and queue position, so a controller can distinguish “safe now”
-from “safe but metered.” Forecast-based release reviews are now visible as
-advisory-only flow records; action-specific release policy remains open.
+  crossing queues, configuration transitions, and departure-release windows.
+  Assisted Tower now offers only the next physically releasable line-up or
+  takeoff in each conflicting-runway group after checking runway protection,
+  crossing priority, weather, performance, wake release, and the departure
+  envelope. Each proposal now also reports the authoritative planned departure
+  release window and queue position, so a controller can distinguish “safe now”
+  from “safe but metered.” Forecast-based release reviews are now visible as
+  advisory-only flow records; action-specific release policy remains open.
 - [~] Explain every slot movement: weather, missed approach, gate pressure,
-      runway closure, aircraft performance, wake, or downstream saturation.
+  runway closure, aircraft performance, wake, or downstream saturation.
   The queue meter now labels the latest authoritative reason with a stable
   weather/runway/wake/gate/performance/taxi/demand/schedule category; fuller
   procedure and downstream-cause coverage remains open.
@@ -410,19 +421,21 @@ advisory-only flow records; action-specific release policy remains open.
 ### Simulation and API
 
 - [~] Define versioned meter points and constraints from each airport's terminal
-      and surface programs. Existing deterministic meter slots remain the
-      authority; the outlook now projects release cadence beyond queued entries.
+  and surface programs. Existing deterministic meter slots remain the
+  authority; procedure transitions and sourced surface crossings now create
+  versioned target points, while the outlook projects release cadence beyond
+  queued entries. Airport-specific capacity constraints remain open.
 - [~] Replace one-interval demand pressure with rolling predicted demand and
-      configurable capacity windows. The five-minute outlook now forecasts both
-      sides of the horizon instead of counting only known queue entries.
+  configurable capacity windows. The five-minute outlook now forecasts both
+  sides of the horizon instead of counting only known queue entries.
 - [~] Model uncertainty from wind, procedure, runway condition, pilot response,
-      taxi congestion, and gate readiness. Forecast confidence carries bounded
-      weather, wind, runway-condition, and response factors without changing
-      separation, reservations, or movement commands.
+  taxi congestion, and gate readiness. Forecast confidence carries bounded
+  weather, wind, runway-condition, and response factors without changing
+  separation, reservations, or movement commands.
 - [~] Ensure schedule recommendations never move an aircraft directly; accepted
-      actions must pass through the existing command and safety layers. Version 2
-      flow recommendations are advisory-only and explicitly require the command
-      arbiter; action-specific scheduler acceptance remains open.
+  actions must pass through the existing command and safety layers. Version 2
+  flow recommendations are advisory-only and explicitly require the command
+  arbiter; action-specific scheduler acceptance remains open.
 - [~] Record schedule revisions and causes in exact replay and local analytics.
   Meter entries now retain bounded revision causes in replay-safe state and
   expose the latest cause in Queue inspector; dedicated analytics rollups
@@ -437,13 +450,13 @@ advisory-only flow records; action-specific release policy remains open.
 - [ ] Manual can ignore an advisory, recover the schedule, and understand the
       consequences without hidden score manipulation.
 - [x] Fixed-step partitioning produces the same slots, commands, and outcomes.
-  `npm run test:simulation` compares complete canonical fixed-step snapshots
-  across five partitioned runs, including seeded ORD Rush. Those snapshots
-  include `trafficFlow`, scripted-controller decisions, captured command/event
-  history, aircraft state, and completed arrivals/departures, so a changed slot,
-  command, or outcome fails the comparison. August 8 local run: 57,644 ticks,
-  68 modeled minutes, 2,215 captured events, 10 ORD arrivals, and four ORD
-  departures with zero deterministic safety failures.
+      `npm run test:simulation` compares complete canonical fixed-step snapshots
+      across five partitioned runs, including seeded ORD Rush. Those snapshots
+      include `trafficFlow`, scripted-controller decisions, captured command/event
+      history, aircraft state, and completed arrivals/departures, so a changed slot,
+      command, or outcome fails the comparison. August 8 local run: 57,644 ticks,
+      68 modeled minutes, 2,215 captured events, 10 ORD arrivals, and four ORD
+      departures with zero deterministic safety failures.
 
 ## A3 — Digital clearances and flight data
 
@@ -496,36 +509,36 @@ shared free text as a command.
   and Cancelled states; additional message categories and unmodeled states
   remain open.
 - [~] Build structured departure, route, altitude, speed, direct-to, hold,
-      frequency, taxi, crossing, and revision messages from existing typed commands.
-      Active vector, hold, speed, altitude, and route state now project as
-      structured messages, as do departure, taxi, and crossing state; direct-to,
-      and frequency state now use dedicated envelopes, and the latest plan
-      amendment is exposed as a Revision message. Version 2 envelopes now carry
-      deterministic command IDs, causal references, expiry, and structured
-      response timing; full revision-history UI and remaining message families
-      remain open.
+  frequency, taxi, crossing, and revision messages from existing typed commands.
+  Active vector, hold, speed, altitude, and route state now project as
+  structured messages, as do departure, taxi, and crossing state; direct-to,
+  and frequency state now use dedicated envelopes, and the latest plan
+  amendment is exposed as a Revision message. Version 2 envelopes now carry
+  deterministic command IDs, causal references, expiry, and structured
+  response timing; full revision-history UI and remaining message families
+  remain open.
 - [ ] Permit multi-part clearances only when the atomic preview says the complete
       instruction is safe and authorized.
 - [~] Make urgent, immediate, go-around, stop, rejected-takeoff, and conflict
-      instructions voice/action-first rather than queued behind digital messages.
-      Go-around and hold actions already bypass the message queue; Tower can now
-      cancel an active takeoff clearance while the aircraft is still lined up,
-      through both the standard Manual controls and typed control API. Late
-      cancellation after takeoff-roll begins remains deliberately rejected.
-      The broader stop, rejected-takeoff, conflict, and spoken-action work remains
-      open.
+  instructions voice/action-first rather than queued behind digital messages.
+  Go-around and hold actions already bypass the message queue; Tower can now
+  cancel an active takeoff clearance while the aircraft is still lined up,
+  through both the standard Manual controls and typed control API. Late
+  cancellation after takeoff-roll begins remains deliberately rejected.
+  The broader stop, rejected-takeoff, conflict, and spoken-action work remains
+  open.
 - [~] Show aircraft capability and station/data-authority limitations without
-      turning the interface into avionics configuration management. The selected
-      flight panel now shows aircraft/wake class, required takeoff and landing
-      runway length, current data authority, and whether the selected desk can
-      issue a clearance or must obtain a transfer. Broader capability limits and
-      per-message limitation presentation remain open.
+  turning the interface into avionics configuration management. The selected
+  flight panel now shows aircraft/wake class, required takeoff and landing
+  runway length, current data authority, and whether the selected desk can
+  issue a clearance or must obtain a transfer. Broader capability limits and
+  per-message limitation presentation remain open.
 - [~] Provide concise keyboard flows and an Assisted composer that explains why
   a message is valid, delayed, or rejected. Clearance rows are keyboard
   focusable and move to the existing flight workflow; the advisor now offers a
   timed, published Approach hold when sequence pressure cannot be solved by
-      speed alone, plus an early published-route direct-to or vector when a safe
-      route correction is available. Full composer editing remains open.
+  speed alone, plus an early published-route direct-to or vector when a safe
+  route correction is available. Full composer editing remains open.
 
 ### Simulation and API
 
@@ -537,37 +550,37 @@ shared free text as a command.
 - [ ] Reuse staged pilot-response and route-readback behavior rather than adding
       a parallel command executor.
 - [~] Enforce one current data authority and deterministic handoff behavior.
-      A pending route readback now cancels with an explicit reason when the
-      aircraft's frequency ownership transfers, and the receiving desk cannot
-      accept a route issued by the prior authority. Other clearance kinds and
-      full timeout/coordination coverage remain open.
+  A pending route readback now cancels with an explicit reason when the
+  aircraft's frequency ownership transfers, and the receiving desk cannot
+  accept a route issued by the prior authority. Other clearance kinds and
+  full timeout/coordination coverage remain open.
 - [~] Include messages in replay, analytics, controller evaluation, and remote
-      projections with free text excluded from shared exports. Replay frames
-      and remote snapshots derive versioned messages from authoritative state;
-      the remote projection now carries bounded typed envelope fields without
-      free-form detail, and controller evaluation includes status/kind counts.
-      Dedicated analytics rollups and full redacted replay envelopes remain
-      open.
+  projections with free text excluded from shared exports. Replay frames
+  and remote snapshots derive versioned messages from authoritative state;
+  the remote projection now carries bounded typed envelope fields without
+  free-form detail, and controller evaluation includes status/kind counts.
+  Dedicated analytics rollups and full redacted replay envelopes remain
+  open.
 
 ### Acceptance gate
 
 - [x] A normal Manual departure can complete pushback, coordination, taxi,
-  any required crossing, line-up, and takeoff through the standard action
-  workflow, without developer telemetry. Deterministic ORD sandbox validators
-  now exercise that sequence and the complete arrival sequence (approach
-  clearance, Approach→Tower coordination, landing clearance, and touchdown);
-  the mixed digital-clearance path remains open.
+      any required crossing, line-up, and takeoff through the standard action
+      workflow, without developer telemetry. Deterministic ORD sandbox validators
+      now exercise that sequence and the complete arrival sequence (approach
+      clearance, Approach→Tower coordination, landing clearance, and touchdown);
+      the mixed digital-clearance path remains open.
 - [~] A normal Manual departure and arrival can be completed through immediate
   controls without opening developer telemetry. A coherent mixed
   digital/immediate clearance sequence remains open.
 - [~] Supersession, timeout, handoff, and rejection never apply stale commands.
-      Pending route readbacks are now tested to cancel on a station transfer;
-      timeout and non-route message coverage remain open.
+  Pending route readbacks are now tested to cancel on a station transfer;
+  timeout and non-route message coverage remain open.
 - [~] Screen-reader and keyboard users can compose, inspect, send, and dismiss a
-      clearance without losing flight-strip focus. Data Comm now restores the
-      invoking control on close or Escape and exposes every message as a named,
-      keyboard-focusable row; compose/send/dismiss actions still finish through
-      the standard flight-strip workflow.
+  clearance without losing flight-strip focus. Data Comm now restores the
+  invoking control on close or Escape and exposes every message as a named,
+  keyboard-focusable row; compose/send/dismiss actions still finish through
+  the standard flight-strip workflow.
 
 ## A4 — High-fidelity Atlanta
 
@@ -715,20 +728,20 @@ the remaining named hubs are still open.
 ### Acceptance gate
 
 - [~] Every routed aircraft remains on authoritative pavement and every rendered
-      pose matches collision sampling. A missing graph route now produces an
-      authoritative no-route hold in both motion and collision envelopes instead
-      of a fabricated gate-to-runway line, publishes an explainable automatic hold
-      reason, and clears that reason when graph routing is restored; full
-      multi-airport soak coverage remains open.
+  pose matches collision sampling. A missing graph route now produces an
+  authoritative no-route hold in both motion and collision envelopes instead
+  of a fabricated gate-to-runway line, publishes an explainable automatic hold
+  reason, and clears that reason when graph routing is restored; full
+  multi-airport soak coverage remains open.
 - [~] Every stand, edge, intersection, crossing, and runway protection zone is
   reachable, classified, and covered by route/property validation. The KATL
   validator now proves 800 stand-to-runway and runway-to-stand routes across all
   40 imported stands, five runways, and both ends; property/visual coverage
   remains open.
 - [~] Extreme traffic drains through multiple nonconflicting surface movements
-      rather than one airport-wide lock. ATL's first modeled hour now sustains
-      arrivals and departures without a safety breach; its multi-hour
-      retained-heap and sustained-flow acceptance remains open.
+  rather than one airport-wide lock. ATL's first modeled hour now sustains
+  arrivals and departures without a safety breach; its multi-hour
+  retained-heap and sustained-flow acceptance remains open.
 - [ ] The airport is visually recognizable from its runway/terminal relationship
       before labels are enabled.
 - [ ] Auto, Assisted, Manual, Watch, weather, replay, radar, agent control, and
@@ -777,10 +790,10 @@ open.
   beacon distinguishes it from the amber gate-service fleet even while it is
   stopped on scene; the remaining named programs are still open.
 - [~] Add airport emergency and inspection vehicles with explicit dispatch,
-      route authority, staging areas, runway entry, task time, and release.
-      The named inspection response vehicle now covers this path; emergency
-      and medical-response fleets, dedicated depots, and return-to-staging
-      choreography remain open.
+  route authority, staging areas, runway entry, task time, and release.
+  The named inspection response vehicle now covers this path; emergency
+  and medical-response fleets, dedicated depots, and return-to-staging
+  choreography remain open.
 - [~] Add diversion, cancellation, tow, gate swap, runway closure, reduced-rate
   configuration, and staged reopening recovery playbooks.
   Diversion, tow/recovery, runway/taxiway closure, reroute, and timed reopening
@@ -798,10 +811,10 @@ open.
 - [ ] Every event has a precondition, deterministic seed, visible cause, legal
       recovery path, timeout policy, replay record, and no-fail Sandbox variant.
 - [~] Emergency vehicles never cross a protected runway without explicit shared
-      authority and never collide with aircraft or service traffic. The seeded
-      named-inspection unit is checked for explicit closure-bound authority,
-      route legality, and zero service/aircraft conflicts; broader emergency
-      fleet coverage remains open.
+  authority and never collide with aircraft or service traffic. The seeded
+  named-inspection unit is checked for explicit closure-bound authority,
+  route legality, and zero service/aircraft conflicts; broader emergency
+  fleet coverage remains open.
 - [ ] The airport returns to sustainable flow after each seeded event without a
       reset or teleport.
 
@@ -833,8 +846,8 @@ lighting that naturally strengthens at night without adding moving entities.
 ### Content and assets
 
 - [~] Add visually distinct baggage tractors/carts, belt loaders, catering,
-      potable-water, lavatory, fuel, maintenance, crew, passenger-bus, jet-bridge,
-      towbar, and towbarless-tug families where operationally relevant.
+  potable-water, lavatory, fuel, maintenance, crew, passenger-bus, jet-bridge,
+  towbar, and towbarless-tug families where operationally relevant.
   Fuel, baggage, cargo, catering, cleaning, maintenance, and passenger vehicles
   now have distinct low-poly silhouettes and servicing poses; remaining service
   families, jet bridges, and towing variants are open.
@@ -843,7 +856,7 @@ lighting that naturally strengthens at night without adding moving entities.
   Vehicle-backed services satisfy this; terminal-only services and additional
   service families need further choreography.
 - [~] Add terminal train, employee shuttle, perimeter road, highway, parking,
-      gate-lighting, and restrained landside traffic as nonblocking ambient systems.
+  gate-lighting, and restrained landside traffic as nonblocking ambient systems.
   Terminal access now has a compact, instanced curbside/parking program with
   slow landside shuttles, canopies, parked vehicles, and a presentation-only
   terminal train at each terminal. It is rendered outside the aircraft surface
@@ -883,25 +896,25 @@ radio, audio, notification, or traffic patterns.
 ### Experience
 
 - [~] Add named ambient programs such as Dawn Bank, Midday Flow, Summer Storm,
-      Snow Recovery, Quiet Overnight, Cargo Push, and International Evening.
-      A deterministic seven-program catalog now applies serialized local time,
-      density, flow objective, season, weather, wind, and safe hazard posture
-      through the typed control API. The compact Watch scene selector now uses
-      that same command path. A local Watch preset now saves only those
-      presentation preferences; saved custom ambient programs remain open.
+  Snow Recovery, Quiet Overnight, Cargo Push, and International Evening.
+  A deterministic seven-program catalog now applies serialized local time,
+  density, flow objective, season, weather, wind, and safe hazard posture
+  through the typed control API. The compact Watch scene selector now uses
+  that same command path. A local Watch preset now saves only those
+  presentation preferences; saved custom ambient programs remain open.
 - [~] Expand the fictional offline radio library with more controller/pilot
-      timbres, airports, stations, operations, and silence budgets; disclose every
-      synthetic or processed source. The local CC0 library now carries 22
-      deterministic fictional radio clips across Approach, Tower, Ground, and
-      Ramp with eight abstract voice identities, station-matched selection, and
-      a verified four-hour cooldown/silence budget. Airport-specific phrase
-      packs and richer non-voice variation remain open.
+  timbres, airports, stations, operations, and silence budgets; disclose every
+  synthetic or processed source. The local CC0 library now carries 22
+  deterministic fictional radio clips across Approach, Tower, Ground, and
+  Ramp with eight abstract voice identities, station-matched selection, and
+  a verified four-hour cooldown/silence budget. Airport-specific phrase
+  packs and richer non-voice variation remain open.
 - [~] Add optional ATIS-style captions/audio derived from modeled weather,
-      runway configuration, field condition, and active notices. The ATIS button
-      now produces a longer, fictional modeled caption and a radio cue from
-      authoritative state; richer offline spoken-voice assets remain open.
+  runway configuration, field condition, and active notices. The ATIS button
+  now produces a longer, fictional modeled caption and a radio cue from
+  authoritative state; richer offline spoken-voice assets remain open.
 - [~] Give the camera director shot families, composition rules, no-repeat
-      windows, target continuity, weather-aware visibility, and a one-click release.
+  windows, target continuity, weather-aware visibility, and a one-click release.
   The existing director now yields immediately to manual camera input, favors
   active landing/takeoff/approach operations, maintains continuity when a fresh
   subject is unavailable, and enforces a deterministic 90-second no-repeat
@@ -921,12 +934,12 @@ radio, audio, notification, or traffic patterns.
       its documented minimum window.
 - [ ] Disabling weather, wind, radio, service vehicles, or airport life also
       disables the corresponding sound and presentation layers.
-  Weather/wind state already controls its generated and offline layers, radio
-  has an independent cue/caption toggle, and hiding service vehicles now also
-  suppresses only their service/ramp audio cues. Airport-life now owns dedicated
-  terminal-access and gate-activity render layers, both suppressed by its
-  toggle, plus the terminal-room and parked-aircraft APU beds; full end-to-end
-  acceptance evidence remains open.
+      Weather/wind state already controls its generated and offline layers, radio
+      has an independent cue/caption toggle, and hiding service vehicles now also
+      suppresses only their service/ramp audio cues. Airport-life now owns dedicated
+      terminal-access and gate-activity render layers, both suppressed by its
+      toggle, plus the terminal-room and parked-aircraft APU beds; full end-to-end
+      acceptance evidence remains open.
 
 ## A8 — Shared human and agent shifts
 
@@ -952,35 +965,35 @@ service or a full workload/debrief experience.
 ### Roles and control
 
 - [~] Add a compact session lobby for Approach, Tower, Ground, Ramp, Supervisor,
-      and Spectator claims with explicit host consent. The local desk exposes
-      role/station claims and consent-based controller handoffs; a hosted lobby
-      and host admission UI remain open.
+  and Spectator claims with explicit host consent. The local desk exposes
+  role/station claims and consent-based controller handoffs; a hosted lobby
+  and host admission UI remain open.
 - [~] Show current controller, actor type, connectivity, workload, command queue,
-      handoff state, and takeover readiness for every station. The desk shows
-      claimant, connection, station availability, and active handoff state;
-      workload, queues, and takeover readiness remain open.
+  handoff state, and takeover readiness for every station. The desk shows
+  claimant, connection, station availability, and active handoff state;
+  workload, queues, and takeover readiness remain open.
 - [~] Give agents the same bounded station view that a human workstation receives;
-      do not expose hidden future state or unrestricted full snapshots by default.
-      The gateway now projects bounded/redacted flight, queue, clearance, surface
-      track, service-vehicle, and advisory-geometry state; formal station-specific
-      view contracts remain open.
+  do not expose hidden future state or unrestricted full snapshots by default.
+  The gateway now projects bounded/redacted flight, queue, clearance, surface
+  track, service-vehicle, and advisory-geometry state; formal station-specific
+  view contracts remain open.
 - [~] Add typed subscription filters, command batching limits, backpressure,
-      heartbeat, reconnect, and emergency-stop behavior to the remote protocol.
-      The gateway now supports bounded state/event/session topic subscriptions,
-      alongside command limits, heartbeat/reconnect, audited handoff, and
-      emergency-stop paths; batching/backpressure policy remains open.
+  heartbeat, reconnect, and emergency-stop behavior to the remote protocol.
+  The gateway now supports bounded state/event/session topic subscriptions,
+  alongside command limits, heartbeat/reconnect, audited handoff, and
+  emergency-stop paths; batching/backpressure policy remains open.
 - [~] Preserve deterministic local automation whenever a client disconnects,
-      times out, releases authority, or fails closed. Release, timeout, and
-      reconnect paths are covered by the gateway validation; simulation-side
-      handback and exact replay evidence remain open.
+  times out, releases authority, or fails closed. Release, timeout, and
+  reconnect paths are covered by the gateway validation; simulation-side
+  handback and exact replay evidence remain open.
 - [~] Add cooperative shift debriefs that distinguish safety outcomes, flow,
-      fuel, workload, coordination, and command quality without public leaderboards.
-      The optional gateway controller desk now presents a collapsed, bounded,
-      read-only shared-shift review sourced from the host evaluation projection;
-      it includes safety, completed flow/delay, holding fuel, late handoffs,
-      aggregate command results, and station command-quality rows. A durable
-      local end-of-shift export and formal multi-controller debrief flow remain
-      open.
+  fuel, workload, coordination, and command quality without public leaderboards.
+  The optional gateway controller desk now presents a collapsed, bounded,
+  read-only shared-shift review sourced from the host evaluation projection;
+  it includes safety, completed flow/delay, holding fuel, late handoffs,
+  aggregate command results, and station command-quality rows. A durable
+  local end-of-shift export and formal multi-controller debrief flow remain
+  open.
 
 ### Acceptance gate
 
@@ -1005,19 +1018,19 @@ service or a full workload/debrief experience.
       main-thread bottleneck.
 - [ ] Consider WASM only for a measured hot loop with a stable data boundary and
       a benchmark proving meaningful benefit over optimized TypeScript.
-  The current local Extreme-ORD runtime validator records a 2.939 ms p95
-  simulation tick with zero collision, incursion, or unexplained-pause events.
-  There is no measured TypeScript hot loop that justifies WASM. The outstanding
-  performance investigation is initial browser delivery: the airport entry
-  bundle still contains static imported hub-data assets and should be split only
-  through an async configuration boundary that preserves deterministic replay.
-  A browser-safe per-airport async asset loader now has exact equivalence
-  coverage against the synchronous ATL, DFW, and ORD manifests and cloned
-  surface graphs; the browser configuration factory has not yet been migrated
-  to consume it, so startup delivery remains open.
+      The current local Extreme-ORD runtime validator records a 2.939 ms p95
+      simulation tick with zero collision, incursion, or unexplained-pause events.
+      There is no measured TypeScript hot loop that justifies WASM. The outstanding
+      performance investigation is initial browser delivery: the airport entry
+      bundle still contains static imported hub-data assets and should be split only
+      through an async configuration boundary that preserves deterministic replay.
+      A browser-safe per-airport async asset loader now has exact equivalence
+      coverage against the synchronous ATL, DFW, and ORD manifests and cloned
+      surface graphs; the browser configuration factory has not yet been migrated
+      to consume it, so startup delivery remains open.
 - [ ] Split coordinators when ownership becomes ambiguous; do not split files
       solely to satisfy a line-count target.
-  The stand-activity light lifecycle is now isolated in a dedicated renderer
+      The stand-activity light lifecycle is now isolated in a dedicated renderer
       module rather than expanding the world coordinator. Terminal gate and
       landside-access runtimes now follow the same ownership boundary; further
       splits should follow the same ownership boundary.
@@ -1032,23 +1045,23 @@ service or a full workload/debrief experience.
       34 ms in supported Watch/Assisted interactions.
 - [ ] No simulation catch-up burst, asset load, panel update, or garbage
       collection pause may visibly freeze aircraft motion after warm-up.
-  The renderer now starts high-detail scenes at a restrained 1.25× pixel-ratio
-  cap instead of 1.5×, and the existing adaptive quality governor enters its
-  shadow-free 1× fallback after two sustained overloaded observations (with a
-  60-frame measurement floor). This keeps simulation authority, aircraft
-  detail, and safety rules intact while reducing avoidable GPU work. Local
-  TypeScript, lint, production-build, and Extreme ORD runtime checks passed on
-  August 8; device-specific visual-frame pacing and the required async hub-data
-  split remain open.
+      The renderer now starts high-detail scenes at a restrained 1.25× pixel-ratio
+      cap instead of 1.5×, and the existing adaptive quality governor enters its
+      shadow-free 1× fallback after two sustained overloaded observations (with a
+      60-frame measurement floor). This keeps simulation authority, aircraft
+      detail, and safety rules intact while reducing avoidable GPU work. Local
+      TypeScript, lint, production-build, and Extreme ORD runtime checks passed on
+      August 8; device-specific visual-frame pacing and the required async hub-data
+      split remain open.
 - [ ] Pools, histories, alerts, analytics, audio voices, labels, and remote queues
       remain explicitly bounded during a four-hour run.
-  The local soak runner now samples retained heap at an explicit forced-GC
-  low-water mark when invoked through `npm run soak:runtime`, and reports the
-  measurement mode in every checkpoint and final report. This avoids treating
-  V8 young-space timing as a retained-memory leak while keeping the 32 MiB/hour
-  budget intact. An August 8 ORD Extreme Auto one-hour check passed at 29.177
-  MiB/hour, with 23 arrivals, 11 departures, and zero collision, incursion, or
-  unexplained-pause diagnostics. Four-hour retention proof remains open.
+      The local soak runner now samples retained heap at an explicit forced-GC
+      low-water mark when invoked through `npm run soak:runtime`, and reports the
+      measurement mode in every checkpoint and final report. This avoids treating
+      V8 young-space timing as a retained-memory leak while keeping the 32 MiB/hour
+      budget intact. An August 8 ORD Extreme Auto one-hour check passed at 29.177
+      MiB/hour, with 23 arrivals, 11 departures, and zero collision, incursion, or
+      unexplained-pause diagnostics. Four-hour retention proof remains open.
 
 ### Release gate
 

@@ -2,6 +2,7 @@ import type {
   Flight,
   TrafficFlowConstraintCategory,
   TrafficFlowEntry,
+  TrafficFlowMeterTarget,
   TrafficFlowObjective,
   TrafficFlowState,
 } from "./types";
@@ -89,21 +90,21 @@ export interface TrafficFlowConstraint {
  * Converts existing deterministic slot reasons into a compact, stable UI
  * category. It never replaces the exact reason or affects scheduling.
  */
-export function trafficFlowConstraint(
-  reason: string,
-): TrafficFlowConstraint {
+export function trafficFlowConstraint(reason: string): TrafficFlowConstraint {
   const copy = reason.toLowerCase();
   if (/weather|wind|storm|visibility|deicing|rwycc|runway condition/.test(copy))
     return { category: "weather", label: "Weather" };
   if (/wake|separation/.test(copy)) return { category: "wake", label: "Wake" };
-  if (/gate|stand|terminal/.test(copy)) return { category: "gate", label: "Gate" };
+  if (/gate|stand|terminal/.test(copy))
+    return { category: "gate", label: "Gate" };
   if (/performance|compatible|safe exit|takeoff shortfall/.test(copy))
     return { category: "performance", label: "Performance" };
   if (/taxi|surface|route|crossing|pushback/.test(copy))
     return { category: "taxi", label: "Taxi" };
   if (/runway|approach|landing|departure envelope|protected/.test(copy))
     return { category: "runway", label: "Runway" };
-  if (/capacity|budget|holding/.test(copy)) return { category: "demand", label: "Demand" };
+  if (/capacity|budget|holding/.test(copy))
+    return { category: "demand", label: "Demand" };
   return { category: "schedule", label: "Schedule" };
 }
 
@@ -308,6 +309,24 @@ export function registerDepartureDemand(
   return entry;
 }
 
+/**
+ * Replaces the derived meter sequence on an existing authoritative slot.
+ * Callers provide route-aware targets; this function supplies stable cloning
+ * and ordering without releasing or moving the aircraft.
+ */
+export function setTrafficFlowMeterTargets(
+  entry: TrafficFlowEntry,
+  targets: readonly TrafficFlowMeterTarget[],
+): void {
+  entry.meterTargets = [...targets]
+    .sort((first, second) =>
+      first.targetSeconds === second.targetSeconds
+        ? first.id.localeCompare(second.id)
+        : first.targetSeconds - second.targetSeconds,
+    )
+    .map((target) => ({ ...target }));
+}
+
 export function markArrivalHolding(
   state: TrafficFlowState,
   entry: TrafficFlowEntry,
@@ -369,6 +388,30 @@ export function releaseArrivalDemand(
   entry.flightId = flight.id;
   entry.callsign = flight.callsign;
   entry.runwayId = flight.runway;
+  setTrafficFlowMeterTargets(entry, [
+    {
+      schemaVersion: 1,
+      id: `${entry.id}:arrival-meter-fix`,
+      kind: "arrival-meter-fix",
+      label:
+        flight.flightPlan.procedureProfile.transitionName ||
+        flight.flightPlan.route[0] ||
+        "Arrival meter fix",
+      targetSeconds: entry.releaseSlotSeconds,
+      toleranceBeforeSeconds: 5,
+      toleranceAfterSeconds: 8,
+    },
+    {
+      schemaVersion: 1,
+      id: `${entry.id}:runway-threshold:${flight.runway}`,
+      kind: "runway-threshold",
+      label: `Runway ${flight.flightPlan.runwayIntent.designation} threshold`,
+      targetSeconds: nowSeconds + Math.max(0, flight.duration),
+      toleranceBeforeSeconds: 3,
+      toleranceAfterSeconds: 6,
+      runwayId: flight.runway,
+    },
+  ]);
   state.nextArrivalReleaseSeconds =
     nowSeconds + Math.max(0.2, nextSlotSpacingSeconds);
   state.totals.arrivalReleases += 1;
@@ -540,7 +583,10 @@ function flowRecommendations(
       id: `arrival:${arrival.id}:review`,
       direction: "arrival",
       action: "review-arrival-release",
-      priority: arrival.status === "holding" || arrival.delaySeconds > 30 ? "attention" : "routine",
+      priority:
+        arrival.status === "holding" || arrival.delaySeconds > 30
+          ? "attention"
+          : "routine",
       flightId: arrival.flightId,
       callsign: arrival.callsign,
       targetSlotSeconds: Math.max(nowSeconds, arrival.releaseSlotSeconds),
@@ -604,8 +650,12 @@ function capacityWindow(
   const plannedReleaseCount = inWindow.filter(
     (entry) => entry.releaseSlotSeconds <= horizon,
   ).length;
-  const delayedCount = inWindow.filter((entry) => entry.delaySeconds > 0.5).length;
-  const revisedCount = inWindow.filter((entry) => entry.slotRevisions.length > 1).length;
+  const delayedCount = inWindow.filter(
+    (entry) => entry.delaySeconds > 0.5,
+  ).length;
+  const revisedCount = inWindow.filter(
+    (entry) => entry.slotRevisions.length > 1,
+  ).length;
   const demandCount = inWindow.length;
   const latestDemandAt = inWindow.reduce(
     (latest, entry) => Math.max(latest, entry.scheduledAtSeconds),
@@ -723,7 +773,25 @@ function createEntry(
     reason,
     constraintCategory,
     slotRevisions: [
-      { atSeconds: nowSeconds, releaseSlotSeconds, reason, category: constraintCategory },
+      {
+        atSeconds: nowSeconds,
+        releaseSlotSeconds,
+        reason,
+        category: constraintCategory,
+      },
+    ],
+    meterTargets: [
+      {
+        schemaVersion: 1,
+        id: `${id}:${direction === "arrival" ? "arrival-meter-fix" : "departure-release"}`,
+        kind:
+          direction === "arrival" ? "arrival-meter-fix" : "departure-release",
+        label:
+          direction === "arrival" ? "Arrival meter fix" : "Departure release",
+        targetSeconds: releaseSlotSeconds,
+        toleranceBeforeSeconds: direction === "arrival" ? 5 : 0,
+        toleranceAfterSeconds: direction === "arrival" ? 8 : 5,
+      },
     ],
   };
 }
@@ -751,10 +819,31 @@ function cloneEntry(entry: TrafficFlowEntry): TrafficFlowEntry {
           atSeconds: entry.updatedAtSeconds,
           releaseSlotSeconds: entry.releaseSlotSeconds,
           reason: entry.reason,
-          category: entry.constraintCategory ?? trafficFlowConstraint(entry.reason).category,
+          category:
+            entry.constraintCategory ??
+            trafficFlowConstraint(entry.reason).category,
         },
       ]
     ).map((revision) => ({ ...revision })),
+    meterTargets: (
+      entry.meterTargets ?? [
+        {
+          schemaVersion: 1,
+          id: `${entry.id}:${entry.direction === "arrival" ? "arrival-meter-fix" : "departure-release"}`,
+          kind:
+            entry.direction === "arrival"
+              ? "arrival-meter-fix"
+              : "departure-release",
+          label:
+            entry.direction === "arrival"
+              ? "Arrival meter fix"
+              : "Departure release",
+          targetSeconds: entry.releaseSlotSeconds,
+          toleranceBeforeSeconds: entry.direction === "arrival" ? 5 : 0,
+          toleranceAfterSeconds: entry.direction === "arrival" ? 8 : 5,
+        } satisfies TrafficFlowMeterTarget,
+      ]
+    ).map((target) => ({ ...target })),
   };
 }
 
@@ -765,7 +854,10 @@ function reviseSlot(
   reason: string,
 ): void {
   if (Math.abs(entry.releaseSlotSeconds - releaseSlotSeconds) < 1e-6) return;
+  const shiftSeconds = releaseSlotSeconds - entry.releaseSlotSeconds;
   entry.releaseSlotSeconds = releaseSlotSeconds;
+  for (const target of entry.meterTargets ?? [])
+    target.targetSeconds += shiftSeconds;
   const category = trafficFlowConstraint(reason).category;
   entry.constraintCategory = category;
   entry.slotRevisions.push({

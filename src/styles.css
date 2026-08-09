@@ -1513,7 +1513,9 @@ body.center-scope .brand__mark {
   color: var(--ivory);
   background: rgba(16, 46, 48, 0.72);
   padding: 0 7px;
-  font: 800 8px/1 "Segoe UI", sans-serif;
+  font:
+    800 8px/1 "Segoe UI",
+    sans-serif;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   cursor: pointer;
@@ -2640,10 +2642,18 @@ summary:focus-visible {
     "left down right";
   gap: 4px;
 }
-.touch-camera-controls__pad button:nth-child(1) { grid-area: up; }
-.touch-camera-controls__pad button:nth-child(2) { grid-area: left; }
-.touch-camera-controls__pad button:nth-child(3) { grid-area: down; }
-.touch-camera-controls__pad button:nth-child(4) { grid-area: right; }
+.touch-camera-controls__pad button:nth-child(1) {
+  grid-area: up;
+}
+.touch-camera-controls__pad button:nth-child(2) {
+  grid-area: left;
+}
+.touch-camera-controls__pad button:nth-child(3) {
+  grid-area: down;
+}
+.touch-camera-controls__pad button:nth-child(4) {
+  grid-area: right;
+}
 .touch-camera-controls__orbit {
   display: grid;
   grid-template-columns: repeat(2, 46px);
@@ -2659,7 +2669,9 @@ summary:focus-visible {
   color: var(--ivory);
   background: rgba(9, 33, 36, 0.82);
   box-shadow: 0 8px 18px rgba(3, 16, 18, 0.22);
-  font: 22px/1 Georgia, serif;
+  font:
+    22px/1 Georgia,
+    serif;
   touch-action: none;
   -webkit-tap-highlight-color: transparent;
 }
@@ -2671,16 +2683,25 @@ summary:focus-visible {
   transform: scale(0.94);
 }
 @media (hover: none) and (pointer: coarse) {
-  .touch-camera-controls { display: flex; }
+  .touch-camera-controls {
+    display: flex;
+  }
 }
 @media (max-width: 520px) {
   .touch-camera-controls {
     left: max(10px, env(safe-area-inset-left));
     bottom: max(12px, env(safe-area-inset-bottom));
   }
-  .touch-camera-controls__pad { grid-template-columns: repeat(3, 42px); }
-  .touch-camera-controls__orbit { grid-template-columns: repeat(2, 42px); }
-  .touch-camera-controls button { width: 42px; height: 42px; }
+  .touch-camera-controls__pad {
+    grid-template-columns: repeat(3, 42px);
+  }
+  .touch-camera-controls__orbit {
+    grid-template-columns: repeat(2, 42px);
+  }
+  .touch-camera-controls button {
+    width: 42px;
+    height: 42px;
+  }
 }
 
 .advanced-tools {
@@ -4865,7 +4886,9 @@ body.capture-clean #capture-clean-exit {
 .queue-panel__capacity-row b {
   overflow: hidden;
   color: rgba(244, 232, 206, 0.9);
-  font: 400 10px/1.1 Georgia, serif;
+  font:
+    400 10px/1.1 Georgia,
+    serif;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -4918,6 +4941,10 @@ body.capture-clean #capture-clean-exit {
 .queue-panel__meter-empty {
   color: rgba(244, 232, 206, 0.52);
   font-size: 8px;
+}
+.queue-meter-slot .queue-meter-slot__targets {
+  color: rgba(188, 232, 216, 0.76);
+  font-weight: 800;
 }
 .queue-panel > label {
   display: grid;

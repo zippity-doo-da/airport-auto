@@ -29,6 +29,14 @@ export interface TrafficFlowMeterRow {
   constraintCategory: string;
   status: TrafficFlowEntry["status"];
   reason: string;
+  targets: Array<{
+    id: string;
+    kind: TrafficFlowEntry["meterTargets"][number]["kind"];
+    label: string;
+    targetInSeconds: number;
+    toleranceBeforeSeconds: number;
+    toleranceAfterSeconds: number;
+  }>;
 }
 
 export function operationQueueRenderKey(
@@ -51,6 +59,12 @@ export function operationQueueRenderKey(
         Math.floor(row.slotInSeconds),
         Math.floor(row.delaySeconds),
         row.reason,
+        row.targets
+          .map(
+            (target) =>
+              `${target.id}:${Math.floor(target.targetInSeconds)}:${target.toleranceBeforeSeconds}:${target.toleranceAfterSeconds}`,
+          )
+          .join(","),
       ].join(":"),
     ),
     ...flow.capacityWindows.map((window) =>
@@ -222,7 +236,21 @@ function renderMeterPlan(
       row.revisionCount > 1
         ? `${row.revisionCount} slot revisions`
         : "Initial slot reason";
-    slot.append(label, timing, reason);
+    const targets = document.createElement("small");
+    targets.className = "queue-meter-slot__targets";
+    targets.textContent = row.targets
+      .map(
+        (target) =>
+          `${meterTargetLabel(target.kind)} ${formatWait(target.targetInSeconds)} −${target.toleranceBeforeSeconds}/+${target.toleranceAfterSeconds}s`,
+      )
+      .join(" · ");
+    targets.title = row.targets
+      .map(
+        (target) =>
+          `${target.label}: target in ${formatWait(target.targetInSeconds)}, window ${target.toleranceBeforeSeconds} seconds early to ${target.toleranceAfterSeconds} seconds late`,
+      )
+      .join("\n");
+    slot.append(label, timing, targets, reason);
     return slot;
   });
   elements.meter.replaceChildren(...slots);
@@ -256,8 +284,10 @@ function renderCapacitySummary(
   );
   const advisory = flow.recommendations.slice(0, 3).map((recommendation) => {
     const row = document.createElement("div");
-    row.className = "queue-panel__capacity-row queue-panel__capacity-row--advisory";
-    row.dataset.direction = recommendation.direction === "arrival" ? "arr" : "dep";
+    row.className =
+      "queue-panel__capacity-row queue-panel__capacity-row--advisory";
+    row.dataset.direction =
+      recommendation.direction === "arrival" ? "arr" : "dep";
     row.dataset.priority = recommendation.priority;
     const heading = document.createElement("b");
     heading.textContent = `${recommendation.authority.toUpperCase()} · ${recommendation.callsign ?? recommendation.direction} · review slot`;
@@ -286,7 +316,33 @@ function meterRow(
     constraintCategory: constraint.category,
     status: entry.status,
     reason: entry.reason,
+    targets: (entry.meterTargets ?? []).map((target) => ({
+      id: target.id,
+      kind: target.kind,
+      label: target.label,
+      targetInSeconds: Math.max(
+        0,
+        target.targetSeconds - entry.updatedAtSeconds,
+      ),
+      toleranceBeforeSeconds: target.toleranceBeforeSeconds,
+      toleranceAfterSeconds: target.toleranceAfterSeconds,
+    })),
   };
+}
+
+function meterTargetLabel(
+  kind: TrafficFlowMeterRow["targets"][number]["kind"],
+): string {
+  switch (kind) {
+    case "arrival-meter-fix":
+      return "FIX";
+    case "runway-threshold":
+      return "THR";
+    case "runway-crossing":
+      return "XING";
+    case "departure-release":
+      return "REL";
+  }
 }
 
 function slotInSeconds(entry: TrafficFlowEntry): number {
