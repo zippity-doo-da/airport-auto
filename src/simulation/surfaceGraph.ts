@@ -248,14 +248,22 @@ type Point = [number, number];
 
 interface SurfaceGraphIndex {
   nodeById: Map<string, SurfaceNode>;
+  nodeIds: string[];
+  nodeIndexById: Map<string, number>;
   edgeById: Map<string, SurfaceEdge>;
   standBySlot: Map<number, SurfaceStand>;
   edgeByTraversal: Map<string, SurfaceEdge>;
   adjacency: Map<string, Array<{ nodeId: string; edge: SurfaceEdge; cost: number }>>;
+  indexedAdjacency: Array<Array<{ nodeIndex: number; edge: SurfaceEdge; cost: number }>>;
   reverseAdjacency: Map<string, Array<{ nodeId: string; edge: SurfaceEdge; cost: number }>>;
   controlPointsByCrossing: Map<string, SurfaceControlPoint[]>;
   routeGeometry: WeakMap<string[], SurfaceRouteGeometry>;
   routeCrossings: WeakMap<string[], Map<number, SurfaceRouteCrossingWindow[]>>;
+  routeSearchGeneration: number;
+  routeSearchSeen: Uint32Array;
+  routeSearchDistance: Float64Array;
+  routeSearchPreviousNode: Int32Array;
+  routeSearchPreviousEdge: Array<SurfaceEdge | undefined>;
 }
 
 interface SurfaceRouteSegment {
@@ -757,41 +765,76 @@ export function findSurfaceRoute(
     congestionPenalty: 0,
     congestedEdgeIds: [],
   };
-  const { nodeById, edgeById, adjacency } = surfaceGraphIndex(graph);
-  if (!nodeById.has(fromNodeId) || !nodeById.has(toNodeId)) return null;
+  const index = surfaceGraphIndex(graph);
+  const { nodeById, edgeById } = index;
+  const fromNodeIndex = index.nodeIndexById.get(fromNodeId);
+  const toNodeIndex = index.nodeIndexById.get(toNodeId);
+  if (fromNodeIndex === undefined || toNodeIndex === undefined) return null;
 
-  const distanceByNode = new Map<string, number>([[fromNodeId, 0]]);
-  const previous = new Map<string, { nodeId: string; edge: SurfaceEdge }>();
-  const pending: Array<{ nodeId: string; distance: number }> = [{ nodeId: fromNodeId, distance: 0 }];
+  // Route searches are synchronous and never nest. Reuse indexed typed-array
+  // workspaces so busy-hub gate screening does not allocate thousands of
+  // string-keyed Map entries on every retry. The heap and adjacency order are
+  // unchanged, preserving the existing deterministic shortest-path choices.
+  index.routeSearchGeneration += 1;
+  if (index.routeSearchGeneration >= 0xffff_ffff) {
+    index.routeSearchSeen.fill(0);
+    index.routeSearchGeneration = 1;
+  }
+  const generation = index.routeSearchGeneration;
+  index.routeSearchSeen[fromNodeIndex] = generation;
+  index.routeSearchDistance[fromNodeIndex] = 0;
+  index.routeSearchPreviousNode[fromNodeIndex] = -1;
+  index.routeSearchPreviousEdge[fromNodeIndex] = undefined;
+  const pending: Array<{ nodeIndex: number; distance: number }> = [
+    { nodeIndex: fromNodeIndex, distance: 0 },
+  ];
   while (pending.length) {
-    const candidate = popMinimumRouteNode(pending);
+    const candidate = popMinimumIndexedRouteNode(pending);
     if (!candidate) break;
-    const current = candidate.nodeId;
+    const current = candidate.nodeIndex;
     const currentDistance = candidate.distance;
-    if (currentDistance !== distanceByNode.get(current)) continue;
-    if (current === toNodeId) break;
-    for (const next of adjacency.get(current) ?? []) {
+    if (
+      index.routeSearchSeen[current] !== generation ||
+      currentDistance !== index.routeSearchDistance[current]
+    )
+      continue;
+    if (current === toNodeIndex) break;
+    for (const next of index.indexedAdjacency[current]) {
       if (planning?.blockedEdgeIds?.has(next.edge.id)) continue;
       if (requirements && !surfaceEdgeSupportsAircraft(next.edge, requirements)) continue;
       const trafficPenalty = Math.max(0, planning?.edgePenaltyById?.get(next.edge.id) ?? 0);
       const nextDistance = currentDistance + next.cost + trafficPenalty;
-      if (nextDistance >= (distanceByNode.get(next.nodeId) ?? Infinity)) continue;
-      distanceByNode.set(next.nodeId, nextDistance);
-      previous.set(next.nodeId, { nodeId: current, edge: next.edge });
-      pushRouteNode(pending, { nodeId: next.nodeId, distance: nextDistance });
+      const knownDistance =
+        index.routeSearchSeen[next.nodeIndex] === generation
+          ? index.routeSearchDistance[next.nodeIndex]
+          : Infinity;
+      if (nextDistance >= knownDistance) continue;
+      index.routeSearchSeen[next.nodeIndex] = generation;
+      index.routeSearchDistance[next.nodeIndex] = nextDistance;
+      index.routeSearchPreviousNode[next.nodeIndex] = current;
+      index.routeSearchPreviousEdge[next.nodeIndex] = next.edge;
+      pushIndexedRouteNode(pending, {
+        nodeIndex: next.nodeIndex,
+        distance: nextDistance,
+      });
     }
   }
 
-  if (!previous.has(toNodeId)) return null;
+  if (
+    index.routeSearchSeen[toNodeIndex] !== generation ||
+    index.routeSearchPreviousNode[toNodeIndex] < 0
+  )
+    return null;
   const nodeIds = [toNodeId];
   const edgeIds: string[] = [];
-  let cursor = toNodeId;
-  while (cursor !== fromNodeId) {
-    const step = previous.get(cursor);
-    if (!step) return null;
-    nodeIds.push(step.nodeId);
-    edgeIds.push(step.edge.id);
-    cursor = step.nodeId;
+  let cursor = toNodeIndex;
+  while (cursor !== fromNodeIndex) {
+    const previousNode = index.routeSearchPreviousNode[cursor];
+    const previousEdge = index.routeSearchPreviousEdge[cursor];
+    if (previousNode < 0 || !previousEdge) return null;
+    nodeIds.push(index.nodeIds[previousNode]);
+    edgeIds.push(previousEdge.id);
+    cursor = previousNode;
   }
   nodeIds.reverse();
   edgeIds.reverse();
@@ -801,7 +844,7 @@ export function findSurfaceRoute(
     const to = nodeById.get(nodeIds[index + 1]);
     return total + (from && to ? distance(from.position, to.position) : 0);
   }, 0);
-  const routingCost = distanceByNode.get(toNodeId) ?? physicalDistance;
+  const routingCost = index.routeSearchDistance[toNodeIndex] ?? physicalDistance;
   const congestedEdgeIds = edgeIds.filter((edgeId) => (planning?.edgePenaltyById?.get(edgeId) ?? 0) > 0);
   return {
     nodeIds,
@@ -1320,6 +1363,8 @@ function surfaceGraphIndex(graph: AirportSurfaceGraph): SurfaceGraphIndex {
   if (cached) return cached;
 
   const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+  const nodeIds = graph.nodes.map((node) => node.id);
+  const nodeIndexById = new Map(nodeIds.map((nodeId, index) => [nodeId, index]));
   const edgeById = new Map(graph.edges.map((edge) => [edge.id, edge]));
   const standBySlot = new Map(graph.stands.map((stand) => [stand.slot, stand]));
   const edgeByTraversal = new Map<string, SurfaceEdge>();
@@ -1359,14 +1404,28 @@ function surfaceGraphIndex(graph: AirportSurfaceGraph): SurfaceGraphIndex {
 
   const index: SurfaceGraphIndex = {
     nodeById,
+    nodeIds,
+    nodeIndexById,
     edgeById,
     standBySlot,
     edgeByTraversal,
     adjacency,
+    indexedAdjacency: nodeIds.map((nodeId) =>
+      (adjacency.get(nodeId) ?? []).map((movement) => ({
+        nodeIndex: nodeIndexById.get(movement.nodeId)!,
+        edge: movement.edge,
+        cost: movement.cost,
+      })),
+    ),
     reverseAdjacency,
     controlPointsByCrossing,
     routeGeometry: new WeakMap<string[], SurfaceRouteGeometry>(),
     routeCrossings: new WeakMap<string[], Map<number, SurfaceRouteCrossingWindow[]>>(),
+    routeSearchGeneration: 0,
+    routeSearchSeen: new Uint32Array(nodeIds.length),
+    routeSearchDistance: new Float64Array(nodeIds.length),
+    routeSearchPreviousNode: new Int32Array(nodeIds.length),
+    routeSearchPreviousEdge: Array.from({ length: nodeIds.length }),
   };
   surfaceGraphIndexes.set(graph, index);
   return index;
@@ -1649,6 +1708,45 @@ function popMinimumRouteNode(heap: Array<{ nodeId: string; distance: number }>):
     const right = left + 1;
     if (left >= heap.length) break;
     const child = right < heap.length && heap[right].distance < heap[left].distance ? right : left;
+    if (heap[child].distance >= replacement.distance) break;
+    heap[index] = heap[child];
+    index = child;
+  }
+  heap[index] = replacement;
+  return minimum;
+}
+
+function pushIndexedRouteNode(
+  heap: Array<{ nodeIndex: number; distance: number }>,
+  value: { nodeIndex: number; distance: number },
+): void {
+  heap.push(value);
+  let index = heap.length - 1;
+  while (index > 0) {
+    const parent = Math.floor((index - 1) / 2);
+    if (heap[parent].distance <= value.distance) break;
+    heap[index] = heap[parent];
+    index = parent;
+  }
+  heap[index] = value;
+}
+
+function popMinimumIndexedRouteNode(
+  heap: Array<{ nodeIndex: number; distance: number }>,
+): { nodeIndex: number; distance: number } | undefined {
+  if (!heap.length) return undefined;
+  const minimum = heap[0];
+  const replacement = heap.pop();
+  if (!heap.length || !replacement) return minimum;
+  let index = 0;
+  while (true) {
+    const left = index * 2 + 1;
+    const right = left + 1;
+    if (left >= heap.length) break;
+    const child =
+      right < heap.length && heap[right].distance < heap[left].distance
+        ? right
+        : left;
     if (heap[child].distance >= replacement.distance) break;
     heap[index] = heap[child];
     index = child;

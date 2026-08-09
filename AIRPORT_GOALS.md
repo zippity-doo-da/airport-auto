@@ -1101,9 +1101,14 @@ service or a full workload/debrief experience.
       low-water mark when invoked through `npm run soak:runtime`, and reports the
       measurement mode in every checkpoint and final report. This avoids treating
       V8 young-space timing as a retained-memory leak while keeping the 32 MiB/hour
-      budget intact. An August 8 ORD Extreme Auto one-hour check passed at 29.177
-      MiB/hour, with 23 arrivals, 11 departures, and zero collision, incursion, or
-      unexplained-pause diagnostics. Four-hour retention proof remains open.
+      budget intact. An August 9 ORD Extreme Auto four-hour check passed with a
+      -9.5 MiB/hour retained-heap slope, 68 arrivals, 50 departures, and zero
+      collision, incursion, or unexplained-pause diagnostics. Failed alternate-gate
+      and surface-yield feasibility searches now use bounded negative-result retry
+      caches, and indexed typed-array route workspaces avoid repeated Map churn;
+      the late-run simulation p95 fell from 22.381 ms to 2.108 ms without changing
+      the deterministic traffic totals. Browser/device frame-pacing proof remains
+      open.
 
 ### Release gate
 

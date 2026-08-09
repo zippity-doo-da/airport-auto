@@ -335,6 +335,8 @@ function incidentResponsePhaseLabel(
 }
 
 const PHASE_TRANSITION_RETRY_SECONDS = 0.75;
+const FAILED_SURFACE_YIELD_RETRY_SECONDS = 10;
+const FAILED_GATE_REASSIGNMENT_RETRY_SECONDS = 10;
 // Reserve enough pavement to yield before the next meaningful junction, but
 // do not turn every short imported OSM fragment into a several-hundred-metre
 // airport-wide queue. The collision arbiter remains the physical safety net;
@@ -709,6 +711,7 @@ export class AirportSimulation {
 
   private readonly stationarySeconds = new Map<number, number>();
   private readonly surfaceYieldCooldownUntil = new Map<number, number>();
+  private readonly failedSurfaceYieldRetryAt = new Map<string, number>();
   private readonly phaseTransitionRetryAt = new Map<number, number>();
   private readonly parkedBlockerRecovery = new Map<
     number,
@@ -759,6 +762,10 @@ export class AirportSimulation {
   private readonly arrivalRouteSurfaceConflictCache = new WeakMap<
     Flight,
     Map<string, { signature: string; conflicts: boolean }>
+  >();
+  private readonly failedGateReassignmentRetry = new WeakMap<
+    Flight,
+    { signature: string; retryAtSeconds: number }
   >();
   private readonly restingTaxiOutRouteCache = new WeakMap<
     Flight,
@@ -982,6 +989,7 @@ export class AirportSimulation {
     this.runwayOperationHistory = [];
     this.stationarySeconds.clear();
     this.surfaceYieldCooldownUntil.clear();
+    this.failedSurfaceYieldRetryAt.clear();
     this.phaseTransitionRetryAt.clear();
     this.parkedBlockerRecovery.clear();
     this.spawnIn = Math.min(3, this.arrivalSpacing() * 0.55);
@@ -1163,6 +1171,7 @@ export class AirportSimulation {
     Object.assign(this.metrics, checkpoint.metrics);
     this.stationarySeconds.clear();
     this.surfaceYieldCooldownUntil.clear();
+    this.failedSurfaceYieldRetryAt.clear();
     this.surfaceFlowPlanner.restore(checkpoint.surfaceFlowPlanner);
     this.phaseTransitionRetryAt.clear();
     this.parkedAircraftEdgeMaskCache.clear();
@@ -1538,6 +1547,7 @@ export class AirportSimulation {
     this.runwayOperationHistory = [];
     this.stationarySeconds.clear();
     this.surfaceYieldCooldownUntil.clear();
+    this.failedSurfaceYieldRetryAt.clear();
     this.phaseTransitionRetryAt.clear();
     this.parkedAircraftEdgeMaskCache.clear();
     this.parkedBlockerRecovery.clear();
@@ -5024,6 +5034,7 @@ export class AirportSimulation {
     );
     this.stationarySeconds.clear();
     this.surfaceYieldCooldownUntil.clear();
+    this.failedSurfaceYieldRetryAt.clear();
     this.phaseTransitionRetryAt.clear();
     this.parkedAircraftEdgeMaskCache.clear();
     this.parkedBlockerRecovery.clear();
@@ -8932,6 +8943,18 @@ export class AirportSimulation {
     excludedStandIds: ReadonlySet<string> = new Set(),
   ): boolean {
     const previous = flight.gateAssignment;
+    const retrySignature = [
+      previous?.standId ?? "unassigned",
+      previous?.revision ?? -1,
+      reason,
+      [...excludedStandIds].sort().join(","),
+    ].join("|");
+    const failedRetry = this.failedGateReassignmentRetry.get(flight);
+    if (
+      failedRetry?.signature === retrySignature &&
+      this.state.elapsed + 1e-6 < failedRetry.retryAtSeconds
+    )
+      return false;
     const nextDestination =
       previous?.nextDestination ?? this.originFor(flight.id + 5);
     const rejectedStandIds = new Set(excludedStandIds);
@@ -8978,7 +9001,15 @@ export class AirportSimulation {
       rejectedStandIds.add(decision.standId);
       decision = null;
     }
-    if (!decision) return false;
+    if (!decision) {
+      this.failedGateReassignmentRetry.set(flight, {
+        signature: retrySignature,
+        retryAtSeconds:
+          this.state.elapsed + FAILED_GATE_REASSIGNMENT_RETRY_SECONDS,
+      });
+      return false;
+    }
+    this.failedGateReassignmentRetry.delete(flight);
     const stand = this.config.surfaceGraph.stands.find(
       (candidate) => candidate.id === decision.standId,
     );
@@ -12466,6 +12497,35 @@ export class AirportSimulation {
    * every pose is arbitrated by the normal collision layer.
    */
   private startSurfaceYieldRecovery(
+    members: Array<Flight & { phase: "taxi-in" | "taxi-out" }>,
+    signature: string,
+    blockedTransition?: { flight: Flight; next: FlightPhase },
+  ): boolean {
+    const retryAt = this.failedSurfaceYieldRetryAt.get(signature) ?? -Infinity;
+    if (this.state.elapsed + 1e-6 < retryAt) return false;
+    const started = this.startSurfaceYieldRecoveryUncached(
+      members,
+      signature,
+      blockedTransition,
+    );
+    if (started) this.failedSurfaceYieldRetryAt.delete(signature);
+    else {
+      this.failedSurfaceYieldRetryAt.set(
+        signature,
+        this.state.elapsed + FAILED_SURFACE_YIELD_RETRY_SECONDS,
+      );
+      if (this.failedSurfaceYieldRetryAt.size > 128) {
+        for (const [key, expiresAt] of this.failedSurfaceYieldRetryAt) {
+          if (expiresAt <= this.state.elapsed)
+            this.failedSurfaceYieldRetryAt.delete(key);
+          if (this.failedSurfaceYieldRetryAt.size <= 96) break;
+        }
+      }
+    }
+    return started;
+  }
+
+  private startSurfaceYieldRecoveryUncached(
     members: Array<Flight & { phase: "taxi-in" | "taxi-out" }>,
     signature: string,
     blockedTransition?: { flight: Flight; next: FlightPhase },
