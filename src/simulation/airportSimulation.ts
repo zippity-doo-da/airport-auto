@@ -198,9 +198,11 @@ import {
   createTrafficFlowState,
   enqueueArrivalDemand,
   expireTrafficFlow,
+  ignoreTrafficFlowRecommendation,
   isTrafficFlowObjective,
   markArrivalHolding,
   refreshTrafficFlow,
+  recoverTrafficFlowRecommendation,
   registerDepartureDemand,
   releaseArrivalDemand,
   releaseDepartureDemand,
@@ -1706,6 +1708,81 @@ export class AirportSimulation {
     const profile = trafficFlowObjectiveProfile(objective);
     this.decisionReason = `${profile.label} flow objective active`;
     return true;
+  }
+
+  ignoreTrafficFlowAdvisory(recommendationId: string): boolean {
+    if (this.state.mode !== "manual")
+      return this.rejectDecision(
+        "flow advisories can be explicitly ignored only in Manual control",
+      );
+    const recommendation = this.trafficFlowSnapshot().recommendations.find(
+      (candidate) => candidate.id === recommendationId,
+    );
+    if (!recommendation)
+      return this.rejectDecision("flow advisory is no longer active");
+    if (
+      this.state.station !== "supervisor" &&
+      this.state.station !== recommendation.authority
+    )
+      return this.rejectDecision(
+        `${this.state.station} station cannot answer this ${recommendation.authority} advisory`,
+      );
+    const result = ignoreTrafficFlowRecommendation(
+      this.state.trafficFlow,
+      recommendationId,
+      this.state.elapsed,
+      this.metrics.holdingFuelBurnKg,
+    );
+    this.decisionReason = result.reason;
+    return result.accepted;
+  }
+
+  recoverTrafficFlowAdvisory(recommendationId: string): boolean {
+    if (this.state.mode !== "manual")
+      return this.rejectDecision(
+        "flow-advisory recovery is available only in Manual control",
+      );
+    if (this.state.station !== "supervisor")
+      return this.rejectDecision(
+        `${this.state.station} station can observe consequences, but Supervisor must select the airport-wide recovery objective`,
+      );
+    const response = (this.state.trafficFlow.advisoryResponses ?? []).find(
+      (candidate) =>
+        candidate.recommendationId === recommendationId &&
+        candidate.status === "ignored",
+    );
+    if (!response)
+      return this.rejectDecision(
+        "ignore an active flow advisory before selecting recovery",
+      );
+    const objective: TrafficFlowObjective =
+      response.direction === "arrival"
+        ? "minimum-holding"
+        : "minimum-taxi-delay";
+    setTrafficFlowObjective(
+      this.state.trafficFlow,
+      objective,
+      this.state.elapsed,
+    );
+    if (response.direction === "arrival") {
+      scheduleNextArrivalDemand(
+        this.state.trafficFlow,
+        this.state.elapsed,
+        this.arrivalDemandInterval(),
+      );
+      this.spawnIn = Math.max(
+        0,
+        this.state.trafficFlow.nextArrivalDemandSeconds - this.state.elapsed,
+      );
+    }
+    const result = recoverTrafficFlowRecommendation(
+      this.state.trafficFlow,
+      recommendationId,
+      this.state.elapsed,
+      objective,
+    );
+    this.decisionReason = result.reason;
+    return result.accepted;
   }
 
   setSeparationRuleset(id: SeparationRulesetId): boolean {
@@ -5504,6 +5581,9 @@ export class AirportSimulation {
         }
       }
 
+      this.state.trafficFlow.observedHoldingFuelBurnKg =
+        this.metrics.holdingFuelBurnKg;
+
       // The proposal map is intentionally a snapshot of the tick's opening
       // traffic. A blocker can complete its departure later in this same tick,
       // after another aircraft was assigned a projected-path hold against it.
@@ -6000,6 +6080,10 @@ export class AirportSimulation {
     return trafficFlowSnapshot(state.trafficFlow, state.elapsed, {
       arrivalDemandIntervalSeconds: this.arrivalDemandInterval(),
       departureSpacingSeconds: this.departureSlotSpacing(),
+      holdingFuelBurnKg:
+        state === this.state
+          ? this.metrics.holdingFuelBurnKg
+          : state.trafficFlow.observedHoldingFuelBurnKg,
       uncertainty: {
         weather: weatherFactor,
         wind: windFactor,

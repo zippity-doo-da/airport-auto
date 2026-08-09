@@ -459,6 +459,17 @@ ground hold; moving taxi fuel flow is unchanged. A separate one-hour ORD Extreme
 Auto run completed 23 arrivals and eight departures with zero collisions,
 incursions, unexplained pauses, or airport-wide movement freezes.
 
+Manual flow advisories now have an explicit response lifecycle. An authorized
+Approach, Tower, or Supervisor controller can ignore an active advisory without
+changing score or shift metrics; the Queue inspector then keeps its actual
+elapsed time, added queue delay, modeled holding-fuel burn, and queue-size delta
+visible. Supervisor can select the direction-appropriate recovery objective,
+but that action never moves an aircraft or bypasses an ordinary clearance or
+safety arbiter. The ignored/recovered record lives in versioned traffic-flow
+state, so exact replay scrubbing preserves both the decision and its consequence
+snapshot. Deterministic simulation and desktop browser tests cover the complete
+Ignore → consequence → Recover loop.
+
 ### Gameplay and UX
 
 - [~] Add a timeline showing demand, runway capacity, target crossing times,
@@ -511,9 +522,11 @@ incursions, unexplained pauses, or airport-wide movement freezes.
   weather, wind, runway-condition, and response factors without changing
   separation, reservations, or movement commands.
 - [~] Ensure schedule recommendations never move an aircraft directly; accepted
-  actions must pass through the existing command and safety layers. Version 2
-  flow recommendations are advisory-only and explicitly require the command
-  arbiter; action-specific scheduler acceptance remains open.
+  actions must pass through the existing command and safety layers. Version 3
+  flow snapshots expose advisory-only recommendations plus explicit Ignore and
+  Recover responses. Recovery changes only the scheduler objective; aircraft
+  remain behind the command and safety arbiters. Action-specific release policy
+  remains open.
 - [~] Record schedule revisions and causes in exact replay and local analytics.
   Meter entries now retain bounded revision causes in replay-safe state and
   expose the latest cause in Queue inspector; dedicated analytics rollups
@@ -532,8 +545,12 @@ incursions, unexplained pauses, or airport-wide movement freezes.
       58 arrivals, 38 departures, 43 peak queue records, 684.7 seconds maximum
       individual stop, 40 seconds maximum without traffic motion, and zero
       collision, incursion, or unexplained-pause diagnostics in each mode.
-- [ ] Manual can ignore an advisory, recover the schedule, and understand the
-      consequences without hidden score manipulation.
+- [x] Manual can ignore an advisory, recover the schedule, and understand the
+      consequences without hidden score manipulation. The Queue inspector shows
+      elapsed time, added queue delay, holding-fuel burn, and queue delta; the
+      deterministic validator proves both commands leave shift metrics unchanged
+      at command time, and the browser test exercises the visible Supervisor
+      recovery workflow.
 - [x] Fixed-step partitioning produces the same slots, commands, and outcomes.
       `npm run test:simulation` compares complete canonical fixed-step snapshots
       across five partitioned runs, including seeded ORD Rush. Those snapshots

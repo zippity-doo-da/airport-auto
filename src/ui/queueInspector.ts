@@ -39,13 +39,20 @@ export interface TrafficFlowMeterRow {
   }>;
 }
 
+export interface TrafficFlowAdvisoryInteractions {
+  canIgnore: boolean;
+  canRecover: boolean;
+}
+
 export function operationQueueRenderKey(
   snapshot: OperationQueueSnapshot,
   filter: OperationQueueFilter,
   focusedQueueId: string | null,
   flow: TrafficFlowSnapshot,
+  interactionKey = "read-only",
 ): string {
   return [
+    interactionKey,
     filter,
     focusedQueueId ?? "none",
     snapshot.total,
@@ -85,6 +92,16 @@ export function operationQueueRenderKey(
         recommendation.rationale,
       ].join(":"),
     ),
+    ...flow.advisoryResponses.map((response) =>
+      [
+        response.recommendationId,
+        response.status,
+        Math.floor(response.elapsedSeconds),
+        Math.floor(response.additionalDelaySeconds),
+        response.holdingFuelBurnDeltaKg.toFixed(1),
+        response.queueDelta,
+      ].join(":"),
+    ),
     ...snapshot.entries.map((entry) =>
       [
         entry.id,
@@ -104,6 +121,10 @@ export function renderOperationQueueInspector(
   filter: OperationQueueFilter,
   focusedQueueId: string | null,
   flow: TrafficFlowSnapshot,
+  interactions: TrafficFlowAdvisoryInteractions = {
+    canIgnore: false,
+    canRecover: false,
+  },
 ): void {
   const entries =
     filter === "all"
@@ -115,7 +136,7 @@ export function renderOperationQueueInspector(
       ? `Longest ${formatWait(snapshot.longestWaitSeconds)}`
       : "Flowing";
   renderMeterPlan(elements, flow);
-  renderCapacitySummary(elements.capacity, flow);
+  renderCapacitySummary(elements.capacity, flow, interactions);
 
   if (!entries.length) {
     const empty = document.createElement("p");
@@ -259,6 +280,7 @@ function renderMeterPlan(
 function renderCapacitySummary(
   container: HTMLElement,
   flow: TrafficFlowSnapshot,
+  interactions: TrafficFlowAdvisoryInteractions,
 ): void {
   container.replaceChildren(
     ...flow.capacityWindows.map((window) => {
@@ -292,12 +314,56 @@ function renderCapacitySummary(
     const heading = document.createElement("b");
     heading.textContent = `${recommendation.authority.toUpperCase()} · ${recommendation.callsign ?? recommendation.direction} · review slot`;
     const detail = document.createElement("small");
-    detail.textContent = `${recommendation.priority} · advisory only · command arbiter required`;
+    detail.textContent = `${recommendation.priority} · advisory only · ignoring does not change score`;
     detail.title = recommendation.rationale;
     row.append(heading, detail);
+    if (interactions.canIgnore) {
+      const actions = document.createElement("span");
+      actions.className = "queue-panel__advisory-actions";
+      const ignore = document.createElement("button");
+      ignore.type = "button";
+      ignore.dataset.flowAdvisoryAction = "ignore";
+      ignore.dataset.recommendationId = recommendation.id;
+      ignore.textContent = "Ignore";
+      ignore.title = `Ignore this advisory and continue tracking its delay, holding-fuel, and queue consequences. ${recommendation.rationale}`;
+      actions.append(ignore);
+      row.append(actions);
+    }
     return row;
   });
-  container.append(...advisory);
+  const responses = flow.advisoryResponses.slice(-3).map((response) => {
+    const row = document.createElement("div");
+    row.className =
+      "queue-panel__capacity-row queue-panel__capacity-row--response";
+    row.dataset.direction = response.direction === "arrival" ? "arr" : "dep";
+    row.dataset.status = response.status;
+    const heading = document.createElement("b");
+    heading.textContent = `${response.authority.toUpperCase()} · ${response.callsign ?? response.direction} · ${response.status}`;
+    const detail = document.createElement("small");
+    detail.textContent = response.consequence;
+    detail.title =
+      "Only actual delay and modeled fuel burn are counted; ignoring or recovering the advisory itself does not change score.";
+    row.append(heading, detail);
+    if (response.status === "ignored") {
+      const actions = document.createElement("span");
+      actions.className = "queue-panel__advisory-actions";
+      const recover = document.createElement("button");
+      recover.type = "button";
+      recover.dataset.flowAdvisoryAction = "recover";
+      recover.dataset.recommendationId = response.recommendationId;
+      recover.textContent = interactions.canRecover
+        ? "Recover flow"
+        : "Supervisor required";
+      recover.disabled = !interactions.canRecover;
+      recover.title = interactions.canRecover
+        ? `Select ${response.direction === "arrival" ? "Minimum Holding" : "Minimum Taxi Delay"}; all aircraft still require ordinary clearances.`
+        : "Select the Supervisor workstation in Manual mode to recover this airport-wide schedule.";
+      actions.append(recover);
+      row.append(actions);
+    }
+    return row;
+  });
+  container.append(...advisory, ...responses);
 }
 
 function meterRow(

@@ -140,6 +140,8 @@ export interface AirportControlCommandParameters {
   setScenario: { scenario: TrafficScenario };
   setTrafficDensity: { density: TrafficDensity };
   setTrafficFlowObjective: { objective: TrafficFlowObjective };
+  ignoreTrafficFlowAdvisory: { recommendationId: string };
+  recoverTrafficFlowAdvisory: { recommendationId: string };
   setSeparationRuleset: { ruleset: SeparationRulesetId };
   setStation: { station: ControllerStation };
   setStationAutomation: {
@@ -1261,6 +1263,28 @@ const COMMAND_SPECS = {
       ]),
     },
     { objective: "minimum-holding" },
+  ),
+  ignoreTrafficFlowAdvisory: command(
+    "operations",
+    "Explicitly ignore one active Manual flow advisory while retaining visible delay, fuel, and queue consequences.",
+    AUTHORITY.session,
+    {
+      recommendationId: stringSchema(
+        "Active traffic-flow recommendation ID.",
+      ),
+    },
+    { recommendationId: "arrival:ARR-1:review" },
+  ),
+  recoverTrafficFlowAdvisory: command(
+    "operations",
+    "Recover an ignored Manual flow advisory by selecting its bounded Supervisor flow objective; aircraft still require ordinary clearances.",
+    AUTHORITY.supervisor,
+    {
+      recommendationId: stringSchema(
+        "Previously ignored traffic-flow recommendation ID.",
+      ),
+    },
+    { recommendationId: "arrival:ARR-1:review" },
   ),
   setSeparationRuleset: command(
     "session",

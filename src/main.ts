@@ -2455,6 +2455,35 @@ queueFlowObjective.addEventListener("change", () => {
   renderQueueInspector();
 });
 
+queueCapacity.addEventListener("click", (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
+    "button[data-flow-advisory-action]",
+  );
+  if (!button) return;
+  const recommendationId = button.dataset.recommendationId ?? "";
+  const action = button.dataset.flowAdvisoryAction;
+  if (!recommendationId || (action !== "ignore" && action !== "recover"))
+    return;
+  const result = executeAirportRequest({
+    action:
+      action === "ignore"
+        ? "ignoreTrafficFlowAdvisory"
+        : "recoverTrafficFlowAdvisory",
+    recommendationId,
+  });
+  setStatus(
+    result.accepted
+      ? action === "ignore"
+        ? "Flow advisory ignored"
+        : "Flow recovery selected"
+      : "Flow response refused",
+    result.reason,
+    result.accepted ? "operational" : "warning",
+  );
+  queueInspectorUiKey = "";
+  renderQueueInspector();
+});
+
 queueList.addEventListener("click", (event) => {
   const row = (event.target as HTMLElement).closest<HTMLElement>(
     "[data-queue-focus]",
@@ -7593,6 +7622,7 @@ function renderQueueInspector(): void {
     queueInspectorFilter,
     focusedQueueId,
     flow,
+    `${simulation.state.mode}:${simulation.state.station}`,
   );
   if (key === queueInspectorUiKey) return;
   queueInspectorUiKey = key;
@@ -7609,6 +7639,12 @@ function renderQueueInspector(): void {
     queueInspectorFilter,
     focusedQueueId,
     flow,
+    {
+      canIgnore: simulation.state.mode === "manual",
+      canRecover:
+        simulation.state.mode === "manual" &&
+        simulation.state.station === "supervisor",
+    },
   );
 }
 
@@ -10270,6 +10306,18 @@ function executeAirportRequest(
     reason = valid
       ? simulation.lastCommandReason()
       : "unknown traffic-flow objective";
+  }
+  if (command.action === "ignoreTrafficFlowAdvisory") {
+    accepted = simulation.ignoreTrafficFlowAdvisory(
+      command.recommendationId,
+    );
+    reason = simulation.lastCommandReason();
+  }
+  if (command.action === "recoverTrafficFlowAdvisory") {
+    accepted = simulation.recoverTrafficFlowAdvisory(
+      command.recommendationId,
+    );
+    reason = simulation.lastCommandReason();
   }
   if (command.action === "setSeparationRuleset") {
     const valid =

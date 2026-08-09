@@ -1,6 +1,7 @@
 import type {
   Flight,
   TrafficFlowConstraintCategory,
+  TrafficFlowAdvisoryResponse,
   TrafficFlowEntry,
   TrafficFlowMeterTarget,
   TrafficFlowObjective,
@@ -109,7 +110,7 @@ export function trafficFlowConstraint(reason: string): TrafficFlowConstraint {
 }
 
 export interface TrafficFlowSnapshot {
-  schemaVersion: 2;
+  schemaVersion: 3;
   density: ReturnType<typeof trafficDensityProfile>;
   objective: TrafficFlowObjectiveProfile;
   nextArrivalDemandInSeconds: number;
@@ -138,10 +139,21 @@ export interface TrafficFlowSnapshot {
    * safety arbiters.
    */
   recommendations: TrafficFlowRecommendation[];
+  advisoryResponses: TrafficFlowAdvisoryResponseSnapshot[];
+}
+
+export interface TrafficFlowAdvisoryResponseSnapshot
+  extends TrafficFlowAdvisoryResponse {
+  elapsedSeconds: number;
+  additionalDelaySeconds: number;
+  holdingFuelBurnDeltaKg: number;
+  queueDelta: number;
+  consequence: string;
 }
 
 export interface TrafficFlowRecommendation {
   id: string;
+  entryId: string;
   direction: "arrival" | "departure";
   action: "review-arrival-release" | "review-departure-release";
   priority: "routine" | "attention" | "urgent";
@@ -179,6 +191,7 @@ export interface TrafficFlowCapacityWindow {
 export interface TrafficFlowForecastInput {
   arrivalDemandIntervalSeconds?: number;
   departureSpacingSeconds?: number;
+  holdingFuelBurnKg?: number;
   uncertainty?: Partial<TrafficFlowCapacityWindow["uncertainty"]>;
 }
 
@@ -188,7 +201,7 @@ export function createTrafficFlowState(
   firstArrivalDemandInSeconds = 2,
 ): TrafficFlowState {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     density,
     objective: "balanced",
     nextDemandId: 1,
@@ -199,6 +212,8 @@ export function createTrafficFlowState(
     arrivalQueue: [],
     departureQueue: [],
     history: [],
+    advisoryResponses: [],
+    observedHoldingFuelBurnKg: 0,
     totals: {
       arrivalDemands: 0,
       departureDemands: 0,
@@ -538,8 +553,20 @@ export function trafficFlowSnapshot(
     ),
   ];
   const recommendations = flowRecommendations(state, nowSeconds);
+  const advisoryResponses = (state.advisoryResponses ?? [])
+    .slice(-12)
+    .map((response) =>
+      advisoryResponseSnapshot(
+        response,
+        state,
+        nowSeconds,
+        forecast.holdingFuelBurnKg ??
+          state.observedHoldingFuelBurnKg ??
+          response.baselineHoldingFuelBurnKg,
+      ),
+    );
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     density: { ...density, assumptions: [...density.assumptions] },
     objective: { ...trafficFlowObjectiveProfile(state.objective) },
     nextArrivalDemandInSeconds: round(
@@ -568,12 +595,105 @@ export function trafficFlowSnapshot(
     },
     capacityWindows,
     recommendations,
+    advisoryResponses,
+  };
+}
+
+export interface TrafficFlowAdvisoryResponseResult {
+  accepted: boolean;
+  reason: string;
+  response?: TrafficFlowAdvisoryResponse;
+}
+
+export function ignoreTrafficFlowRecommendation(
+  state: TrafficFlowState,
+  recommendationId: string,
+  nowSeconds: number,
+  holdingFuelBurnKg: number,
+): TrafficFlowAdvisoryResponseResult {
+  const existing = (state.advisoryResponses ?? []).find(
+    (response) => response.recommendationId === recommendationId,
+  );
+  if (existing)
+    return {
+      accepted: false,
+      reason:
+        existing.status === "ignored"
+          ? "flow advisory is already ignored"
+          : "flow advisory was already recovered",
+      response: existing,
+    };
+  const recommendation = flowRecommendations(state, nowSeconds, true).find(
+    (candidate) => candidate.id === recommendationId,
+  );
+  if (!recommendation)
+    return { accepted: false, reason: "flow advisory is no longer active" };
+  const entries =
+    recommendation.direction === "arrival"
+      ? state.arrivalQueue
+      : state.departureQueue;
+  const advisedEntry = entries.find(
+    (entry) => entry.id === recommendation.entryId,
+  );
+  const response: TrafficFlowAdvisoryResponse = {
+    schemaVersion: 1,
+    recommendationId,
+    entryId: recommendation.entryId,
+    direction: recommendation.direction,
+    authority: recommendation.authority,
+    status: "ignored",
+    ignoredAtSeconds: nowSeconds,
+    objectiveBefore: state.objective,
+    baselineDelaySeconds: advisedEntry?.delaySeconds ?? 0,
+    baselineHoldingFuelBurnKg: Math.max(0, holdingFuelBurnKg),
+    baselineQueueLength: entries.length,
+    ...(recommendation.flightId === undefined
+      ? {}
+      : { flightId: recommendation.flightId }),
+    ...(recommendation.callsign ? { callsign: recommendation.callsign } : {}),
+  };
+  state.advisoryResponses ??= [];
+  state.advisoryResponses.push(response);
+  if (state.advisoryResponses.length > 32)
+    state.advisoryResponses.splice(0, state.advisoryResponses.length - 32);
+  return {
+    accepted: true,
+    reason: `${recommendation.direction} flow advisory ignored; operational delay and fuel consequences remain live`,
+    response,
+  };
+}
+
+export function recoverTrafficFlowRecommendation(
+  state: TrafficFlowState,
+  recommendationId: string,
+  nowSeconds: number,
+  recoveryObjective: TrafficFlowObjective,
+): TrafficFlowAdvisoryResponseResult {
+  const response = (state.advisoryResponses ?? []).find(
+    (candidate) => candidate.recommendationId === recommendationId,
+  );
+  if (!response)
+    return { accepted: false, reason: "ignore the flow advisory before recovering it" };
+  if (response.status !== "ignored")
+    return {
+      accepted: false,
+      reason: "flow advisory recovery was already recorded",
+      response,
+    };
+  response.status = "recovered";
+  response.recoveredAtSeconds = nowSeconds;
+  response.recoveryObjective = recoveryObjective;
+  return {
+    accepted: true,
+    reason: `${trafficFlowObjectiveProfile(recoveryObjective).label} recovery selected; aircraft remain subject to normal clearances and safety arbitration`,
+    response,
   };
 }
 
 function flowRecommendations(
   state: TrafficFlowState,
   nowSeconds: number,
+  includeResponded = false,
 ): TrafficFlowRecommendation[] {
   const recommendations: TrafficFlowRecommendation[] = [];
   const arrival = state.arrivalQueue[0];
@@ -581,6 +701,7 @@ function flowRecommendations(
     const wait = Math.max(0, arrival.releaseSlotSeconds - nowSeconds);
     recommendations.push({
       id: `arrival:${arrival.id}:review`,
+      entryId: arrival.id,
       direction: "arrival",
       action: "review-arrival-release",
       priority:
@@ -601,6 +722,7 @@ function flowRecommendations(
       const next = state.arrivalQueue[1];
       recommendations.push({
         id: `arrival:${next.id}:review`,
+        entryId: next.id,
         direction: "arrival",
         action: "review-arrival-release",
         priority: "routine",
@@ -618,6 +740,7 @@ function flowRecommendations(
   if (departure) {
     recommendations.push({
       id: `departure:${departure.id}:review`,
+      entryId: departure.id,
       direction: "departure",
       action: "review-departure-release",
       priority: departure.delaySeconds > 45 ? "attention" : "routine",
@@ -630,7 +753,55 @@ function flowRecommendations(
       requiresCommandArbiter: true,
     });
   }
-  return recommendations;
+  if (includeResponded) return recommendations;
+  const responded = new Set(
+    (state.advisoryResponses ?? []).map(
+      (response) => response.recommendationId,
+    ),
+  );
+  return recommendations.filter(
+    (recommendation) => !responded.has(recommendation.id),
+  );
+}
+
+function advisoryResponseSnapshot(
+  response: TrafficFlowAdvisoryResponse,
+  state: TrafficFlowState,
+  nowSeconds: number,
+  holdingFuelBurnKg: number,
+): TrafficFlowAdvisoryResponseSnapshot {
+  const entries =
+    response.direction === "arrival"
+      ? state.arrivalQueue
+      : state.departureQueue;
+  const advisedEntry = [...entries, ...state.history].find(
+    (entry) => entry.id === response.entryId,
+  );
+  const elapsedSeconds = Math.max(
+    0,
+    (response.recoveredAtSeconds ?? nowSeconds) - response.ignoredAtSeconds,
+  );
+  const additionalDelaySeconds = Math.max(
+    0,
+    (advisedEntry?.delaySeconds ?? response.baselineDelaySeconds) -
+      response.baselineDelaySeconds,
+  );
+  const holdingFuelBurnDeltaKg = Math.max(
+    0,
+    holdingFuelBurnKg - response.baselineHoldingFuelBurnKg,
+  );
+  const queueDelta = entries.length - response.baselineQueueLength;
+  const recovery = response.recoveryObjective
+    ? ` · ${trafficFlowObjectiveProfile(response.recoveryObjective).label} recovery active`
+    : "";
+  return {
+    ...response,
+    elapsedSeconds: round(elapsedSeconds),
+    additionalDelaySeconds: round(additionalDelaySeconds),
+    holdingFuelBurnDeltaKg: round(holdingFuelBurnDeltaKg),
+    queueDelta,
+    consequence: `${response.status === "ignored" ? "Ignored" : "Recovered"} ${Math.round(elapsedSeconds)}s · +${Math.round(additionalDelaySeconds)}s queue delay · +${holdingFuelBurnDeltaKg.toFixed(1)} kg holding fuel · queue ${queueDelta >= 0 ? "+" : ""}${queueDelta}${recovery}`,
+  };
 }
 
 const FLOW_LOOKAHEAD_SECONDS = 300;
@@ -747,6 +918,10 @@ export function cloneTrafficFlowState(
     arrivalQueue: state.arrivalQueue.map(cloneEntry),
     departureQueue: state.departureQueue.map(cloneEntry),
     history: state.history.map(cloneEntry),
+    advisoryResponses: (state.advisoryResponses ?? []).map((response) => ({
+      ...response,
+    })),
+    observedHoldingFuelBurnKg: state.observedHoldingFuelBurnKg ?? 0,
     totals: { ...state.totals },
   };
 }

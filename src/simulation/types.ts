@@ -1169,8 +1169,33 @@ export interface TrafficFlowEntry {
   runwayId?: number;
 }
 
-export interface TrafficFlowState {
+export type TrafficFlowAdvisoryResponseStatus = "ignored" | "recovered";
+
+/**
+ * Replay-safe controller response to one strategic flow recommendation.
+ * Responding never moves an aircraft or changes score; recovery may select a
+ * scheduler objective through the ordinary Supervisor command boundary.
+ */
+export interface TrafficFlowAdvisoryResponse {
   schemaVersion: 1;
+  recommendationId: string;
+  entryId: string;
+  direction: "arrival" | "departure";
+  authority: "approach" | "tower";
+  status: TrafficFlowAdvisoryResponseStatus;
+  ignoredAtSeconds: number;
+  recoveredAtSeconds?: number;
+  objectiveBefore: TrafficFlowObjective;
+  recoveryObjective?: TrafficFlowObjective;
+  baselineDelaySeconds: number;
+  baselineHoldingFuelBurnKg: number;
+  baselineQueueLength: number;
+  flightId?: number;
+  callsign?: string;
+}
+
+export interface TrafficFlowState {
+  schemaVersion: 2;
   density: TrafficDensity;
   objective: TrafficFlowObjective;
   nextDemandId: number;
@@ -1180,6 +1205,9 @@ export interface TrafficFlowState {
   arrivalQueue: TrafficFlowEntry[];
   departureQueue: TrafficFlowEntry[];
   history: TrafficFlowEntry[];
+  advisoryResponses: TrafficFlowAdvisoryResponse[];
+  /** Mirrored into replay state so ignored-advisory fuel consequences scrub exactly. */
+  observedHoldingFuelBurnKg: number;
   totals: {
     arrivalDemands: number;
     departureDemands: number;

@@ -10,7 +10,9 @@ import {
   createTrafficFlowState,
   enqueueArrivalDemand,
   expireTrafficFlow,
+  ignoreTrafficFlowRecommendation,
   markArrivalHolding,
+  recoverTrafficFlowRecommendation,
   registerDepartureDemand,
   releaseArrivalDemand,
   releaseDepartureDemand,
@@ -165,8 +167,22 @@ const meterRows = trafficFlowMeterRows(meterSnapshot);
 assert(meterSnapshot.capacityWindows.length === 2 && meterSnapshot.capacityWindows.every((window) => window.horizonSeconds === 300 && window.demandCount >= window.plannedReleaseCount && window.predictedDemandCount >= window.demandCount && window.predictedCapacityCount >= window.plannedReleaseCount && ['high', 'medium', 'low'].includes(window.confidence)), 'capacity outlook did not expose bounded directional confidence');
 const uncertainForecast = trafficFlowSnapshot(flow, 20, { arrivalDemandIntervalSeconds: 12, departureSpacingSeconds: 18, uncertainty: { weather: 0.8, wind: 0.7, runwayCondition: 0.6, pilotResponse: 0.5 } });
 assert(uncertainForecast.capacityWindows.every((window) => window.predictedDemandCount >= window.demandCount && window.predictedCapacityCount >= window.plannedReleaseCount && window.confidence === 'low' && window.uncertainty.weather === 0.8), 'rolling forecast did not expose bounded operational uncertainty');
-assert(uncertainForecast.schemaVersion === 2, 'traffic flow snapshot did not advance its schema for recommendations');
+assert(uncertainForecast.schemaVersion === 3 && Array.isArray(uncertainForecast.advisoryResponses), 'traffic flow snapshot did not advance its schema for advisory responses');
 assert(uncertainForecast.recommendations.length > 0 && uncertainForecast.recommendations.every((recommendation) => recommendation.advisoryOnly && recommendation.requiresCommandArbiter && recommendation.authority && /^review-(arrival|departure)-release$/.test(recommendation.action)), 'flow recommendations were not explicitly advisory-only');
+const advisory = uncertainForecast.recommendations[0];
+const advisoryEntries = advisory.direction === 'arrival' ? flow.arrivalQueue : flow.departureQueue;
+const ignoredDelay = Math.max(0, ...advisoryEntries.map((entry) => entry.delaySeconds));
+const ignored = ignoreTrafficFlowRecommendation(flow, advisory.id, 20, 100);
+assert(ignored.accepted && ignored.response?.status === 'ignored', 'active flow advisory could not be explicitly ignored');
+const ignoredSnapshot = trafficFlowSnapshot(flow, 35, { holdingFuelBurnKg: 112 });
+const ignoredResponse = ignoredSnapshot.advisoryResponses.find((response) => response.recommendationId === advisory.id);
+assert(!ignoredSnapshot.recommendations.some((recommendation) => recommendation.id === advisory.id), 'ignored flow advisory remained in the active recommendation list');
+assert(ignoredResponse?.status === 'ignored' && ignoredResponse.elapsedSeconds === 15 && ignoredResponse.holdingFuelBurnDeltaKg === 12 && ignoredResponse.additionalDelaySeconds >= Math.max(0, 15 - ignoredDelay), 'ignored advisory did not retain its live delay and fuel consequences');
+const recoveryObjective = advisory.direction === 'arrival' ? 'minimum-holding' : 'minimum-taxi-delay';
+setTrafficFlowObjective(flow, recoveryObjective, 35);
+const recovered = recoverTrafficFlowRecommendation(flow, advisory.id, 35, recoveryObjective);
+const recoveredResponse = trafficFlowSnapshot(flow, 50, { holdingFuelBurnKg: 120 }).advisoryResponses.find((response) => response.recommendationId === advisory.id);
+assert(recovered.accepted && recoveredResponse?.status === 'recovered' && recoveredResponse.recoveryObjective === recoveryObjective && recoveredResponse.elapsedSeconds === 15, 'ignored advisory did not retain its deterministic recovery decision');
 assert(meterRows.length === 4 && meterRows.filter((row) => row.direction === 'arrival').length === 3 && meterRows.filter((row) => row.direction === 'departure').length === 1, 'meter plan did not expose the pending arrival and departure slots');
 assert(meterRows.every((row) => row.slotInSeconds >= 0 && row.label.length > 0 && row.reason.length > 0 && row.constraintLabel.length > 0 && row.constraintCategory.length > 0 && row.targets.length > 0 && row.targets.every((target) => target.id && target.label && target.targetInSeconds >= 0)), 'meter plan contains incomplete slot or target context');
 const expiry = expireTrafficFlow(flow, 500);
@@ -176,10 +192,24 @@ assert(flowSnapshot.history.length === 7 && flowSnapshot.backPressure.arrivalsHo
 totals.flowTransitions += 8;
 
 const objectiveSimulation = new AirportSimulation(ordConfig);
+objectiveSimulation.setMode('manual');
 objectiveSimulation.setStation('ground');
 assert(!objectiveSimulation.setTrafficFlowObjective('watch-calm'), 'non-supervisor station changed the airport flow objective');
 objectiveSimulation.setStation('supervisor');
 assert(objectiveSimulation.setTrafficFlowObjective('minimum-taxi-delay') && objectiveSimulation.state.trafficFlow.objective === 'minimum-taxi-delay', 'supervisor could not set the traffic-flow objective');
+enqueueArrivalDemand(objectiveSimulation.state.trafficFlow, objectiveSimulation.state.elapsed, 'manual advisory validation');
+const manualAdvisory = objectiveSimulation.trafficFlowSnapshot().recommendations[0];
+assert(manualAdvisory, 'manual simulation did not expose a flow advisory');
+const metricsBeforeIgnore = JSON.stringify(objectiveSimulation.shiftMetrics());
+assert(objectiveSimulation.ignoreTrafficFlowAdvisory(manualAdvisory.id), 'Manual Supervisor could not ignore an active flow advisory: ' + objectiveSimulation.lastCommandReason());
+assert(JSON.stringify(objectiveSimulation.shiftMetrics()) === metricsBeforeIgnore, 'ignoring a flow advisory manipulated the score or shift metrics');
+objectiveSimulation.setStation('tower');
+assert(!objectiveSimulation.recoverTrafficFlowAdvisory(manualAdvisory.id), 'non-Supervisor station recovered an airport-wide flow advisory');
+objectiveSimulation.setStation('supervisor');
+const metricsBeforeRecovery = JSON.stringify(objectiveSimulation.shiftMetrics());
+assert(objectiveSimulation.recoverTrafficFlowAdvisory(manualAdvisory.id), 'Supervisor could not recover an ignored flow advisory: ' + objectiveSimulation.lastCommandReason());
+assert(JSON.stringify(objectiveSimulation.shiftMetrics()) === metricsBeforeRecovery, 'recovering a flow advisory manipulated the score or shift metrics');
+assert(objectiveSimulation.state.trafficFlow.objective === (manualAdvisory.direction === 'arrival' ? 'minimum-holding' : 'minimum-taxi-delay'), 'flow-advisory recovery did not select the direction-appropriate scheduler objective');
 
 const balancedRelease = new AirportSimulation(ordConfig, 'quiet');
 balancedRelease.setMode('auto');
