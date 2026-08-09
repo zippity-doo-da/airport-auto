@@ -3548,20 +3548,54 @@ test("Surface safety diagram draws taxi routes and runway protection intent", as
     .poll(() => panel.locator(".surface-safety__diagram-protection").count())
     .toBeGreaterThan(0);
   await expect(
-    panel.locator('.surface-safety__diagram-protection[data-operation="arrival"]'),
+    panel.locator(
+      '.surface-safety__diagram-protection[data-operation="arrival"]',
+    ),
   ).not.toHaveCount(0);
+  const corridorLayer = page.locator("#surface-safety-layer-corridors");
+  await expect(corridorLayer).toBeChecked();
+  await corridorLayer.uncheck();
+  await expect(
+    panel.locator(".surface-safety__diagram-protection"),
+  ).toHaveCount(0);
+  expect(
+    await page.evaluate(
+      () =>
+        window.airportControl.snapshot().surfaceSafety.display.layers.corridors,
+    ),
+  ).toBe(false);
+  const configured = await page.evaluate(() => ({
+    corridor: window.airportControl.request({
+      action: "setSurfaceSafetyDiagramLayer",
+      layer: "corridors",
+      enabled: true,
+    }),
+    horizon: window.airportControl.request({
+      action: "setSurfaceSafetyLookahead",
+      seconds: 60,
+    }),
+  }));
+  expect(configured.corridor.accepted).toBe(true);
+  expect(configured.horizon.accepted).toBe(true);
+  await expect(corridorLayer).toBeChecked();
+  await expect(page.locator("#surface-safety-lookahead")).toHaveValue("60");
+  await expect
+    .poll(() => panel.locator(".surface-safety__diagram-protection").count())
+    .toBeGreaterThan(0);
   const renderedPoints = await panel
     .locator(".surface-safety__diagram-route")
     .first()
     .getAttribute("points");
   expect(renderedPoints?.trim().split(/\s+/).length).toBeGreaterThanOrEqual(2);
 
-  await panel
-    .locator(`[data-flight-id="${routeTrack!.id}"]`)
-    .click();
+  await panel.locator(`[data-flight-id="${routeTrack!.id}"]`).click();
   await expect(
     panel.locator('.surface-safety__diagram-route[data-focused="true"]'),
   ).toHaveCount(1);
+  const focusedTrack = panel.locator(`[data-flight-id="${routeTrack!.id}"]`);
+  await focusedTrack.focus();
+  await page.waitForTimeout(400);
+  await expect(focusedTrack).toBeFocused();
   if (routeTrack!.crossings > 0) {
     await expect(
       panel.locator(".surface-safety__diagram-crossing"),
@@ -3570,6 +3604,9 @@ test("Surface safety diagram draws taxi routes and runway protection intent", as
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(panel).toBeVisible();
+  await panel.evaluate((element) => {
+    element.scrollTop = 0;
+  });
   await page.screenshot({
     path: testInfo.outputPath("mobile-surface-route-and-protection-intent.png"),
   });

@@ -340,6 +340,12 @@ export function projectRemoteOperationsSnapshot(value: unknown): JsonRecord {
   const surfaceSafety = isRecord(value.surfaceSafety)
     ? value.surfaceSafety
     : {};
+  const surfaceSafetyDisplay = isRecord(surfaceSafety.display)
+    ? surfaceSafety.display
+    : {};
+  const surfaceSafetyLayers = isRecord(surfaceSafetyDisplay.layers)
+    ? surfaceSafetyDisplay.layers
+    : {};
   const score = isRecord(value.score) ? value.score : {};
   const queues = Array.isArray(value.queues)
     ? value.queues
@@ -485,6 +491,17 @@ export function projectRemoteOperationsSnapshot(value: unknown): JsonRecord {
     },
     surfaceSafety: {
       schemaVersion: surfaceSafety.schemaVersion ?? null,
+      visible: surfaceSafety.visible === true,
+      filter: surfaceSafety.filter ?? null,
+      display: {
+        lookaheadSeconds: number(surfaceSafetyDisplay.lookaheadSeconds) ?? null,
+        layers: {
+          routes: surfaceSafetyLayers.routes !== false,
+          corridors: surfaceSafetyLayers.corridors !== false,
+          forecasts: surfaceSafetyLayers.forecasts !== false,
+          vehicles: surfaceSafetyLayers.vehicles !== false,
+        },
+      },
       generatedAtSeconds: number(surfaceSafety.generatedAtSeconds) ?? null,
       protectedRunwayOccupancy: surfaceSafety.protectedRunwayOccupancy ?? 0,
       heldTracks: surfaceSafety.heldTracks ?? 0,

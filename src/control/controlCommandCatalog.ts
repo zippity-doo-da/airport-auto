@@ -1,5 +1,11 @@
 import type { FocusTargetRef } from "../presentation/focusTargets";
 import {
+  SURFACE_SAFETY_DIAGRAM_LAYERS,
+  SURFACE_SAFETY_LOOKAHEAD_OPTIONS,
+  type SurfaceSafetyDiagramLayer,
+  type SurfaceSafetyLookaheadSeconds,
+} from "../presentation/surfaceSafetyDisplay";
+import {
   ACCESSIBILITY_PALETTES,
   type AccessibilityPalette,
 } from "../presentation/accessibilityPalette";
@@ -26,7 +32,10 @@ import type {
   TrainingLessonId,
   WeatherCondition,
 } from "../simulation/types";
-import { AMBIENT_PROGRAM_IDS, type AmbientProgramId } from "../simulation/ambientPrograms";
+import {
+  AMBIENT_PROGRAM_IDS,
+  type AmbientProgramId,
+} from "../simulation/ambientPrograms";
 import {
   ENVIRONMENT_LIGHTING_MODES,
   ENVIRONMENT_SEASON_MODES,
@@ -65,6 +74,11 @@ export interface AirportControlCommandParameters {
   setSurfaceSafetyVisible: { enabled: boolean };
   setSurfaceSafetyFilter: {
     filter: "all" | "tower" | "ground" | "ramp" | "supervisor" | "watch";
+  };
+  setSurfaceSafetyLookahead: { seconds: SurfaceSafetyLookaheadSeconds };
+  setSurfaceSafetyDiagramLayer: {
+    layer: SurfaceSafetyDiagramLayer;
+    enabled: boolean;
   };
   acknowledgeSurfaceAdvisory: { advisoryId: string };
   setRunwayLabelsVisible: { enabled: boolean };
@@ -700,7 +714,11 @@ const COMMAND_SPECS = {
     "presentation",
     "Set the serialized local operation clock offset used by Watch programs.",
     AUTHORITY.public,
-    { minutes: numberSchema("Offset from the airport profile start, in local minutes.") },
+    {
+      minutes: numberSchema(
+        "Offset from the airport profile start, in local minutes.",
+      ),
+    },
     { minutes: 360 },
   ),
   applyAmbientProgram: command(
@@ -744,6 +762,32 @@ const COMMAND_SPECS = {
       ]),
     },
     { filter: "tower" },
+  ),
+  setSurfaceSafetyLookahead: command(
+    "presentation",
+    "Set the predictive horizon shown by the surface-safety picture.",
+    AUTHORITY.public,
+    {
+      seconds: {
+        type: "integer",
+        description: "Surface-safety look-ahead horizon in seconds.",
+        enum: SURFACE_SAFETY_LOOKAHEAD_OPTIONS,
+      },
+    },
+    { seconds: 30 },
+  ),
+  setSurfaceSafetyDiagramLayer: command(
+    "presentation",
+    "Show or hide one optional surface-safety diagram layer without changing safety state.",
+    AUTHORITY.public,
+    {
+      layer: stringSchema(
+        "Surface-safety diagram layer.",
+        SURFACE_SAFETY_DIAGRAM_LAYERS,
+      ),
+      enabled: booleanSchema("Whether the diagram layer is shown."),
+    },
+    { layer: "corridors", enabled: true },
   ),
   acknowledgeSurfaceAdvisory: command(
     "presentation",

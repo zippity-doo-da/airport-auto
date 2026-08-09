@@ -149,9 +149,9 @@ snapshot and is covered by the deterministic validator. Runway entrance and
 takeoff-hold lights now read the shared authoritative runway-protection
 projection: red entrance lights appear only for occupied protected pavement,
 while amber hold lights appear for occupied pavement or an uncleared departure.
-The deterministic safety validator asserts both conditions. Reservations,
-acknowledgement, Supervisor/Watch treatment, responsive visual QA, status-light
-interaction, and predictive incursion detection remain open below.
+The deterministic safety validator asserts both conditions. The remaining A1
+evidence gap is renderer capture during live crossing motion, plus the broader
+keyboard, screen-reader, reduced-motion, and semantic-color audit below.
 Short-final wrong-surface detection also now compares the authoritative aircraft
 pose and heading with its assigned runway centerline, alternate runway ends,
 and nearby taxiway segments. It raises an explainable warning only when an
@@ -200,13 +200,22 @@ runway, hold/crossing points, and pending, held, or cleared state. The optional
 compact safety diagram draws these muted routes and emphasizes only the selected
 track; the main 3D map remains free of automatic route lines. Remote snapshots
 and exact/shareable replay preserve the bounded structural geometry.
+The diagram now has independent, keyboard-accessible Routes, Flight paths,
+Forecasts, and Vehicles layer controls plus a typed 15/30/60-second horizon.
+The same configuration is exposed through the page-local and authenticated
+remote control surfaces. Layer changes affect presentation only; advisory rows,
+physical reservations, and safety arbitration remain authoritative and active.
+Track buttons are reconciled by flight ID rather than recreated every four
+hertz, and panel sections no longer collapse into overlapping rows while the
+bounded panel scrolls. Browser validation holds keyboard focus across a live
+refresh and exercises both direct and API-driven layer changes.
 
 ### Gameplay and UX
 
-- [~] Add a resizable surface-safety panel separate from the existing general
+- [x] Add a resizable surface-safety panel separate from the existing general
   radar inset. It is desktop-resizable and bounded on compact screens, and now
-  includes a compact authoritative surface diagram; advanced controls remain
-  open.
+  includes a compact authoritative surface diagram with station, horizon, and
+  independent diagram-layer controls.
 - [x] Render aircraft, tugs, authorized vehicles, runway occupancy, hold-short
   state, crossing authority, and approach/departure protection zones.
   The optional **Runway protection** map layer now shades each authoritative
@@ -219,14 +228,14 @@ and exact/shareable replay preserve the bounded structural geometry.
   suppress that airborne context while Tower, Supervisor, and Watch retain it.
 - [x] Show track identity, movement state, route intent, last clearance, and
       surveillance freshness without exposing hidden future simulation state.
-- [~] Add configurable look-ahead conflict arcs with a quiet advisory tier and a
+- [x] Add configurable look-ahead conflict arcs with a quiet advisory tier and a
   visually distinct immediate warning tier. The compact diagram now offers
   15-, 30-, and 60-second horizons and draws only active forecast-backed
   track arcs: dashed blue for advisory, solid amber for warning, and red
   for critical. Assigned curved taxi routes, individual crossing points, and
-  approach/departure protection corridors now share the same diagram; broader
-  per-envelope display controls remain
-  open.
+  approach/departure protection corridors now share the same diagram. Routes,
+  flight-path corridors, forecasts, and service-vehicle symbols can each be
+  decluttered without changing the underlying safety state.
 - [x] Add modeled runway entrance lights and takeoff-hold lights driven by the
       authoritative protection state, not decorative animation.
 - [x] Add a toggleable, speed-scaled surface movement-vector layer for aircraft
@@ -244,9 +253,10 @@ and exact/shareable replay preserve the bounded structural geometry.
       Watch presentation. All, Tower, Ground, Ramp, Supervisor, and Watch views
       now have pure shared filter semantics in the Safety panel and local API.
 - [~] Preserve keyboard navigation, screen-reader summaries, color-vision-safe
-  semantics, reduced motion, and 44-pixel touch targets. Track rows and
-  compact-screen controls now meet the touch baseline; the broader audit
-  remains open.
+  semantics, reduced motion, and 44-pixel touch targets. Track rows and all
+  compact-screen controls meet the touch baseline; keyed track reconciliation
+  now preserves keyboard focus across live refreshes and scrollable panel
+  sections no longer overlap. The broader audit remains open.
 
 ### Simulation and API
 

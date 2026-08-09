@@ -165,6 +165,13 @@ import {
   type SurfaceSafetyFilter,
 } from "./ui/surfaceSafetyPanel";
 import {
+  DEFAULT_SURFACE_SAFETY_DIAGRAM_LAYERS,
+  isSurfaceSafetyLookaheadSeconds,
+  type SurfaceSafetyDiagramLayer,
+  type SurfaceSafetyDiagramLayers,
+  type SurfaceSafetyLookaheadSeconds,
+} from "./presentation/surfaceSafetyDisplay";
+import {
   coordinationInboxKey,
   renderCoordinationInbox,
 } from "./ui/coordinationInbox";
@@ -485,6 +492,15 @@ const surfaceSafetyFilter = $<HTMLSelectElement>("#surface-safety-filter");
 const surfaceSafetyLookahead = $<HTMLSelectElement>(
   "#surface-safety-lookahead",
 );
+const surfaceSafetyLayerInputs: Record<
+  SurfaceSafetyDiagramLayer,
+  HTMLInputElement
+> = {
+  routes: $<HTMLInputElement>("#surface-safety-layer-routes"),
+  corridors: $<HTMLInputElement>("#surface-safety-layer-corridors"),
+  forecasts: $<HTMLInputElement>("#surface-safety-layer-forecasts"),
+  vehicles: $<HTMLInputElement>("#surface-safety-layer-vehicles"),
+};
 const surfaceSafetyDiagram = $<HTMLElement>("#surface-safety-diagram");
 const surfaceSafetyTracks = $<HTMLElement>("#surface-safety-tracks");
 const surfaceSafetyVehicles = $<HTMLElement>("#surface-safety-vehicles");
@@ -882,7 +898,10 @@ let radarVisible = false;
 let surfaceSafetyVisible = false;
 let surfaceSafetyUiKey = "";
 let surfaceSafetyFilterValue: SurfaceSafetyFilter = "all";
-let surfaceSafetyLookaheadSeconds = 30;
+let surfaceSafetyLookaheadSeconds: SurfaceSafetyLookaheadSeconds = 30;
+const surfaceSafetyDiagramLayers: SurfaceSafetyDiagramLayers = {
+  ...DEFAULT_SURFACE_SAFETY_DIAGRAM_LAYERS,
+};
 const surfaceSafetyAdvisoryTracker = new SurfaceSafetyAdvisoryTracker();
 const surfaceSafetyAcknowledgements = new SurfaceSafetyAcknowledgements();
 const surfaceSafetyAnnouncements = new SurfaceSafetyAnnouncementTracker();
@@ -2317,10 +2336,16 @@ surfaceSafetyFilter.addEventListener("change", () => {
 });
 
 surfaceSafetyLookahead.addEventListener("change", () => {
-  surfaceSafetyLookaheadSeconds = Number(surfaceSafetyLookahead.value);
-  surfaceSafetyUiKey = "";
-  if (surfaceSafetyVisible) renderSurfaceSafety();
+  setSurfaceSafetyLookahead(Number(surfaceSafetyLookahead.value));
 });
+
+for (const [layer, input] of Object.entries(surfaceSafetyLayerInputs) as Array<
+  [SurfaceSafetyDiagramLayer, HTMLInputElement]
+>) {
+  input.addEventListener("change", () => {
+    setSurfaceSafetyDiagramLayer(layer, input.checked);
+  });
+}
 
 surfaceSafetyTracks.addEventListener("click", (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
@@ -7436,9 +7461,31 @@ function setSurfaceSafetyPanelVisible(visible: boolean): void {
   if (visible) renderSurfaceSafety();
 }
 
+function setSurfaceSafetyLookahead(seconds: number): boolean {
+  if (!isSurfaceSafetyLookaheadSeconds(seconds)) return false;
+  surfaceSafetyLookaheadSeconds = seconds;
+  surfaceSafetyLookahead.value = String(seconds);
+  surfaceSafetyUiKey = "";
+  if (surfaceSafetyVisible) renderSurfaceSafety();
+  return true;
+}
+
+function setSurfaceSafetyDiagramLayer(
+  layer: SurfaceSafetyDiagramLayer,
+  enabled: boolean,
+): void {
+  surfaceSafetyDiagramLayers[layer] = enabled;
+  surfaceSafetyLayerInputs[layer].checked = enabled;
+  surfaceSafetyUiKey = "";
+  if (surfaceSafetyVisible) renderSurfaceSafety();
+}
+
 function renderSurfaceSafety(): void {
   const snapshot = currentSurfaceSafetySnapshot();
-  const key = `${surfaceSafetyPanelKey(snapshot)}|${surfaceSafetyFilterValue}|${surfaceSafetyLookaheadSeconds}|${focusedFlightId ?? "none"}`;
+  const layerKey = Object.entries(surfaceSafetyDiagramLayers)
+    .map(([layer, enabled]) => `${layer}:${Number(enabled)}`)
+    .join(",");
+  const key = `${surfaceSafetyPanelKey(snapshot)}|${surfaceSafetyFilterValue}|${surfaceSafetyLookaheadSeconds}|${layerKey}|${focusedFlightId ?? "none"}`;
   if (key === surfaceSafetyUiKey) return;
   surfaceSafetyUiKey = key;
   renderSurfaceSafetyPanel(
@@ -7456,7 +7503,10 @@ function renderSurfaceSafety(): void {
     snapshot,
     focusedFlightId,
     surfaceSafetyFilterValue,
-    surfaceSafetyLookaheadSeconds,
+    {
+      lookaheadSeconds: surfaceSafetyLookaheadSeconds,
+      layers: surfaceSafetyDiagramLayers,
+    },
   );
 }
 
@@ -8652,6 +8702,10 @@ function airportSnapshot() {
     surfaceSafety: {
       visible: surfaceSafetyVisible,
       filter: surfaceSafetyFilterValue,
+      display: {
+        lookaheadSeconds: surfaceSafetyLookaheadSeconds,
+        layers: { ...surfaceSafetyDiagramLayers },
+      },
       ...structuredClone(currentSurfaceSafetySnapshot()),
     },
     surfaceDisruptions: simulation.state.surfaceDisruptions.map(
@@ -9748,6 +9802,13 @@ function executeAirportRequest(
     surfaceSafetyFilter.value = command.filter;
     surfaceSafetyUiKey = "";
     if (surfaceSafetyVisible) renderSurfaceSafety();
+  }
+  if (command.action === "setSurfaceSafetyLookahead") {
+    accepted = setSurfaceSafetyLookahead(command.seconds);
+    if (!accepted) reason = "look-ahead horizon must be 15, 30, or 60 seconds";
+  }
+  if (command.action === "setSurfaceSafetyDiagramLayer") {
+    setSurfaceSafetyDiagramLayer(command.layer, command.enabled);
   }
   if (command.action === "acknowledgeSurfaceAdvisory") {
     const acknowledgement = surfaceSafetyAcknowledgements.acknowledge(

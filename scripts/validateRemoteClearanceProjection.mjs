@@ -37,6 +37,12 @@ const snapshot = projectRemoteOperationsSnapshot({
   },
   surfaceSafety: {
     schemaVersion: 3,
+    visible: true,
+    filter: 'tower',
+    display: {
+      lookaheadSeconds: 60,
+      layers: { routes: true, corridors: false, forecasts: true, vehicles: false },
+    },
     generatedAtSeconds: 12,
     protectedRunwayOccupancy: 1,
     heldTracks: 1,
@@ -78,6 +84,8 @@ assert(message.causalEventIds.length === 2 && message.expiresAtSeconds === 20, '
 assert(message.response?.status === 'delivered' && message.parameters.distanceNm === 14, 'remote projection dropped typed response content');
 assert(!Object.hasOwn(message, 'detail'), 'remote projection leaked free-form clearance detail');
 assert(snapshot.surfaceSafety.schemaVersion === 3 && snapshot.surfaceSafety.tracks[0].routeIntent === 'RWY 09', 'remote projection omitted authoritative surface tracks');
+assert(snapshot.surfaceSafety.visible && snapshot.surfaceSafety.filter === 'tower' && snapshot.surfaceSafety.display.lookaheadSeconds === 60, 'remote projection omitted surface display configuration');
+assert(snapshot.surfaceSafety.display.layers.corridors === false && snapshot.surfaceSafety.display.layers.vehicles === false, 'remote projection changed surface diagram layer visibility');
 assert(snapshot.surfaceSafety.tracks[0].routeGeometry.points.length === 3 && snapshot.surfaceSafety.tracks[0].routeGeometry.crossings[0].status === 'held', 'remote projection omitted bounded route or crossing geometry');
 assert(snapshot.surfaceSafety.protectionCorridors[0].operation === 'departure' && snapshot.surfaceSafety.protectionCorridors[0].points.length === 3, 'remote projection omitted bounded runway protection corridor geometry');
 assert(snapshot.surfaceSafety.advisories[0].geometry.points.length === 2 && snapshot.surfaceSafety.advisories[0].detail === 'runway forecast', 'remote projection omitted bounded surface advisory geometry');

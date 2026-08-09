@@ -28,12 +28,16 @@ assert(CONTROL_SNAPSHOT_SCHEMA_VERSION === 42, 'snapshot schema version changed 
 assert(CONTROL_REPLAY_SCHEMA_VERSION === 4, 'replay schema version changed unexpectedly');
 
 const definitions = Object.values(AIRPORT_CONTROL_COMMAND_DEFINITIONS);
-assert(definitions.length === 101, 'formal command catalog count changed unexpectedly');
+assert(definitions.length === 103, 'formal command catalog count changed unexpectedly');
 assert(validateAirportControlCommand({ action: 'setEnvironmentLightingMode', mode: 'automatic' }).valid, 'environment lighting command was rejected');
 assert(validateAirportControlCommand({ action: 'setEnvironmentSeasonMode', mode: 'winter' }).valid, 'environment season command was rejected');
 assert(validateAirportControlCommand({ action: 'applyAmbientProgram', id: 'quiet-overnight' }).valid, 'ambient program command was rejected');
 assert(validateAirportControlCommand({ action: 'setAccessibilityPalette', palette: 'cvd-safe' }).valid, 'accessibility palette command was rejected');
 assert(validateAirportControlCommand({ action: 'setCameraDirectorEnabled', enabled: true }).valid, 'camera director command was rejected');
+assert(validateAirportControlCommand({ action: 'setSurfaceSafetyLookahead', seconds: 60 }).valid, 'surface-safety horizon command was rejected');
+assert(validateAirportControlCommand({ action: 'setSurfaceSafetyDiagramLayer', layer: 'corridors', enabled: false }).valid, 'surface-safety layer command was rejected');
+assert(!validateAirportControlCommand({ action: 'setSurfaceSafetyLookahead', seconds: 20 }).valid, 'unsupported surface-safety horizon was accepted');
+assert(!validateAirportControlCommand({ action: 'setSurfaceSafetyDiagramLayer', layer: 'labels', enabled: true }).valid, 'unknown surface-safety layer was accepted');
 assert(new Set(definitions.map((definition) => definition.action)).size === definitions.length, 'command actions are not unique');
 assert(definitions.every((definition) => definition.schema.additionalProperties === false), 'a command schema permits unknown parameters');
 assert(definitions.every((definition) => definition.compatibility.protocolMajor === 1), 'a command has the wrong protocol major');

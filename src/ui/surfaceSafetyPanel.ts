@@ -5,6 +5,7 @@ import type {
   SurfaceVehicleTrack,
 } from "../simulation/surfaceSafety";
 import type { AirportConfig } from "../simulation/airportConfig";
+import type { SurfaceSafetyDisplayConfig } from "../presentation/surfaceSafetyDisplay";
 
 export interface SurfaceSafetyPanelElements {
   panel: HTMLElement;
@@ -73,7 +74,7 @@ export function renderSurfaceSafetyPanel(
   snapshot: SurfaceSafetySnapshot,
   focusedFlightId: number | null,
   filter: SurfaceSafetyFilter,
-  lookaheadSeconds: number,
+  display: SurfaceSafetyDisplayConfig,
 ): void {
   elements.movers.textContent = String(
     snapshot.tracks.filter((track) => track.state !== "parked").length,
@@ -84,28 +85,27 @@ export function renderSurfaceSafetyPanel(
   elements.holds.textContent = String(snapshot.heldTracks);
   const visibleTracks = surfaceSafetyTracksForFilter(snapshot, filter);
   const visibleVehicles = surfaceSafetyVehiclesForFilter(snapshot, filter);
-  const visibleCorridors = surfaceSafetyCorridorsForFilter(snapshot, filter);
+  const diagramVehicles = display.layers.vehicles ? visibleVehicles : [];
+  const visibleCorridors = display.layers.corridors
+    ? surfaceSafetyCorridorsForFilter(snapshot, filter)
+    : [];
+  const diagramAdvisories = display.layers.forecasts ? snapshot.advisories : [];
   renderSurfaceDiagram(
     elements.diagram,
     config,
     visibleTracks,
-    visibleVehicles,
+    diagramVehicles,
     visibleCorridors,
-    snapshot.advisories,
+    diagramAdvisories,
     focusedFlightId,
-    lookaheadSeconds,
+    display.lookaheadSeconds,
+    display.layers.routes,
   );
-  elements.tracks.replaceChildren(
-    ...visibleTracks
-      .slice(0, 10)
-      .map((track) => trackRow(track, focusedFlightId)),
+  reconcileTrackRows(
+    elements.tracks,
+    visibleTracks.slice(0, 10),
+    focusedFlightId,
   );
-  if (!visibleTracks.length) {
-    const empty = document.createElement("small");
-    empty.className = "surface-safety__clear";
-    empty.textContent = "No tracks match this station view.";
-    elements.tracks.append(empty);
-  }
   elements.vehicles.replaceChildren(
     ...visibleVehicles.slice(0, 8).map(vehicleRow),
   );
@@ -199,6 +199,7 @@ function renderSurfaceDiagram(
   advisories: SurfaceSafetySnapshot["advisories"],
   focusedFlightId: number | null,
   lookaheadSeconds: number,
+  showRoutes: boolean,
 ): void {
   const runwayPoints = config.runways.flatMap((runway) => {
     const half = runway.length / 2;
@@ -212,7 +213,9 @@ function renderSurfaceDiagram(
   const points = [
     ...runwayPoints,
     ...tracks.map((track) => [track.x, track.y]),
-    ...tracks.flatMap((track) => track.routeGeometry?.points ?? []),
+    ...(showRoutes
+      ? tracks.flatMap((track) => track.routeGeometry?.points ?? [])
+      : []),
     ...tracks.flatMap(
       (track) =>
         track.routeGeometry?.crossings.flatMap((crossing) => [
@@ -266,7 +269,7 @@ function renderSurfaceDiagram(
       return `<path class="surface-safety__diagram-track" d="M -2.4 1.9 L 2.8 0 L -2.4 -1.9 Z" fill="${color}" transform="translate(${track.x} ${svgY(track.y)}) rotate(${-track.headingDegrees})" />`;
     })
     .join("");
-  const routeLines = tracks
+  const routeLines = (showRoutes ? tracks : [])
     .filter((track) => (track.routeGeometry?.points.length ?? 0) >= 2)
     .map((track) => {
       const route = track.routeGeometry!;
@@ -404,11 +407,52 @@ function trackRow(
   const row = document.createElement("button");
   row.type = "button";
   row.className = "surface-safety__track";
+  updateTrackRow(row, track, focusedFlightId);
+  return row;
+}
+
+function updateTrackRow(
+  row: HTMLButtonElement,
+  track: SurfaceTrack,
+  focusedFlightId: number | null,
+): void {
   row.dataset.flightId = String(track.id);
   row.dataset.state = track.state;
   row.setAttribute("aria-pressed", String(track.id === focusedFlightId));
-  row.innerHTML = `<b>${escapeHtml(track.callsign)}</b><i>${trackStateLabel(track)}</i><span>${escapeHtml(track.location)} · ${track.groundspeedKts} kt · ${track.headingDegrees.toString().padStart(3, "0")}°</span><small>${escapeHtml(track.routeIntent)} · ${escapeHtml(track.clearanceSummary)} · ${track.surveillanceAgeSeconds}s track age</small>`;
-  return row;
+  const content = `<b>${escapeHtml(track.callsign)}</b><i>${trackStateLabel(track)}</i><span>${escapeHtml(track.location)} · ${track.groundspeedKts} kt · ${track.headingDegrees.toString().padStart(3, "0")}°</span><small>${escapeHtml(track.routeIntent)} · ${escapeHtml(track.clearanceSummary)} · ${track.surveillanceAgeSeconds}s track age</small>`;
+  if (row.innerHTML !== content) row.innerHTML = content;
+}
+
+function reconcileTrackRows(
+  container: HTMLElement,
+  tracks: SurfaceTrack[],
+  focusedFlightId: number | null,
+): void {
+  const existing = new Map(
+    Array.from(
+      container.querySelectorAll<HTMLButtonElement>("[data-flight-id]"),
+    ).map((row) => [Number(row.dataset.flightId), row]),
+  );
+  const retained = new Set<HTMLButtonElement>();
+  tracks.forEach((track, index) => {
+    const row = existing.get(track.id) ?? trackRow(track, focusedFlightId);
+    updateTrackRow(row, track, focusedFlightId);
+    retained.add(row);
+    const current = container.children.item(index);
+    if (current !== row) container.insertBefore(row, current);
+  });
+  for (const row of existing.values()) {
+    if (!retained.has(row)) row.remove();
+  }
+  container
+    .querySelectorAll(".surface-safety__clear")
+    .forEach((row) => row.remove());
+  if (!tracks.length) {
+    const empty = document.createElement("small");
+    empty.className = "surface-safety__clear";
+    empty.textContent = "No tracks match this station view.";
+    container.append(empty);
+  }
 }
 
 function advisoryRow(
