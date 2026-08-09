@@ -1,7 +1,7 @@
 # Airport Auto Goals
 
 Status: active product and implementation ledger  
-Last reconciled: August 8, 2026
+Last reconciled: August 9, 2026
 Baseline: Airport Auto 2.41 plus the additive Research Annex navigation
 Companion ledger: [Combat Simulation Goals](COMBAT_GOALS.md)
 
@@ -176,6 +176,13 @@ diagram renders that corridor alongside its forecast arc, and the same points
 survive the remote redaction boundary. This makes a predicted crossing leg
 inspectable before the aircraft reaches the protected envelope; it does not
 grant clearance or change movement arbitration.
+The deterministic acceptance fixture now exercises both an uncleared crossing
+and a stale-clearance fault on a real sourced named-hub route. Cleared and
+uncleared crossing windows remain forecast-visible whenever another movement
+protects the runway, imported control-point IDs resolve to their authoritative
+coordinates, and the warning is asserted before collision detection reports an
+incursion. Independent parallel runway movements are explicitly verified as
+noncritical.
 
 ### Gameplay and UX
 
@@ -246,8 +253,12 @@ grant clearance or change movement arbitration.
       lifecycle repeats that assertion through real pushback, taxi, runway
       entry, lineup, and takeoff-roll movement. Renderer capture and live
       crossing-motion coverage remain open.
-- [ ] Every seeded runway-incursion test produces an advisory before protected
+- [x] Every seeded runway-incursion test produces an advisory before protected
       envelopes overlap; safe parallel operations do not produce a critical alert.
+      The surface-safety validator covers an uncleared crossing, a stale cleared
+      crossing on a sourced named-hub route, pre-overlap collision state,
+      explainable control-point corridor geometry, and an independent-parallel
+      negative control.
 - [ ] The panel remains usable at 1440×900, 1024×600, and 390×844 without hiding
       the Controls or Combat transitions.
 - [ ] Enabling the panel remains within the established renderer/DOM update

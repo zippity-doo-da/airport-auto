@@ -2491,26 +2491,58 @@ export class AirportSimulation {
 
     // Surface runway crossings have an explicit hold line and clearance
     // lifecycle, so expose a forecast before the aircraft reaches the line.
-    // The movement arbiter remains authoritative; this is only the shared
-    // safety picture used by the UI, telemetry, and agent-facing snapshots.
+    // Inspect cleared crossings too: a seeded fault, stale clearance, or a
+    // changed runway operation must remain visible even though the ordinary
+    // command arbiter would have refused the conflicting clearance. The
+    // movement arbiter remains authoritative; this is only the shared safety
+    // picture used by the UI, telemetry, and agent-facing snapshots.
     for (const flight of active) {
       if (flight.phase !== "taxi-in" && flight.phase !== "taxi-out") continue;
-      const crossing = this.nextUnclearedCrossing(flight);
-      if (!crossing) continue;
-      const distanceM = crossing.distanceToHold * WORLD_METERS_PER_UNIT;
-      if (
-        distanceM > RUNWAY_CROSSING_ADVISORY_LOOKAHEAD_M ||
-        distanceM < -RUNWAY_HOLD_POSITION_TOLERANCE_M
-      )
-        continue;
-      const blocker = this.runwayBlocker(crossing.runwayId, flight.id);
-      if (!blocker) continue;
+      const plan = this.surfaceCrossingPlan(flight);
+      const centerOffsetM =
+        aircraftProfile(flight.aircraft).lengthM / 2 +
+        RUNWAY_HOLD_SHORT_NOSE_BUFFER_M;
+      const currentDistanceWorld = flight.progress * plan.routeDistanceWorld;
+      const forecast = plan.windows
+        .filter(
+          (candidate) =>
+            candidate.exitProgress + 1e-6 >= flight.progress,
+        )
+        .map((crossing) => {
+          const distanceM = Math.max(
+            0,
+            (crossing.holdProgress * plan.routeDistanceWorld -
+              currentDistanceWorld) *
+              WORLD_METERS_PER_UNIT -
+              centerOffsetM,
+          );
+          return {
+            crossing,
+            distanceM,
+            blocker: this.runwayBlocker(crossing.runwayId, flight.id),
+          };
+        })
+        .find(
+          (candidate) =>
+            candidate.distanceM <= RUNWAY_CROSSING_ADVISORY_LOOKAHEAD_M &&
+            candidate.blocker,
+        );
+      if (!forecast?.blocker) continue;
+      const { crossing, distanceM, blocker } = forecast;
       const corridorPointId = crossing.holdPointId ?? crossing.crossingPointId;
-      const holdPoint = corridorPointId
-        ? this.config.surfaceGraph.nodes.find(
-            (node) => node.id === corridorPointId,
+      const corridorControlPoint = corridorPointId
+        ? this.config.surfaceGraph.controlPoints.find(
+            (controlPoint) => controlPoint.id === corridorPointId,
           )
         : undefined;
+      const corridorNodeId = corridorControlPoint?.nodeId ?? corridorPointId;
+      const holdPoint = corridorNodeId
+        ? this.config.surfaceGraph.nodes.find(
+            (node) => node.id === corridorNodeId,
+          )
+        : undefined;
+      const holdPointPosition =
+        corridorControlPoint?.position ?? holdPoint?.position;
       const speedMps = Math.max(
         3,
         flight.kinematics.groundSpeedKts * KNOT_TO_MPS,
@@ -2524,13 +2556,13 @@ export class AirportSimulation {
           1,
           Math.min(120, Math.round(Math.max(0, distanceM) / speedMps)),
         ),
-        detail: `${flight.callsign} is approaching ${this.activeRunwayDesignation(crossing.runwayId)} crossing${corridorPointId ? ` ${corridorPointId}` : ""}; ${blocker.callsign} is protecting the runway`,
-        geometry: holdPoint
+        detail: `${flight.callsign} ${this.crossingIsCleared(flight, crossing) ? "has a crossing clearance conflicting with" : "is approaching"} ${this.activeRunwayDesignation(crossing.runwayId)} crossing${corridorPointId ? ` ${corridorPointId}` : ""}; ${blocker.callsign} is protecting the runway`,
+        geometry: holdPointPosition
           ? {
               kind: "corridor" as const,
               points: [
                 [flight.motion.x, flight.motion.y] as [number, number],
-                [holdPoint.position[0], holdPoint.position[1]] as [
+                [holdPointPosition[0], holdPointPosition[1]] as [
                   number,
                   number,
                 ],

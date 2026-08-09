@@ -9,7 +9,8 @@ import { runwayProtectionStatuses } from "./src/simulation/runwayProtection.ts";
 import { runwayEndPoint, runwayTravelDirection } from "./src/simulation/runwayGeometry.ts";
 import { SurfaceSafetyAcknowledgements } from "./src/simulation/surfaceSafetyAcknowledgements.ts";
 import { SurfaceSafetyAnnouncementTracker } from "./src/presentation/surfaceSafetyAnnouncements.ts";
-import { aircraftCollisionEnvelope } from "./src/simulation/collisionDetection.ts";
+import { aircraftCollisionEnvelope, findFlightConflicts } from "./src/simulation/collisionDetection.ts";
+import { syncFlightMotion } from "./src/simulation/flightMotion.ts";
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -103,6 +104,148 @@ simulation.surfaceCrossingPlan = originalSurfaceCrossingPlan;
 assert(
   crossingForecast?.flights.includes(second.id) && crossingForecast.runway !== undefined,
   "an approaching taxi crossing protected by active runway traffic did not create a pre-incursion forecast",
+);
+
+// Exercise the actual sourced ORD graph and crossing cache rather than only
+// the synthetic unit fixture above. Force a stale crossing clearance while a
+// runway movement owns the same runway, then prove the shared safety picture
+// warns before the physical collision layer reports an incursion.
+let seededConfig;
+let seededIncursion;
+let seededCrossingFlight;
+seededSearch: for (let hubIndex = 0; hubIndex < HUB_AIRPORTS.length; hubIndex += 1) {
+  const candidateConfig = generateHubConfig(hubIndex);
+  const candidateSimulation = new AirportSimulation(candidateConfig);
+  for (const sourceFlight of candidateSimulation.state.flights) {
+    for (const runway of candidateConfig.runways) {
+      const candidate = structuredClone(sourceFlight);
+      candidate.phase = "taxi-out";
+      candidate.progress = 0;
+      candidate.runway = runway.id;
+      candidate.departureRunway = runway.id;
+      candidate.operatingEnd = runway.takeoffEnd;
+      candidate.surfaceRoute = undefined;
+      candidate.surfaceRouteEdges = undefined;
+      candidateSimulation.assignSurfaceRoute(candidate, "taxi-out");
+      if (candidateSimulation.surfaceCrossingPlan(candidate).windows.length > 0) {
+        seededConfig = candidateConfig;
+        seededIncursion = candidateSimulation;
+        seededCrossingFlight = candidate;
+        break seededSearch;
+      }
+    }
+  }
+  // Some hub planners deliberately avoid assigning a crossing to their
+  // opening bank. Advance the same deterministic Auto seed until normal
+  // arrivals/departures create a sourced crossing route, rather than inventing
+  // graph geometry for the acceptance fixture.
+  candidateSimulation.setMode("auto");
+  candidateSimulation.setPace(3);
+  candidateSimulation.setPaused(false);
+  for (let step = 0; step < 16_000; step += 1) {
+    candidateSimulation.update(0.05);
+    if (step % 20 !== 0) continue;
+    const routed = candidateSimulation.state.flights.find(
+      (flight) =>
+        (flight.phase === "taxi-in" || flight.phase === "taxi-out") &&
+        candidateSimulation.surfaceCrossingPlan(flight).windows.length > 0,
+    );
+    if (!routed) continue;
+    seededConfig = candidateConfig;
+    seededIncursion = candidateSimulation;
+    seededCrossingFlight = structuredClone(routed);
+    break seededSearch;
+  }
+}
+assert(seededConfig && seededIncursion && seededCrossingFlight, "named-hub traffic needs a real sourced runway crossing");
+const seededCrossing = seededIncursion.surfaceCrossingPlan(seededCrossingFlight).windows[0];
+const seededRunwayOwner = seededIncursion.state.flights.find(
+  (flight) => flight.id !== seededCrossingFlight.id,
+);
+assert(seededCrossing && seededRunwayOwner, "seeded incursion fixture needs a crossing and runway owner");
+seededCrossingFlight.progress = Math.max(0, seededCrossing.holdProgress - 0.02);
+seededCrossingFlight.crossingClearanceIds = [seededCrossing.id];
+seededCrossingFlight.crossingClearances = [seededCrossing.runwayId];
+syncFlightMotion(seededConfig, seededCrossingFlight);
+seededRunwayOwner.phase = "takeoff";
+seededRunwayOwner.runway = seededCrossing.runwayId;
+seededRunwayOwner.operatingEnd = seededConfig.runways[seededCrossing.runwayId].takeoffEnd;
+seededRunwayOwner.progress = 0.12;
+seededRunwayOwner.runwayEntryCleared = true;
+seededRunwayOwner.takeoffCleared = true;
+seededRunwayOwner.surfaceRoute = undefined;
+seededRunwayOwner.surfaceRouteEdges = undefined;
+syncFlightMotion(seededConfig, seededRunwayOwner);
+seededIncursion.state.flights = [seededCrossingFlight, seededRunwayOwner];
+const seededPreOverlapConflicts = findFlightConflicts(seededConfig, seededIncursion.state.flights);
+assert(
+  !seededPreOverlapConflicts.some((conflict) => conflict.type === "runway-incursion"),
+  "seeded crossing fixture already overlapped before predictive evaluation",
+);
+const seededPrediction = seededIncursion.conflictPredictions().find(
+  (prediction) =>
+    prediction.type === "crossing" &&
+    prediction.flights.includes(seededCrossingFlight.id) &&
+    prediction.flights.includes(seededRunwayOwner.id),
+);
+assert(
+  seededPrediction && seededPrediction.etaSeconds > 0,
+  "a real seeded ORD stale crossing clearance did not warn before protected envelopes overlapped",
+);
+const seededAdvisory = surfaceSafetySnapshot(
+  seededConfig,
+  seededIncursion.state,
+  [seededPrediction],
+  { collisionAlerts: 0, runwayIncursions: 0 },
+).advisories.find((advisory) => advisory.kind === "runway-crossing");
+assert(
+  seededAdvisory?.severity === "warning" && seededAdvisory.geometry.kind === "corridor",
+  "seeded pre-incursion prediction did not survive as an explainable warning corridor: " + JSON.stringify({ prediction: seededPrediction, advisory: seededAdvisory, crossing: seededCrossing }),
+);
+
+const safeParallelRunways = seededConfig.runways.flatMap((runway, index) =>
+  seededConfig.runways.slice(index + 1).flatMap((other) =>
+    Math.abs(Math.sin(runway.heading - other.heading)) < 0.08 &&
+    !seededIncursion.runwaysConflict(runway.id, other.id)
+      ? [[runway, other]]
+      : [],
+  ),
+)[0];
+assert(safeParallelRunways, "ORD needs an independent parallel runway pair for safety validation");
+const [parallelFirstRunway, parallelSecondRunway] = safeParallelRunways;
+const parallelFirst = structuredClone(seededCrossingFlight);
+const parallelSecond = structuredClone(seededRunwayOwner);
+parallelFirst.id = 9001;
+parallelFirst.phase = "takeoff";
+parallelFirst.runway = parallelFirstRunway.id;
+parallelFirst.operatingEnd = parallelFirstRunway.takeoffEnd;
+parallelFirst.progress = 0.45;
+parallelFirst.surfaceRoute = undefined;
+parallelFirst.surfaceRouteEdges = undefined;
+parallelSecond.id = 9002;
+parallelSecond.phase = "takeoff";
+parallelSecond.runway = parallelSecondRunway.id;
+parallelSecond.operatingEnd = parallelSecondRunway.takeoffEnd;
+parallelSecond.progress = 0.45;
+parallelSecond.surfaceRoute = undefined;
+parallelSecond.surfaceRouteEdges = undefined;
+syncFlightMotion(seededConfig, parallelFirst);
+syncFlightMotion(seededConfig, parallelSecond);
+assert(
+  !findFlightConflicts(seededConfig, [parallelFirst, parallelSecond]).some(
+    (conflict) => conflict.type === "runway-incursion",
+  ),
+  "independent parallel runway movements produced a false incursion",
+);
+const safeParallelSnapshot = surfaceSafetySnapshot(
+  seededConfig,
+  { ...seededIncursion.state, flights: [parallelFirst, parallelSecond] },
+  [],
+  { collisionAlerts: 0, runwayIncursions: 0 },
+);
+assert(
+  !safeParallelSnapshot.advisories.some((advisory) => advisory.severity === "critical"),
+  "safe independent parallel operations produced a critical surface advisory",
 );
 
 simulation.state.serviceVehicles.push({
