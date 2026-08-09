@@ -181,6 +181,56 @@ assert(!objectiveSimulation.setTrafficFlowObjective('watch-calm'), 'non-supervis
 objectiveSimulation.setStation('supervisor');
 assert(objectiveSimulation.setTrafficFlowObjective('minimum-taxi-delay') && objectiveSimulation.state.trafficFlow.objective === 'minimum-taxi-delay', 'supervisor could not set the traffic-flow objective');
 
+const balancedRelease = new AirportSimulation(ordConfig, 'quiet');
+balancedRelease.setMode('auto');
+const meteredDeparture = structuredClone(balancedRelease.state.flights[0]);
+meteredDeparture.phase = 'taxi-out';
+balancedRelease.state.flights = [meteredDeparture];
+balancedRelease.state.elapsed = 100;
+balancedRelease.state.trafficFlow = createTrafficFlowState('extreme', 0, 1_000);
+enqueueArrivalDemand(balancedRelease.state.trafficFlow, 0, 'balanced release validation');
+balancedRelease['runwayOperationHistory'] = [];
+balancedRelease['lastArrivalAdmissionReason'] = '12s behind TEST 1 · 21s arrival interval · converging · validation';
+const protectedRelease = ordConfig.runways
+  .map((runway) => {
+    meteredDeparture.runway = runway.id;
+    return balancedRelease['runwayReleaseBlocker'](meteredDeparture, 'departure');
+  })
+  .find((reason) => reason?.includes('arrival meter protects'));
+assert(protectedRelease, 'Auto did not protect an overdue arrival release window from a continuous departure bank');
+balancedRelease['lastArrivalAdmissionReason'] = 'protected arrival sweep occupied by TEST 2';
+assert(
+  balancedRelease['runwayReleaseBlocker'](meteredDeparture, 'departure') === null,
+  'Auto protected an arrival slot while a non-runway admission blocker was still active',
+);
+
+const releasedBlocker = new AirportSimulation(ordConfig, 'quiet');
+const dependentFlight = releasedBlocker.state.flights[0];
+const departingBlocker = releasedBlocker.state.flights[1];
+dependentFlight.phase = 'taxi-out';
+dependentFlight.safetyHold = true;
+dependentFlight.safetyHoldReason =
+  'projected path conflict with flight ' + departingBlocker.id;
+releasedBlocker['stationarySeconds'].set(dependentFlight.id, 1_000);
+releasedBlocker['releaseFlightRuntimeState'](departingBlocker);
+assert(
+  !dependentFlight.safetyHold &&
+    !dependentFlight.safetyHoldReason &&
+    releasedBlocker['stationarySeconds'].get(dependentFlight.id) === 0,
+  'removing a blocker left a dependent aircraft in a stale projected-path hold',
+);
+dependentFlight.safetyHold = true;
+dependentFlight.safetyHoldReason =
+  'projected path conflict with flight ' + departingBlocker.id;
+releasedBlocker['stationarySeconds'].set(dependentFlight.id, 1_000);
+releasedBlocker.state.flights = [dependentFlight];
+releasedBlocker['releaseStaleProjectedPathHolds']();
+assert(
+  !dependentFlight.safetyHold &&
+    releasedBlocker['stationarySeconds'].get(dependentFlight.id) === 0,
+  'end-of-tick cleanup retained a projected-path hold for a departed blocker',
+);
+
 const hub = createHubSimulationHarness('ORD', { stepSeconds: 0.1, pace: 3, mode: 'auto', density: 'extreme' });
 const initialIds = new Set(hub.simulation.state.flights.map((flight) => flight.id));
 assert(initialIds.size >= 10, 'ORD: opening bank is too quiet for the hub-scale surface (' + initialIds.size + ' aircraft)');

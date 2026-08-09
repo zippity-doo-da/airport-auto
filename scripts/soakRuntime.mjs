@@ -97,6 +97,15 @@ const traceFrames = [];
 let nextTraceAtSeconds = 0;
 let completedOperations = simulation.state.arrivals + simulation.state.departures;
 let lastCompletedOperationAtSeconds = simulation.state.elapsed;
+let completedArrivals = simulation.state.arrivals;
+let completedDepartures = simulation.state.departures;
+let lastArrivalAtSeconds = simulation.state.elapsed;
+let lastDepartureAtSeconds = simulation.state.elapsed;
+let lastTrafficMotionAtSeconds = simulation.state.elapsed;
+let maximumSecondsWithoutTrafficMotion = 0;
+let maximumStationarySeconds = 0;
+let maximumStationaryFlight = null;
+let sampledFlightMotion = new Map();
 let nextSample = 0;
 let nextCheckpoint = 1_800;
 const wallStarted = performance.now();
@@ -260,9 +269,111 @@ while (simulation.state.elapsed < targetModeledSeconds) {
     completedOperations = nextCompletedOperations;
     lastCompletedOperationAtSeconds = simulation.state.elapsed;
   }
+  if (simulation.state.arrivals > completedArrivals) {
+    completedArrivals = simulation.state.arrivals;
+    lastArrivalAtSeconds = simulation.state.elapsed;
+  }
+  if (simulation.state.departures > completedDepartures) {
+    completedDepartures = simulation.state.departures;
+    lastDepartureAtSeconds = simulation.state.elapsed;
+  }
   for (const flight of simulation.state.flights) createdFlights.add(flight.id);
   if (simulation.state.elapsed >= nextSample) {
     const queues = simulation.queueSnapshot();
+    const activeMotion = simulation.state.flights.some((flight) => {
+      if (flight.phase === 'resting') return false;
+      const previous = sampledFlightMotion.get(flight.id);
+      if (!previous) return true;
+      return (
+        previous.phase !== flight.phase ||
+        Math.abs(previous.x - flight.motion.x) > 0.01 ||
+        Math.abs(previous.y - flight.motion.y) > 0.01 ||
+        Math.abs(previous.z - flight.motion.z) > 0.01
+      );
+    });
+    if (activeMotion) lastTrafficMotionAtSeconds = simulation.state.elapsed;
+    maximumSecondsWithoutTrafficMotion = Math.max(
+      maximumSecondsWithoutTrafficMotion,
+      simulation.state.elapsed - lastTrafficMotionAtSeconds,
+    );
+    sampledFlightMotion = new Map(
+      simulation.state.flights.map((flight) => [flight.id, {
+        phase: flight.phase,
+        x: flight.motion.x,
+        y: flight.motion.y,
+        z: flight.motion.z,
+      }]),
+    );
+    for (const flight of simulation.state.flights) {
+      if (flight.phase === 'resting') continue;
+      const stationarySeconds = simulation.stationarySeconds.get(flight.id) ?? 0;
+      if (stationarySeconds <= maximumStationarySeconds) continue;
+      maximumStationarySeconds = stationarySeconds;
+      maximumStationaryFlight = {
+        id: flight.id,
+        callsign: flight.callsign,
+        phase: flight.phase,
+        progress: Number(flight.progress.toFixed(6)),
+        surfaceNode: flight.surfaceNode ?? null,
+        surfaceEdge: flight.surfaceEdge ?? null,
+        surfaceYield: flight.surfaceYield
+          ? {
+              status: flight.surfaceYield.status,
+              direction: flight.surfaceYield.direction,
+              targetProgress: Number(flight.surfaceYield.targetProgress.toFixed(6)),
+            }
+          : null,
+        surfaceReroute: flight.surfaceReroute
+          ? {
+              revision: flight.surfaceReroute.revision,
+              status: flight.surfaceReroute.status,
+              reason: flight.surfaceReroute.reason,
+            }
+          : null,
+        reason: flight.safetyHoldReason ?? flight.automaticHoldReason ?? (flight.controlHold ? 'controller hold' : null),
+        blocker: (() => {
+          const blockerId = Number(
+            (flight.safetyHoldReason ?? '').match(/flight (\\d+)/)?.[1],
+          );
+          const blocker = simulation.state.flights.find(
+            (candidate) => candidate.id === blockerId,
+          );
+          return blocker
+            ? {
+                id: blocker.id,
+                callsign: blocker.callsign,
+                phase: blocker.phase,
+                progress: Number(blocker.progress.toFixed(6)),
+                stationarySeconds: Number(
+                  (simulation.stationarySeconds.get(blocker.id) ?? 0).toFixed(1),
+                ),
+                surfaceNode: blocker.surfaceNode ?? null,
+                surfaceEdge: blocker.surfaceEdge ?? null,
+                reason:
+                  blocker.safetyHoldReason ??
+                  blocker.automaticHoldReason ??
+                  (blocker.controlHold ? 'controller hold' : null),
+                surfaceYield: blocker.surfaceYield
+                  ? {
+                      status: blocker.surfaceYield.status,
+                      direction: blocker.surfaceYield.direction,
+                      targetProgress: Number(
+                        blocker.surfaceYield.targetProgress.toFixed(6),
+                      ),
+                    }
+                  : null,
+                surfaceReroute: blocker.surfaceReroute
+                  ? {
+                      revision: blocker.surfaceReroute.revision,
+                      status: blocker.surfaceReroute.status,
+                      reason: blocker.surfaceReroute.reason,
+                    }
+                  : null,
+              }
+            : null;
+        })(),
+      };
+    }
     maximumAircraft = Math.max(maximumAircraft, simulation.state.flights.length);
     maximumVehicles = Math.max(maximumVehicles, simulation.state.serviceVehicles.length);
     maximumQueues = Math.max(maximumQueues, queues.total);
@@ -291,6 +402,10 @@ while (simulation.state.elapsed < targetModeledSeconds) {
       queues: simulation.queueSnapshot().total,
       completedOperations,
       secondsSinceCompletedOperation: Number((simulation.state.elapsed - lastCompletedOperationAtSeconds).toFixed(1)),
+      secondsSinceArrival: Number((simulation.state.elapsed - lastArrivalAtSeconds).toFixed(1)),
+      secondsSinceDeparture: Number((simulation.state.elapsed - lastDepartureAtSeconds).toFixed(1)),
+      secondsWithoutTrafficMotion: Number((simulation.state.elapsed - lastTrafficMotionAtSeconds).toFixed(1)),
+      maximumStationarySeconds: Number(maximumStationarySeconds.toFixed(1)),
       simP95Ms: monitor.snapshot().simulationTickMs.p95,
       heapMiBPerHour: monitor.snapshot().growth.heapMiBPerHour,
       heapMeasurement,
@@ -306,6 +421,8 @@ const diagnostics = simulation.diagnostics();
 const snapshot = monitor.snapshot();
 const finalQueues = simulation.queueSnapshot();
 const secondsSinceCompletedOperation = simulation.state.elapsed - lastCompletedOperationAtSeconds;
+const secondsSinceArrival = simulation.state.elapsed - lastArrivalAtSeconds;
+const secondsSinceDeparture = simulation.state.elapsed - lastDepartureAtSeconds;
 const surfaceEdgeById = new Map(configuration.surfaceGraph.edges.map((edge) => [edge.id, edge]));
 const failures = [];
 if (diagnostics.metrics.collisionAlerts !== 0) failures.push('collision alerts');
@@ -317,6 +434,18 @@ if (maximumAircraft > snapshot.budgets.aircraft) failures.push('aircraft entity 
 if (maximumVehicles > snapshot.budgets.serviceVehicles) failures.push('service-vehicle entity budget');
 if (maximumQueues > snapshot.budgets.queues) failures.push('queue budget');
 if (secondsSinceCompletedOperation > 1_800 && finalQueues.total > 0) failures.push('traffic flow stalled');
+if (requestedAirport === 'ORD' && requestedHours >= 1) {
+  if (simulation.state.arrivals < Math.floor(requestedHours * 4))
+    failures.push('ORD arrival throughput floor');
+  if (simulation.state.departures < Math.floor(requestedHours * 4))
+    failures.push('ORD departure throughput floor');
+  if (secondsSinceArrival > 1_200) failures.push('ORD arrival stream stale');
+  if (secondsSinceDeparture > 1_200) failures.push('ORD departure stream stale');
+  if (maximumSecondsWithoutTrafficMotion > 120)
+    failures.push('ORD all-moving-traffic stopped');
+  if (maximumStationarySeconds > 900)
+    failures.push('ORD individual movement hold exceeded 15 minutes');
+}
 
 const phaseCounts = Object.fromEntries(
   ['approach', 'landing', 'taxi-in', 'resting', 'taxi-out', 'takeoff']
@@ -349,6 +478,13 @@ const report = {
   traceFrames,
   openingFlights,
   secondsSinceCompletedOperation: Number(secondsSinceCompletedOperation.toFixed(1)),
+  secondsSinceArrival: Number(secondsSinceArrival.toFixed(1)),
+  secondsSinceDeparture: Number(secondsSinceDeparture.toFixed(1)),
+  maximumSecondsWithoutTrafficMotion: Number(maximumSecondsWithoutTrafficMotion.toFixed(1)),
+  maximumStationarySeconds: Number(maximumStationarySeconds.toFixed(1)),
+  maximumStationaryFlight,
+  trafficFlow: simulation.trafficFlowSnapshot(),
+  lastArrivalAdmissionReason: simulation['lastArrivalAdmissionReason'],
   phaseCounts,
   serviceVehicleStatusCounts,
   departureReservationDiagnostics: simulation.state.flights
@@ -393,8 +529,26 @@ const report = {
     .map((flight) => ({
       id: flight.id,
       callsign: flight.callsign,
+      frequencyOwner: flight.navigation.frequencyOwner,
+      handoff: flight.navigation.handoff
+        ? {
+            from: flight.navigation.handoff.from,
+            to: flight.navigation.handoff.to,
+            status: flight.navigation.handoff.status,
+          }
+        : null,
       flowAdmission: simulation['surfaceFlowPushbackAdmissionReason'](flight),
-      releasesBlockedArrival: simulation['pushbackReleasesBlockedArrival'](flight),
+      releasesBlockedSurfaceFlight: simulation['pushbackReleasesBlockedSurfaceFlight'](flight),
+      recentControllerDecisions: simulation.state.scriptedControllers.decisions
+        .filter((decision) => decision.flightId === flight.id)
+        .slice(-5)
+        .map((decision) => ({
+          station: decision.station,
+          action: decision.action,
+          disposition: decision.disposition,
+          result: decision.result,
+          atSeconds: Number(decision.resolvedAtSeconds.toFixed(1)),
+        })),
     })),
   heldServiceVehicles: simulation.state.serviceVehicles
     .filter((vehicle) => vehicle.held)
@@ -609,6 +763,15 @@ const compact = {
   maximumVehicles: report.maximumVehicles,
   maximumQueues: report.maximumQueues,
   secondsSinceCompletedOperation: report.secondsSinceCompletedOperation,
+  secondsSinceArrival: report.secondsSinceArrival,
+  secondsSinceDeparture: report.secondsSinceDeparture,
+  maximumSecondsWithoutTrafficMotion: report.maximumSecondsWithoutTrafficMotion,
+  maximumStationarySeconds: report.maximumStationarySeconds,
+  maximumStationaryFlight: report.maximumStationaryFlight,
+  phaseCounts: report.phaseCounts,
+  trafficFlowTotals: report.trafficFlow.totals,
+  trafficBackPressure: report.trafficFlow.backPressure,
+  lastArrivalAdmissionReason: report.lastArrivalAdmissionReason,
   longestQueueWaitSeconds: report.longestWaitQueue?.waitSeconds ?? 0,
   longestQueue: report.longestQueues[0] ?? null,
   longestWaitQueue: report.longestWaitQueue,

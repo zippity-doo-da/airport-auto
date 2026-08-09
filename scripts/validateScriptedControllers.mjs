@@ -4,6 +4,7 @@ const validationSource = `
 import { generateHubConfig, HUB_AIRPORTS } from './src/simulation/airportConfig.ts';
 import { AirportSimulation } from './src/simulation/airportSimulation.ts';
 import { CONTROLLER_STATIONS, OPERATIONAL_CONTROLLER_STATIONS } from './src/simulation/controllerOperations.ts';
+import { planScriptedControllerActions } from './src/simulation/scriptedControllers.ts';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -52,6 +53,93 @@ const automaticEvents = automatic.drainEvents();
 const automaticDecisionIds = new Set(automaticRuntime.decisions.map((decision) => decision.id));
 assert(automaticEvents.some((event) => event.type === 'controller-decision'), 'scripted decisions emitted no typed audit event');
 assert(automaticEvents.filter((event) => event.type === 'controller-decision').every((event) => automaticDecisionIds.has(event.causedByControllerDecisionId)), 'controller-decision event lost its decision causality');
+
+const rampPriority = new AirportSimulation(config, 'quiet');
+rampPriority.setMode('auto');
+const rampBlocker = structuredClone(rampPriority.state.flights[0]);
+const blockedArrival = structuredClone(rampPriority.state.flights[1]);
+rampBlocker.id = 9001;
+rampBlocker.callsign = 'RAMP BLOCKER';
+rampBlocker.phase = 'resting';
+rampBlocker.navigation.frequencyOwner = 'ramp';
+rampBlocker.pushbackCleared = false;
+rampBlocker.turnaround.status = 'ready';
+blockedArrival.id = 9002;
+blockedArrival.callsign = 'BLOCKED ARRIVAL';
+blockedArrival.phase = 'taxi-out';
+blockedArrival.navigation.frequencyOwner = 'ramp';
+blockedArrival.safetyHold = true;
+blockedArrival.safetyHoldReason = 'projected path conflict with flight 9001';
+rampPriority.state.flights = [rampBlocker, blockedArrival];
+rampPriority.state.scriptedControllers.stations.ramp.nextRoutineDecisionAtSeconds = Infinity;
+const rampPriorityActions = planScriptedControllerActions(
+  config,
+  rampPriority.state,
+  'ramp',
+  rampPriority.state.scriptedControllers,
+);
+assert(
+  rampPriorityActions.some(
+    (action) =>
+      action.flightId === rampBlocker.id &&
+      action.action === 'clear-pushback' &&
+      action.priority === 'urgent' &&
+      action.ruleId === 'ramp.blocked-surface.release',
+  ),
+  'Ramp did not prioritize a push-ready aircraft that physically blocks a surface movement',
+);
+
+const fairRamp = new AirportSimulation(config, 'quiet');
+fairRamp.setMode('auto');
+const fairTemplate = structuredClone(fairRamp.state.flights[0]);
+const fairFlights = Array.from({ length: 4 }, (_, index) => {
+  const flight = structuredClone(fairTemplate);
+  flight.id = 9101 + index;
+  flight.callsign = 'FAIR ' + (index + 1);
+  flight.phase = 'resting';
+  flight.navigation.frequencyOwner = 'ramp';
+  flight.pushbackCleared = false;
+  flight.turnaround.status = 'ready';
+  return flight;
+});
+fairRamp.state.flights = fairFlights;
+fairRamp.state.elapsed = 1_000;
+fairRamp.state.scriptedControllers.stations.ramp.nextRoutineDecisionAtSeconds = 0;
+for (const flight of fairFlights.slice(0, 3)) {
+  fairRamp.state.scriptedControllers.decisions.push({
+    id: 'fair-' + flight.id,
+    cycle: 1,
+    station: 'ramp',
+    action: 'clear-pushback',
+    flightId: flight.id,
+    callsign: flight.callsign,
+    runway: flight.departureRunway,
+    ruleId: 'ramp.turnaround.release',
+    priority: 'routine',
+    rationale: 'fairness fixture',
+    plannedAtSeconds: 900,
+    resolvedAtSeconds: 900,
+    accepted: false,
+    disposition: 'rejected',
+    result: 'fixture rejection',
+    producedEventTypes: [],
+  });
+}
+const fairRampActions = planScriptedControllerActions(
+  config,
+  fairRamp.state,
+  'ramp',
+  fairRamp.state.scriptedControllers,
+);
+assert(
+  fairRampActions.some(
+    (action) =>
+      action.action === 'clear-pushback' &&
+      action.flightId === fairFlights[3].id,
+  ),
+  'Ramp routine queue did not rotate to a never-attempted push-ready aircraft: ' +
+    JSON.stringify(fairRampActions),
+);
 
 const takeover = new AirportSimulation(config, 'quiet');
 takeover.setMode('manual');

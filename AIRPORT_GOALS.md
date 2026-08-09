@@ -278,7 +278,7 @@ target times at meter fixes, runway thresholds, runway crossings, and departure
 release points. The intent is to absorb delay efficiently before aircraft reach
 the final or taxi queue. Reference: [FAA time-based flow management](https://www.faa.gov/air_traffic/publications/atpubs/foa_html/chap18_section_25.html).
 
-### Current progress — July 28, 2026
+### Current progress — August 9, 2026
 
 The deterministic scheduler, rolling arrival/departure queues, holding limits,
 pressure relief, traffic-density profiles, and long-run validation already exist.
@@ -383,6 +383,24 @@ revisions translate the full sequence together, and route changes regenerate it
 from the authoritative route. The Queue inspector shows each target and its
 early/late tolerance window without moving an aircraft or bypassing safety.
 
+The sustained-flow gate now measures each traffic direction independently,
+detects airport-wide motion freezes, and records the longest continuously
+stationary non-resting aircraft with its blocker context. Ramp scheduling uses
+least-recently-attempted fairness, and a push-ready parked aircraft becomes an
+urgent release when its body blocks either an inbound or outbound surface
+movement. Auto/Watch also reserve a short arrival opening only when runway
+spacing—not a gate, path, or surface-capacity constraint—is the proven cause of
+an overdue meter release. Departing blockers clear dependent projected-path
+holds in the same resolved tick, preventing a removed aircraft from leaving a
+phantom wait behind it.
+
+On August 9, deterministic three-hour ORD Extreme runs passed in both Auto and
+Watch. Each completed 58 arrivals and 38 departures, reached 28 aircraft and 43
+queue records at peak, kept the longest continuous individual stop to 684.7
+seconds and the longest airport-wide absence of traffic motion to 40 seconds,
+and reported zero collisions, incursions, or unexplained pauses. Simulation-tick
+p95 was 6.571 ms in Auto and 2.467 ms in Watch, both inside the runtime budget.
+
 ### Gameplay and UX
 
 - [~] Add a timeline showing demand, runway capacity, target crossing times,
@@ -415,8 +433,10 @@ early/late tolerance window without moving an aircraft or bypassing safety.
   The queue meter now labels the latest authoritative reason with a stable
   weather/runway/wake/gate/performance/taxi/demand/schedule category; fuller
   procedure and downstream-cause coverage remains open.
-- [ ] Keep Auto capable of guaranteed flow without requiring a human to manage
-      the timeline.
+- [~] Keep Auto capable of guaranteed flow without requiring a human to manage
+  the timeline. Seeded ORD Extreme Auto and Watch now pass the enforceable
+  three-hour sustained-flow gate; additional airports, weather programs,
+  and longer runs remain before this can be called universal.
 
 ### Simulation and API
 
@@ -445,8 +465,11 @@ early/late tolerance window without moving an aircraft or bypassing safety.
 
 - [ ] A seeded ORD rush bank produces less holding fuel burn and fewer stop-start
       taxi holds than the 2.40 baseline without reducing separation.
-- [ ] Three-hour Auto and Watch runs sustain arrivals and departures with bounded
-      queues and no all-aircraft stopped state.
+- [x] Three-hour Auto and Watch runs sustain arrivals and departures with bounded
+      queues and no all-aircraft stopped state. August 9 ORD Extreme evidence:
+      58 arrivals, 38 departures, 43 peak queue records, 684.7 seconds maximum
+      individual stop, 40 seconds maximum without traffic motion, and zero
+      collision, incursion, or unexplained-pause diagnostics in each mode.
 - [ ] Manual can ignore an advisory, recover the schedule, and understand the
       consequences without hidden score manipulation.
 - [x] Fixed-step partitioning produces the same slots, commands, and outcomes.

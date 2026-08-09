@@ -163,8 +163,7 @@ export function refreshScriptedControllerModes(
       continuityFlightIds,
     });
     if (
-      runtime.transitions.length >
-      SCRIPTED_CONTROLLER_TRANSITION_HISTORY_LIMIT
+      runtime.transitions.length > SCRIPTED_CONTROLLER_TRANSITION_HISTORY_LIMIT
     ) {
       runtime.transitions.splice(
         0,
@@ -211,6 +210,24 @@ function actionRecentlyRejected(
   return false;
 }
 
+function lastCandidateDecisionAt(
+  runtime: ScriptedControllerRuntime,
+  candidate: ScriptedControllerPlannedAction,
+): number {
+  for (let index = runtime.decisions.length - 1; index >= 0; index -= 1) {
+    const decision = runtime.decisions[index];
+    if (
+      decision.station === candidate.station &&
+      decision.action === candidate.action &&
+      decision.flightId === candidate.flightId &&
+      decision.runway === candidate.runway &&
+      decision.targetStation === candidate.targetStation
+    )
+      return decision.resolvedAtSeconds;
+  }
+  return Number.MIN_SAFE_INTEGER;
+}
+
 function nextUnclearedCrossing(config: AirportConfig, flight: Flight) {
   const clearanceIds = new Set(flight.crossingClearanceIds ?? []);
   const legacyClearances =
@@ -245,8 +262,7 @@ function handoffCandidates(
       handoff &&
       handoff.to === station &&
       (handoff.status === "offered" || handoff.status === "overdue") &&
-      state.elapsed - handoff.offeredAtSeconds >=
-        policy.handoffAcceptSeconds
+      state.elapsed - handoff.offeredAtSeconds >= policy.handoffAcceptSeconds
     ) {
       const urgent =
         handoff.status === "overdue" ||
@@ -257,9 +273,7 @@ function handoffCandidates(
       candidates.push({
         station,
         action:
-          atOwnedTrackLimit && !urgent
-            ? "defer-handoff"
-            : "accept-handoff",
+          atOwnedTrackLimit && !urgent ? "defer-handoff" : "accept-handoff",
         flightId: flight.id,
         targetStation: station,
         ruleId:
@@ -490,15 +504,25 @@ function rampCandidates(
       flight.turnaround.status === "ready" &&
       !flight.pushbackCleared
     ) {
+      const releasesBlockedSurfaceFlight = state.flights.some(
+        (candidate) =>
+          (candidate.phase === "taxi-in" || candidate.phase === "taxi-out") &&
+          candidate.safetyHoldReason ===
+            `projected path conflict with flight ${flight.id}`,
+      );
       candidates.push({
         station: "ramp",
         action: "clear-pushback",
         flightId: flight.id,
         runway: flight.departureRunway,
-        ruleId: "ramp.turnaround.release",
-        priority: "routine",
-        rationale: `${flight.callsign} is push-ready and remains under Ramp control`,
-        order: 22,
+        ruleId: releasesBlockedSurfaceFlight
+          ? "ramp.blocked-surface.release"
+          : "ramp.turnaround.release",
+        priority: releasesBlockedSurfaceFlight ? "urgent" : "routine",
+        rationale: releasesBlockedSurfaceFlight
+          ? `${flight.callsign} is push-ready and physically blocks an active surface movement`
+          : `${flight.callsign} is push-ready and remains under Ramp control`,
+        order: releasesBlockedSurfaceFlight ? 3 : 22,
       });
     }
   }
@@ -554,6 +578,8 @@ export function planScriptedControllerActions(
       (first, second) =>
         priorityOrder(first.priority) - priorityOrder(second.priority) ||
         first.order - second.order ||
+        lastCandidateDecisionAt(runtime, first) -
+          lastCandidateDecisionAt(runtime, second) ||
         first.flightId - second.flightId ||
         first.action.localeCompare(second.action),
     );

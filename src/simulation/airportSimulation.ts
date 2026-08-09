@@ -2906,7 +2906,7 @@ export class AirportSimulation {
     if (
       flowAdmission &&
       this.stationRunsAutomatically("ramp") &&
-      !this.pushbackReleasesBlockedArrival(flight)
+      !this.pushbackReleasesBlockedSurfaceFlight(flight)
     ) {
       return this.rejectDecision(`pushback held: ${flowAdmission}`, flight);
     }
@@ -5490,6 +5490,13 @@ export class AirportSimulation {
         }
       }
 
+      // The proposal map is intentionally a snapshot of the tick's opening
+      // traffic. A blocker can complete its departure later in this same tick,
+      // after another aircraft was assigned a projected-path hold against it.
+      // Retire that now-impossible dependency before diagnostics and external
+      // telemetry sample the resolved state.
+      this.releaseStaleProjectedPathHolds();
+
       // Report any physical or protected-envelope overlap already present at the
       // end of a tick. Proposed movement should prevent these; diagnostics make
       // any invariant breach visible to tests, replays, and the agent interface.
@@ -6205,6 +6212,41 @@ export class AirportSimulation {
     this.parkedBlockerRecovery.delete(flight.id);
     for (const [runway, owner] of this.runwayReservations) {
       if (owner === flight.id) this.runwayReservations.delete(runway);
+    }
+    for (const dependent of this.state.flights) {
+      if (
+        dependent.id === flight.id ||
+        dependent.safetyHoldReason !==
+          `projected path conflict with flight ${flight.id}`
+      )
+        continue;
+      dependent.safetyHold = false;
+      dependent.safetyHoldReason = undefined;
+      this.stationarySeconds.set(dependent.id, 0);
+      this.parkedBlockerRecovery.delete(dependent.id);
+      this.events.push({
+        type: "surface-reroute",
+        flight: dependent,
+        runway: dependent.runway,
+        taxiway: dependent.taxiway,
+        detail: `${flight.callsign} cleared the projected path · surface hold released`,
+      });
+    }
+  }
+
+  private releaseStaleProjectedPathHolds(): void {
+    const activeIds = new Set(this.state.flights.map((flight) => flight.id));
+    for (const flight of this.state.flights) {
+      const blockerId = Number(
+        flight.safetyHoldReason?.match(
+          /^projected path conflict with flight (\d+)$/,
+        )?.[1],
+      );
+      if (!Number.isInteger(blockerId) || activeIds.has(blockerId)) continue;
+      flight.safetyHold = false;
+      flight.safetyHoldReason = undefined;
+      this.stationarySeconds.set(flight.id, 0);
+      this.parkedBlockerRecovery.delete(flight.id);
     }
   }
 
@@ -9690,7 +9732,7 @@ export class AirportSimulation {
     flight: Flight,
     kind: "arrival" | "departure",
   ): string | null {
-    return runwayReleaseReason(
+    const physicalRelease = runwayReleaseReason(
       separationRuleset(this.state.separationRuleset),
       this.config,
       this.runwayOperationHistory,
@@ -9702,6 +9744,29 @@ export class AirportSimulation {
         wakeClass: flight.wakeClass,
       },
     );
+    if (physicalRelease) return physicalRelease;
+    if (kind !== "departure" || !this.isAutomaticMode()) return null;
+
+    // A continuous departure stream can otherwise consume every converging
+    // runway-release interval just before the invisible arrival meter becomes
+    // eligible. Once the head arrival has waited through a normal sequencing
+    // window, reserve one short airport-wide arrival opening. Existing
+    // arrivals still keep their ordinary runway priority and capacity limits;
+    // physical separation remains authoritative. This only prevents Auto/
+    // Watch from starving one traffic direction with a succession of
+    // individually legal clearances.
+    const headArrival = this.state.trafficFlow.arrivalQueue[0];
+    const arrivalWindowDue =
+      headArrival &&
+      this.state.elapsed - headArrival.createdAtSeconds >= 45 &&
+      headArrival.releaseSlotSeconds <= this.state.elapsed + 30;
+    const runwaySpacingIsCurrentConstraint =
+      /^\d+s behind .+ · \d+s .+ interval ·/.test(
+        this.lastArrivalAdmissionReason,
+      );
+    return arrivalWindowDue && runwaySpacingIsCurrentConstraint
+      ? `arrival meter protects ${headArrival.id} release window`
+      : null;
   }
 
   private recordRunwayOperation(
@@ -13955,15 +14020,15 @@ export class AirportSimulation {
 
   /**
    * A strategic one-way window must not keep a parked aircraft at its stand
-   * when that same body is the physical blocker preventing an arrival from
-   * reaching another stand. The pushback preview and swept-envelope test have
-   * already proved the immediate movement clear; admitting the departure lets
-   * the ordinary surface arbiter expose and resolve any downstream dependency.
+   * when that same body physically blocks an inbound or outbound surface
+   * movement. The pushback preview and swept-envelope test have already proved
+   * the immediate movement clear; admitting the departure lets the ordinary
+   * surface arbiter expose and resolve any downstream dependency.
    */
-  private pushbackReleasesBlockedArrival(flight: Flight): boolean {
+  private pushbackReleasesBlockedSurfaceFlight(flight: Flight): boolean {
     return this.state.flights.some(
       (candidate) =>
-        candidate.phase === "taxi-in" &&
+        (candidate.phase === "taxi-in" || candidate.phase === "taxi-out") &&
         (this.stationarySeconds.get(candidate.id) ?? 0) >= 90 &&
         candidate.safetyHoldReason ===
           `projected path conflict with flight ${flight.id}`,
