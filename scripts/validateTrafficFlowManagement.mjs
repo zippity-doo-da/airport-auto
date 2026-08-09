@@ -31,6 +31,7 @@ import { AirportSimulation } from './src/simulation/airportSimulation.ts';
 import { selectTerminalProcedure } from './src/simulation/airspaceProcedures.ts';
 import { trafficFlowMeterRows } from './src/ui/queueInspector.ts';
 import { deriveTrafficFlowOperationalUncertainty } from './src/simulation/trafficFlowUncertainty.ts';
+import { deriveTrafficFlowCapacityAttribution } from './src/simulation/trafficFlowCapacityAttribution.ts';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -118,16 +119,31 @@ uncertaintyFlights[1].phase = 'taxi-out';
 uncertaintyFlights[0].flightPlan.revision = 3;
 const operationalUncertainty = deriveTrafficFlowOperationalUncertainty(ordConfig, uncertaintyState, {
   generatedAtSeconds: uncertaintyState.elapsed,
-  total: 3,
+  total: 4,
   longestWaitSeconds: 180,
-  counts: { gate: 3, ramp: 0, taxi: 1, crossing: 2, runway: 0, wake: 0, weather: 0, downstream: 0 },
+  counts: { gate: 3, ramp: 0, taxi: 1, crossing: 2, runway: 0, wake: 0, weather: 0, downstream: 1 },
   entries: [
     { id: 'taxi:shared', category: 'taxi', priority: 'routine', entity: 'system', label: 'shared taxi pressure', detail: 'fixture', waitSeconds: 30, position: 1, queueLength: 1, blockerFlightIds: [] },
     { id: 'crossing:departure', category: 'crossing', priority: 'blocked', entity: 'aircraft', label: 'departure crossing', detail: 'fixture', waitSeconds: 180, position: 1, queueLength: 2, flightId: uncertaintyFlights[1].id, blockerFlightIds: [] },
     { id: 'crossing:blocker', category: 'crossing', priority: 'attention', entity: 'aircraft', label: 'departure blocker', detail: 'fixture', waitSeconds: 90, position: 2, queueLength: 2, blockerFlightIds: [uncertaintyFlights[1].id] },
+    { id: 'downstream:departure', category: 'downstream', priority: 'attention', entity: 'aircraft', label: 'downstream departure', detail: 'fixture', waitSeconds: 120, position: 1, queueLength: 1, flightId: uncertaintyFlights[1].id, blockerFlightIds: [] },
   ],
 });
-assert(operationalUncertainty.departure.taxiCongestion > operationalUncertainty.arrival.taxiCongestion && operationalUncertainty.arrival.gateReadiness > 0 && operationalUncertainty.departure.gateReadiness > 0 && operationalUncertainty.arrival.procedure > operationalUncertainty.departure.procedure, 'authoritative procedure, taxi, and gate pressure did not produce bounded direction-specific uncertainty: ' + JSON.stringify(operationalUncertainty));
+assert(operationalUncertainty.departure.taxiCongestion > operationalUncertainty.arrival.taxiCongestion && operationalUncertainty.arrival.gateReadiness > 0 && operationalUncertainty.departure.gateReadiness > 0 && operationalUncertainty.arrival.procedure > operationalUncertainty.departure.procedure && operationalUncertainty.departure.downstreamSaturation > operationalUncertainty.arrival.downstreamSaturation, 'authoritative procedure, taxi, gate, and downstream pressure did not produce bounded direction-specific uncertainty: ' + JSON.stringify(operationalUncertainty));
+const arrivalRunway = ordConfig.runways.find((runway) => ['arrival', 'mixed'].includes(uncertaintyState.activeRunwayRoles[runway.id] ?? runway.role));
+assert(arrivalRunway, 'capacity attribution fixture needs an active arrival runway');
+uncertaintyState.surfaceDisruptions.push({ id: 'TEST-CLOSURE', kind: 'runway-closure', status: 'active', source: 'controller', targetId: String(arrivalRunway.id), label: 'Test runway closure', edgeIds: [], runwayId: arrivalRunway.id, createdAtSeconds: 0, activatedAtSeconds: 0, recoveryProgress: 0, reroutedFlightIds: [], reason: 'capacity attribution validation' });
+const capacityAttribution = deriveTrafficFlowCapacityAttribution(ordConfig, uncertaintyState, {
+  generatedAtSeconds: uncertaintyState.elapsed,
+  total: 2,
+  longestWaitSeconds: 120,
+  counts: { gate: 0, ramp: 0, taxi: 0, crossing: 0, runway: 1, wake: 0, weather: 0, downstream: 1 },
+  entries: [
+    { id: 'runway:closure', category: 'runway', priority: 'blocked', entity: 'system', label: 'runway closure', detail: 'fixture', waitSeconds: 60, position: 1, queueLength: 1, blockerFlightIds: [] },
+    { id: 'downstream:arrival', category: 'downstream', priority: 'attention', entity: 'system', label: 'downstream arrival', detail: 'fixture', waitSeconds: 120, position: 1, queueLength: 1, blockerFlightIds: [] },
+  ],
+}, { arrivalSpacingSeconds: 24, departureSpacingSeconds: 18, approachCapacity: 3 });
+assert(capacityAttribution.arrival.runways.some((runway) => runway.id === arrivalRunway.id && runway.closed) && capacityAttribution.arrival.usableRunwayCount === capacityAttribution.arrival.runways.length - 1 && capacityAttribution.arrival.nominalSpacingSeconds === 24 && capacityAttribution.arrival.approachCapacity === 3 && capacityAttribution.arrival.constraints.some((constraint) => constraint.label === 'Downstream saturation' && constraint.count === 1), 'runway closure and downstream constraints were not attributed to forecast capacity: ' + JSON.stringify(capacityAttribution.arrival));
 const planRunway = ordConfig.runways[0];
 const planProcedure = selectTerminalProcedure(ordConfig.airspaceProgram, {
   kind: 'STAR',
@@ -191,9 +207,9 @@ assert(meterSnapshot.capacityWindows.length === 2 && meterSnapshot.capacityWindo
 setTrafficFlowForecastHorizon(flow, 600);
 const extendedMeterSnapshot = trafficFlowSnapshot(flow, 20);
 assert(extendedMeterSnapshot.forecastHorizonSeconds === 600 && extendedMeterSnapshot.capacityWindows.every((window, index) => window.horizonSeconds === 600 && window.predictedDemandCount >= meterSnapshot.capacityWindows[index].predictedDemandCount && window.predictedCapacityCount >= meterSnapshot.capacityWindows[index].predictedCapacityCount), 'configurable rolling horizon did not extend both demand and capacity forecasts');
-const uncertainForecast = trafficFlowSnapshot(flow, 20, { arrivalDemandIntervalSeconds: 12, departureSpacingSeconds: 18, uncertainty: { weather: 0.8, wind: 0.7, runwayCondition: 0.6, pilotResponse: 0.5 }, arrivalUncertainty: { procedure: 0.76, taxiCongestion: 0.72, gateReadiness: 0.64 }, departureUncertainty: { procedure: 0.54, taxiCongestion: 0.58, gateReadiness: 0.46 } });
-assert(uncertainForecast.capacityWindows.every((window) => window.predictedDemandCount >= window.demandCount && window.predictedCapacityCount >= window.plannedReleaseCount && window.confidence === 'low' && window.uncertainty.weather === 0.8 && window.uncertainty.procedure > 0.5 && window.uncertainty.taxiCongestion > 0.5 && window.uncertainty.gateReadiness > 0.4 && /procedure|taxi congestion|gate readiness/.test(window.confidenceReason)), 'rolling forecast did not expose bounded directional operational uncertainty');
-assert(uncertainForecast.schemaVersion === 5 && Array.isArray(uncertainForecast.advisoryResponses), 'traffic flow snapshot did not advance its schema for configurable forecast horizons');
+const uncertainForecast = trafficFlowSnapshot(flow, 20, { arrivalDemandIntervalSeconds: 12, arrivalSpacingSeconds: 24, departureSpacingSeconds: 18, uncertainty: { weather: 0.8, wind: 0.7, runwayCondition: 0.6, pilotResponse: 0.5 }, arrivalUncertainty: { procedure: 0.76, taxiCongestion: 0.72, gateReadiness: 0.64, downstreamSaturation: 0.68 }, departureUncertainty: { procedure: 0.54, taxiCongestion: 0.58, gateReadiness: 0.46, downstreamSaturation: 0.56 }, arrivalAttribution: capacityAttribution.arrival, departureAttribution: capacityAttribution.departure });
+assert(uncertainForecast.capacityWindows.every((window) => window.predictedDemandCount >= window.demandCount && window.predictedCapacityCount >= window.plannedReleaseCount && window.confidence === 'low' && window.uncertainty.weather === 0.8 && window.uncertainty.procedure > 0.5 && window.uncertainty.taxiCongestion > 0.5 && window.uncertainty.gateReadiness > 0.4 && window.uncertainty.downstreamSaturation > 0.5 && window.attribution.schemaVersion === 1 && window.attribution.configurationId && window.attribution.runways.length > 0 && /procedure|taxi congestion|gate readiness|downstream saturation/.test(window.confidenceReason)), 'rolling forecast did not expose bounded directional operational uncertainty and capacity attribution');
+assert(uncertainForecast.schemaVersion === 6 && Array.isArray(uncertainForecast.advisoryResponses), 'traffic flow snapshot did not advance its schema for capacity attribution');
 assert(uncertainForecast.recommendations.length > 0 && uncertainForecast.recommendations.every((recommendation) => recommendation.advisoryOnly && recommendation.requiresCommandArbiter && recommendation.authority && /^review-(arrival|departure)-release$/.test(recommendation.action)), 'flow recommendations were not explicitly advisory-only');
 const advisory = uncertainForecast.recommendations[0];
 const advisoryEntries = advisory.direction === 'arrival' ? flow.arrivalQueue : flow.departureQueue;

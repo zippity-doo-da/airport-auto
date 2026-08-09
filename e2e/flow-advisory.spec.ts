@@ -50,11 +50,29 @@ test("Manual Supervisor can ignore a flow advisory, see consequences, and recove
       (factors) =>
         typeof factors.procedure === "number" &&
         typeof factors.taxiCongestion === "number" &&
-        typeof factors.gateReadiness === "number",
+        typeof factors.gateReadiness === "number" &&
+        typeof factors.downstreamSaturation === "number",
     ),
   ).toBeTruthy();
   await expect(page.locator("#queue-capacity")).toContainText(
     /taxi \d+%|gate \d+%/,
+  );
+  const attribution = await page.evaluate(() =>
+    window.airportControl
+      .snapshot()
+      .trafficManagement.capacityWindows.map((window) => window.attribution),
+  );
+  expect(
+    attribution.every(
+      (source) =>
+        source.schemaVersion === 1 &&
+        source.configurationId.length > 0 &&
+        source.runways.length > 0 &&
+        source.nominalSpacingSeconds > 0,
+    ),
+  ).toBeTruthy();
+  await expect(page.locator(".queue-panel__capacity-source").first()).toContainText(
+    /RWY .+ · \d+s/,
   );
 
   const metricsBeforeIgnore = await page.evaluate(

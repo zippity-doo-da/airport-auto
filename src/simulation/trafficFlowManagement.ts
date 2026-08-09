@@ -122,7 +122,7 @@ export function trafficFlowConstraint(reason: string): TrafficFlowConstraint {
 }
 
 export interface TrafficFlowSnapshot {
-  schemaVersion: 5;
+  schemaVersion: 6;
   density: ReturnType<typeof trafficDensityProfile>;
   objective: TrafficFlowObjectiveProfile;
   nextArrivalDemandInSeconds: number;
@@ -192,6 +192,7 @@ export interface TrafficFlowCapacityWindow {
   utilization: number;
   confidence: "high" | "medium" | "low";
   confidenceReason: string;
+  attribution: TrafficFlowCapacityAttribution;
   uncertainty: {
     weather: number;
     wind: number;
@@ -200,18 +201,45 @@ export interface TrafficFlowCapacityWindow {
     procedure: number;
     taxiCongestion: number;
     gateReadiness: number;
+    downstreamSaturation: number;
   };
+}
+
+export interface TrafficFlowCapacityConstraintAttribution {
+  category: TrafficFlowConstraintCategory;
+  label: string;
+  count: number;
+  oldestWaitSeconds: number;
+}
+
+export interface TrafficFlowCapacityAttribution {
+  schemaVersion: 1;
+  configurationId: string;
+  configurationName: string;
+  runways: Array<{
+    id: number;
+    designation: string;
+    role: "arrival" | "departure" | "mixed";
+    closed: boolean;
+  }>;
+  usableRunwayCount: number;
+  nominalSpacingSeconds: number;
+  approachCapacity: number;
+  constraints: TrafficFlowCapacityConstraintAttribution[];
 }
 
 export type TrafficFlowUncertainty = TrafficFlowCapacityWindow["uncertainty"];
 
 export interface TrafficFlowForecastInput {
   arrivalDemandIntervalSeconds?: number;
+  arrivalSpacingSeconds?: number;
   departureSpacingSeconds?: number;
   holdingFuelBurnKg?: number;
   uncertainty?: Partial<TrafficFlowUncertainty>;
   arrivalUncertainty?: Partial<TrafficFlowUncertainty>;
   departureUncertainty?: Partial<TrafficFlowUncertainty>;
+  arrivalAttribution?: Partial<TrafficFlowCapacityAttribution>;
+  departureAttribution?: Partial<TrafficFlowCapacityAttribution>;
 }
 
 export function createTrafficFlowState(
@@ -572,9 +600,10 @@ export function trafficFlowSnapshot(
       state.arrivalQueue,
       nowSeconds,
       forecast.arrivalDemandIntervalSeconds,
-      forecast.arrivalDemandIntervalSeconds,
+      forecast.arrivalSpacingSeconds,
       mergeUncertainty(forecast.uncertainty, forecast.arrivalUncertainty),
       forecastHorizonSeconds,
+      forecast.arrivalAttribution,
     ),
     capacityWindow(
       "departure",
@@ -584,6 +613,7 @@ export function trafficFlowSnapshot(
       forecast.departureSpacingSeconds,
       mergeUncertainty(forecast.uncertainty, forecast.departureUncertainty),
       forecastHorizonSeconds,
+      forecast.departureAttribution,
     ),
   ];
   const recommendations = flowRecommendations(state, nowSeconds);
@@ -600,7 +630,7 @@ export function trafficFlowSnapshot(
       ),
     );
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     density: { ...density, assumptions: [...density.assumptions] },
     objective: { ...trafficFlowObjectiveProfile(state.objective) },
     nextArrivalDemandInSeconds: round(
@@ -850,6 +880,7 @@ function capacityWindow(
   releaseSpacingSeconds = 60,
   uncertaintyInput: Partial<TrafficFlowCapacityWindow["uncertainty"]> = {},
   horizonSeconds: TrafficFlowForecastHorizonSeconds = 300,
+  attributionInput: Partial<TrafficFlowCapacityAttribution> = {},
 ): TrafficFlowCapacityWindow {
   const horizon = nowSeconds + horizonSeconds;
   const inWindow = entries.filter(
@@ -899,6 +930,7 @@ function capacityWindow(
     procedure: clamp01(uncertaintyInput.procedure ?? 0),
     taxiCongestion: clamp01(uncertaintyInput.taxiCongestion ?? 0),
     gateReadiness: clamp01(uncertaintyInput.gateReadiness ?? 0),
+    downstreamSaturation: clamp01(uncertaintyInput.downstreamSaturation ?? 0),
   };
   const environmentalUncertainty =
     (uncertainty.weather +
@@ -907,7 +939,10 @@ function capacityWindow(
       uncertainty.pilotResponse) /
     4;
   const operationalUncertainty =
-    (uncertainty.taxiCongestion + uncertainty.gateReadiness) / 2;
+    (uncertainty.taxiCongestion +
+      uncertainty.gateReadiness +
+      uncertainty.downstreamSaturation) /
+    3;
   const uncertaintyScore = Math.max(
     environmentalUncertainty,
     uncertainty.procedure,
@@ -940,6 +975,11 @@ function capacityWindow(
       : confidence === "medium"
         ? `Some slots moved from their initial plan${uncertaintyLabels.length ? `; uncertainty ${uncertaintyLabels.join(", ")}` : ""}.`
         : "No delayed, revised, or materially uncertain slots in the look-ahead.";
+  const attribution = normalizeCapacityAttribution(
+    direction,
+    releaseSpacingSeconds,
+    attributionInput,
+  );
   return {
     direction,
     horizonSeconds,
@@ -952,6 +992,7 @@ function capacityWindow(
     utilization,
     confidence,
     confidenceReason,
+    attribution,
     uncertainty,
   };
 }
@@ -964,7 +1005,33 @@ const UNCERTAINTY_LABELS: Record<keyof TrafficFlowUncertainty, string> = {
   procedure: "procedure",
   taxiCongestion: "taxi congestion",
   gateReadiness: "gate readiness",
+  downstreamSaturation: "downstream saturation",
 };
+
+function normalizeCapacityAttribution(
+  direction: TrafficFlowCapacityWindow["direction"],
+  nominalSpacingSeconds: number,
+  input: Partial<TrafficFlowCapacityAttribution>,
+): TrafficFlowCapacityAttribution {
+  const runways = (input.runways ?? []).map((runway) => ({ ...runway }));
+  return {
+    schemaVersion: 1,
+    configurationId: input.configurationId ?? "unknown",
+    configurationName: input.configurationName ?? "Unspecified runway plan",
+    runways,
+    usableRunwayCount:
+      input.usableRunwayCount ??
+      runways.filter((runway) => !runway.closed).length,
+    nominalSpacingSeconds: round(
+      input.nominalSpacingSeconds ?? nominalSpacingSeconds,
+    ),
+    approachCapacity:
+      direction === "arrival" ? Math.max(1, input.approachCapacity ?? 1) : 0,
+    constraints: (input.constraints ?? []).map((constraint) => ({
+      ...constraint,
+    })),
+  };
+}
 
 function mergeUncertainty(
   baseline: Partial<TrafficFlowUncertainty> | undefined,

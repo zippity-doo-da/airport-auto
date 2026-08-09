@@ -6,11 +6,11 @@ import type { TrafficFlowUncertainty } from "./trafficFlowManagement";
 export interface DirectionalTrafficFlowUncertainty {
   arrival: Pick<
     TrafficFlowUncertainty,
-    "procedure" | "taxiCongestion" | "gateReadiness"
+    "procedure" | "taxiCongestion" | "gateReadiness" | "downstreamSaturation"
   >;
   departure: Pick<
     TrafficFlowUncertainty,
-    "procedure" | "taxiCongestion" | "gateReadiness"
+    "procedure" | "taxiCongestion" | "gateReadiness" | "downstreamSaturation"
   >;
 }
 
@@ -109,17 +109,60 @@ export function deriveTrafficFlowOperationalUncertainty(
     ),
     runwayTransitionPressure,
   );
+  const downstreamQueues = queues.entries.filter(
+    (entry) => entry.category === "downstream",
+  );
+  const downstreamPressure = clamp01(
+    downstreamQueues.length / 4 +
+      Math.min(
+        0.25,
+        Math.max(0, ...downstreamQueues.map((entry) => entry.waitSeconds)) /
+          900,
+      ),
+  );
+  const arrivalDownstreamUncertainty = clamp01(
+    downstreamPressure * 0.6 +
+      surfaceShare(
+        downstreamQueues,
+        state.flights
+          .filter(
+            (flight) =>
+              flight.phase === "approach" ||
+              flight.phase === "landing" ||
+              flight.phase === "taxi-in",
+          )
+          .map((flight) => flight.id),
+      ) *
+        0.4,
+  );
+  const departureDownstreamUncertainty = clamp01(
+    downstreamPressure * 0.6 +
+      surfaceShare(
+        downstreamQueues,
+        state.flights
+          .filter(
+            (flight) =>
+              flight.phase === "resting" ||
+              flight.phase === "taxi-out" ||
+              flight.phase === "takeoff",
+          )
+          .map((flight) => flight.id),
+      ) *
+        0.4,
+  );
 
   return {
     arrival: {
       procedure: round(arrivalProcedureUncertainty),
       taxiCongestion: round(arrivalTaxiPressure),
       gateReadiness: round(arrivalGateUncertainty),
+      downstreamSaturation: round(arrivalDownstreamUncertainty),
     },
     departure: {
       procedure: round(departureProcedureUncertainty),
       taxiCongestion: round(departureTaxiPressure),
       gateReadiness: round(departureGateUncertainty),
+      downstreamSaturation: round(departureDownstreamUncertainty),
     },
   };
 }

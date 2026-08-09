@@ -218,6 +218,7 @@ import {
   type TrafficFlowSnapshot,
 } from "./trafficFlowManagement";
 import { deriveTrafficFlowOperationalUncertainty } from "./trafficFlowUncertainty";
+import { deriveTrafficFlowCapacityAttribution } from "./trafficFlowCapacityAttribution";
 import {
   amendFlightPlan,
   cloneFlightPlan,
@@ -6092,14 +6093,29 @@ export class AirportSimulation {
         overdueHandoffs) /
         Math.max(1, state.flights.length * 3),
     );
+    const queues = this.queueSnapshot(state);
     const operationalUncertainty = deriveTrafficFlowOperationalUncertainty(
       this.config,
       state,
-      this.queueSnapshot(state),
+      queues,
+    );
+    const arrivalSpacingSeconds = this.arrivalSpacing();
+    const departureSpacingSeconds = this.departureSlotSpacing();
+    const approachCapacity = this.weatherApproachCapacity();
+    const capacityAttribution = deriveTrafficFlowCapacityAttribution(
+      this.config,
+      state,
+      queues,
+      {
+        arrivalSpacingSeconds,
+        departureSpacingSeconds,
+        approachCapacity,
+      },
     );
     return trafficFlowSnapshot(state.trafficFlow, state.elapsed, {
       arrivalDemandIntervalSeconds: this.arrivalDemandInterval(),
-      departureSpacingSeconds: this.departureSlotSpacing(),
+      arrivalSpacingSeconds,
+      departureSpacingSeconds,
       holdingFuelBurnKg:
         state === this.state
           ? this.metrics.holdingFuelBurnKg
@@ -6112,6 +6128,8 @@ export class AirportSimulation {
       },
       arrivalUncertainty: operationalUncertainty.arrival,
       departureUncertainty: operationalUncertainty.departure,
+      arrivalAttribution: capacityAttribution.arrival,
+      departureAttribution: capacityAttribution.departure,
     });
   }
 

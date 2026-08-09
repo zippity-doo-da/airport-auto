@@ -487,14 +487,25 @@ projections use the selected window immediately, while existing meter slots,
 reservations, score, and aircraft movement remain unchanged. Other stations can
 inspect the active horizon but cannot alter the airport-wide planning window.
 
+Each directional window now explains its capacity source. Version 6 snapshots
+identify the active runway configuration, every role-compatible runway and
+closure state, usable-runway count, modeled arrival/departure spacing, concurrent
+approach capacity, and bounded Weather, Runway, Wake, Gate, Taxi, or Downstream
+queue constraints with counts and oldest waits. Arrival demand and arrival
+capacity are now projected from separate demand-interval and legal-spacing
+inputs rather than the same timer. The Queue inspector shows a compact runway /
+spacing / constraint line; its full title and typed snapshot retain the complete
+attribution. Downstream saturation is also a direction-specific uncertainty
+factor, not an unexplained confidence reduction.
+
 ### Gameplay and UX
 
-- [~] Add a timeline showing demand, runway capacity, target crossing times,
+- [x] Add a timeline showing demand, runway capacity, target crossing times,
   tolerance windows, expected delay, and confidence. The Queue inspector
   now shows active arrival/departure slots, delay, a configurable planned-slot
   outlook, bounded confidence, and route-aware meter targets with explicit
-  tolerance windows; runway-capacity attribution and downstream uncertainty
-  remain open.
+  tolerance windows, plus active runway/spacing/constraint attribution and
+  direction-specific downstream uncertainty.
 - [~] Let Supervisor choose Balanced, Minimum Holding, Minimum Taxi Delay,
   Weather Recovery, or Watch/Calm scheduling objectives. The Queue
   inspector and typed control API now select authoritative pacing profiles;
@@ -538,10 +549,10 @@ inspect the active horizon but cannot alter the airport-wide planning window.
 - [x] Model uncertainty from wind, procedure, runway condition, pilot response,
   taxi congestion, and gate readiness. Forecast confidence now carries bounded,
   direction-specific procedure, taxi, and gate factors alongside weather,
-  wind, runway condition, and pilot response without changing separation,
-  reservations, meter slots, or movement commands.
+  wind, runway condition, pilot response, and downstream saturation without
+  changing separation, reservations, meter slots, or movement commands.
 - [~] Ensure schedule recommendations never move an aircraft directly; accepted
-  actions must pass through the existing command and safety layers. Version 4
+  actions must pass through the existing command and safety layers. Version 6
   flow snapshots expose advisory-only recommendations plus explicit Ignore and
   Recover responses. Recovery changes only the scheduler objective; aircraft
   remain behind the command and safety arbiters. Action-specific release policy

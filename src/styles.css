@@ -5004,6 +5004,13 @@ body.capture-clean #capture-clean-exit {
 .queue-panel__capacity-row[data-confidence="low"] b {
   color: #ff9c79;
 }
+.queue-panel__capacity-source {
+  overflow: hidden;
+  color: rgba(188, 232, 216, 0.72);
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .queue-panel__capacity-row--advisory,
 .queue-panel__capacity-row--response {
   grid-column: 1 / -1;

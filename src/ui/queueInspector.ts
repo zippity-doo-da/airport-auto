@@ -84,6 +84,16 @@ export function operationQueueRenderKey(
         window.revisedCount,
         window.confidence,
         ...Object.values(window.uncertainty).map((value) => value.toFixed(2)),
+        window.attribution.configurationId,
+        window.attribution.usableRunwayCount,
+        window.attribution.nominalSpacingSeconds.toFixed(1),
+        ...window.attribution.runways.map(
+          (runway) => `${runway.id}:${runway.closed ? 1 : 0}`,
+        ),
+        ...window.attribution.constraints.map(
+          (constraint) =>
+            `${constraint.category}:${constraint.count}:${Math.floor(constraint.oldestWaitSeconds)}`,
+        ),
       ].join(":"),
     ),
     ...flow.recommendations.map((recommendation) =>
@@ -304,6 +314,9 @@ function renderCapacitySummary(
         window.uncertainty.gateReadiness >= 0.1
           ? `gate ${Math.round(window.uncertainty.gateReadiness * 100)}%`
           : "",
+        window.uncertainty.downstreamSaturation >= 0.1
+          ? `downstream ${Math.round(window.uncertainty.downstreamSaturation * 100)}%`
+          : "",
       ].filter(Boolean);
       const uncertaintyActive = Object.values(window.uncertainty).some(
         (value) => value >= 0.1,
@@ -311,12 +324,27 @@ function renderCapacitySummary(
       detail.textContent = `${window.horizonSeconds / 60} min · ${window.confidence} confidence${window.delayedCount ? ` · ${window.delayedCount} delayed` : ""}${uncertaintyActive ? " · uncertainty active" : ""}${operationalFactors.length ? ` · ${operationalFactors.join(" · ")}` : ""}`;
       detail.title = window.confidenceReason;
 
+      const source = document.createElement("small");
+      source.className = "queue-panel__capacity-source";
+      const usableRunways = window.attribution.runways
+        .filter((runway) => !runway.closed)
+        .map((runway) => runway.designation);
+      const runwaySummary =
+        usableRunways.length <= 2
+          ? usableRunways.join("/")
+          : `${usableRunways.slice(0, 2).join("/")} +${usableRunways.length - 2}`;
+      const constraints = window.attribution.constraints
+        .slice(0, 2)
+        .map((constraint) => `${constraint.label} ${constraint.count}`);
+      source.textContent = `${usableRunways.length ? `RWY ${runwaySummary}` : "No usable runway"} · ${Math.round(window.attribution.nominalSpacingSeconds)}s${constraints.length ? ` · ${constraints.join(" · ")}` : ""}`;
+      source.title = `${window.attribution.configurationName} · ${window.attribution.usableRunwayCount} usable runway${window.attribution.usableRunwayCount === 1 ? "" : "s"}${window.direction === "arrival" ? ` · ${window.attribution.approachCapacity} concurrent approach position${window.attribution.approachCapacity === 1 ? "" : "s"}` : ""}`;
+
       const meter = document.createElement("span");
       meter.className = "queue-panel__capacity-bar";
       const fill = document.createElement("i");
       fill.style.width = `${Math.round(window.utilization * 100)}%`;
       meter.append(fill);
-      row.append(heading, detail, meter);
+      row.append(heading, detail, source, meter);
       return row;
     }),
   );
