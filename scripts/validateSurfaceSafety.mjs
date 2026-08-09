@@ -4,7 +4,7 @@ const validationSource = `
 import { generateHubConfig, HUB_AIRPORTS } from "./src/simulation/airportConfig.ts";
 import { AirportSimulation } from "./src/simulation/airportSimulation.ts";
 import { SurfaceSafetyAdvisoryTracker, surfaceSafetySnapshot, wrongSurfaceApproachAdvisories } from "./src/simulation/surfaceSafety.ts";
-import { SURFACE_SAFETY_PANEL_MAX_UPDATES_PER_SECOND, SURFACE_SAFETY_PANEL_UPDATE_INTERVAL_MS, surfaceSafetyLookaheadTargets, surfaceSafetyPanelKey, surfaceSafetyTracksForFilter, surfaceSafetyVehiclesForFilter } from "./src/ui/surfaceSafetyPanel.ts";
+import { SURFACE_SAFETY_PANEL_MAX_UPDATES_PER_SECOND, SURFACE_SAFETY_PANEL_UPDATE_INTERVAL_MS, surfaceSafetyCorridorsForFilter, surfaceSafetyLookaheadTargets, surfaceSafetyPanelKey, surfaceSafetyTracksForFilter, surfaceSafetyVehiclesForFilter } from "./src/ui/surfaceSafetyPanel.ts";
 import { runwayProtectionStatuses } from "./src/simulation/runwayProtection.ts";
 import { runwayEndPoint, runwayTravelDirection } from "./src/simulation/runwayGeometry.ts";
 import { SurfaceSafetyAcknowledgements } from "./src/simulation/surfaceSafetyAcknowledgements.ts";
@@ -123,7 +123,7 @@ seededSearch: for (let hubIndex = 0; hubIndex < HUB_AIRPORTS.length; hubIndex +=
       candidate.progress = 0;
       candidate.runway = runway.id;
       candidate.departureRunway = runway.id;
-      candidate.operatingEnd = runway.takeoffEnd;
+      candidate.operatingEnd = -runway.landingEnd;
       candidate.surfaceRoute = undefined;
       candidate.surfaceRouteEdges = undefined;
       candidateSimulation.assignSurfaceRoute(candidate, "taxi-out");
@@ -169,7 +169,7 @@ seededCrossingFlight.crossingClearances = [seededCrossing.runwayId];
 syncFlightMotion(seededConfig, seededCrossingFlight);
 seededRunwayOwner.phase = "takeoff";
 seededRunwayOwner.runway = seededCrossing.runwayId;
-seededRunwayOwner.operatingEnd = seededConfig.runways[seededCrossing.runwayId].takeoffEnd;
+seededRunwayOwner.operatingEnd = -seededConfig.runways[seededCrossing.runwayId].landingEnd;
 seededRunwayOwner.progress = 0.12;
 seededRunwayOwner.runwayEntryCleared = true;
 seededRunwayOwner.takeoffCleared = true;
@@ -200,6 +200,9 @@ const seededSurfaceSnapshot = surfaceSafetySnapshot(
 );
 const seededAdvisory = seededSurfaceSnapshot.advisories.find((advisory) => advisory.kind === "runway-crossing");
 const seededTrack = seededSurfaceSnapshot.tracks.find((track) => track.id === seededCrossingFlight.id);
+const seededDepartureCorridor = seededSurfaceSnapshot.protectionCorridors.find(
+  (corridor) => corridor.flightId === seededRunwayOwner.id,
+);
 assert(
   seededAdvisory?.severity === "warning" && seededAdvisory.geometry.kind === "corridor",
   "seeded pre-incursion prediction did not survive as an explainable warning corridor: " + JSON.stringify({ prediction: seededPrediction, advisory: seededAdvisory, crossing: seededCrossing }),
@@ -219,6 +222,17 @@ assert(
     seededCrossingIntent.crossingPoint.every(Number.isFinite),
   "surface route intent omitted the authoritative runway-crossing clearance state",
 );
+assert(
+  seededDepartureCorridor?.operation === "departure" &&
+    seededDepartureCorridor.points.length >= 2 &&
+    seededDepartureCorridor.points.length <= 18 &&
+    seededDepartureCorridor.points[0][0] === seededRunwayOwner.motion.x &&
+    seededDepartureCorridor.points[0][1] === seededRunwayOwner.motion.y,
+  "departure protection corridor did not begin at the authoritative flight pose: " + JSON.stringify({
+    corridor: seededDepartureCorridor,
+    motion: seededRunwayOwner.motion,
+  }),
+);
 
 const safeParallelRunways = seededConfig.runways.flatMap((runway, index) =>
   seededConfig.runways.slice(index + 1).flatMap((other) =>
@@ -235,14 +249,14 @@ const parallelSecond = structuredClone(seededRunwayOwner);
 parallelFirst.id = 9001;
 parallelFirst.phase = "takeoff";
 parallelFirst.runway = parallelFirstRunway.id;
-parallelFirst.operatingEnd = parallelFirstRunway.takeoffEnd;
+parallelFirst.operatingEnd = -parallelFirstRunway.landingEnd;
 parallelFirst.progress = 0.45;
 parallelFirst.surfaceRoute = undefined;
 parallelFirst.surfaceRouteEdges = undefined;
 parallelSecond.id = 9002;
 parallelSecond.phase = "takeoff";
 parallelSecond.runway = parallelSecondRunway.id;
-parallelSecond.operatingEnd = parallelSecondRunway.takeoffEnd;
+parallelSecond.operatingEnd = -parallelSecondRunway.landingEnd;
 parallelSecond.progress = 0.45;
 parallelSecond.surfaceRoute = undefined;
 parallelSecond.surfaceRouteEdges = undefined;
@@ -322,7 +336,7 @@ assert(
   "surface panel regenerated its target projection at render-frame cadence",
 );
 
-assert(snapshot.schemaVersion === 2, "surface snapshot version changed unexpectedly");
+assert(snapshot.schemaVersion === 3, "surface snapshot version changed unexpectedly");
 assert(snapshot.tracks.length >= 2, "surface snapshot omitted the known moving aircraft");
 assert(snapshot.tracks.every((track) => Number.isFinite(track.x) && Number.isFinite(track.y)), "surface snapshot emitted an invalid authoritative pose");
 assert(snapshot.tracks.every((track) => track.schemaVersion === 2), "surface tracks were not individually versioned");
@@ -353,6 +367,22 @@ assert(snapshot.advisories[0]?.schemaVersion === 1 && snapshot.advisories[0]?.ge
 assert(snapshot.advisories.some((advisory) => advisory.kind === "runway-crossing" && advisory.geometry.kind === "corridor" && advisory.geometry.points.length === 2), "crossing advisory did not carry its authoritative hold corridor");
 assert(snapshot.vehicles.length === 1, "active service vehicle was not projected");
 assert(snapshot.vehicles[0]?.state === "held" && snapshot.vehicles[0].groundspeedKts === 8, "service vehicle state or speed changed in the surface projection");
+const arrivalCorridor = snapshot.protectionCorridors.find(
+  (corridor) => corridor.operation === "arrival",
+);
+const arrivalFlight = simulation.state.flights.find(
+  (flight) => flight.id === arrivalCorridor?.flightId,
+);
+assert(
+  arrivalCorridor?.schemaVersion === 1 &&
+    arrivalFlight &&
+    arrivalCorridor.points.length >= 2 &&
+    arrivalCorridor.points.length <= 18 &&
+    arrivalCorridor.points[0][0] === arrivalFlight.motion.x &&
+    arrivalCorridor.points[0][1] === arrivalFlight.motion.y &&
+    arrivalCorridor.points.every((point) => point.every(Number.isFinite)),
+  "arrival protection corridor diverged from authoritative flight motion",
+);
 assert(surfaceSafetyTracksForFilter(snapshot, "tower").some((track) => track.id === second.id), "tower view omitted protected runway traffic");
 assert(surfaceSafetyTracksForFilter(snapshot, "ground").every((track) => track.state !== "parked"), "ground view included a parked flight");
 assert(surfaceSafetyTracksForFilter(snapshot, "ramp").every((track) => track.state === "parked" || track.location.startsWith("Ramp") || track.location.startsWith("Apron")), "ramp view included a movement-area flight");
@@ -361,6 +391,9 @@ assert(surfaceSafetyTracksForFilter(snapshot, "watch").every((track) => track.st
 assert(surfaceSafetyVehiclesForFilter(snapshot, "tower").some((vehicle) => vehicle.id === "safety-test-fuel"), "tower view omitted a held safety vehicle");
 assert(surfaceSafetyVehiclesForFilter(snapshot, "ramp").some((vehicle) => vehicle.id === "safety-test-fuel"), "ramp view omitted its non-protected service vehicle");
 assert(surfaceSafetyVehiclesForFilter(snapshot, "supervisor").some((vehicle) => vehicle.id === "safety-test-fuel"), "supervisor view omitted active service traffic");
+assert(surfaceSafetyCorridorsForFilter(snapshot, "tower").length === snapshot.protectionCorridors.length, "tower view omitted runway protection corridors");
+assert(surfaceSafetyCorridorsForFilter(snapshot, "supervisor").length === snapshot.protectionCorridors.length, "supervisor view omitted runway protection corridors");
+assert(surfaceSafetyCorridorsForFilter(snapshot, "ground").length === 0 && surfaceSafetyCorridorsForFilter(snapshot, "ramp").length === 0, "surface-only station view included airborne protection corridors");
 const runwayForecastAdvisories = snapshot.advisories.filter(
   (advisory) => advisory.kind === "runway-occupancy",
 );

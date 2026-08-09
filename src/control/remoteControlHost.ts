@@ -251,6 +251,32 @@ function compactSurfaceVehicle(value: unknown): JsonRecord | null {
   };
 }
 
+function compactSurfaceProtectionCorridor(value: unknown): JsonRecord | null {
+  if (!isRecord(value)) return null;
+  const points = Array.isArray(value.points)
+    ? value.points
+        .filter(
+          (point): point is unknown[] =>
+            Array.isArray(point) && point.length >= 2,
+        )
+        .slice(0, 18)
+        .map((point) => [number(point[0]) ?? 0, number(point[1]) ?? 0])
+    : [];
+  return {
+    schemaVersion: value.schemaVersion ?? null,
+    id: text(value.id, 180),
+    operation: value.operation ?? null,
+    flightId: value.flightId ?? null,
+    callsign: value.callsign ?? null,
+    runwayId: value.runwayId ?? null,
+    state: value.state ?? null,
+    points,
+    width: number(value.width) ?? 0,
+    altitudeFt: number(value.altitudeFt) ?? 0,
+    etaSeconds: number(value.etaSeconds) ?? 0,
+  };
+}
+
 function compactSurfaceAdvisory(value: unknown): JsonRecord | null {
   if (!isRecord(value)) return null;
   const geometry = isRecord(value.geometry) ? value.geometry : {};
@@ -473,6 +499,12 @@ export function projectRemoteOperationsSnapshot(value: unknown): JsonRecord {
             .map(compactSurfaceVehicle)
             .filter(Boolean)
             .slice(0, 80)
+        : [],
+      protectionCorridors: Array.isArray(surfaceSafety.protectionCorridors)
+        ? surfaceSafety.protectionCorridors
+            .map(compactSurfaceProtectionCorridor)
+            .filter(Boolean)
+            .slice(0, 16)
         : [],
       advisories: Array.isArray(surfaceSafety.advisories)
         ? surfaceSafety.advisories

@@ -3,6 +3,7 @@ import { aircraftProfile } from "./aircraftProfiles";
 import { runwayEndPoint, runwayTravelDirection } from "./runwayGeometry";
 import { surfaceRouteCrossingWindows } from "./surfaceGraph";
 import { sampleAircraftSurfaceMotion } from "./surfaceMotion";
+import { sampleFlightMotion } from "./flightMotion";
 import type {
   AirportState,
   ConflictPrediction,
@@ -113,11 +114,26 @@ export interface SurfaceVehicleTrack {
   surfaceNodeId?: string;
 }
 
+export interface SurfaceProtectionCorridor {
+  schemaVersion: 1;
+  id: string;
+  operation: "arrival" | "departure" | "go-around";
+  flightId: number;
+  callsign: string;
+  runwayId: number;
+  state: "assigned" | "protected";
+  points: Array<[number, number]>;
+  width: number;
+  altitudeFt: number;
+  etaSeconds: number;
+}
+
 export interface SurfaceSafetySnapshot {
-  schemaVersion: 2;
+  schemaVersion: 3;
   generatedAtSeconds: number;
   tracks: SurfaceTrack[];
   vehicles: SurfaceVehicleTrack[];
+  protectionCorridors: SurfaceProtectionCorridor[];
   advisories: SurfaceSafetyAdvisory[];
   protectedRunwayOccupancy: number;
   heldTracks: number;
@@ -159,6 +175,16 @@ export function surfaceSafetySnapshot(
         Number(second.held) - Number(first.held) ||
         first.callsign.localeCompare(second.callsign),
     );
+  const protectionCorridors = state.flights
+    .flatMap((flight) => protectionCorridor(config, flight))
+    .sort(
+      (first, second) =>
+        Number(second.state === "protected") -
+          Number(first.state === "protected") ||
+        first.etaSeconds - second.etaSeconds ||
+        first.callsign.localeCompare(second.callsign),
+    )
+    .slice(0, 16);
 
   if (metrics.runwayIncursions > 0) {
     advisories.unshift({
@@ -196,10 +222,11 @@ export function surfaceSafetySnapshot(
   }
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     generatedAtSeconds: state.elapsed,
     tracks,
     vehicles,
+    protectionCorridors,
     advisories: advisories.slice(0, 8),
     protectedRunwayOccupancy: tracks.filter((track) => track.protectedRunway)
       .length,
@@ -210,6 +237,63 @@ export function surfaceSafetySnapshot(
         track.state === "safety-hold",
     ).length,
   };
+}
+
+function protectionCorridor(
+  config: AirportConfig,
+  flight: Flight,
+): SurfaceProtectionCorridor[] {
+  const operation =
+    flight.phase === "takeoff"
+      ? "departure"
+      : flight.phase === "approach" && flight.goAround
+        ? "go-around"
+        : flight.phase === "approach" &&
+            !flight.navigation.hold &&
+            !flight.diversion
+          ? "arrival"
+          : null;
+  if (!operation) return [];
+  if (!Number.isFinite(flight.motion.x) || !Number.isFinite(flight.motion.y))
+    return [];
+  const start = Math.max(0, Math.min(1, flight.progress));
+  const sampleCount = Math.max(5, Math.min(16, Math.ceil((1 - start) * 16)));
+  const points: Array<[number, number]> = [[flight.motion.x, flight.motion.y]];
+  for (let index = 1; index <= sampleCount; index += 1) {
+    const sample = sampleFlightMotion(
+      config,
+      flight,
+      start + ((1 - start) * index) / sampleCount,
+    );
+    if (!Number.isFinite(sample.x) || !Number.isFinite(sample.y)) continue;
+    const point: [number, number] = [sample.x, sample.y];
+    const previous = points.at(-1);
+    if (
+      !previous ||
+      Math.hypot(point[0] - previous[0], point[1] - previous[1]) >= 0.25
+    )
+      points.push(point);
+  }
+  if (points.length < 2) return [];
+  const runway = config.runways[flight.runway];
+  return [
+    {
+      schemaVersion: 1,
+      id: `${operation}:${flight.id}:${flight.runway}`,
+      operation,
+      flightId: flight.id,
+      callsign: flight.callsign,
+      runwayId: flight.runway,
+      state: flight.motion.protectedRunway ? "protected" : "assigned",
+      points,
+      width: Math.max(2.5, (runway?.width ?? 3) * 1.35),
+      altitudeFt: Math.max(0, Math.round(flight.kinematics.altitudeFt)),
+      etaSeconds: Math.max(
+        0,
+        Math.round((1 - start) * Math.max(0, flight.duration)),
+      ),
+    },
+  ];
 }
 
 /**

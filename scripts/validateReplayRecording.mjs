@@ -45,7 +45,7 @@ const frames = [0, 1, 2].map((offset) => ({
   flights: [{ id: 7, callsign: 'AAL107', phase: 'takeoff', runway: 1, progress: offset / 2 }],
   predictions: [],
   surfaceSafety: {
-    schemaVersion: 2,
+    schemaVersion: 3,
     generatedAtSeconds: 10 + offset,
     tracks: [{
       schemaVersion: 2,
@@ -69,6 +69,19 @@ const frames = [0, 1, 2].map((offset) => ({
       },
     }],
     vehicles: [],
+    protectionCorridors: [{
+      schemaVersion: 1,
+      id: 'departure:7:1',
+      operation: 'departure',
+      flightId: 7,
+      callsign: 'AAL107',
+      runwayId: 1,
+      state: 'protected',
+      points: [[1, 2], [3, 4], [7, 8]],
+      width: 4,
+      altitudeFt: 86,
+      etaSeconds: 12,
+    }],
     advisories: offset === 1 ? [{
       schemaVersion: 1,
       id: 'runway-crossing:7-9:1',
@@ -173,6 +186,8 @@ assert(shareable.frames[1].surfaceSafety.advisories[0].detail === undefined, 'sh
 assert(recording.frames[1].surfaceSafety.advisories[0].status === 'active', 'full replay omitted captured surface advisory lifecycle state');
 assert(recording.frames[1].surfaceSafety.tracks[0].routeGeometry.crossings[0].status === 'pending', 'full replay omitted surface route crossing intent');
 assert(shareable.frames[1].surfaceSafety.tracks[0].routeGeometry.points.length === 3, 'shared replay omitted structural surface route geometry');
+assert(recording.frames[1].surfaceSafety.protectionCorridors[0].points.length === 3, 'full replay omitted runway protection corridor geometry');
+assert(shareable.frames[1].surfaceSafety.protectionCorridors[0].operation === 'departure', 'shared replay omitted structural runway protection corridor state');
 
 const legacy = structuredClone(recording);
 legacy.schemaVersion = 3;

@@ -1,4 +1,5 @@
 import type {
+  SurfaceProtectionCorridor,
   SurfaceSafetySnapshot,
   SurfaceTrack,
   SurfaceVehicleTrack,
@@ -51,6 +52,12 @@ export function surfaceSafetyPanelKey(snapshot: SurfaceSafetySnapshot): string {
           `${vehicle.id}:${vehicle.state}:${vehicle.location}:${vehicle.groundspeedKts}`,
       )
       .join(","),
+    (snapshot.protectionCorridors ?? [])
+      .map(
+        (corridor) =>
+          `${corridor.id}:${corridor.state}:${corridor.etaSeconds}:${corridor.points.map((point) => point.join(",")).join(";")}`,
+      )
+      .join(","),
     snapshot.advisories
       .map(
         (advisory) =>
@@ -77,11 +84,13 @@ export function renderSurfaceSafetyPanel(
   elements.holds.textContent = String(snapshot.heldTracks);
   const visibleTracks = surfaceSafetyTracksForFilter(snapshot, filter);
   const visibleVehicles = surfaceSafetyVehiclesForFilter(snapshot, filter);
+  const visibleCorridors = surfaceSafetyCorridorsForFilter(snapshot, filter);
   renderSurfaceDiagram(
     elements.diagram,
     config,
     visibleTracks,
     visibleVehicles,
+    visibleCorridors,
     snapshot.advisories,
     focusedFlightId,
     lookaheadSeconds,
@@ -113,6 +122,15 @@ export function renderSurfaceSafetyPanel(
     clear.textContent = "No active surface forecasts.";
     elements.advisories.append(clear);
   }
+}
+
+/** Returns runway-operation corridors relevant to the selected position. */
+export function surfaceSafetyCorridorsForFilter(
+  snapshot: SurfaceSafetySnapshot,
+  filter: SurfaceSafetyFilter,
+): SurfaceProtectionCorridor[] {
+  if (filter === "ground" || filter === "ramp") return [];
+  return snapshot.protectionCorridors ?? [];
 }
 
 /**
@@ -177,6 +195,7 @@ function renderSurfaceDiagram(
   config: AirportConfig,
   tracks: SurfaceTrack[],
   vehicles: SurfaceVehicleTrack[],
+  protectionCorridors: SurfaceProtectionCorridor[],
   advisories: SurfaceSafetySnapshot["advisories"],
   focusedFlightId: number | null,
   lookaheadSeconds: number,
@@ -202,6 +221,7 @@ function renderSurfaceDiagram(
         ]) ?? [],
     ),
     ...vehicles.map((vehicle) => [vehicle.x, vehicle.y]),
+    ...protectionCorridors.flatMap((corridor) => corridor.points),
     ...advisories.flatMap((advisory) =>
       advisory.status === "active" && advisory.geometry.kind === "corridor"
         ? advisory.geometry.points
@@ -224,6 +244,14 @@ function renderSurfaceDiagram(
         (track) => track.protectedRunway && track.runwayId === runway.id,
       );
       return `<line class="surface-safety__diagram-runway" data-occupied="${occupied}" x1="${runway.center[0] - x}" y1="${svgY(runway.center[1] - y)}" x2="${runway.center[0] + x}" y2="${svgY(runway.center[1] + y)}" />`;
+    })
+    .join("");
+  const protectionLines = protectionCorridors
+    .map((corridor) => {
+      const points = corridor.points
+        .map(([x, y]) => `${x},${svgY(y)}`)
+        .join(" ");
+      return `<polyline class="surface-safety__diagram-protection" data-operation="${corridor.operation}" data-state="${corridor.state}" points="${points}" aria-label="${escapeHtml(corridor.callsign)} ${corridor.operation} protection corridor for runway ${corridor.runwayId + 1}" />`;
     })
     .join("");
   const trackMarks = tracks
@@ -308,7 +336,16 @@ function renderSurfaceDiagram(
     (sum, track) => sum + (track.routeGeometry?.crossings.length ?? 0),
     0,
   );
-  container.innerHTML = `<svg viewBox="${minX} ${minY} ${width} ${height}" role="img" aria-label="Surface diagram: ${tracks.length} aircraft tracks, ${vehicles.length} service vehicles, ${routeCount} assigned taxi routes, ${crossingCount} runway crossing points, ${lookaheadArcs || crossingCorridors ? "active forecast geometry" : "no forecast geometry"}">${runwayLines}${routeLines}${crossingIntents}${crossingCorridors}${lookaheadArcs}${vehicleMarks}${trackMarks}</svg>`;
+  const arrivalCorridors = protectionCorridors.filter(
+    (corridor) => corridor.operation === "arrival",
+  ).length;
+  const departureCorridors = protectionCorridors.filter(
+    (corridor) => corridor.operation === "departure",
+  ).length;
+  const goAroundCorridors = protectionCorridors.filter(
+    (corridor) => corridor.operation === "go-around",
+  ).length;
+  container.innerHTML = `<svg viewBox="${minX} ${minY} ${width} ${height}" role="img" aria-label="Surface diagram: ${tracks.length} aircraft tracks, ${vehicles.length} service vehicles, ${routeCount} assigned taxi routes, ${crossingCount} runway crossing points, ${arrivalCorridors} arrival corridors, ${departureCorridors} departure corridors, ${goAroundCorridors} go-around corridors, ${lookaheadArcs || crossingCorridors ? "active forecast geometry" : "no forecast geometry"}">${protectionLines}${runwayLines}${routeLines}${crossingIntents}${crossingCorridors}${lookaheadArcs}${vehicleMarks}${trackMarks}</svg>`;
 }
 
 function trackMatchesFilter(

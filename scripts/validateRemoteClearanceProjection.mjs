@@ -36,7 +36,7 @@ const snapshot = projectRemoteOperationsSnapshot({
     }],
   },
   surfaceSafety: {
-    schemaVersion: 2,
+    schemaVersion: 3,
     generatedAtSeconds: 12,
     protectedRunwayOccupancy: 1,
     heldTracks: 1,
@@ -56,6 +56,19 @@ const snapshot = projectRemoteOperationsSnapshot({
       },
     }],
     vehicles: [],
+    protectionCorridors: [{
+      schemaVersion: 1,
+      id: 'departure:7:1',
+      operation: 'departure',
+      flightId: 7,
+      callsign: 'TEST 7',
+      runwayId: 1,
+      state: 'protected',
+      points: [[1, 2], [4, 6], [8, 9]],
+      width: 4,
+      altitudeFt: 120,
+      etaSeconds: 14,
+    }],
     advisories: [{ schemaVersion: 1, id: 'runway:7', severity: 'warning', kind: 'runway-occupancy', status: 'active', flightIds: [7], causalTrackIds: ['aircraft:7'], geometry: { kind: 'runway', points: [[0, 0], [10, 0]], width: 8 }, detail: 'runway forecast' }],
   },
 });
@@ -64,8 +77,9 @@ assert(message?.commandId === 'cmd:route:7:2', 'remote projection dropped comman
 assert(message.causalEventIds.length === 2 && message.expiresAtSeconds === 20, 'remote projection dropped causal or expiry fields');
 assert(message.response?.status === 'delivered' && message.parameters.distanceNm === 14, 'remote projection dropped typed response content');
 assert(!Object.hasOwn(message, 'detail'), 'remote projection leaked free-form clearance detail');
-assert(snapshot.surfaceSafety.schemaVersion === 2 && snapshot.surfaceSafety.tracks[0].routeIntent === 'RWY 09', 'remote projection omitted authoritative surface tracks');
+assert(snapshot.surfaceSafety.schemaVersion === 3 && snapshot.surfaceSafety.tracks[0].routeIntent === 'RWY 09', 'remote projection omitted authoritative surface tracks');
 assert(snapshot.surfaceSafety.tracks[0].routeGeometry.points.length === 3 && snapshot.surfaceSafety.tracks[0].routeGeometry.crossings[0].status === 'held', 'remote projection omitted bounded route or crossing geometry');
+assert(snapshot.surfaceSafety.protectionCorridors[0].operation === 'departure' && snapshot.surfaceSafety.protectionCorridors[0].points.length === 3, 'remote projection omitted bounded runway protection corridor geometry');
 assert(snapshot.surfaceSafety.advisories[0].geometry.points.length === 2 && snapshot.surfaceSafety.advisories[0].detail === 'runway forecast', 'remote projection omitted bounded surface advisory geometry');
 console.log(JSON.stringify({ schemaVersion: snapshot.digitalClearances.schemaVersion, messages: snapshot.digitalClearances.messages.length }));
 `;

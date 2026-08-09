@@ -4552,6 +4552,24 @@ body.capture-clean #capture-clean-exit {
   stroke: #ef6f62;
   stroke-width: 3.8;
 }
+.surface-safety__diagram-protection {
+  fill: none;
+  stroke: rgba(121, 200, 232, 0.32);
+  stroke-width: 3.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.surface-safety__diagram-protection[data-operation="departure"] {
+  stroke: rgba(188, 232, 216, 0.32);
+}
+.surface-safety__diagram-protection[data-operation="go-around"] {
+  stroke: rgba(242, 200, 75, 0.38);
+  stroke-dasharray: 2.4 1.8;
+}
+.surface-safety__diagram-protection[data-state="protected"] {
+  opacity: 0.9;
+  stroke-width: 4.2;
+}
 .surface-safety__diagram-route {
   fill: none;
   stroke: rgba(121, 200, 232, 0.42);

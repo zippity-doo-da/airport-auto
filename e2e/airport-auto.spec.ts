@@ -3502,7 +3502,7 @@ test("Environment controls, accessible palettes, and the camera director remain 
   );
 });
 
-test("Surface safety diagram draws authoritative taxi route intent", async ({
+test("Surface safety diagram draws taxi routes and runway protection intent", async ({
   page,
 }, testInfo) => {
   test.skip(
@@ -3544,6 +3544,12 @@ test("Surface safety diagram draws authoritative taxi route intent", async ({
   await expect
     .poll(() => panel.locator(".surface-safety__diagram-route").count())
     .toBeGreaterThan(0);
+  await expect
+    .poll(() => panel.locator(".surface-safety__diagram-protection").count())
+    .toBeGreaterThan(0);
+  await expect(
+    panel.locator('.surface-safety__diagram-protection[data-operation="arrival"]'),
+  ).not.toHaveCount(0);
   const renderedPoints = await panel
     .locator(".surface-safety__diagram-route")
     .first()
@@ -3565,7 +3571,7 @@ test("Surface safety diagram draws authoritative taxi route intent", async ({
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(panel).toBeVisible();
   await page.screenshot({
-    path: testInfo.outputPath("mobile-surface-route-intent.png"),
+    path: testInfo.outputPath("mobile-surface-route-and-protection-intent.png"),
   });
 });
 

@@ -207,22 +207,25 @@ and exact/shareable replay preserve the bounded structural geometry.
   radar inset. It is desktop-resizable and bounded on compact screens, and now
   includes a compact authoritative surface diagram; advanced controls remain
   open.
-- [~] Render aircraft, tugs, authorized vehicles, runway occupancy, hold-short
+- [x] Render aircraft, tugs, authorized vehicles, runway occupancy, hold-short
   state, crossing authority, and approach/departure protection zones.
   The optional **Runway protection** map layer now shades each authoritative
   protected runway and its hold-short points: red for occupied pavement, blue
   for a currently authorized crossing, and amber for a waiting hold. The
   dedicated compact diagram now shows those authoritative runway states with
-  aircraft, service-vehicle, assigned-route, and crossing-clearance symbols;
-  full approach/departure protection corridors remain open.
+  aircraft, service-vehicle, assigned-route, and crossing-clearance symbols.
+  It also projects bounded, versioned arrival, departure, and go-around
+  corridors directly from authoritative flight motion; Ground and Ramp filters
+  suppress that airborne context while Tower, Supervisor, and Watch retain it.
 - [x] Show track identity, movement state, route intent, last clearance, and
       surveillance freshness without exposing hidden future simulation state.
 - [~] Add configurable look-ahead conflict arcs with a quiet advisory tier and a
   visually distinct immediate warning tier. The compact diagram now offers
   15-, 30-, and 60-second horizons and draws only active forecast-backed
   track arcs: dashed blue for advisory, solid amber for warning, and red
-  for critical. Assigned curved taxi routes and individual crossing points now
-  share the same diagram; broader approach/departure envelope controls remain
+  for critical. Assigned curved taxi routes, individual crossing points, and
+  approach/departure protection corridors now share the same diagram; broader
+  per-envelope display controls remain
   open.
 - [x] Add modeled runway entrance lights and takeoff-hold lights driven by the
       authoritative protection state, not decorative animation.
