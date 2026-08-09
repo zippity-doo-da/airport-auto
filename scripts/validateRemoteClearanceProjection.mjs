@@ -10,6 +10,18 @@ function assert(condition, message) {
 const snapshot = projectRemoteOperationsSnapshot({
   schemaVersion: 42,
   airport: { code: 'ORD', name: 'Chicago O’Hare' },
+  flights: [{
+    id: 7,
+    callsign: 'TEST 7',
+    phase: 'taxi-out',
+    poseAlignment: {
+      schemaVersion: 1,
+      authoritative: { x: 1, y: 2, onGround: true },
+      collision: { x: 1, y: 2, surface: true, protectedSurface: true, runway: 1, taxiway: 'TWY A', surfaceNode: 'node-a', surfaceEdge: 'edge-a' },
+      renderer: { position: { x: 0.998, y: 2.001 }, visible: true },
+      errors: { collisionHorizontalWorld: 0, rendererSourceHorizontalWorld: 0, rendererAuthoritativeHorizontalWorld: 0.00224 },
+    },
+  }],
   digitalClearances: {
     schemaVersion: 2,
     generatedAtSeconds: 18,
@@ -89,6 +101,8 @@ assert(snapshot.surfaceSafety.display.layers.corridors === false && snapshot.sur
 assert(snapshot.surfaceSafety.tracks[0].routeGeometry.points.length === 3 && snapshot.surfaceSafety.tracks[0].routeGeometry.crossings[0].status === 'held', 'remote projection omitted bounded route or crossing geometry');
 assert(snapshot.surfaceSafety.protectionCorridors[0].operation === 'departure' && snapshot.surfaceSafety.protectionCorridors[0].points.length === 3, 'remote projection omitted bounded runway protection corridor geometry');
 assert(snapshot.surfaceSafety.advisories[0].geometry.points.length === 2 && snapshot.surfaceSafety.advisories[0].detail === 'runway forecast', 'remote projection omitted bounded surface advisory geometry');
+assert(snapshot.flights[0].poseAlignment.collision.surfaceEdge === 'edge-a' && snapshot.flights[0].poseAlignment.renderer.visible, 'remote projection omitted render/collision pose alignment');
+assert(snapshot.flights[0].poseAlignment.errors.collisionHorizontalWorld === 0 && snapshot.flights[0].poseAlignment.errors.rendererAuthoritativeHorizontalWorld > 0, 'remote projection changed pose-alignment diagnostics');
 console.log(JSON.stringify({ schemaVersion: snapshot.digitalClearances.schemaVersion, messages: snapshot.digitalClearances.messages.length }));
 `;
 

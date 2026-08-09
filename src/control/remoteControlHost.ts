@@ -69,6 +69,29 @@ function compactFlight(value: unknown): JsonRecord | null {
   const navigation = isRecord(value.navigation) ? value.navigation : {};
   const handoff = isRecord(navigation.handoff) ? navigation.handoff : null;
   const gate = isRecord(value.gate) ? value.gate : null;
+  const poseAlignment = isRecord(value.poseAlignment)
+    ? value.poseAlignment
+    : null;
+  const poseAuthoritative =
+    poseAlignment && isRecord(poseAlignment.authoritative)
+      ? poseAlignment.authoritative
+      : {};
+  const poseCollision =
+    poseAlignment && isRecord(poseAlignment.collision)
+      ? poseAlignment.collision
+      : {};
+  const poseRenderer =
+    poseAlignment && isRecord(poseAlignment.renderer)
+      ? poseAlignment.renderer
+      : null;
+  const poseRendererPosition =
+    poseRenderer && isRecord(poseRenderer.position)
+      ? poseRenderer.position
+      : {};
+  const poseErrors =
+    poseAlignment && isRecord(poseAlignment.errors)
+      ? poseAlignment.errors
+      : {};
   return {
     id: value.id,
     callsign: value.callsign,
@@ -110,6 +133,41 @@ function compactFlight(value: unknown): JsonRecord | null {
       z: number(position.z) ?? 0,
     },
     onGround: trajectory.onGround === true,
+    poseAlignment: poseAlignment
+      ? {
+          schemaVersion: poseAlignment.schemaVersion ?? null,
+          authoritative: {
+            x: number(poseAuthoritative.x) ?? 0,
+            y: number(poseAuthoritative.y) ?? 0,
+            onGround: poseAuthoritative.onGround === true,
+          },
+          collision: {
+            x: number(poseCollision.x) ?? 0,
+            y: number(poseCollision.y) ?? 0,
+            surface: poseCollision.surface === true,
+            protectedSurface: poseCollision.protectedSurface === true,
+            runway: poseCollision.runway ?? null,
+            taxiway: poseCollision.taxiway ?? null,
+            surfaceNode: poseCollision.surfaceNode ?? null,
+            surfaceEdge: poseCollision.surfaceEdge ?? null,
+          },
+          renderer: poseRenderer
+            ? {
+                x: number(poseRendererPosition.x) ?? 0,
+                y: number(poseRendererPosition.y) ?? 0,
+                visible: poseRenderer.visible === true,
+              }
+            : null,
+          errors: {
+            collisionHorizontalWorld:
+              number(poseErrors.collisionHorizontalWorld) ?? null,
+            rendererSourceHorizontalWorld:
+              number(poseErrors.rendererSourceHorizontalWorld) ?? null,
+            rendererAuthoritativeHorizontalWorld:
+              number(poseErrors.rendererAuthoritativeHorizontalWorld) ?? null,
+          },
+        }
+      : null,
     taxiway: value.taxiway ?? null,
     stand: value.stand ?? null,
     gate: gate

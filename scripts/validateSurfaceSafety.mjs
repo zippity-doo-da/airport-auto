@@ -234,6 +234,80 @@ assert(
   }),
 );
 
+// Move the sourced crossing aircraft through the real graph window using the
+// production fixed-step update. At every protected-pavement sample the surface
+// track, authoritative motion, and collision envelope must remain identical.
+const liveCrossingSimulation = new AirportSimulation(seededConfig);
+const liveCrossingFlight = structuredClone(seededCrossingFlight);
+liveCrossingSimulation.state.flights = [liveCrossingFlight];
+liveCrossingSimulation.state.serviceVehicles = [];
+liveCrossingSimulation.setMode("manual");
+liveCrossingSimulation.setPaused(false);
+liveCrossingFlight.phase = seededCrossingFlight.phase;
+liveCrossingFlight.progress = Math.max(0, seededCrossing.entryProgress - 0.0015);
+liveCrossingFlight.controlHold = false;
+liveCrossingFlight.automaticHold = false;
+liveCrossingFlight.automaticHoldReason = undefined;
+liveCrossingFlight.safetyHold = false;
+liveCrossingFlight.safetyHoldReason = undefined;
+liveCrossingFlight.holdShortRunway = undefined;
+liveCrossingFlight.crossingClearanceIds = [seededCrossing.id];
+liveCrossingFlight.crossingClearances = [seededCrossing.runwayId];
+liveCrossingFlight.kinematics.groundSpeedKts = 12;
+syncFlightMotion(seededConfig, liveCrossingFlight);
+const liveCrossingSamples = [];
+for (let step = 0; step < 3_000; step += 1) {
+  liveCrossingSimulation.update(0.05);
+  const protectedCrossing = liveCrossingFlight.motion.protectedRunwayIds.includes(
+    seededCrossing.runwayId,
+  );
+  if (protectedCrossing) {
+    const envelope = aircraftCollisionEnvelope(
+      seededConfig,
+      liveCrossingFlight,
+      liveCrossingFlight.progress,
+    );
+    const liveSnapshot = surfaceSafetySnapshot(
+      seededConfig,
+      liveCrossingSimulation.state,
+      [],
+      { collisionAlerts: 0, runwayIncursions: 0 },
+    );
+    const track = liveSnapshot.tracks.find(
+      (candidate) => candidate.id === liveCrossingFlight.id,
+    );
+    assert(
+      track &&
+        track.x === liveCrossingFlight.motion.x &&
+        track.y === liveCrossingFlight.motion.y &&
+        envelope.x === track.x &&
+        envelope.y === track.y &&
+        envelope.surface &&
+        envelope.protectedSurface,
+      "live crossing motion diverged between track, authoritative pose, and collision envelope",
+    );
+    liveCrossingSamples.push([track.x, track.y]);
+  }
+  if (liveCrossingFlight.progress > seededCrossing.exitProgress + 0.002) break;
+}
+const liveCrossingDistance = liveCrossingSamples.length > 1
+  ? Math.hypot(
+      liveCrossingSamples.at(-1)[0] - liveCrossingSamples[0][0],
+      liveCrossingSamples.at(-1)[1] - liveCrossingSamples[0][1],
+    )
+  : 0;
+assert(
+  liveCrossingSamples.length >= 2 && liveCrossingDistance > 0.05,
+  "sourced runway crossing did not advance through protected pavement: " +
+    JSON.stringify({
+      samples: liveCrossingSamples.length,
+      distance: liveCrossingDistance,
+      progress: liveCrossingFlight.progress,
+      window: seededCrossing,
+      hold: liveCrossingFlight.automaticHoldReason,
+    }),
+);
+
 const safeParallelRunways = seededConfig.runways.flatMap((runway, index) =>
   seededConfig.runways.slice(index + 1).flatMap((other) =>
     Math.abs(Math.sin(runway.heading - other.heading)) < 0.08 &&
@@ -466,7 +540,12 @@ assert(announcements.select(incident).length === 0, "an unchanged advisory was a
 announcements.select({ ...incident, advisories: [] });
 assert(announcements.select(incident).length === 1, "a resolved and recurring advisory was not eligible for a new announcement");
 
-console.log(JSON.stringify({ tracks: snapshot.tracks.length, advisories: incident.advisories.length }));
+console.log(JSON.stringify({
+  tracks: snapshot.tracks.length,
+  advisories: incident.advisories.length,
+  liveCrossingSamples: liveCrossingSamples.length,
+  liveCrossingDistance: Number(liveCrossingDistance.toFixed(3)),
+}));
 `;
 
 const result = await build({

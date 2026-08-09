@@ -3536,6 +3536,27 @@ test("Surface safety diagram draws taxi routes and runway protection intent", as
       : null;
   });
   expect(routeTrack).not.toBeNull();
+  await page.waitForFunction(
+    (flightId) =>
+      window.airportControl
+        .snapshot()
+        .flights.find((flight) => flight.id === flightId)?.poseAlignment
+        .renderer !== null,
+    routeTrack!.id,
+  );
+  const poseAlignment = await page.evaluate((flightId) => {
+    const flight = window.airportControl
+      .snapshot()
+      .flights.find((candidate) => candidate.id === flightId);
+    return flight?.poseAlignment ?? null;
+  }, routeTrack!.id);
+  expect(poseAlignment).not.toBeNull();
+  expect(poseAlignment!.collision.surface).toBe(true);
+  expect(poseAlignment!.errors.collisionHorizontalWorld).toBe(0);
+  expect(poseAlignment!.errors.rendererSourceHorizontalWorld).toBe(0);
+  expect(
+    poseAlignment!.errors.rendererAuthoritativeHorizontalWorld,
+  ).toBeLessThan(0.1);
 
   await page.locator("#menu-toggle").click();
   await page.locator("#surface-safety-toggle").click();

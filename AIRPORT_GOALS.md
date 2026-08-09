@@ -150,8 +150,8 @@ takeoff-hold lights now read the shared authoritative runway-protection
 projection: red entrance lights appear only for occupied protected pavement,
 while amber hold lights appear for occupied pavement or an uncleared departure.
 The deterministic safety validator asserts both conditions. The remaining A1
-evidence gap is renderer capture during live crossing motion, plus the broader
-keyboard, screen-reader, reduced-motion, and semantic-color audit below.
+evidence gap is the broader keyboard, screen-reader, reduced-motion, and
+semantic-color audit below.
 Short-final wrong-surface detection also now compares the authoritative aircraft
 pose and heading with its assigned runway centerline, alternate runway ends,
 and nearby taxiway segments. It raises an explainable warning only when an
@@ -209,6 +209,17 @@ Track buttons are reconciled by flight ID rather than recreated every four
 hertz, and panel sections no longer collapse into overlapping rows while the
 bounded panel scrolls. Browser validation holds keyboard focus across a live
 refresh and exercises both direct and API-driven layer changes.
+Each local flight snapshot now includes a versioned pose-alignment record that
+keeps the four relevant coordinate sources explicit: authoritative fixed-step
+motion, collision/graph envelope, interpolated renderer source, and the actual
+Three.js root position. The renderer reports its source error separately from
+its normal sub-step interpolation lag, and the authenticated remote projection
+retains bounded structural alignment diagnostics. A sourced named-hub crossing
+fixture now advances through protected pavement using the production update
+loop and verifies exact track, collision, graph-occupancy, and authoritative
+pose agreement at every protected sample. Browser capture independently proves
+that the Three.js root consumes its interpolated source pose exactly while its
+surface-aircraft lag from the current fixed step stays bounded.
 
 ### Gameplay and UX
 
@@ -278,13 +289,15 @@ refresh and exercises both direct and API-driven layer changes.
 
 ### Acceptance gate
 
-- [~] Zero false disagreement between 3D pose, graph occupancy, track position,
-  and collision diagnostics across deterministic crossings and pushbacks.
-  The surface-safety validator cross-checks each displayed track against the
-  authoritative pose and collision envelope, and the Manual departure
-  lifecycle repeats that assertion through real pushback, taxi, runway
-  entry, lineup, and takeoff-roll movement. Renderer capture and live
-  crossing-motion coverage remain open.
+- [x] Zero false disagreement between 3D pose, graph occupancy, track position,
+      and collision diagnostics across deterministic crossings and pushbacks.
+      The surface-safety validator cross-checks each displayed track against the
+      authoritative pose and collision envelope; a sourced crossing now advances
+      through protected pavement under the production fixed-step update; and the
+      Manual departure lifecycle repeats that assertion through real pushback,
+      taxi, runway entry, lineup, and takeoff-roll movement. Browser capture
+      verifies the actual Three.js root against its interpolated source and the
+      current authoritative/collision pose with a bounded sub-step lag.
 - [x] Every seeded runway-incursion test produces an advisory before protected
       envelopes overlap; safe parallel operations do not produce a critical alert.
       The surface-safety validator covers an uncleared crossing, a stale cleared

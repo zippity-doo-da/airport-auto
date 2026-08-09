@@ -235,6 +235,20 @@ export type WorldDiagnostics = {
   };
 };
 
+export interface WorldFlightRenderPose {
+  position: { x: number; y: number; z: number };
+  sourceMotion: {
+    x: number;
+    y: number;
+    z: number;
+    heading: number;
+    onGround: boolean;
+    stage: string;
+  };
+  horizontalSourceError: number;
+  visible: boolean;
+}
+
 export interface WorldFocusTarget {
   key: string;
   kind: FocusTargetKind;
@@ -258,6 +272,7 @@ export interface AirportWorld {
   flightAttitude(
     id: number,
   ): { headingDegrees: number; noseUpDegrees: number } | null;
+  flightRenderPose(id: number): WorldFlightRenderPose | null;
   mapMetrics(): {
     northDegrees: number;
     scaleMeters: number;
@@ -456,6 +471,7 @@ export function createWorld(
   let gateActivityUpdateIn = 0;
   let disruptionUpdateIn = 0;
   let currentState: AirportState | null = null;
+  const currentFlightById = new Map<number, Flight>();
   let runwayLabelsVisible = false;
   let serviceVehiclesVisible = true;
   let airportLifeVisible = false;
@@ -490,6 +506,8 @@ export function createWorld(
 
   function update(state: AirportState, delta: number): void {
     currentState = state;
+    currentFlightById.clear();
+    for (const flight of state.flights) currentFlightById.set(flight.id, flight);
     cameraTime += delta;
     terminalAccess.update(cameraTime);
     const weatherEnvironment = weatherPresentation(state.weather);
@@ -1283,6 +1301,34 @@ export function createWorld(
     };
   }
 
+  function flightRenderPose(id: number): WorldFlightRenderPose | null {
+    const visual = flightVisuals.get(id);
+    const flight = currentFlightById.get(id);
+    if (!visual || !flight) return null;
+    const position = {
+      x: visual.root.position.x,
+      y: visual.root.position.y,
+      z: visual.root.position.z,
+    };
+    const sourceMotion = {
+      x: flight.motion.x,
+      y: flight.motion.y,
+      z: flight.motion.z,
+      heading: flight.motion.heading,
+      onGround: flight.motion.onGround,
+      stage: flight.motion.stage ?? flight.phase,
+    };
+    return {
+      position,
+      sourceMotion,
+      horizontalSourceError: Math.hypot(
+        position.x - sourceMotion.x,
+        position.y - sourceMotion.y,
+      ),
+      visible: visual.root.visible,
+    };
+  }
+
   function mapMetrics(): {
     northDegrees: number;
     scaleMeters: number;
@@ -1391,6 +1437,7 @@ export function createWorld(
     focusTarget: setWorldFocusTarget,
     flightScreenPosition,
     flightAttitude,
+    flightRenderPose,
     mapMetrics,
     zoomIn() {
       changeZoom(0.78);

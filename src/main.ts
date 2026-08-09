@@ -9,6 +9,7 @@ import {
 } from "./simulation/airportConfig";
 import { aircraftProfile } from "./simulation/aircraftProfiles";
 import { aircraftSystemsState } from "./simulation/aircraftSystems";
+import { aircraftCollisionEnvelope } from "./simulation/collisionDetection";
 import { airlineProfile } from "./simulation/airlineProfiles";
 import {
   sampleAircraftSurfaceMotion,
@@ -8354,6 +8355,51 @@ function cloneFocusTargetCatalog(
   };
 }
 
+function flightPoseAlignment(flight: Flight) {
+  const collision = aircraftCollisionEnvelope(config, flight, flight.progress);
+  const rendered = world.flightRenderPose(flight.id);
+  const collisionHorizontalError = Math.hypot(
+    collision.x - flight.motion.x,
+    collision.y - flight.motion.y,
+  );
+  const rendererAuthoritativeError = rendered
+    ? Math.hypot(
+        rendered.position.x - flight.motion.x,
+        rendered.position.y - flight.motion.y,
+      )
+    : null;
+  return {
+    schemaVersion: 1,
+    authoritative: {
+      x: flight.motion.x,
+      y: flight.motion.y,
+      z: flight.motion.z,
+      heading: flight.motion.heading,
+      onGround: flight.motion.onGround,
+      protectedRunwayIds: [...flight.motion.protectedRunwayIds],
+    },
+    collision: {
+      x: collision.x,
+      y: collision.y,
+      altitude: collision.altitude,
+      heading: collision.heading,
+      surface: collision.surface,
+      protectedSurface: collision.protectedSurface,
+      runway: collision.runway,
+      taxiway: collision.taxiway ?? null,
+      surfaceNode: collision.surfaceNode ?? null,
+      surfaceEdge: collision.surfaceEdge ?? null,
+    },
+    renderer: rendered,
+    errors: {
+      collisionHorizontalWorld: collisionHorizontalError,
+      rendererSourceHorizontalWorld:
+        rendered?.horizontalSourceError ?? null,
+      rendererAuthoritativeHorizontalWorld: rendererAuthoritativeError,
+    },
+  };
+}
+
 function airportSnapshot() {
   const diagnostics = simulation.diagnostics();
   const renderer = world.diagnostics();
@@ -9233,6 +9279,7 @@ function airportSnapshot() {
         ),
       },
       motion: { ...flight.motion },
+      poseAlignment: flightPoseAlignment(flight),
       renderedAttitude: world.flightAttitude(flight.id),
       trajectory: flightTrajectorySnapshot(flight),
       gateSlot: flight.gateSlot,
