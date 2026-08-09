@@ -3502,6 +3502,73 @@ test("Environment controls, accessible palettes, and the camera director remain 
   );
 });
 
+test("Surface safety diagram draws authoritative taxi route intent", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "desktop-chromium",
+    "Desktop Chromium covers the optional surface diagram and its mobile resize.",
+  );
+  test.setTimeout(60_000);
+  await page.setViewportSize({ width: 1024, height: 600 });
+  await page.goto("/?airport=ORD&mode=auto&autostart=1&detail=low&renderFps=4");
+  await page.waitForFunction(() => window.airportControl?.version === "2.41.0");
+  await page.waitForFunction(() =>
+    window.airportControl
+      .snapshot()
+      .surfaceSafety.tracks.some(
+        (track) => (track.routeGeometry?.points.length ?? 0) >= 2,
+      ),
+  );
+
+  const routeTrack = await page.evaluate(() => {
+    const track = window.airportControl
+      .snapshot()
+      .surfaceSafety.tracks.find(
+        (candidate) => (candidate.routeGeometry?.points.length ?? 0) >= 2,
+      );
+    return track
+      ? {
+          id: track.id,
+          points: track.routeGeometry?.points.length ?? 0,
+          crossings: track.routeGeometry?.crossings.length ?? 0,
+        }
+      : null;
+  });
+  expect(routeTrack).not.toBeNull();
+
+  await page.locator("#menu-toggle").click();
+  await page.locator("#surface-safety-toggle").click();
+  const panel = page.locator("#surface-safety-panel");
+  await expect(panel).toBeVisible();
+  await expect
+    .poll(() => panel.locator(".surface-safety__diagram-route").count())
+    .toBeGreaterThan(0);
+  const renderedPoints = await panel
+    .locator(".surface-safety__diagram-route")
+    .first()
+    .getAttribute("points");
+  expect(renderedPoints?.trim().split(/\s+/).length).toBeGreaterThanOrEqual(2);
+
+  await panel
+    .locator(`[data-flight-id="${routeTrack!.id}"]`)
+    .click();
+  await expect(
+    panel.locator('.surface-safety__diagram-route[data-focused="true"]'),
+  ).toHaveCount(1);
+  if (routeTrack!.crossings > 0) {
+    await expect(
+      panel.locator(".surface-safety__diagram-crossing"),
+    ).not.toHaveCount(0);
+  }
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(panel).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath("mobile-surface-route-intent.png"),
+  });
+});
+
 test("Operations data lab records authoritative traces and exports local analysis", async ({
   page,
 }, testInfo) => {

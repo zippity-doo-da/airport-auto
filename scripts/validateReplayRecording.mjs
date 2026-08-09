@@ -47,7 +47,27 @@ const frames = [0, 1, 2].map((offset) => ({
   surfaceSafety: {
     schemaVersion: 2,
     generatedAtSeconds: 10 + offset,
-    tracks: [],
+    tracks: [{
+      schemaVersion: 2,
+      id: 7,
+      callsign: 'AAL107',
+      aircraft: 'A320',
+      x: 1,
+      y: 2,
+      headingDegrees: 90,
+      groundspeedKts: 14,
+      location: 'TWY A',
+      state: 'taxiing',
+      protectedRunway: false,
+      routeIntent: 'A / A17',
+      clearanceSummary: 'Taxi clearance pending',
+      surveillanceAgeSeconds: 0,
+      routeGeometry: {
+        schemaVersion: 1,
+        points: [[1, 2], [3, 4], [5, 6]],
+        crossings: [{ id: 'crossing:7', runwayId: 1, status: 'pending', holdPoint: [3, 4], crossingPoint: [5, 6] }],
+      },
+    }],
     vehicles: [],
     advisories: offset === 1 ? [{
       schemaVersion: 1,
@@ -151,6 +171,8 @@ assert(!JSON.stringify(shareable).includes('controller@example.test') && !JSON.s
 assert(verifyReplayRecording(shareable).exact, 'redacted shared replay was not re-fingerprinted exactly');
 assert(shareable.frames[1].surfaceSafety.advisories[0].detail === undefined, 'shared replay retained private surface advisory detail');
 assert(recording.frames[1].surfaceSafety.advisories[0].status === 'active', 'full replay omitted captured surface advisory lifecycle state');
+assert(recording.frames[1].surfaceSafety.tracks[0].routeGeometry.crossings[0].status === 'pending', 'full replay omitted surface route crossing intent');
+assert(shareable.frames[1].surfaceSafety.tracks[0].routeGeometry.points.length === 3, 'shared replay omitted structural surface route geometry');
 
 const legacy = structuredClone(recording);
 legacy.schemaVersion = 3;

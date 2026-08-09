@@ -162,6 +162,46 @@ function compactQueue(value: unknown): JsonRecord | null {
 
 function compactSurfaceTrack(value: unknown): JsonRecord | null {
   if (!isRecord(value)) return null;
+  const routeGeometry = isRecord(value.routeGeometry)
+    ? value.routeGeometry
+    : null;
+  const routePoints =
+    routeGeometry && Array.isArray(routeGeometry.points)
+      ? routeGeometry.points
+          .filter(
+            (point): point is unknown[] =>
+              Array.isArray(point) && point.length >= 2,
+          )
+          .slice(0, 30)
+          .map((point) => [number(point[0]) ?? 0, number(point[1]) ?? 0])
+      : [];
+  const crossings =
+    routeGeometry && Array.isArray(routeGeometry.crossings)
+      ? routeGeometry.crossings
+          .filter(isRecord)
+          .slice(0, 8)
+          .map((crossing) => ({
+            id: text(crossing.id, 180),
+            runwayId: crossing.runwayId ?? null,
+            status: crossing.status ?? null,
+            holdPoint:
+              Array.isArray(crossing.holdPoint) &&
+              crossing.holdPoint.length >= 2
+                ? [
+                    number(crossing.holdPoint[0]) ?? 0,
+                    number(crossing.holdPoint[1]) ?? 0,
+                  ]
+                : null,
+            crossingPoint:
+              Array.isArray(crossing.crossingPoint) &&
+              crossing.crossingPoint.length >= 2
+                ? [
+                    number(crossing.crossingPoint[0]) ?? 0,
+                    number(crossing.crossingPoint[1]) ?? 0,
+                  ]
+                : null,
+          }))
+      : [];
   return {
     schemaVersion: value.schemaVersion ?? null,
     id: value.id ?? null,
@@ -180,6 +220,13 @@ function compactSurfaceTrack(value: unknown): JsonRecord | null {
     routeIntent: text(value.routeIntent, 240),
     clearanceSummary: text(value.clearanceSummary, 160),
     surveillanceAgeSeconds: number(value.surveillanceAgeSeconds) ?? 0,
+    routeGeometry: routeGeometry
+      ? {
+          schemaVersion: routeGeometry.schemaVersion ?? null,
+          points: routePoints,
+          crossings,
+        }
+      : null,
   };
 }
 
@@ -222,7 +269,9 @@ function compactSurfaceAdvisory(value: unknown): JsonRecord | null {
     severity: value.severity ?? null,
     kind: value.kind ?? null,
     status: value.status ?? null,
-    flightIds: Array.isArray(value.flightIds) ? value.flightIds.slice(0, 12) : [],
+    flightIds: Array.isArray(value.flightIds)
+      ? value.flightIds.slice(0, 12)
+      : [],
     causalTrackIds: Array.isArray(value.causalTrackIds)
       ? value.causalTrackIds.slice(0, 12)
       : [],
@@ -337,7 +386,9 @@ export function projectRemoteOperationsSnapshot(value: unknown): JsonRecord {
         ? weather.runwayConditionReports.slice(0, 12)
         : [],
       hazardsEnabled: weather.hazardsEnabled === true,
-      activeHazard: isRecord(weather.activeHazard) ? weather.activeHazard : null,
+      activeHazard: isRecord(weather.activeHazard)
+        ? weather.activeHazard
+        : null,
     },
     score: {
       landed: score.landed ?? 0,
@@ -412,13 +463,22 @@ export function projectRemoteOperationsSnapshot(value: unknown): JsonRecord {
       protectedRunwayOccupancy: surfaceSafety.protectedRunwayOccupancy ?? 0,
       heldTracks: surfaceSafety.heldTracks ?? 0,
       tracks: Array.isArray(surfaceSafety.tracks)
-        ? surfaceSafety.tracks.map(compactSurfaceTrack).filter(Boolean).slice(0, 80)
+        ? surfaceSafety.tracks
+            .map(compactSurfaceTrack)
+            .filter(Boolean)
+            .slice(0, 80)
         : [],
       vehicles: Array.isArray(surfaceSafety.vehicles)
-        ? surfaceSafety.vehicles.map(compactSurfaceVehicle).filter(Boolean).slice(0, 80)
+        ? surfaceSafety.vehicles
+            .map(compactSurfaceVehicle)
+            .filter(Boolean)
+            .slice(0, 80)
         : [],
       advisories: Array.isArray(surfaceSafety.advisories)
-        ? surfaceSafety.advisories.map(compactSurfaceAdvisory).filter(Boolean).slice(0, 30)
+        ? surfaceSafety.advisories
+            .map(compactSurfaceAdvisory)
+            .filter(Boolean)
+            .slice(0, 30)
         : [],
     },
   };

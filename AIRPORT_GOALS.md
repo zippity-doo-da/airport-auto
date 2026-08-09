@@ -193,6 +193,13 @@ the rollup is visible in the Safety picture metric and exportable as the
 `surface-advisories` dataset. Shareable replay redaction removes advisory detail
 while preserving its structural safety evidence. Recurring advisories now clear
 their old resolution timestamp when they become active again.
+Surface Track schema 2 now carries a bounded remainder of each assigned taxi
+route sampled from the same aircraft-specific curved motion path used by the
+simulation. Upcoming runway crossings retain their authoritative crossing ID,
+runway, hold/crossing points, and pending, held, or cleared state. The optional
+compact safety diagram draws these muted routes and emphasizes only the selected
+track; the main 3D map remains free of automatic route lines. Remote snapshots
+and exact/shareable replay preserve the bounded structural geometry.
 
 ### Gameplay and UX
 
@@ -206,15 +213,17 @@ their old resolution timestamp when they become active again.
   protected runway and its hold-short points: red for occupied pavement, blue
   for a currently authorized crossing, and amber for a waiting hold. The
   dedicated compact diagram now shows those authoritative runway states with
-  aircraft and service-vehicle symbols; route/crossing intent and
-  approach/departure corridors remain open.
+  aircraft, service-vehicle, assigned-route, and crossing-clearance symbols;
+  full approach/departure protection corridors remain open.
 - [x] Show track identity, movement state, route intent, last clearance, and
       surveillance freshness without exposing hidden future simulation state.
 - [~] Add configurable look-ahead conflict arcs with a quiet advisory tier and a
   visually distinct immediate warning tier. The compact diagram now offers
   15-, 30-, and 60-second horizons and draws only active forecast-backed
   track arcs: dashed blue for advisory, solid amber for warning, and red
-  for critical. Full route/crossing geometry remains open.
+  for critical. Assigned curved taxi routes and individual crossing points now
+  share the same diagram; broader approach/departure envelope controls remain
+  open.
 - [x] Add modeled runway entrance lights and takeoff-hold lights driven by the
       authoritative protection state, not decorative animation.
 - [x] Add a toggleable, speed-scaled surface movement-vector layer for aircraft

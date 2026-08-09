@@ -40,7 +40,21 @@ const snapshot = projectRemoteOperationsSnapshot({
     generatedAtSeconds: 12,
     protectedRunwayOccupancy: 1,
     heldTracks: 1,
-    tracks: [{ schemaVersion: 1, id: 7, callsign: 'TEST 7', x: 1, y: 2, state: 'protected-runway', routeIntent: 'RWY 09', clearanceSummary: 'Takeoff RWY 09' }],
+    tracks: [{
+      schemaVersion: 2,
+      id: 7,
+      callsign: 'TEST 7',
+      x: 1,
+      y: 2,
+      state: 'protected-runway',
+      routeIntent: 'RWY 09',
+      clearanceSummary: 'Takeoff RWY 09',
+      routeGeometry: {
+        schemaVersion: 1,
+        points: [[1, 2], [3, 4], [5, 6]],
+        crossings: [{ id: 'crossing:7', runwayId: 1, status: 'held', holdPoint: [3, 4], crossingPoint: [5, 6] }],
+      },
+    }],
     vehicles: [],
     advisories: [{ schemaVersion: 1, id: 'runway:7', severity: 'warning', kind: 'runway-occupancy', status: 'active', flightIds: [7], causalTrackIds: ['aircraft:7'], geometry: { kind: 'runway', points: [[0, 0], [10, 0]], width: 8 }, detail: 'runway forecast' }],
   },
@@ -51,6 +65,7 @@ assert(message.causalEventIds.length === 2 && message.expiresAtSeconds === 20, '
 assert(message.response?.status === 'delivered' && message.parameters.distanceNm === 14, 'remote projection dropped typed response content');
 assert(!Object.hasOwn(message, 'detail'), 'remote projection leaked free-form clearance detail');
 assert(snapshot.surfaceSafety.schemaVersion === 2 && snapshot.surfaceSafety.tracks[0].routeIntent === 'RWY 09', 'remote projection omitted authoritative surface tracks');
+assert(snapshot.surfaceSafety.tracks[0].routeGeometry.points.length === 3 && snapshot.surfaceSafety.tracks[0].routeGeometry.crossings[0].status === 'held', 'remote projection omitted bounded route or crossing geometry');
 assert(snapshot.surfaceSafety.advisories[0].geometry.points.length === 2 && snapshot.surfaceSafety.advisories[0].detail === 'runway forecast', 'remote projection omitted bounded surface advisory geometry');
 console.log(JSON.stringify({ schemaVersion: snapshot.digitalClearances.schemaVersion, messages: snapshot.digitalClearances.messages.length }));
 `;
@@ -72,4 +87,6 @@ const result = await build({
 });
 const bundled = result.outputFiles[0]?.text;
 if (!bundled) throw new Error("Remote-clearance projection bundle was empty.");
-await import(`data:text/javascript;base64,${Buffer.from(bundled).toString("base64")}`);
+await import(
+  `data:text/javascript;base64,${Buffer.from(bundled).toString("base64")}`
+);

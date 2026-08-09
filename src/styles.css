@@ -4552,6 +4552,43 @@ body.capture-clean #capture-clean-exit {
   stroke: #ef6f62;
   stroke-width: 3.8;
 }
+.surface-safety__diagram-route {
+  fill: none;
+  stroke: rgba(121, 200, 232, 0.42);
+  stroke-width: 0.9;
+  stroke-dasharray: 2.2 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.surface-safety__diagram-route[data-focused="true"] {
+  stroke: #79c8e8;
+  stroke-width: 1.55;
+  opacity: 0.95;
+}
+.surface-safety__diagram-route[data-state="hold-short"],
+.surface-safety__diagram-route[data-state="safety-hold"] {
+  stroke: rgba(242, 200, 75, 0.72);
+}
+.surface-safety__diagram-crossing-leg {
+  stroke: rgba(242, 200, 75, 0.72);
+  stroke-width: 1.1;
+  stroke-dasharray: 1.4 1.1;
+}
+.surface-safety__diagram-crossing-leg[data-status="cleared"] {
+  stroke: rgba(121, 200, 232, 0.72);
+}
+.surface-safety__diagram-crossing {
+  fill: #071d1e;
+  stroke: #f2c84b;
+  stroke-width: 1.1;
+}
+.surface-safety__diagram-crossing[data-status="held"] {
+  fill: #f2c84b;
+}
+.surface-safety__diagram-crossing[data-status="cleared"] {
+  fill: #79c8e8;
+  stroke: #79c8e8;
+}
 .surface-safety__diagram-track {
   stroke: rgba(5, 24, 25, 0.92);
   stroke-width: 0.8;

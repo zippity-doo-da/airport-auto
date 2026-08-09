@@ -17,12 +17,7 @@ export interface SurfaceSafetyPanelElements {
 }
 
 export type SurfaceSafetyFilter =
-  | "all"
-  | "tower"
-  | "ground"
-  | "ramp"
-  | "supervisor"
-  | "watch";
+  "all" | "tower" | "ground" | "ramp" | "supervisor" | "watch";
 
 export interface SurfaceSafetyLookaheadTarget {
   track: SurfaceTrack;
@@ -40,15 +35,14 @@ export function surfaceSafetyPanelKey(snapshot: SurfaceSafetySnapshot): string {
     // renderer. Four hertz keeps symbols current without rebuilding the panel
     // alongside every Three.js animation frame.
     Math.floor(
-      snapshot.generatedAtSeconds *
-        SURFACE_SAFETY_PANEL_MAX_UPDATES_PER_SECOND,
+      snapshot.generatedAtSeconds * SURFACE_SAFETY_PANEL_MAX_UPDATES_PER_SECOND,
     ),
     snapshot.protectedRunwayOccupancy,
     snapshot.heldTracks,
     snapshot.tracks
       .map(
         (track) =>
-          `${track.id}:${track.state}:${track.location}:${track.groundspeedKts}`,
+          `${track.id}:${track.state}:${track.location}:${track.groundspeedKts}:${track.routeGeometry?.points.map((point) => point.join(",")).join(";") ?? "no-route"}:${track.routeGeometry?.crossings.map((crossing) => `${crossing.id}:${crossing.status}`).join(",") ?? "no-crossing"}`,
       )
       .join(","),
     snapshot.vehicles
@@ -89,6 +83,7 @@ export function renderSurfaceSafetyPanel(
     visibleTracks,
     visibleVehicles,
     snapshot.advisories,
+    focusedFlightId,
     lookaheadSeconds,
   );
   elements.tracks.replaceChildren(
@@ -164,7 +159,13 @@ export function surfaceSafetyLookaheadTargets(
     return advisory.flightIds.flatMap((flightId) => {
       const track = trackById.get(flightId);
       return track
-        ? [{ track, severity: advisory.severity, etaSeconds: advisory.etaSeconds }]
+        ? [
+            {
+              track,
+              severity: advisory.severity,
+              etaSeconds: advisory.etaSeconds,
+            },
+          ]
         : [];
     });
   });
@@ -177,6 +178,7 @@ function renderSurfaceDiagram(
   tracks: SurfaceTrack[],
   vehicles: SurfaceVehicleTrack[],
   advisories: SurfaceSafetySnapshot["advisories"],
+  focusedFlightId: number | null,
   lookaheadSeconds: number,
 ): void {
   const runwayPoints = config.runways.flatMap((runway) => {
@@ -191,6 +193,14 @@ function renderSurfaceDiagram(
   const points = [
     ...runwayPoints,
     ...tracks.map((track) => [track.x, track.y]),
+    ...tracks.flatMap((track) => track.routeGeometry?.points ?? []),
+    ...tracks.flatMap(
+      (track) =>
+        track.routeGeometry?.crossings.flatMap((crossing) => [
+          crossing.crossingPoint,
+          ...(crossing.holdPoint ? [crossing.holdPoint] : []),
+        ]) ?? [],
+    ),
     ...vehicles.map((vehicle) => [vehicle.x, vehicle.y]),
     ...advisories.flatMap((advisory) =>
       advisory.status === "active" && advisory.geometry.kind === "corridor"
@@ -226,6 +236,28 @@ function renderSurfaceDiagram(
       // SVG has a downward Y axis, so invert the authoritative mathematical
       // heading. The triangle itself faces right at zero degrees.
       return `<path class="surface-safety__diagram-track" d="M -2.4 1.9 L 2.8 0 L -2.4 -1.9 Z" fill="${color}" transform="translate(${track.x} ${svgY(track.y)}) rotate(${-track.headingDegrees})" />`;
+    })
+    .join("");
+  const routeLines = tracks
+    .filter((track) => (track.routeGeometry?.points.length ?? 0) >= 2)
+    .map((track) => {
+      const route = track.routeGeometry!;
+      const points = route.points.map(([x, y]) => `${x},${svgY(y)}`).join(" ");
+      return `<polyline class="surface-safety__diagram-route" data-focused="${track.id === focusedFlightId}" data-state="${track.state}" points="${points}" aria-label="Assigned taxi route for ${escapeHtml(track.callsign)}" />`;
+    })
+    .join("");
+  const crossingIntents = tracks
+    .flatMap((track) =>
+      (track.routeGeometry?.crossings ?? []).map((crossing) => ({
+        callsign: track.callsign,
+        ...crossing,
+      })),
+    )
+    .map((crossing) => {
+      const holdLeg = crossing.holdPoint
+        ? `<line class="surface-safety__diagram-crossing-leg" data-status="${crossing.status}" x1="${crossing.holdPoint[0]}" y1="${svgY(crossing.holdPoint[1])}" x2="${crossing.crossingPoint[0]}" y2="${svgY(crossing.crossingPoint[1])}" />`
+        : "";
+      return `${holdLeg}<circle class="surface-safety__diagram-crossing" data-status="${crossing.status}" cx="${crossing.crossingPoint[0]}" cy="${svgY(crossing.crossingPoint[1])}" r="1.65" aria-label="${escapeHtml(crossing.callsign)} runway ${crossing.runwayId + 1} crossing ${crossing.status}" />`;
     })
     .join("");
   const lookaheadArcs = surfaceSafetyLookaheadTargets(
@@ -269,7 +301,14 @@ function renderSurfaceDiagram(
         `<rect class="surface-safety__diagram-vehicle" x="${vehicle.x - 1.3}" y="${svgY(vehicle.y) - 1.3}" width="2.6" height="2.6" />`,
     )
     .join("");
-  container.innerHTML = `<svg viewBox="${minX} ${minY} ${width} ${height}" role="img" aria-label="Surface diagram: ${tracks.length} aircraft tracks, ${vehicles.length} service vehicles, ${lookaheadArcs || crossingCorridors ? "active forecast geometry" : "no forecast geometry"}">${runwayLines}${crossingCorridors}${lookaheadArcs}${vehicleMarks}${trackMarks}</svg>`;
+  const routeCount = tracks.filter(
+    (track) => (track.routeGeometry?.points.length ?? 0) >= 2,
+  ).length;
+  const crossingCount = tracks.reduce(
+    (sum, track) => sum + (track.routeGeometry?.crossings.length ?? 0),
+    0,
+  );
+  container.innerHTML = `<svg viewBox="${minX} ${minY} ${width} ${height}" role="img" aria-label="Surface diagram: ${tracks.length} aircraft tracks, ${vehicles.length} service vehicles, ${routeCount} assigned taxi routes, ${crossingCount} runway crossing points, ${lookaheadArcs || crossingCorridors ? "active forecast geometry" : "no forecast geometry"}">${runwayLines}${routeLines}${crossingIntents}${crossingCorridors}${lookaheadArcs}${vehicleMarks}${trackMarks}</svg>`;
 }
 
 function trackMatchesFilter(
@@ -307,9 +346,16 @@ function vehicleMatchesFilter(
 ): boolean {
   if (filter === "all" || filter === "ground") return true;
   if (filter === "tower") return vehicle.protectedMovementArea || vehicle.held;
-  if (filter === "supervisor") return vehicle.state !== "scheduled" && vehicle.state !== "complete";
+  if (filter === "supervisor")
+    return vehicle.state !== "scheduled" && vehicle.state !== "complete";
   if (filter === "watch") {
-    return ["dispatching", "approaching", "clearing", "returning", "servicing"].includes(vehicle.state);
+    return [
+      "dispatching",
+      "approaching",
+      "clearing",
+      "returning",
+      "servicing",
+    ].includes(vehicle.state);
   }
   return !vehicle.protectedMovementArea;
 }

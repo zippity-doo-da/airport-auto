@@ -1,5 +1,8 @@
 import type { AirportConfig } from "./airportConfig";
+import { aircraftProfile } from "./aircraftProfiles";
 import { runwayEndPoint, runwayTravelDirection } from "./runwayGeometry";
+import { surfaceRouteCrossingWindows } from "./surfaceGraph";
+import { sampleAircraftSurfaceMotion } from "./surfaceMotion";
 import type {
   AirportState,
   ConflictPrediction,
@@ -17,7 +20,7 @@ import type {
  * simulation already owns.
  */
 export interface SurfaceTrack {
-  schemaVersion: 1;
+  schemaVersion: 2;
   id: number;
   callsign: string;
   aircraft: string;
@@ -43,6 +46,22 @@ export interface SurfaceTrack {
   clearanceSummary: string;
   /** Fixed-step projection age; zero means this snapshot is current. */
   surveillanceAgeSeconds: number;
+  /** Bounded remainder of the assigned, simulation-owned taxi path. */
+  routeGeometry?: SurfaceRouteIntentGeometry;
+}
+
+export interface SurfaceRouteIntentGeometry {
+  schemaVersion: 1;
+  points: Array<[number, number]>;
+  crossings: SurfaceRouteCrossingIntent[];
+}
+
+export interface SurfaceRouteCrossingIntent {
+  id: string;
+  runwayId: number;
+  status: "pending" | "held" | "cleared";
+  holdPoint?: [number, number];
+  crossingPoint: [number, number];
 }
 
 export interface SurfaceSafetyAdvisory {
@@ -429,7 +448,7 @@ function surfaceTrack(
               ? "protected-runway"
               : "taxiing";
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: flight.id,
     callsign: flight.callsign,
     aircraft: flight.aircraft,
@@ -449,6 +468,81 @@ function surfaceTrack(
       0,
       generatedAtSeconds - generatedAtSeconds,
     ),
+    routeGeometry: surfaceRouteIntentGeometry(config, flight),
+  };
+}
+
+function surfaceRouteIntentGeometry(
+  config: AirportConfig,
+  flight: Flight,
+): SurfaceRouteIntentGeometry | undefined {
+  if (
+    (flight.phase !== "taxi-in" && flight.phase !== "taxi-out") ||
+    !flight.surfaceRoute?.length ||
+    !flight.surfaceRouteEdges?.length
+  )
+    return undefined;
+  const start = Math.max(0, Math.min(1, flight.progress));
+  const profile = aircraftProfile(flight.aircraft);
+  const sampleAt = (progress: number): [number, number] | undefined => {
+    const sample = sampleAircraftSurfaceMotion(
+      config.surfaceGraph,
+      flight.surfaceRoute,
+      flight.surfaceRouteEdges,
+      progress,
+      profile,
+    );
+    return sample ? [sample.x, sample.y] : undefined;
+  };
+  const sampleCount = Math.max(4, Math.min(28, Math.ceil((1 - start) * 28)));
+  const points: Array<[number, number]> = [[flight.motion.x, flight.motion.y]];
+  for (let index = 1; index <= sampleCount; index += 1) {
+    const point = sampleAt(start + ((1 - start) * index) / sampleCount);
+    const previous = points.at(-1);
+    if (
+      point &&
+      (!previous ||
+        Math.hypot(point[0] - previous[0], point[1] - previous[1]) >= 0.15)
+    )
+      points.push(point);
+  }
+  const clearedIds = new Set(flight.crossingClearanceIds ?? []);
+  const clearedRunways = new Set(flight.crossingClearances ?? []);
+  const crossings = surfaceRouteCrossingWindows(
+    config.surfaceGraph,
+    flight.surfaceRoute,
+    start,
+    flight.runway,
+    flight.surfaceRouteEdges,
+  )
+    .filter((crossing) => crossing.exitProgress + 1e-6 >= start)
+    .slice(0, 8)
+    .flatMap((crossing): SurfaceRouteCrossingIntent[] => {
+      const crossingPoint = sampleAt(crossing.entryProgress);
+      if (!crossingPoint) return [];
+      const holdPoint = sampleAt(crossing.holdProgress);
+      const cleared =
+        clearedIds.has(crossing.id) ||
+        (flight.crossingClearanceIds === undefined &&
+          clearedRunways.has(crossing.runwayId));
+      const held =
+        !cleared &&
+        (flight.crossingHoldPointId === crossing.holdPointId ||
+          flight.crossingHoldRunway === crossing.runwayId);
+      return [
+        {
+          id: crossing.id,
+          runwayId: crossing.runwayId,
+          status: cleared ? "cleared" : held ? "held" : "pending",
+          holdPoint,
+          crossingPoint,
+        },
+      ];
+    });
+  return {
+    schemaVersion: 1,
+    points: points.slice(0, 30),
+    crossings,
   };
 }
 
@@ -500,7 +594,9 @@ function predictionToAdvisory(
   elapsedSeconds: number,
 ): SurfaceSafetyAdvisory {
   const runway =
-    prediction.runway === undefined ? undefined : config.runways[prediction.runway];
+    prediction.runway === undefined
+      ? undefined
+      : config.runways[prediction.runway];
   const runwayPoints = runway
     ? ([-1, 1] as const).map((end) => {
         const point = runwayEndPoint(runway, end);

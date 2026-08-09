@@ -192,15 +192,32 @@ assert(
   seededPrediction && seededPrediction.etaSeconds > 0,
   "a real seeded ORD stale crossing clearance did not warn before protected envelopes overlapped",
 );
-const seededAdvisory = surfaceSafetySnapshot(
+const seededSurfaceSnapshot = surfaceSafetySnapshot(
   seededConfig,
   seededIncursion.state,
   [seededPrediction],
   { collisionAlerts: 0, runwayIncursions: 0 },
-).advisories.find((advisory) => advisory.kind === "runway-crossing");
+);
+const seededAdvisory = seededSurfaceSnapshot.advisories.find((advisory) => advisory.kind === "runway-crossing");
+const seededTrack = seededSurfaceSnapshot.tracks.find((track) => track.id === seededCrossingFlight.id);
 assert(
   seededAdvisory?.severity === "warning" && seededAdvisory.geometry.kind === "corridor",
   "seeded pre-incursion prediction did not survive as an explainable warning corridor: " + JSON.stringify({ prediction: seededPrediction, advisory: seededAdvisory, crossing: seededCrossing }),
+);
+assert(
+  seededTrack?.routeGeometry?.points.length >= 2 &&
+    seededTrack.routeGeometry.points.length <= 30 &&
+    seededTrack.routeGeometry.crossings.length <= 8 &&
+    seededTrack.routeGeometry.points[0][0] === seededCrossingFlight.motion.x &&
+    seededTrack.routeGeometry.points[0][1] === seededCrossingFlight.motion.y,
+  "surface route intent did not begin at the authoritative aircraft pose",
+);
+const seededCrossingIntent = seededTrack.routeGeometry.crossings.find((crossing) => crossing.id === seededCrossing.id);
+assert(
+  seededCrossingIntent?.status === "cleared" &&
+    seededCrossingIntent.runwayId === seededCrossing.runwayId &&
+    seededCrossingIntent.crossingPoint.every(Number.isFinite),
+  "surface route intent omitted the authoritative runway-crossing clearance state",
 );
 
 const safeParallelRunways = seededConfig.runways.flatMap((runway, index) =>
@@ -308,7 +325,7 @@ assert(
 assert(snapshot.schemaVersion === 2, "surface snapshot version changed unexpectedly");
 assert(snapshot.tracks.length >= 2, "surface snapshot omitted the known moving aircraft");
 assert(snapshot.tracks.every((track) => Number.isFinite(track.x) && Number.isFinite(track.y)), "surface snapshot emitted an invalid authoritative pose");
-assert(snapshot.tracks.every((track) => track.schemaVersion === 1), "surface tracks were not individually versioned");
+assert(snapshot.tracks.every((track) => track.schemaVersion === 2), "surface tracks were not individually versioned");
 for (const track of snapshot.tracks) {
   const flight = simulation.state.flights.find((candidate) => candidate.id === track.id);
   assert(flight, "surface snapshot included an unknown flight track");
