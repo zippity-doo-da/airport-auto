@@ -30,12 +30,19 @@ export interface SurfaceSafetyLookaheadTarget {
   etaSeconds: number;
 }
 
+export const SURFACE_SAFETY_PANEL_MAX_UPDATES_PER_SECOND = 4;
+export const SURFACE_SAFETY_PANEL_UPDATE_INTERVAL_MS =
+  1_000 / SURFACE_SAFETY_PANEL_MAX_UPDATES_PER_SECOND;
+
 export function surfaceSafetyPanelKey(snapshot: SurfaceSafetySnapshot): string {
   return [
     // The compact diagram is a radar-like operational aid, not a frame-by-frame
     // renderer. Four hertz keeps symbols current without rebuilding the panel
     // alongside every Three.js animation frame.
-    Math.floor(snapshot.generatedAtSeconds * 4),
+    Math.floor(
+      snapshot.generatedAtSeconds *
+        SURFACE_SAFETY_PANEL_MAX_UPDATES_PER_SECOND,
+    ),
     snapshot.protectedRunwayOccupancy,
     snapshot.heldTracks,
     snapshot.tracks

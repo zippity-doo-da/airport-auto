@@ -259,10 +259,15 @@ noncritical.
       crossing on a sourced named-hub route, pre-overlap collision state,
       explainable control-point corridor geometry, and an independent-parallel
       negative control.
-- [ ] The panel remains usable at 1440×900, 1024×600, and 390×844 without hiding
-      the Controls or Combat transitions.
-- [ ] Enabling the panel remains within the established renderer/DOM update
-      budgets and does not regenerate the full target list every frame.
+- [x] The panel remains usable at 1440×900, 1024×600, and 390×844 without hiding
+      the Controls or Combat transitions. The release matrix now measures panel
+      bounds and asserts zero overlap with both primary transitions at all three
+      viewports; the mobile panel begins below them and scrolls internally.
+- [x] Enabling the panel remains within the established renderer/DOM update
+      budgets and does not regenerate the full target list every frame. The
+      shared cadence is capped at four updates per second, unchanged snapshots
+      retain the same render key, and the surface-safety validator exercises a
+      60 fps input stream against that cap.
 
 ## A2 — Time-based flow management
 

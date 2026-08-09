@@ -159,6 +159,7 @@ import {
 import { surfaceIncidentDefinition } from "./simulation/surfaceIncidentProgram";
 import {
   renderSurfaceSafetyPanel,
+  SURFACE_SAFETY_PANEL_UPDATE_INTERVAL_MS,
   surfaceSafetyPanelKey,
   type SurfaceSafetyFilter,
 } from "./ui/surfaceSafetyPanel";
@@ -2635,7 +2636,10 @@ function frame(now: number): void {
   // The optional surface picture is deliberately bounded below the render
   // frame rate. Its projection is authoritative, but rebuilding its DOM is
   // neither necessary nor desirable at 60 Hz.
-  if (surfaceSafetyVisible && now - lastSurfaceSafetyRender >= 250) {
+  if (
+    surfaceSafetyVisible &&
+    now - lastSurfaceSafetyRender >= SURFACE_SAFETY_PANEL_UPDATE_INTERVAL_MS
+  ) {
     renderSurfaceSafety();
     lastSurfaceSafetyRender = now;
   }

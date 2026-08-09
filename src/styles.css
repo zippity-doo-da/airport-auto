@@ -4729,6 +4729,13 @@ body.capture-clean #capture-clean-exit {
   }
 }
 
+@media (max-width: 760px) {
+  .surface-safety {
+    top: max(204px, calc(env(safe-area-inset-top) + 194px));
+    max-height: none;
+  }
+}
+
 .queue-panel {
   position: absolute;
   top: 130px;

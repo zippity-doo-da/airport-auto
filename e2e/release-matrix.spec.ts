@@ -24,7 +24,7 @@ const SCENARIOS = [
 ] as const;
 
 async function waitForRuntime(page: import("@playwright/test").Page) {
-  await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.41.0");
   await page.waitForFunction(
     () => window.airportControl.snapshot().renderer.aircraftAssets.active > 0,
   );
@@ -131,6 +131,76 @@ test("mobile spectator scene matches the release baseline", async ({
   });
 });
 
+test("surface safety stays clear of primary transitions at release viewports", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "desktop-chromium",
+    "One Chromium project covers the explicit responsive viewport matrix.",
+  );
+
+  await page.goto(
+    "/?airport=ORD&seed=10002&mode=auto&density=quiet&autostart=1&detail=low&renderFps=1&surface-safety=1",
+  );
+  await waitForRuntime(page);
+
+  for (const viewport of [
+    { width: 1440, height: 900 },
+    { width: 1024, height: 600 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    const bounds = await page.evaluate(() => {
+      const rect = (selector: string) => {
+        const element = document.querySelector(selector);
+        if (!element) throw new Error(`Missing ${selector}`);
+        const bounds = element.getBoundingClientRect();
+        return {
+          top: bounds.top,
+          right: bounds.right,
+          bottom: bounds.bottom,
+          left: bounds.left,
+        };
+      };
+      const overlapArea = (
+        first: ReturnType<typeof rect>,
+        second: ReturnType<typeof rect>,
+      ) =>
+        Math.max(
+          0,
+          Math.min(first.right, second.right) -
+            Math.max(first.left, second.left),
+        ) *
+        Math.max(
+          0,
+          Math.min(first.bottom, second.bottom) -
+            Math.max(first.top, second.top),
+        );
+      const safety = rect("#surface-safety-panel");
+      const controls = rect("#menu-toggle");
+      const combat = rect(".combat-transition");
+      return {
+        safety,
+        controlsOverlap: overlapArea(safety, controls),
+        combatOverlap: overlapArea(safety, combat),
+      };
+    });
+
+    expect(bounds.safety.top).toBeGreaterThanOrEqual(0);
+    expect(bounds.safety.right).toBeLessThanOrEqual(viewport.width);
+    expect(bounds.safety.bottom).toBeLessThanOrEqual(viewport.height);
+    expect(bounds.safety.left).toBeGreaterThanOrEqual(0);
+    expect(bounds.controlsOverlap).toBe(0);
+    expect(bounds.combatOverlap).toBe(0);
+  }
+
+  await page.locator("#surface-safety-close").click();
+  await expect(page.locator("#surface-safety-panel")).toBeHidden();
+  await page.locator("#menu-toggle").click();
+  await page.locator("#surface-safety-toggle").click();
+  await expect(page.locator("#surface-safety-panel")).toBeVisible();
+});
+
 test("modal focus, keyboard flow, readable strips, and semantic contrast regressions stay bounded", async ({
   page,
 }, testInfo) => {
@@ -141,7 +211,7 @@ test("modal focus, keyboard flow, readable strips, and semantic contrast regress
   await page.goto(
     "/?airport=ATL&seed=10000&mode=manual&detail=low&renderFps=4",
   );
-  await page.waitForFunction(() => window.airportControl?.version === "2.40.0");
+  await page.waitForFunction(() => window.airportControl?.version === "2.41.0");
   await expect(page.locator("#enter")).toBeFocused();
   const inertSiblings = await page.locator("#app > [inert]").count();
   expect(inertSiblings).toBeGreaterThan(5);

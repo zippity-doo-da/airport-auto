@@ -4,7 +4,7 @@ const validationSource = `
 import { generateHubConfig, HUB_AIRPORTS } from "./src/simulation/airportConfig.ts";
 import { AirportSimulation } from "./src/simulation/airportSimulation.ts";
 import { SurfaceSafetyAdvisoryTracker, surfaceSafetySnapshot, wrongSurfaceApproachAdvisories } from "./src/simulation/surfaceSafety.ts";
-import { surfaceSafetyLookaheadTargets, surfaceSafetyTracksForFilter, surfaceSafetyVehiclesForFilter } from "./src/ui/surfaceSafetyPanel.ts";
+import { SURFACE_SAFETY_PANEL_MAX_UPDATES_PER_SECOND, SURFACE_SAFETY_PANEL_UPDATE_INTERVAL_MS, surfaceSafetyLookaheadTargets, surfaceSafetyPanelKey, surfaceSafetyTracksForFilter, surfaceSafetyVehiclesForFilter } from "./src/ui/surfaceSafetyPanel.ts";
 import { runwayProtectionStatuses } from "./src/simulation/runwayProtection.ts";
 import { runwayEndPoint, runwayTravelDirection } from "./src/simulation/runwayGeometry.ts";
 import { SurfaceSafetyAcknowledgements } from "./src/simulation/surfaceSafetyAcknowledgements.ts";
@@ -291,6 +291,19 @@ const snapshot = surfaceSafetySnapshot(config, simulation.state, predictions, {
   collisionAlerts: 0,
   runwayIncursions: 0,
 });
+
+assert(SURFACE_SAFETY_PANEL_UPDATE_INTERVAL_MS === 250, "surface panel cadence exceeded the established four-hertz DOM budget");
+const panelKeys = new Set();
+for (let frame = 0; frame <= 120; frame += 1) {
+  panelKeys.add(surfaceSafetyPanelKey({
+    ...snapshot,
+    generatedAtSeconds: snapshot.generatedAtSeconds + frame / 60,
+  }));
+}
+assert(
+  panelKeys.size <= SURFACE_SAFETY_PANEL_MAX_UPDATES_PER_SECOND * 2 + 1,
+  "surface panel regenerated its target projection at render-frame cadence",
+);
 
 assert(snapshot.schemaVersion === 2, "surface snapshot version changed unexpectedly");
 assert(snapshot.tracks.length >= 2, "surface snapshot omitted the known moving aircraft");
