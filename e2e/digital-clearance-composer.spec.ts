@@ -19,6 +19,9 @@ test("Data Comm composes, sends, and cancels one atomic route package", async ({
   await expect(page.locator("#digital-clearance-panel")).toBeVisible();
   await expect(page.locator("#digital-clearance-composer")).toBeVisible();
   await expect(
+    page.locator('[data-digital-clearance-view="action"]'),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(
     page.locator("#digital-clearance-flight option"),
   ).not.toHaveCount(0);
   await expect(page.locator("#digital-clearance-route option")).not.toHaveCount(
@@ -94,6 +97,10 @@ test("Data Comm composes, sends, and cancels one atomic route package", async ({
   expect(sentRoute).toEqual(originalRoute);
 
   await page.locator("#digital-clearance-cancel").click();
+  await page.locator('[data-digital-clearance-view="history"]').click();
+  await expect(
+    page.locator('[data-digital-clearance-view="history"]'),
+  ).toHaveAttribute("aria-pressed", "true");
   await expect(
     page.locator(
       `.digital-clearance__message[data-status="cancelled"][data-clearance-flight-id="${flightId}"]`,

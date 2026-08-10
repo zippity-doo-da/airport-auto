@@ -681,9 +681,10 @@ shown as Standby rather than as an implicit clearance.
 Direct-to vectors now identify themselves as Direct-To messages, and active
 controller handoffs project as Frequency messages with from/to, response timing,
 and overdue state.
-The latest authoritative flight-plan amendment also appears as a Revision
-message with its amendment kind, revision number, and cause text; the full
-bounded amendment history remains part of the flight-plan/replay state.
+Every authoritative amendment for an active flight now appears as a stable
+Revision message with its amendment kind, revision number, cause text, and
+simulation timestamp. The newest-first History view makes the complete active-
+flight revision sequence inspectable instead of projecting only the last item.
 The selected-flight action card now keeps the operational limit in view: named
 aircraft profile, wake class, modeled takeoff/landing runway requirements, and
 the current frequency owner plus desk-authority state. It is a concise
@@ -721,6 +722,11 @@ active-transmission, and replay states disable invalid controls instead of
 offering commands that will silently fail. Desktop and phone-sized browser
 passes verify bounded layout, touch targets, and Draft → Sent → Cancelled
 operation while paused.
+Action, History, and All views now separate controller attention from the live
+operational record. Action retains Draft, Sent, Delivered, Standby, Unable, and Timed Out
+messages; History retains acknowledged instructions, every revision, and all
+terminal outcomes. Routine taxi/departure acknowledgements no longer bury the
+default queue, while All exposes the complete projection.
 
 ### Gameplay and UX
 
@@ -728,16 +734,17 @@ operation while paused.
       Standby, Superseded, Timed Out, and Cancelled states. A compact panel
       now exposes the full route-clearance lifecycle, including a real fixed-step
       Sent-to-Delivered transition; structured surface messages supply Standby.
-- [~] Build structured departure, route, altitude, speed, direct-to, hold,
-  frequency, taxi, crossing, and revision messages from existing typed commands.
-  Active vector, hold, speed, altitude, and route state now project as
-  structured messages, as do departure, taxi, and crossing state; direct-to,
-  and frequency state now use dedicated envelopes, and the latest plan
-  amendment is exposed as a Revision message. Version 2 envelopes now carry
-  deterministic command IDs, causal references, expiry, and structured
-  response timing. Atomic route packages use one compound envelope with typed
-  altitude/speed parameters; full revision-history UI and remaining message
-  families remain open.
+- [x] Build structured departure, route, altitude, speed, direct-to, hold,
+      frequency, taxi, crossing, and revision messages from existing typed commands.
+      Active vector, hold, speed, altitude, and route state now project as
+      structured messages, as do departure, taxi, and crossing state; direct-to,
+      and frequency state now use dedicated envelopes, and every active-flight plan
+      amendment is exposed as a stable, timestamped Revision message. Version 2
+      envelopes carry deterministic command IDs, causal references, expiry, and
+      structured response timing. Atomic route packages use one compound envelope
+      with typed altitude/speed parameters; Action, History, and All views expose
+      the complete projection without mixing routine acknowledgements into the
+      default attention queue.
 - [x] Permit multi-part clearances only when the atomic preview says the complete
       instruction is safe and authorized. Route + altitude + speed packages use
       a pure candidate flight, the common terminal forecast, current Approach

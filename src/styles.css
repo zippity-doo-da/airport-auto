@@ -5267,7 +5267,7 @@ button.queue-entry:focus-visible,
   z-index: 5;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
   width: min(352px, calc(100vw - 36px));
   max-height: min(560px, calc(100vh - 300px));
   gap: 9px;
@@ -5322,6 +5322,26 @@ button.queue-entry:focus-visible,
   overflow-wrap: anywhere;
   font-size: 8px;
   line-height: 1.35;
+}
+.digital-clearance__views {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+.digital-clearance__views button {
+  min-height: 28px;
+  border: 1px solid rgba(244, 232, 206, 0.18);
+  color: rgba(244, 232, 206, 0.58);
+  background: rgba(244, 232, 206, 0.03);
+  font: 800 8px/1 sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.digital-clearance__views button.is-active {
+  border-color: rgba(121, 200, 232, 0.62);
+  color: var(--ivory);
+  background: rgba(121, 200, 232, 0.12);
 }
 .digital-clearance__composer {
   display: grid;
@@ -5470,7 +5490,8 @@ button.queue-entry:focus-visible,
   }
   .digital-clearance__composer select,
   .digital-clearance__composer input,
-  .digital-clearance__composer button {
+  .digital-clearance__composer button,
+  .digital-clearance__views button {
     min-height: 44px;
   }
 }

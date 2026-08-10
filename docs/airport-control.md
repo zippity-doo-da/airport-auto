@@ -402,6 +402,14 @@ Sent/Delivered/readback lifecycle; Cancel retains the original route and
 supplemental assignments. The form becomes read-only during replay and disables
 instructions outside the selected desk's Approach authority.
 
+The panel has three views. **Action** is the default controller-attention queue
+and contains Draft, Sent, Delivered, Standby, Unable, and Timed Out messages.
+**History** contains acknowledged instructions, terminal outcomes, and every
+authoritative amendment retained by each active flight plan. **All** shows the
+complete projection. Revision envelopes have deterministic command IDs and
+newest-first timestamps, so selecting History exposes the full active-flight
+sequence rather than only the latest amendment.
+
 `assignTaxiRoute` accepts up to eight ordered via-node IDs from `snapshot().surfaceGraph.nodes`; omit `viaNodeIds` to refresh the safest available route to the already-cleared destination. It never changes that destination or teleports the aircraft. The current pavement segment remains committed, and the suffix passes through the same edge direction, aircraft-width, closure, congestion, deicing, reservation, and runway-crossing systems as automatic routing. A controller must separately clear every crossing newly derived from the accepted route. `holdPosition` decelerates with the aircraft and surface-condition braking model; `resumeTaxi` removes only the controller hold, so a crossing, automatic-flow, or collision hold can still keep the aircraft stopped.
 
 `divertFlight` applies to an inbound aircraft owned by Approach or Supervisor. It captures the current pose, amends the destination and flight-plan status, climbs continuously through either the requested terminal `exitFixId` or the smallest-turn scope-edge fix, and removes the flight only after it flies beyond terminal scope. It does not disappear in place or run the landing-clearance timeout while exiting.

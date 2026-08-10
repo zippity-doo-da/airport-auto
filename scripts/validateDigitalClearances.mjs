@@ -4,6 +4,7 @@ const source = `
 import { generateHubConfig, HUB_AIRPORTS } from './src/simulation/airportConfig.ts';
 import { AirportSimulation } from './src/simulation/airportSimulation.ts';
 import { digitalClearanceSnapshot } from './src/simulation/digitalClearances.ts';
+import { messagesForView } from './src/ui/digitalClearancePanel.ts';
 
 function assert(condition, message) { if (!condition) throw new Error(message); }
 
@@ -28,6 +29,12 @@ snapshot = digitalClearanceSnapshot(simulation.state);
 assert(snapshot.messages.some((item) => item.kind === 'direct-to'), 'direct-to vector did not project as a structured message');
 assert(snapshot.messages.some((item) => item.kind === 'frequency' && item.status === 'delivered'), 'controller handoff did not project as a frequency message');
 assert(snapshot.messages.some((item) => item.kind === 'revision' && item.parameters.amendmentRevision === 1), 'flight-plan amendment did not project as a revision message');
+flight.flightPlan.amendments.push({ revision: 2, kind: 'gate-swap', atSeconds: 11, detail: 'gate reassigned to C18' });
+snapshot = digitalClearanceSnapshot(simulation.state);
+const revisionHistory = snapshot.messages.filter((item) => item.kind === 'revision' && item.flightId === flight.id);
+assert(revisionHistory.length === 2, 'digital projection omitted the complete active-flight amendment history');
+assert(revisionHistory.map((item) => item.parameters.amendmentRevision).join(',') === '2,1', 'revision history did not preserve deterministic newest-first ordering');
+assert(new Set(revisionHistory.map((item) => item.commandId)).size === 2, 'revision history reused a command identity');
 flight.navigation.vector = undefined;
 flight.navigation.handoff = undefined;
 flight.phase = 'taxi-out';
@@ -84,6 +91,11 @@ assert(snapshot.messages[0]?.status === 'superseded', 'superseded route clearanc
 flight.navigation.routeClearance = { ...flight.navigation.routeClearance, status: 'rejected', reason: 'predicted loss of separation' };
 snapshot = digitalClearanceSnapshot(simulation.state);
 assert(snapshot.messages[0]?.status === 'unable' && snapshot.counts.unable === 1, 'rejected route clearance did not project as unable');
+const actionMessages = messagesForView(snapshot, 'action');
+const historyMessages = messagesForView(snapshot, 'history');
+assert(actionMessages.some((item) => item.status === 'unable') && actionMessages.every((item) => item.kind !== 'revision'), 'Action view did not isolate controller attention messages');
+assert(historyMessages.filter((item) => item.kind === 'revision' && item.flightId === flight.id).length === 2 && historyMessages.some((item) => item.status === 'unable'), 'History view omitted recorded revisions or terminal responses');
+assert(messagesForView(snapshot, 'all').length === snapshot.messages.length, 'All view did not preserve the complete projection');
 console.log(JSON.stringify({ messages: snapshot.messages.length, status: snapshot.messages[0]?.status }));
 `;
 

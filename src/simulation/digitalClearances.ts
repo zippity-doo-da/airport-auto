@@ -91,13 +91,14 @@ export function digitalClearanceSnapshot(
   };
 }
 
-function flightDigitalClearanceMessages(flight: Flight): DigitalClearanceDraft[] {
+function flightDigitalClearanceMessages(
+  flight: Flight,
+): DigitalClearanceDraft[] {
   const messages: DigitalClearanceDraft[] = [];
   const route = flight.navigation.routeClearance;
   if (route) messages.push(routeClearanceMessage(flight, route));
 
-  const amendment = flight.flightPlan.amendments.at(-1);
-  if (amendment) {
+  for (const amendment of flight.flightPlan.amendments) {
     messages.push({
       id: `revision:${flight.id}:${amendment.revision}`,
       flightId: flight.id,
@@ -125,8 +126,7 @@ function flightDigitalClearanceMessages(flight: Flight): DigitalClearanceDraft[]
     !flight.goAround &&
     !flight.diversion
   ) {
-    const directAmendment = flight.flightPlan.amendments
-      .at(-1);
+    const directAmendment = flight.flightPlan.amendments.at(-1);
     const isDirectTo =
       directAmendment?.kind === "route-change" &&
       /^direct\s/i.test(directAmendment.detail) &&
@@ -146,11 +146,12 @@ function flightDigitalClearanceMessages(flight: Flight): DigitalClearanceDraft[]
         headingDegrees: Math.round(vector.headingDegrees),
         ...(vector.rejoinFixId ? { rejoinFix: vector.rejoinFixId } : {}),
       },
-      detail: isDirectTo && vector.rejoinFixId
-        ? `Proceed direct ${vector.rejoinFixId}; fly heading ${Math.round(vector.headingDegrees)}°.`
-        : vector.rejoinFixId
-          ? `Fly heading ${Math.round(vector.headingDegrees)}°; rejoin ${vector.rejoinFixId}.`
-        : `Fly heading ${Math.round(vector.headingDegrees)}° as assigned.`,
+      detail:
+        isDirectTo && vector.rejoinFixId
+          ? `Proceed direct ${vector.rejoinFixId}; fly heading ${Math.round(vector.headingDegrees)}°.`
+          : vector.rejoinFixId
+            ? `Fly heading ${Math.round(vector.headingDegrees)}°; rejoin ${vector.rejoinFixId}.`
+            : `Fly heading ${Math.round(vector.headingDegrees)}° as assigned.`,
       warningCount: 0,
     });
   }
@@ -235,7 +236,9 @@ function flightDigitalClearanceMessages(flight: Flight): DigitalClearanceDraft[]
   const requiredCrossings = flight.requiredCrossings ?? [];
   if (requiredCrossings.length) {
     const cleared = new Set(flight.crossingClearances ?? []);
-    const remaining = requiredCrossings.filter((runway) => !cleared.has(runway));
+    const remaining = requiredCrossings.filter(
+      (runway) => !cleared.has(runway),
+    );
     messages.push({
       id: `crossing:${flight.id}:${requiredCrossings.join(",")}:${[...cleared].join(",")}`,
       flightId: flight.id,
@@ -260,10 +263,7 @@ function flightDigitalClearanceMessages(flight: Flight): DigitalClearanceDraft[]
   }
 
   const handoff = flight.navigation.handoff;
-  if (
-    handoff &&
-    ["offered", "accepted", "overdue"].includes(handoff.status)
-  ) {
+  if (handoff && ["offered", "accepted", "overdue"].includes(handoff.status)) {
     messages.push({
       id: `frequency:${flight.id}:${handoff.revision}:${handoff.status}`,
       flightId: flight.id,
@@ -283,9 +283,10 @@ function flightDigitalClearanceMessages(flight: Flight): DigitalClearanceDraft[]
         status: handoff.status,
         responseDueSeconds: handoff.responseDueSeconds,
       },
-      detail: handoff.status === "overdue"
-        ? `Contact handoff ${handoff.from} → ${handoff.to} is overdue.`
-        : `Handoff offered ${handoff.from} → ${handoff.to}; contact after coordination.`,
+      detail:
+        handoff.status === "overdue"
+          ? `Contact handoff ${handoff.from} → ${handoff.to} is overdue.`
+          : `Handoff offered ${handoff.from} → ${handoff.to}; contact after coordination.`,
       warningCount: handoff.status === "overdue" ? 1 : 0,
     });
   }
@@ -298,7 +299,9 @@ function flightDigitalClearanceMessages(flight: Flight): DigitalClearanceDraft[]
   ) {
     const speed = Math.round(flight.navigation.assignedSpeedKts);
     if (!acceptedCompoundIncludes(flight, "speed"))
-      messages.push(instructionMessage(flight, "speed", speed, `Maintain ${speed} knots.`));
+      messages.push(
+        instructionMessage(flight, "speed", speed, `Maintain ${speed} knots.`),
+      );
   }
   if (
     flight.navigation.assignedAltitudeFt !== undefined &&
@@ -308,7 +311,14 @@ function flightDigitalClearanceMessages(flight: Flight): DigitalClearanceDraft[]
   ) {
     const altitude = Math.round(flight.navigation.assignedAltitudeFt);
     if (!acceptedCompoundIncludes(flight, "altitude"))
-      messages.push(instructionMessage(flight, "altitude", altitude, `Maintain ${altitude.toLocaleString()} feet.`));
+      messages.push(
+        instructionMessage(
+          flight,
+          "altitude",
+          altitude,
+          `Maintain ${altitude.toLocaleString()} feet.`,
+        ),
+      );
   }
   return messages;
 }
@@ -371,11 +381,13 @@ function routeClearanceMessage(
       clearance.reason ??
       clearance.warnings[0]?.detail ??
       (supplements.length
-        ? `Atomic route package: ${supplements.map((item) =>
-            item.kind === "altitude"
-              ? `${item.altitudeFt.toLocaleString()} ft`
-              : `${item.speedKts} kt`,
-          ).join(" · ")}.`
+        ? `Atomic route package: ${supplements
+            .map((item) =>
+              item.kind === "altitude"
+                ? `${item.altitudeFt.toLocaleString()} ft`
+                : `${item.speedKts} kt`,
+            )
+            .join(" · ")}.`
         : "Route proposal awaiting controller action."),
     warningCount: clearance.warnings.length,
   };
@@ -388,7 +400,7 @@ function acceptedCompoundIncludes(
   const clearance = flight.navigation.routeClearance;
   return Boolean(
     clearance?.status === "accepted" &&
-      (clearance.supplements ?? []).some((item) => item.kind === kind),
+    (clearance.supplements ?? []).some((item) => item.kind === kind),
   );
 }
 
@@ -407,14 +419,18 @@ function routeStatus(
 }
 
 function toEnvelope(draft: DigitalClearanceDraft): DigitalClearanceMessage {
-  const terminal = ["wilco", "unable", "superseded", "timed-out", "cancelled"].includes(
-    draft.status,
-  );
+  const terminal = [
+    "wilco",
+    "unable",
+    "superseded",
+    "timed-out",
+    "cancelled",
+  ].includes(draft.status);
   const expiresAtSeconds = terminal
     ? null
-    : draft.expiresAtSeconds ??
+    : (draft.expiresAtSeconds ??
       draft.responseDueSeconds ??
-      draft.createdAtSeconds + 90;
+      draft.createdAtSeconds + 90);
   return {
     ...draft,
     commandId: `cmd:${draft.id}`,

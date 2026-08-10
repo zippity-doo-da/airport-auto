@@ -154,7 +154,9 @@ import {
 } from "./ui/queueInspector";
 import {
   digitalClearancePanelKey,
+  isDigitalClearancePanelView,
   renderDigitalClearancePanel,
+  type DigitalClearancePanelView,
 } from "./ui/digitalClearancePanel";
 import {
   digitalClearanceComposerKey,
@@ -542,6 +544,7 @@ const digitalClearanceLabel = $<HTMLElement>("#digital-clearance-label");
 const digitalClearancePanel = $<HTMLElement>("#digital-clearance-panel");
 const digitalClearanceClose = $<HTMLButtonElement>("#digital-clearance-close");
 const digitalClearanceCount = $<HTMLElement>("#digital-clearance-count");
+const digitalClearanceViews = $<HTMLElement>("#digital-clearance-views");
 const digitalClearanceList = $<HTMLElement>("#digital-clearance-list");
 const digitalClearanceComposer = $<HTMLFormElement>(
   "#digital-clearance-composer",
@@ -952,6 +955,7 @@ let queueInspectorFilter: OperationQueueFilter = "all";
 let queueInspectorUiKey = "";
 let digitalClearanceVisible = false;
 let digitalClearanceUiKey = "";
+let digitalClearanceView: DigitalClearancePanelView = "action";
 let digitalClearanceComposerUiKey = "";
 let digitalClearanceComposerFlightId: number | null = null;
 let digitalClearanceReturnFocus: HTMLElement | null = null;
@@ -2444,6 +2448,16 @@ digitalClearanceClose.addEventListener("click", () => {
   setDigitalClearancePanelVisible(false);
   digitalClearanceReturnFocus?.focus({ preventScroll: true });
   digitalClearanceReturnFocus = null;
+});
+digitalClearanceViews.addEventListener("click", (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
+    "[data-digital-clearance-view]",
+  );
+  const view = button?.dataset.digitalClearanceView;
+  if (!view || !isDigitalClearancePanelView(view)) return;
+  digitalClearanceView = view;
+  digitalClearanceUiKey = "";
+  renderDigitalClearanceMessages();
 });
 digitalClearanceList.addEventListener("click", (event) => {
   const row = (event.target as HTMLElement).closest<HTMLButtonElement>(
@@ -7887,12 +7901,17 @@ function setDigitalClearancePanelVisible(visible: boolean): void {
 
 function renderDigitalClearanceMessages(): void {
   const snapshot = digitalClearanceSnapshot(displayState());
-  const key = digitalClearancePanelKey(snapshot);
+  const key = digitalClearancePanelKey(snapshot, digitalClearanceView);
   if (key !== digitalClearanceUiKey) {
     digitalClearanceUiKey = key;
     renderDigitalClearancePanel(
-      { count: digitalClearanceCount, list: digitalClearanceList },
+      {
+        count: digitalClearanceCount,
+        list: digitalClearanceList,
+        views: digitalClearanceViews,
+      },
       snapshot,
+      digitalClearanceView,
     );
   }
   const composerModel = createDigitalClearanceComposerModel();
