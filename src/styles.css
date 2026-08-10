@@ -2265,6 +2265,15 @@ summary:focus-visible {
   border-color: var(--amber);
   background: rgba(239, 199, 117, 0.17);
 }
+.flight-actions button[data-flight-action="reject-takeoff"] {
+  border-color: rgba(255, 151, 112, 0.78);
+  background: rgba(170, 57, 36, 0.32);
+  color: #fff1dc;
+}
+.flight-actions button[data-flight-action="reject-takeoff"]:hover {
+  border-color: #ffb184;
+  background: rgba(194, 67, 41, 0.48);
+}
 .flight-actions button:disabled {
   opacity: 0.38;
   cursor: not-allowed;

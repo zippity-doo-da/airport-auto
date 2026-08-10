@@ -8,6 +8,7 @@ import {
   type AirportConfig,
 } from "./simulation/airportConfig";
 import { aircraftProfile } from "./simulation/aircraftProfiles";
+import { modeledTakeoffDecisionSpeedKts } from "./simulation/runwayPerformance";
 import { aircraftSystemsState } from "./simulation/aircraftSystems";
 import { aircraftCollisionEnvelope } from "./simulation/collisionDetection";
 import { airlineProfile } from "./simulation/airlineProfiles";
@@ -3244,6 +3245,18 @@ function frame(now: number): void {
         event.detail ?? "hold position on the runway",
         "warning",
       );
+    if (event.type === "rejected-takeoff")
+      setStatus(
+        `${event.flight.callsign} rejecting takeoff`,
+        event.detail ?? "maximum safe braking applied below modeled V1",
+        "warning",
+      );
+    if (event.type === "rejected-takeoff-stopped")
+      setStatus(
+        `${event.flight.callsign} stopped on runway`,
+        event.detail ?? "runway recovery required",
+        "warning",
+      );
     if (event.type === "runway-crossing")
       setStatus(
         `${event.flight.callsign} crossing clearance`,
@@ -3873,6 +3886,9 @@ function cloneAirportState(
         : undefined,
       takeoffPerformance: flight.takeoffPerformance
         ? { ...flight.takeoffPerformance }
+        : undefined,
+      rejectedTakeoff: flight.rejectedTakeoff
+        ? { ...flight.rejectedTakeoff }
         : undefined,
       diversion: flight.diversion
         ? { ...flight.diversion, start: { ...flight.diversion.start } }
@@ -5124,6 +5140,10 @@ function formatPhase(phase: FlightPhase): string {
 }
 
 function flightOperationLabel(flight: Flight): string {
+  if (flight.rejectedTakeoff)
+    return flight.rejectedTakeoff.stoppedAtSeconds === undefined
+      ? "Rejected takeoff · braking"
+      : "Rejected takeoff · runway blocked";
   if (flight.emergency === "disabled") {
     const recovery = displayState().surfaceDisruptions.find(
       (disruption) => disruption.flightId === flight.id,
@@ -6094,7 +6114,11 @@ function renderFlightActions(): void {
       !simulation.canIssue("tower") || !ownsFlight || !winterProtected,
     );
   }
-  if (flight.phase === "takeoff" && !flight.takeoffCleared)
+  if (
+    flight.phase === "takeoff" &&
+    !flight.takeoffCleared &&
+    !flight.rejectedTakeoff
+  )
     add(
       "takeoff",
       `Take off ${runwayDesignation(flight.runway)}`,
@@ -6111,6 +6135,22 @@ function renderFlightActions(): void {
       "Cancel takeoff",
       !simulation.canIssue("tower") || !ownsFlight,
     );
+  if (
+    flight.phase === "takeoff" &&
+    flight.takeoffCleared &&
+    !flight.rejectedTakeoff &&
+    flight.motion.onGround &&
+    flight.motion.stage === "takeoff-roll"
+  ) {
+    const decisionSpeedKts = modeledTakeoffDecisionSpeedKts(flight.aircraft);
+    add(
+      "reject-takeoff",
+      `Reject takeoff · V1 ${decisionSpeedKts}`,
+      !simulation.canIssue("tower") ||
+        !ownsFlight ||
+        flight.kinematics.groundSpeedKts >= decisionSpeedKts,
+    );
+  }
   if (flight.phase !== "resting" && flight.emergency !== "disabled") {
     const paceAuthority = ground
       ? simulation.canIssue(surfaceAuthority)
@@ -6738,6 +6778,12 @@ function handleFlightAction(
     executeAirportRequest({ action: "clearTakeoff", flightId });
   if (action === "cancel-takeoff")
     executeAirportRequest({ action: "cancelTakeoffClearance", flightId });
+  if (action === "reject-takeoff")
+    executeAirportRequest({
+      action: "rejectTakeoff",
+      flightId,
+      reason: "controller",
+    });
   if (action === "cross")
     executeAirportRequest({
       action: "clearRunwayCrossing",
@@ -6990,7 +7036,9 @@ function renderTelemetryControls(): void {
           ? ""
           : `<button data-action="entry" data-flight="${flight.id}">Clear enter ${runwayDesignation(flight.runway)}</button>`;
       const takeoff =
-        flight.phase === "takeoff" && !flight.takeoffCleared
+        flight.phase === "takeoff" &&
+        !flight.takeoffCleared &&
+        !flight.rejectedTakeoff
           ? `<button data-action="takeoff" data-flight="${flight.id}">Clear takeoff ${runwayDesignation(flight.runway)}</button>`
           : "";
       const directive = flight.safetyHold
@@ -9652,6 +9700,28 @@ function airportSnapshot() {
       takeoffPerformance: flight.takeoffPerformance
         ? { ...flight.takeoffPerformance }
         : null,
+      rejectedTakeoff: flight.rejectedTakeoff
+        ? {
+            ...flight.rejectedTakeoff,
+            initiatedAtSeconds: Number(
+              flight.rejectedTakeoff.initiatedAtSeconds.toFixed(2),
+            ),
+            startProgress: Number(
+              flight.rejectedTakeoff.startProgress.toFixed(4),
+            ),
+            startSpeedKts: Number(
+              flight.rejectedTakeoff.startSpeedKts.toFixed(1),
+            ),
+            stoppedAtSeconds:
+              flight.rejectedTakeoff.stoppedAtSeconds === undefined
+                ? null
+                : Number(flight.rejectedTakeoff.stoppedAtSeconds.toFixed(2)),
+            stopProgress:
+              flight.rejectedTakeoff.stopProgress === undefined
+                ? null
+                : Number(flight.rejectedTakeoff.stopProgress.toFixed(4)),
+          }
+        : null,
       diversion: flight.diversion
         ? {
             airportCode: flight.diversion.airportCode,
@@ -10483,6 +10553,13 @@ function executeAirportRequest(
   }
   if (command.action === "cancelTakeoffClearance") {
     accepted = simulation.cancelTakeoffClearance(command.flightId);
+    reason = simulation.lastCommandReason();
+  }
+  if (command.action === "rejectTakeoff") {
+    accepted = simulation.rejectTakeoff(
+      command.flightId,
+      command.reason ?? "controller",
+    );
     reason = simulation.lastCommandReason();
   }
   if (command.action === "clearRunwayCrossing") {

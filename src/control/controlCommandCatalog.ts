@@ -102,6 +102,10 @@ export interface AirportControlCommandParameters {
   clearRunwayEntry: { flightId: number };
   clearTakeoff: { flightId: number };
   cancelTakeoffClearance: { flightId: number };
+  rejectTakeoff: {
+    flightId: number;
+    reason?: "traffic" | "runway" | "technical" | "controller";
+  };
   clearRunwayCrossing: { flightId: number; runway: number };
   controlFlights: { flightIds: number[]; instruction: FlightInstruction };
   previewGroupInstruction: {
@@ -947,6 +951,22 @@ const COMMAND_SPECS = {
     AUTHORITY.tower,
     { flightId: flightIdSchema },
     { flightId: 1 },
+  ),
+  rejectTakeoff: command(
+    "tower",
+    "Reject an active takeoff below the modeled decision speed and apply maximum safe braking.",
+    AUTHORITY.tower,
+    {
+      flightId: flightIdSchema,
+      reason: stringSchema("Rejected-takeoff reason.", [
+        "traffic",
+        "runway",
+        "technical",
+        "controller",
+      ]),
+    },
+    { flightId: 1, reason: "traffic" },
+    { optionalParameters: ["reason"] },
   ),
   clearRunwayCrossing: command(
     "surface",

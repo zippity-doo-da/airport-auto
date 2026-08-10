@@ -11,6 +11,15 @@ export type RunwayOperation = "landing" | "takeoff";
 export const WORLD_METERS_PER_UNIT = 38;
 
 /**
+ * Game-scale decision speed used by the urgent rejected-takeoff arbiter. It is
+ * deliberately derived from the audited rotation speed and is not operational
+ * performance data.
+ */
+export function modeledTakeoffDecisionSpeedKts(aircraft: AircraftModel): number {
+  return Math.round(aircraftProfile(aircraft).rotationKts * 0.93);
+}
+
+/**
  * Conservative planning lengths from the audited aircraft catalog. Physical
  * roll remains separate so animation distance is not mistaken for the full
  * runway requirement.

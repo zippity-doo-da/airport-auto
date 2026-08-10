@@ -28,6 +28,7 @@ import type {
   FlightRouteClearanceState,
   FlightRouteClearanceSupplement,
   FlightRunwayExitState,
+  RejectedTakeoffReason,
   GroupInstructionIssueResult,
   GroupInstructionPreview,
   OperationalControllerStation,
@@ -89,6 +90,7 @@ import {
 } from "./flightTrajectory";
 import {
   assessRunwayPerformance,
+  modeledTakeoffDecisionSpeedKts,
   runwaySupportsAircraft,
   WORLD_METERS_PER_UNIT,
 } from "./runwayPerformance";
@@ -2719,6 +2721,7 @@ export class AirportSimulation {
       if (
         flight.phase === "takeoff" &&
         !flight.takeoffCleared &&
+        !flight.rejectedTakeoff &&
         towerReadyDepartures.has(flight.id)
       ) {
         proposals.push({
@@ -3389,6 +3392,11 @@ export class AirportSimulation {
       );
     if (flight.takeoffCleared)
       return this.rejectDecision("takeoff is already cleared", flight);
+    if (flight.rejectedTakeoff)
+      return this.rejectDecision(
+        `${flight.callsign} is stopped after a rejected takeoff and must clear the runway before another departure`,
+        flight,
+      );
     const hazard = this.state.weather.activeHazard;
     if (
       hazard?.status === "active" &&
@@ -3484,6 +3492,100 @@ export class AirportSimulation {
     this.decisionReason = `takeoff clearance cancelled for ${flight.callsign} · hold position on ${this.activeRunwayDesignation(flight.runway)}`;
     this.events.push({
       type: "takeoff-clearance-cancelled",
+      flight,
+      runway: flight.runway,
+      detail: this.decisionReason,
+    });
+    return true;
+  }
+
+  /** Reject an active takeoff roll only while the aircraft remains below V1. */
+  rejectTakeoff(
+    id: number,
+    reason: RejectedTakeoffReason = "controller",
+  ): boolean {
+    if (!this.canIssue("tower"))
+      return this.rejectDecision(
+        `${this.state.station} station has no rejected-takeoff authority`,
+      );
+    const flight = this.state.flights.find(
+      (item) => item.id === id && item.phase === "takeoff",
+    );
+    if (!flight)
+      return this.rejectDecision("flight is not in the takeoff phase");
+    if (!this.ownsFlight(flight))
+      return this.rejectDecision(
+        `${this.state.station} does not own ${flight.callsign}; handoff required`,
+        flight,
+      );
+    if (flight.rejectedTakeoff)
+      return this.rejectDecision(
+        `${flight.callsign} is already executing a rejected takeoff`,
+        flight,
+      );
+    if (!flight.takeoffCleared)
+      return this.rejectDecision("takeoff clearance is not active", flight);
+    if (!flight.motion.onGround || flight.motion.stage !== "takeoff-roll")
+      return this.rejectDecision(
+        flight.motion.stage === "lineup"
+          ? `${flight.callsign} has not begun its roll; cancel the takeoff clearance instead`
+          : `${flight.callsign} is no longer eligible for a rejected takeoff`,
+        flight,
+      );
+    const decisionSpeedKts = modeledTakeoffDecisionSpeedKts(flight.aircraft);
+    if (flight.kinematics.groundSpeedKts >= decisionSpeedKts) {
+      return this.rejectDecision(
+        `${flight.callsign} is at or above modeled V1 ${decisionSpeedKts} kt; continue takeoff`,
+        flight,
+      );
+    }
+    const profile = aircraftProfile(flight.aircraft);
+    const brakingFactor =
+      1 / Math.max(1, flight.takeoffPerformance?.performanceMultiplier ?? 1);
+    const brakingMps2 = profile.brakingMps2 * brakingFactor;
+    const speedMps = flight.kinematics.groundSpeedKts * KNOT_TO_MPS;
+    const projectedStoppingDistanceM =
+      (speedMps * speedMps) / Math.max(0.1, 2 * brakingMps2);
+    const projectedStopProgress = this.progressAfterTravelDistance(
+      flight,
+      projectedStoppingDistanceM,
+    );
+    const projectedStopMotion = sampleFlightMotion(this.config, {
+      ...flight,
+      progress: projectedStopProgress,
+    });
+    if (
+      !projectedStopMotion.onGround ||
+      projectedStopMotion.stage !== "takeoff-roll"
+    ) {
+      return this.rejectDecision(
+        `${flight.callsign} cannot stop before rotation with the modeled runway condition; continue takeoff`,
+        flight,
+      );
+    }
+    this.supersedeActiveRouteClearance(
+      flight,
+      "urgent rejected-takeoff instruction superseded pending Data Comm",
+    );
+    flight.takeoffCleared = false;
+    flight.rejectedTakeoff = {
+      schemaVersion: 1,
+      reason,
+      initiatedAtSeconds: this.state.elapsed,
+      startProgress: flight.progress,
+      startSpeedKts: flight.kinematics.groundSpeedKts,
+      decisionSpeedKts,
+      projectedStopProgress,
+      projectedStoppingDistanceM,
+    };
+    this.runwayOperationHistory = this.runwayOperationHistory.filter(
+      (operation) =>
+        !(operation.flightId === flight.id && operation.kind === "departure"),
+    );
+    this.metrics.manualCommands += 1;
+    this.decisionReason = `${flight.callsign} rejected takeoff · ${reason} · maximum safe braking below modeled V1 ${decisionSpeedKts} kt`;
+    this.events.push({
+      type: "rejected-takeoff",
       flight,
       runway: flight.runway,
       detail: this.decisionReason,
@@ -5931,6 +6033,7 @@ export class AirportSimulation {
         const awaitingTakeoffClearance =
           flight.phase === "takeoff" &&
           !flight.takeoffCleared &&
+          !flight.rejectedTakeoff &&
           motion.stage !== "lineup";
         const disabledOnSurface = onSurface && flight.emergency === "disabled";
         const disruptionHold =
@@ -5947,7 +6050,7 @@ export class AirportSimulation {
         const commandedStop =
           onSurface && Boolean(flight.automaticHold || flight.controlHold);
         let targetSpeed =
-          hardHold || commandedStop
+          flight.rejectedTakeoff || hardHold || commandedStop
             ? 0
             : reversingSurfaceYield
               ? SURFACE_YIELD_SPEED_KTS
@@ -5999,6 +6102,7 @@ export class AirportSimulation {
                 : requestedProgress,
               deicingLimit ?? Infinity,
               departureMeterLimit ?? Infinity,
+              flight.rejectedTakeoff?.projectedStopProgress ?? Infinity,
             );
         const reachedStop =
           movingSurfaceRecovery && flight.surfaceYield
@@ -6012,6 +6116,7 @@ export class AirportSimulation {
                 crossing?.holdProgress ?? Infinity,
                 deicingLimit ?? Infinity,
                 departureMeterLimit ?? Infinity,
+                flight.rejectedTakeoff?.projectedStopProgress ?? Infinity,
               ) -
                 1e-6;
         requestedSpeedById.set(flight.id, reachedStop ? 0 : nextSpeed);
@@ -6136,11 +6241,28 @@ export class AirportSimulation {
           const waitingForTakeoff =
             flight.phase === "takeoff" &&
             !flight.takeoffCleared &&
+            !flight.rejectedTakeoff &&
             flight.motion.stage !== "lineup";
           if (!waitingForTakeoff && flight.phase !== "resting" && movedForward)
             flight.phaseElapsed += delta;
         }
         flight.progress = nextProgress;
+        if (
+          flight.rejectedTakeoff &&
+          flight.rejectedTakeoff.stoppedAtSeconds === undefined &&
+          requestedSpeedById.get(flight.id)! <= 0.05
+        ) {
+          flight.rejectedTakeoff.stoppedAtSeconds = this.state.elapsed;
+          flight.rejectedTakeoff.stopProgress = flight.progress;
+          flight.automaticHold = true;
+          flight.automaticHoldReason = `rejected takeoff stopped on ${this.activeRunwayDesignation(flight.runway)} · runway recovery required`;
+          this.events.push({
+            type: "rejected-takeoff-stopped",
+            flight,
+            runway: flight.runway,
+            detail: flight.automaticHoldReason,
+          });
+        }
         if (
           flight.surfaceYield?.status === "moving" &&
           (flight.surfaceYield.direction === "reverse"
@@ -7650,7 +7772,9 @@ export class AirportSimulation {
     const candidates = this.state.flights
       .filter(
         (flight) =>
-          (flight.phase === "takeoff" && !flight.takeoffCleared) ||
+          (flight.phase === "takeoff" &&
+            !flight.takeoffCleared &&
+            !flight.rejectedTakeoff) ||
           (flight.phase === "taxi-out" &&
             flight.progress >= 0.985 &&
             !flight.runwayEntryCleared),
@@ -8585,10 +8709,7 @@ export class AirportSimulation {
       // failed taxi-out → takeoff preview must not leave a persistent runway
       // reservation behind; that stale claim can block every intersecting
       // departure even though its owner never lined up.
-      const takeoffTransitionConflict = this.transitionConflict(
-        flight,
-        next,
-      );
+      const takeoffTransitionConflict = this.transitionConflict(flight, next);
       if (takeoffTransitionConflict) {
         flight.safetyHold = true;
         flight.safetyHoldReason = takeoffTransitionConflict;
@@ -11843,7 +11964,9 @@ export class AirportSimulation {
     const onTaxiway = flight.phase === "taxi-in" || flight.phase === "taxi-out";
     const brakingWeather = onTaxiway
       ? taxiBrakingFactor(this.state.weather)
-      : 1;
+      : flight.rejectedTakeoff
+        ? 1 / Math.max(1, flight.takeoffPerformance?.performanceMultiplier ?? 1)
+        : 1;
     const acceleration =
       targetSpeedKts >= current
         ? onTaxiway

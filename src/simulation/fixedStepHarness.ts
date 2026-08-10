@@ -125,6 +125,7 @@ export interface FixedStepFlightSnapshot {
   runwayEntryCleared: boolean;
   takeoffCleared: boolean;
   takeoffPerformance?: Flight['takeoffPerformance'];
+  rejectedTakeoff?: Flight['rejectedTakeoff'];
   weatherEscape?: Flight['weatherEscape'];
   goAroundWeatherEscape?: NonNullable<Flight['goAround']>['weatherEscape'];
   crossingClearances: number[];
@@ -593,6 +594,7 @@ function snapshotFlight(config: AirportConfig, flight: Flight): FixedStepFlightS
     runwayEntryCleared: Boolean(flight.runwayEntryCleared),
     takeoffCleared: Boolean(flight.takeoffCleared),
     takeoffPerformance: flight.takeoffPerformance ? { ...flight.takeoffPerformance } : undefined,
+    rejectedTakeoff: flight.rejectedTakeoff ? { ...flight.rejectedTakeoff } : undefined,
     weatherEscape: flight.weatherEscape ? { ...flight.weatherEscape } : undefined,
     goAroundWeatherEscape: flight.goAround?.weatherEscape ? { ...flight.goAround.weatherEscape } : undefined,
     crossingClearances: [...(flight.crossingClearances ?? [])].sort((first, second) => first - second),

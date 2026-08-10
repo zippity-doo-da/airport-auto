@@ -428,7 +428,8 @@ function towerCandidates(
     if (
       flight.phase === "takeoff" &&
       flight.runwayEntryCleared &&
-      !flight.takeoffCleared
+      !flight.takeoffCleared &&
+      !flight.rejectedTakeoff
     ) {
       candidates.push({
         station: "tower",

@@ -656,6 +656,10 @@ function surfaceClearanceSummary(
   if (flight.controlHold) return "Controller hold";
   if (flight.crossingHoldRunway !== undefined)
     return `Hold short RWY ${runwayLabel(config, flight.crossingHoldRunway)}`;
+  if (flight.rejectedTakeoff)
+    return flight.rejectedTakeoff.stoppedAtSeconds === undefined
+      ? `RTO braking RWY ${runwayLabel(config, flight.runway)}`
+      : `RTO stopped RWY ${runwayLabel(config, flight.runway)}`;
   if (flight.takeoffCleared)
     return `Takeoff RWY ${runwayLabel(config, flight.runway)}`;
   if (flight.runwayEntryCleared)

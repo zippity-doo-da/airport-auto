@@ -189,11 +189,11 @@ function flightDigitalClearanceMessages(
     flight.flightPlan.direction === "departure"
   ) {
     messages.push({
-      id: `departure:${flight.id}:${flight.departureRunway}:${flight.runwayEntryCleared ? 1 : 0}`,
+      id: `departure:${flight.id}:${flight.departureRunway}:${flight.runwayEntryCleared ? 1 : 0}:${flight.rejectedTakeoff ? 1 : 0}`,
       flightId: flight.id,
       callsign: flight.callsign,
       kind: "departure",
-      status: "wilco",
+      status: flight.rejectedTakeoff ? "unable" : "wilco",
       authority: flight.navigation.frequencyOwner,
       revision: 1,
       createdAtSeconds: flight.flightPlan.createdAtSeconds,
@@ -203,13 +203,22 @@ function flightDigitalClearanceMessages(
         runway: flight.flightPlan.runwayIntent.designation,
         runwayEntryCleared: flight.runwayEntryCleared ? "yes" : "no",
         takeoffCleared: flight.takeoffCleared ? "yes" : "no",
+        rejectedTakeoff: flight.rejectedTakeoff ? "yes" : "no",
+        ...(flight.rejectedTakeoff
+          ? {
+              rejectedTakeoffReason: flight.rejectedTakeoff.reason,
+              decisionSpeedKts: flight.rejectedTakeoff.decisionSpeedKts,
+            }
+          : {}),
       },
-      detail: flight.takeoffCleared
-        ? `Cleared for departure on ${flight.flightPlan.runwayIntent.designation}.`
-        : flight.runwayEntryCleared
-          ? `Line up and await takeoff clearance on ${flight.flightPlan.runwayIntent.designation}.`
-          : `Taxi for departure to ${flight.flightPlan.runwayIntent.designation}.`,
-      warningCount: 0,
+      detail: flight.rejectedTakeoff
+        ? `Takeoff rejected for ${flight.rejectedTakeoff.reason}; ${flight.rejectedTakeoff.stoppedAtSeconds === undefined ? "maximum safe braking in progress" : "stopped on the runway for recovery"}.`
+        : flight.takeoffCleared
+          ? `Cleared for departure on ${flight.flightPlan.runwayIntent.designation}.`
+          : flight.runwayEntryCleared
+            ? `Line up and await takeoff clearance on ${flight.flightPlan.runwayIntent.designation}.`
+            : `Taxi for departure to ${flight.flightPlan.runwayIntent.designation}.`,
+      warningCount: flight.rejectedTakeoff ? 1 : 0,
     });
   }
 

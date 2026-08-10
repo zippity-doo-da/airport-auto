@@ -615,6 +615,22 @@ export interface RunwayPerformanceAssessment {
   notForNavigation: true;
 }
 
+export type RejectedTakeoffReason =
+  "traffic" | "runway" | "technical" | "controller";
+
+export interface FlightRejectedTakeoffState {
+  schemaVersion: 1;
+  reason: RejectedTakeoffReason;
+  initiatedAtSeconds: number;
+  startProgress: number;
+  startSpeedKts: number;
+  decisionSpeedKts: number;
+  projectedStopProgress: number;
+  projectedStoppingDistanceM: number;
+  stoppedAtSeconds?: number;
+  stopProgress?: number;
+}
+
 export type TerminalWeatherHazardKind = "wind-shear" | "microburst";
 export type TerminalWeatherHazardOperation = "arrival" | "departure";
 
@@ -1376,6 +1392,7 @@ export interface Flight {
   engineState: EngineState;
   runwayExit?: FlightRunwayExitState;
   takeoffPerformance?: RunwayPerformanceAssessment;
+  rejectedTakeoff?: FlightRejectedTakeoffState;
   surfaceReroute?: FlightSurfaceRerouteState;
   surfaceYield?: FlightSurfaceYieldState;
   surfaceRoute?: string[];

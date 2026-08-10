@@ -316,6 +316,21 @@ function diagnoseFlightQueue(
       -flight.progress,
     );
   }
+  if (flight.phase === 'takeoff' && flight.rejectedTakeoff) {
+    return flightCandidate(
+      flight,
+      'runway',
+      'blocked',
+      `Runway ${runwayLabel(config, flight.runway)} rejected takeoff`,
+      flight.rejectedTakeoff.stoppedAtSeconds === undefined
+        ? `Maximum safe braking in progress after a ${flight.rejectedTakeoff.reason} rejection.`
+        : 'Aircraft is stopped on the protected runway; recovery and inspection are required.',
+      waitSeconds,
+      blockerFlightIds,
+      `runway:${flight.runway}`,
+      -flight.progress,
+    );
+  }
   if (flight.phase === 'takeoff' && !flight.takeoffCleared) {
     return flightCandidate(
       flight,

@@ -25,6 +25,9 @@ IDs, causal references, expiry, and structured response timing for every
 message kind. Route lifecycles additionally retain separate issue/response
 command IDs and their authoritative simulation-domain event chain through
 telemetry, replay, analytics schema 6, and the external projection.
+Tower also has an immediate pre-V1 rejected-takeoff action with
+condition-adjusted continuous braking, explicit stopped-on-runway protection,
+typed protocol/events, and deterministic ORD dynamics coverage.
 The external gateway now exposes a bounded typed clearance projection too;
 free-form message detail stays local to the page.
 Queue outlooks now forecast demand and release capacity beyond known meter

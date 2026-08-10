@@ -769,6 +769,19 @@ invoking toolbar control on close or Escape. A deterministic desktop browser
 flow uses keyboard activation for view navigation, flight/route selection,
 constraints, preview, send, live message inspection, and dismissal; screenshot
 review confirms the retained focus remains visibly identifiable.
+Tower now has a dedicated immediate **Reject takeoff** action in the normal
+flight controls and typed protocol. It is available only after the roll begins
+and below a modeled aircraft-specific V1. The shared arbiter refuses it at or
+above V1, rechecks whether condition-adjusted braking can stop before rotation,
+supersedes any pending route transmission, removes departure authority, and
+advances the aircraft through continuous maximum-safe braking rather than an
+instant stop. The aircraft remains level and on the runway, emits typed command
+and stopped events, then holds the protected runway for recovery. Its structured
+departure record exposes the terminal Unable outcome but never queues the urgent
+instruction as Data Comm. Deterministic ORD validation covers the V1 boundary,
+monotonic deceleration, runway distance consumed, no rotation/liftoff, stopping
+projection, event order, runway-blocking state, and rejection of a mid-runway
+re-clearance.
 Operations analytics schema 6 now retains a bounded, typed Data Comm lifecycle
 record across Sent, Delivered, Wilco, Unable, Timed Out, cancellation, and
 supersession. The Operations Lab shows total, active, responded, and timed-out
@@ -808,12 +821,15 @@ richer presentation from authoritative flight state.
   instructions voice/action-first rather than queued behind digital messages.
   Go-around and hold actions already bypass the message queue; Tower can now
   cancel an active takeoff clearance while the aircraft is still lined up,
-  through both the standard Manual controls and typed control API. Late
-  cancellation after takeoff-roll begins remains deliberately rejected. An
+  through both the standard Manual controls and typed control API. Once the roll
+  begins, the separate rejected-takeoff action is available below modeled V1;
+  it applies condition-adjusted physical braking, stops before rotation, protects
+  the occupied runway, and is refused when continuing takeoff is the safe modeled
+  decision. An
   urgent go-around is now explicitly tested to cancel a pending Data Comm route
   before executing, emit an ordered immediate-action event chain, and prevent
-  stale later application. The broader stop, rejected-takeoff, conflict, and
-  spoken-action work remains open.
+  stale later application. Dedicated ground-stop presentation,
+  conflict-resolution phraseology, and broader spoken-action work remain open.
 - [~] Show aircraft capability and station/data-authority limitations without
   turning the interface into avionics configuration management. The selected
   flight panel now shows aircraft/wake class, required takeoff and landing
@@ -1077,8 +1093,8 @@ has a deterministic operational lifecycle: an appropriately labeled airport
 response unit is dispatched, reports on scene, performs its modeled inspection,
 and then waits for an explicit Supervisor reopen action. It retains the common
 restriction/reroute/protected-pavement boundary throughout; a separately
-rendered, route-reserved emergency vehicle and calm-severity policy are still
-open.
+  rendered, route-reserved emergency vehicle and calm-severity policy are still
+  open.
 
 ### Content
 
@@ -1095,7 +1111,11 @@ open.
   within the active closure, remains on scene through inspection, and releases
   when the Supervisor reopens the movement area. Its continuous red response
   beacon distinguishes it from the amber gate-service fleet even while it is
-  stopped on scene; the remaining named programs are still open.
+  stopped on scene. Rejected takeoff now has an immediate pre-V1 command,
+  condition-adjusted continuous braking, typed lifecycle events, and a protected
+  stopped-on-runway state; dispatch, inspection, evacuation, and runway-reopen
+  recovery after the stop remain part of this milestone. The remaining named
+  programs are still open.
 - [~] Add airport emergency and inspection vehicles with explicit dispatch,
   route authority, staging areas, runway entry, task time, and release.
   The named inspection response vehicle now covers this path; emergency

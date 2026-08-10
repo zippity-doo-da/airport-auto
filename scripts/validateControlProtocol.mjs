@@ -30,7 +30,7 @@ assert(CONTROL_SNAPSHOT_SCHEMA_VERSION === 44, 'snapshot schema version changed 
 assert(CONTROL_REPLAY_SCHEMA_VERSION === 4, 'replay schema version changed unexpectedly');
 
 const definitions = Object.values(AIRPORT_CONTROL_COMMAND_DEFINITIONS);
-assert(definitions.length === 109, 'formal command catalog count changed unexpectedly');
+assert(definitions.length === 110, 'formal command catalog count changed unexpectedly');
 assert(validateAirportControlCommand({ action: 'ignoreTrafficFlowAdvisory', recommendationId: 'arrival:1:review' }).valid, 'flow-advisory ignore command was rejected');
 assert(validateAirportControlCommand({ action: 'recoverTrafficFlowAdvisory', recommendationId: 'arrival:1:review' }).valid, 'flow-advisory recovery command was rejected');
 assert(validateAirportControlCommand({ action: 'setTrafficFlowForecastHorizon', seconds: 600 }).valid, 'traffic-flow forecast horizon command was rejected');
@@ -77,6 +77,9 @@ assert(validateAirportControlCommand({ action: 'setWeather', condition: 'thunder
 assert(validateAirportControlCommand({ action: 'setWeatherHazardsEnabled', enabled: true }).valid, 'severe-weather opt-in command was rejected');
 assert(validateAirportControlCommand({ action: 'cancelTakeoffClearance', flightId: 1 }).valid, 'takeoff-cancellation command was rejected');
 assert(!validateAirportControlCommand({ action: 'cancelTakeoffClearance' }).valid, 'takeoff-cancellation command accepted without a flight ID');
+assert(validateAirportControlCommand({ action: 'rejectTakeoff', flightId: 1, reason: 'traffic' }).valid, 'rejected-takeoff command was rejected');
+assert(validateAirportControlCommand({ action: 'rejectTakeoff', flightId: 1 }).valid, 'optional rejected-takeoff reason became required');
+assert(!validateAirportControlCommand({ action: 'rejectTakeoff', flightId: 1, reason: 'weather' }).valid, 'unknown rejected-takeoff reason was accepted');
 assert(!validateAirportControlCommand({ action: 'setControllerPolicyPreset', preset: 'reckless' }).valid, 'unknown controller policy was accepted');
 
 const envelope = {
