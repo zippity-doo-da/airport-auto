@@ -66,7 +66,7 @@
     "test:capture": "node scripts/validateLocalCapture.mjs",
     "test:community": "node scripts/validateCommunityProgram.mjs",
     "test:traffic-profiles": "node scripts/validateAirportOperationProfiles.mjs",
-    "test:traffic-flow": "node scripts/validateTrafficFlowManagement.mjs && node scripts/validateFlowBaseline.mjs",
+    "test:traffic-flow": "node scripts/validateAirportFlowCapacity.mjs && node scripts/validateTrafficFlowManagement.mjs && node scripts/validateFlowBaseline.mjs",
     "test:airspace": "node scripts/validateAirspaceProcedures.mjs",
     "test:controllers": "node scripts/validateControllerOperations.mjs",
     "test:controller-performance": "node scripts/validateControllerPerformance.mjs",

@@ -586,11 +586,17 @@ reason, while local analytics/export schema 4 preserves the same fields.
 
 ### Simulation and API
 
-- [~] Define versioned meter points and constraints from each airport's terminal
-  and surface programs. Existing deterministic meter slots remain the
-  authority; procedure transitions and sourced surface crossings now create
-  versioned target points, while the outlook projects release cadence beyond
-  queued entries. Airport-specific capacity constraints remain open.
+- [x] Define versioned meter points and constraints from each airport's terminal
+      and surface programs. Existing deterministic meter slots remain the
+      authority; procedure transitions and sourced surface crossings create
+      versioned target points, while a deterministic capacity profile now derives
+      airport-specific runway concurrency, surface-admission positions, stands,
+      and terminal-procedure streams with source provenance and an explicit
+      non-navigational disclosure. Live approach and surface admission plus the
+      rolling forecast share this profile; it can only cap planning capacity and
+      cannot grant a clearance, reservation, or movement authority. An all-hub
+      and generated-airfield validator covers deterministic output, closures,
+      bounds, structural attribution, and sourced-versus-schematic fidelity.
 - [x] Replace one-interval demand pressure with rolling predicted demand and
       configurable capacity windows. The Queue outlook forecasts both sides of a
       Supervisor-selected 5-, 10-, or 15-minute horizon instead of counting only

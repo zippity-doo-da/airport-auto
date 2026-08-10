@@ -4,6 +4,10 @@ import { activeRunwayDesignation } from "./runwayGeometry";
 import { runwayClosedByDisruption } from "./surfaceDisruptions";
 import type { AirportState, TrafficFlowConstraintCategory } from "./types";
 import type { TrafficFlowCapacityAttribution } from "./trafficFlowManagement";
+import {
+  activeConfigurationConcurrency,
+  airportFlowCapacityProfile,
+} from "./airportFlowCapacity";
 
 export interface DirectionalTrafficFlowCapacityAttribution {
   arrival: TrafficFlowCapacityAttribution;
@@ -25,6 +29,7 @@ export function deriveTrafficFlowCapacityAttribution(
     config.runwayConfigurations.find(
       (candidate) => candidate.id === state.runwayConfigurationId,
     ) ?? config.runwayConfigurations[0];
+  const profile = airportFlowCapacityProfile(config);
   return {
     arrival: attribution(
       config,
@@ -35,6 +40,13 @@ export function deriveTrafficFlowCapacityAttribution(
       configuration?.name ?? "Active runway plan",
       input.arrivalSpacingSeconds,
       input.approachCapacity,
+      profile,
+      activeConfigurationConcurrency(
+        config,
+        configuration,
+        "arrival",
+        closedRunwayIds(config, state),
+      ),
     ),
     departure: attribution(
       config,
@@ -45,6 +57,13 @@ export function deriveTrafficFlowCapacityAttribution(
       configuration?.name ?? "Active runway plan",
       input.departureSpacingSeconds,
       0,
+      profile,
+      activeConfigurationConcurrency(
+        config,
+        configuration,
+        "departure",
+        closedRunwayIds(config, state),
+      ),
     ),
   };
 }
@@ -58,6 +77,8 @@ function attribution(
   configurationName: string,
   nominalSpacingSeconds: number,
   approachCapacity: number,
+  profile: ReturnType<typeof airportFlowCapacityProfile>,
+  activeIndependentRunwayCount: number,
 ): TrafficFlowCapacityAttribution {
   const runways = config.runways
     .filter((runway) =>
@@ -103,7 +124,26 @@ function attribution(
     ];
   });
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    capacityProfile: {
+      schemaVersion: 1,
+      id: profile.id,
+      dataVersion: profile.dataVersion,
+      fidelity: profile.fidelity,
+      nonNavigational: true,
+      activeIndependentRunwayCount,
+      maximumIndependentRunwayCount:
+        direction === "arrival"
+          ? profile.modeledLimits.maximumIndependentArrivalRunways
+          : profile.modeledLimits.maximumIndependentDepartureRunways,
+      surfaceArrivalPositions: profile.modeledLimits.surfaceArrivalPositions,
+      standPositions: profile.modeledLimits.standPositions,
+      procedureStreamCount:
+        direction === "arrival"
+          ? profile.modeledLimits.procedureArrivalStreams
+          : profile.modeledLimits.procedureDepartureStreams,
+      disclosure: profile.disclosure,
+    },
     configurationId,
     configurationName,
     runways,
@@ -113,6 +153,19 @@ function attribution(
       direction === "arrival" ? Math.max(1, approachCapacity) : 0,
     constraints,
   };
+}
+
+function closedRunwayIds(
+  config: AirportConfig,
+  state: AirportState,
+): Set<number> {
+  return new Set(
+    config.runways
+      .filter((runway) =>
+        runwayClosedByDisruption(state.surfaceDisruptions, runway.id),
+      )
+      .map((runway) => runway.id),
+  );
 }
 
 function runwayRole(

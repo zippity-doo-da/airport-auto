@@ -101,6 +101,7 @@ import {
   syncFlightMotion,
 } from "./flightMotion";
 import { intersectingRunways, runwaysConflict } from "./runwayConflict";
+import { airportFlowCapacityProfile } from "./airportFlowCapacity";
 import { activeRunwayDesignation } from "./runwayGeometry";
 import {
   activeRunwayRole,
@@ -6833,14 +6834,8 @@ export class AirportSimulation {
    * area capacity, not a replacement for graph reservations or ATC spacing.
    */
   private surfaceArrivalAdmissionCapacity(): number {
-    const standCapacity = Math.floor(
-      this.config.surfaceGraph.stands.length * 0.35,
-    );
-    const runwayCapacity =
-      this.config.runways.filter(
-        (runway) => this.runwayRole(runway.id) !== "inactive",
-      ).length * 2;
-    return Math.max(6, Math.min(18, Math.max(standCapacity, runwayCapacity)));
+    return airportFlowCapacityProfile(this.config).modeledLimits
+      .surfaceArrivalPositions;
   }
 
   /**
@@ -10492,7 +10487,8 @@ export class AirportSimulation {
       const role = this.runwayRole(runway.id);
       return role === "departure" || role === "mixed";
     }).length;
-    const maximumCapacity = this.config.code === "ORD" ? 4 : 3;
+    const maximumCapacity = airportFlowCapacityProfile(this.config)
+      .modeledLimits.maximumIndependentArrivalRunways;
     return Math.max(
       1,
       Math.min(

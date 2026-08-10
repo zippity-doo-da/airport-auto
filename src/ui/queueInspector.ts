@@ -379,7 +379,7 @@ function renderCapacitySummary(
         .slice(0, 2)
         .map((constraint) => `${constraint.label} ${constraint.count}`);
       source.textContent = `${usableRunways.length ? `RWY ${runwaySummary}` : "No usable runway"} · ${Math.round(window.attribution.nominalSpacingSeconds)}s${constraints.length ? ` · ${constraints.join(" · ")}` : ""}`;
-      source.title = `${window.attribution.configurationName} · ${window.attribution.usableRunwayCount} usable runway${window.attribution.usableRunwayCount === 1 ? "" : "s"}${window.direction === "arrival" ? ` · ${window.attribution.approachCapacity} concurrent approach position${window.attribution.approachCapacity === 1 ? "" : "s"}` : ""}`;
+      source.title = `${window.attribution.configurationName} · ${window.attribution.usableRunwayCount} usable runway${window.attribution.usableRunwayCount === 1 ? "" : "s"}${window.direction === "arrival" ? ` · ${window.attribution.approachCapacity} concurrent approach position${window.attribution.approachCapacity === 1 ? "" : "s"}` : ""} · ${window.attribution.capacityProfile.activeIndependentRunwayCount}/${window.attribution.capacityProfile.maximumIndependentRunwayCount} modeled independent · ${window.attribution.capacityProfile.fidelity}`;
 
       const meter = document.createElement("span");
       meter.className = "queue-panel__capacity-bar";

@@ -264,7 +264,20 @@ export interface TrafficFlowCapacityConstraintAttribution {
 }
 
 export interface TrafficFlowCapacityAttribution {
-  schemaVersion: 1;
+  schemaVersion: 2;
+  capacityProfile: {
+    schemaVersion: 1;
+    id: string;
+    dataVersion: string;
+    fidelity: "sourced-surface-hybrid" | "schematic";
+    nonNavigational: true;
+    activeIndependentRunwayCount: number;
+    maximumIndependentRunwayCount: number;
+    surfaceArrivalPositions: number;
+    standPositions: number;
+    procedureStreamCount: number;
+    disclosure: string;
+  };
   configurationId: string;
   configurationName: string;
   runways: Array<{
@@ -1229,6 +1242,21 @@ function capacityWindow(
   horizonSeconds: TrafficFlowForecastHorizonSeconds = 300,
   attributionInput: Partial<TrafficFlowCapacityAttribution> = {},
 ): TrafficFlowCapacityWindow {
+  const attribution = normalizeCapacityAttribution(
+    direction,
+    releaseSpacingSeconds,
+    attributionInput,
+  );
+  const activeConcurrency =
+    attribution.capacityProfile.activeIndependentRunwayCount;
+  const maximumConcurrency = Math.max(
+    1,
+    attribution.capacityProfile.maximumIndependentRunwayCount,
+  );
+  const capacitySpacingSeconds =
+    activeConcurrency > 0
+      ? releaseSpacingSeconds * (maximumConcurrency / activeConcurrency)
+      : Number.POSITIVE_INFINITY;
   const horizon = nowSeconds + horizonSeconds;
   const inWindow = entries.filter(
     (entry) => entry.scheduledAtSeconds <= horizon,
@@ -1266,7 +1294,7 @@ function capacityWindow(
       0,
       Math.floor(
         Math.max(0, horizon - latestReleaseAt) /
-          Math.max(1, releaseSpacingSeconds),
+          Math.max(1, capacitySpacingSeconds),
       ),
     );
   const uncertainty = {
@@ -1322,11 +1350,6 @@ function capacityWindow(
       : confidence === "medium"
         ? `Some slots moved from their initial plan${uncertaintyLabels.length ? `; uncertainty ${uncertaintyLabels.join(", ")}` : ""}.`
         : "No delayed, revised, or materially uncertain slots in the look-ahead.";
-  const attribution = normalizeCapacityAttribution(
-    direction,
-    releaseSpacingSeconds,
-    attributionInput,
-  );
   return {
     direction,
     horizonSeconds,
@@ -1362,7 +1385,20 @@ function normalizeCapacityAttribution(
 ): TrafficFlowCapacityAttribution {
   const runways = (input.runways ?? []).map((runway) => ({ ...runway }));
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    capacityProfile: input.capacityProfile ?? {
+      schemaVersion: 1,
+      id: "unknown-flow-capacity-v1",
+      dataVersion: "unknown",
+      fidelity: "schematic",
+      nonNavigational: true,
+      activeIndependentRunwayCount: Math.max(1, runways.length),
+      maximumIndependentRunwayCount: Math.max(1, runways.length),
+      surfaceArrivalPositions: 6,
+      standPositions: 0,
+      procedureStreamCount: 1,
+      disclosure: "Game-scale planning model; not an operational rate or movement authority.",
+    },
     configurationId: input.configurationId ?? "unknown",
     configurationName: input.configurationName ?? "Unspecified runway plan",
     runways,
