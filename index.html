@@ -1485,11 +1485,16 @@
       <aside
         id="surface-safety-panel"
         class="surface-safety"
-        aria-label="Surface safety picture"
+        role="region"
+        aria-labelledby="surface-safety-heading"
+        tabindex="-1"
         hidden
       >
         <header>
-          <div><b>Surface safety</b><span>authoritative tracks</span></div>
+          <div>
+            <b id="surface-safety-heading">Surface safety</b
+            ><span>authoritative tracks</span>
+          </div>
           <label class="surface-safety__filter"
             ><span>View</span
             ><select
@@ -1523,6 +1528,14 @@
           >
           <span><b id="surface-safety-holds">0</b><small>Holds</small></span>
         </div>
+        <p
+          id="surface-safety-live-summary"
+          class="visually-hidden"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          Surface safety picture ready.
+        </p>
         <label class="surface-safety__lookahead"
           ><span>Forecast horizon</span
           ><select

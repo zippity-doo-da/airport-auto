@@ -523,6 +523,7 @@ const surfaceSafetyAdvisories = $<HTMLElement>("#surface-safety-advisories");
 const surfaceSafetyMovers = $<HTMLElement>("#surface-safety-movers");
 const surfaceSafetyProtected = $<HTMLElement>("#surface-safety-protected");
 const surfaceSafetyHolds = $<HTMLElement>("#surface-safety-holds");
+const surfaceSafetyLiveSummary = $<HTMLElement>("#surface-safety-live-summary");
 const queueButton = $<HTMLButtonElement>("#queue-toggle");
 const queueLabel = $<HTMLElement>("#queue-label");
 const queuePanel = $<HTMLElement>("#queue-panel");
@@ -938,6 +939,7 @@ let routePoints: Array<{ x: number; y: number }> = [];
 let simulationSpeed = 1;
 let radarVisible = false;
 let surfaceSafetyVisible = false;
+let surfaceSafetyReturnFocus: HTMLElement | null = null;
 let surfaceSafetyUiKey = "";
 let surfaceSafetyFilterValue: SurfaceSafetyFilter = "all";
 let surfaceSafetyLookaheadSeconds: SurfaceSafetyLookaheadSeconds = 30;
@@ -7759,6 +7761,10 @@ function updateSurfaceSafetyPanelControl(): void {
     String(surfaceSafetyVisible),
   );
   surfaceSafetyButton.setAttribute(
+    "aria-expanded",
+    String(surfaceSafetyVisible),
+  );
+  surfaceSafetyButton.setAttribute(
     "aria-label",
     surfaceSafetyVisible
       ? "Hide surface safety picture"
@@ -7777,7 +7783,18 @@ function updateSurfaceSafetyPanelControl(): void {
 }
 
 function setSurfaceSafetyPanelVisible(visible: boolean): void {
+  if (visible && !surfaceSafetyVisible)
+    surfaceSafetyReturnFocus =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : surfaceSafetyButton;
   surfaceSafetyVisible = visible;
+  if (
+    visible &&
+    compactOverlayMedia.matches &&
+    controlPanel.classList.contains("control-panel--open")
+  )
+    setControlPanelOpen(false);
   if (visible && operationsLab.visible())
     operationsLab.setVisible(false, false);
   if (visible && focusNavigator.visible()) focusNavigator.setVisible(false);
@@ -7786,7 +7803,19 @@ function setSurfaceSafetyPanelVisible(visible: boolean): void {
     updateQueueInspectorControl();
   }
   updateSurfaceSafetyPanelControl();
-  if (visible) renderSurfaceSafety();
+  if (visible) {
+    renderSurfaceSafety();
+    requestAnimationFrame(() =>
+      surfaceSafetyFilter.focus({ preventScroll: true }),
+    );
+  } else if (surfaceSafetyReturnFocus) {
+    const returnFocus = surfaceSafetyReturnFocus;
+    surfaceSafetyReturnFocus = null;
+    requestAnimationFrame(() => {
+      if (document.contains(returnFocus))
+        returnFocus.focus({ preventScroll: true });
+    });
+  }
 }
 
 function setSurfaceSafetyLookahead(seconds: number): boolean {
@@ -7826,6 +7855,7 @@ function renderSurfaceSafety(): void {
       movers: surfaceSafetyMovers,
       protectedRunways: surfaceSafetyProtected,
       holds: surfaceSafetyHolds,
+      liveSummary: surfaceSafetyLiveSummary,
     },
     config,
     snapshot,
@@ -8211,6 +8241,17 @@ function setExclusiveModal(modal: HTMLElement | null): void {
     modalReturnFocus.focus({ preventScroll: true });
   if (!modal) modalReturnFocus = null;
 }
+
+document.addEventListener(
+  "keydown",
+  (event) => {
+    if (event.key !== "Escape" || !surfaceSafetyVisible) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    setSurfaceSafetyPanelVisible(false);
+  },
+  { capture: true },
+);
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && digitalClearanceVisible) {

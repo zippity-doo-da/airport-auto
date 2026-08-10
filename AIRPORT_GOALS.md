@@ -1,7 +1,7 @@
 # Airport Auto Goals
 
 Status: active product and implementation ledger  
-Last reconciled: August 9, 2026
+Last reconciled: August 10, 2026
 Baseline: Airport Auto 2.41 plus the additive Research Annex navigation
 Companion ledger: [Combat Simulation Goals](COMBAT_GOALS.md)
 
@@ -149,9 +149,14 @@ snapshot and is covered by the deterministic validator. Runway entrance and
 takeoff-hold lights now read the shared authoritative runway-protection
 projection: red entrance lights appear only for occupied protected pavement,
 while amber hold lights appear for occupied pavement or an uncleared departure.
-The deterministic safety validator asserts both conditions. The remaining A1
-evidence gap is the broader keyboard, screen-reader, reduced-motion, and
-semantic-color audit below.
+The deterministic safety validator asserts both conditions. The broader A1
+accessibility audit is now complete: the panel opens from the keyboard into its
+station filter, Escape closes it and restores focus, and a restrained live
+summary reports movers, protected movements, holds, warnings, and critical
+alerts without announcing every refresh. Track and vehicle rows expose complete
+text alternatives, all visible panel copy remains at least 9 px at the release
+viewport, status is never color-only, reduced-motion behavior is browser-tested,
+and coarse-pointer controls retain at least 44-pixel targets.
 Short-final wrong-surface detection also now compares the authoritative aircraft
 pose and heading with its assigned runway centerline, alternate runway ends,
 and nearby taxiway segments. It raises an explainable warning only when an
@@ -263,11 +268,14 @@ surface-aircraft lag from the current fixed step stays bounded.
 - [x] Provide Tower, Ground, and Supervisor-specific filtering plus a read-only
       Watch presentation. All, Tower, Ground, Ramp, Supervisor, and Watch views
       now have pure shared filter semantics in the Safety panel and local API.
-- [~] Preserve keyboard navigation, screen-reader summaries, color-vision-safe
-  semantics, reduced motion, and 44-pixel touch targets. Track rows and all
-  compact-screen controls meet the touch baseline; keyed track reconciliation
-  now preserves keyboard focus across live refreshes and scrollable panel
-  sections no longer overlap. The broader audit remains open.
+- [x] Preserve keyboard navigation, screen-reader summaries, color-vision-safe
+      semantics, reduced motion, and 44-pixel touch targets. Track rows and all
+      compact-screen controls meet the touch baseline; keyed track reconciliation
+      preserves keyboard focus across live refreshes; Escape restores focus to
+      the opener; a polite atomic summary reports operational changes; and every
+      track, vehicle, and advisory retains readable text semantics independent of
+      color. Desktop and coarse-pointer browser coverage exercises the complete
+      interaction while the existing reduced-motion gate remains green.
 
 ### Simulation and API
 
@@ -448,6 +456,13 @@ queue records at peak, kept the longest continuous individual stop to 684.7
 seconds and the longest airport-wide absence of traffic motion to 40 seconds,
 and reported zero collisions, incursions, or unexplained pauses. Simulation-tick
 p95 was 6.571 ms in Auto and 2.467 ms in Watch, both inside the runtime budget.
+
+On August 10, the strengthened surface scheduler passed an eight-hour ORD
+Extreme Auto soak with 74 arrivals and 68 departures, zero collisions, runway
+incursions, or unexplained pauses, and a 544.3-second longest continuously
+stationary movement. This closes the immediate ORD sustained-flow regression;
+the universal Auto goal remains open for equivalent weather and multi-airport
+coverage.
 
 The August 9 four-hour ORD Extreme Auto audit also closed a meter-accounting
 defect: an eligible departure slot is now released only after the same tick

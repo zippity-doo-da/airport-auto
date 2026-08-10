@@ -2123,6 +2123,10 @@ body.center-scope .brand__mark {
     min-height: 45px;
   }
 
+  #atis-button {
+    min-width: 45px;
+  }
+
   #control-panel label:has(> input[type="checkbox"]),
   #control-panel label:has(> input[type="radio"]) {
     min-width: 45px;
@@ -4459,7 +4463,7 @@ body.capture-clean #capture-clean-exit {
   gap: 2px;
   margin-left: auto;
   color: rgba(188, 232, 216, 0.62);
-  font-size: 6px;
+  font-size: 9px;
   font-weight: 900;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -4471,7 +4475,7 @@ body.capture-clean #capture-clean-exit {
   padding: 3px 4px;
   color: #d9f4f4;
   background: rgba(3, 20, 19, 0.92);
-  font: 800 8px/1 sans-serif;
+  font: 800 10px/1 sans-serif;
 }
 .surface-safety header b {
   font:
@@ -4484,7 +4488,7 @@ body.capture-clean #capture-clean-exit {
 .surface-safety h2,
 .surface-safety__summary small {
   color: rgba(188, 232, 216, 0.62);
-  font-size: 7px;
+  font-size: 9px;
   font-weight: 900;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -4534,7 +4538,7 @@ body.capture-clean #capture-clean-exit {
   justify-content: space-between;
   gap: 8px;
   color: rgba(188, 232, 216, 0.62);
-  font-size: 7px;
+  font-size: 9px;
   font-weight: 900;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -4545,7 +4549,7 @@ body.capture-clean #capture-clean-exit {
   border-radius: 0;
   color: #e2f1e9;
   background: rgba(3, 20, 19, 0.92);
-  font: 800 8px/1 sans-serif;
+  font: 800 10px/1 sans-serif;
 }
 .surface-safety__layers {
   display: grid;
@@ -4568,7 +4572,7 @@ body.capture-clean #capture-clean-exit {
   color: rgba(188, 232, 216, 0.7);
   background: rgba(121, 200, 232, 0.035);
   cursor: pointer;
-  font-size: 6px;
+  font-size: 9px;
   font-weight: 900;
   letter-spacing: 0.06em;
   text-align: center;
@@ -4715,7 +4719,7 @@ body.capture-clean #capture-clean-exit {
 }
 .surface-safety h2 {
   margin: 0 0 4px;
-  font-size: 7px;
+  font-size: 9px;
 }
 .surface-safety__advisories,
 .surface-safety__tracks,
@@ -4729,7 +4733,7 @@ body.capture-clean #capture-clean-exit {
   padding: 4px 6px;
   color: rgba(217, 244, 244, 0.82);
   background: rgba(121, 200, 232, 0.07);
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 750;
   line-height: 1.3;
 }
@@ -4749,7 +4753,7 @@ body.capture-clean #capture-clean-exit {
   padding: 2px 4px;
   color: #f2c84b;
   background: rgba(242, 200, 75, 0.08);
-  font-size: 7px;
+  font-size: 9px;
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -4810,18 +4814,18 @@ body.capture-clean #capture-clean-exit {
 .surface-safety__track b {
   width: 76px;
   flex: 0 0 auto;
-  font-size: 9px;
+  font-size: 11px;
 }
 .surface-safety__track span {
   width: 100%;
   color: rgba(217, 244, 244, 0.68);
-  font-size: 7px;
+  font-size: 10px;
   font-weight: 750;
 }
 .surface-safety__track i {
   margin-left: auto;
   color: #f2c84b;
-  font-size: 7px;
+  font-size: 9px;
   font-style: normal;
   font-weight: 900;
   text-transform: uppercase;
@@ -4829,7 +4833,7 @@ body.capture-clean #capture-clean-exit {
 .surface-safety__track small {
   width: 100%;
   color: rgba(188, 232, 216, 0.62);
-  font-size: 6px;
+  font-size: 9px;
   font-weight: 750;
   letter-spacing: 0.03em;
   line-height: 1.25;
@@ -4839,7 +4843,7 @@ body.capture-clean #capture-clean-exit {
   padding: 4px 6px;
   color: rgba(217, 244, 244, 0.76);
   background: rgba(121, 200, 232, 0.045);
-  font-size: 7px;
+  font-size: 9px;
   font-weight: 800;
   line-height: 1.3;
   text-transform: uppercase;
@@ -4866,6 +4870,39 @@ body.capture-clean #capture-clean-exit {
   .surface-safety__acknowledge,
   .surface-safety__layers label {
     min-height: 44px;
+  }
+}
+
+@media (any-pointer: coarse) {
+  .surface-safety__filter select,
+  .surface-safety__lookahead select,
+  .surface-safety header button,
+  .surface-safety__acknowledge,
+  .surface-safety__layers label,
+  .surface-safety__track {
+    min-height: 44px;
+  }
+  .surface-safety header button {
+    width: 44px;
+  }
+}
+
+@media (forced-colors: active) {
+  .surface-safety__diagram-runway,
+  .surface-safety__diagram-protection,
+  .surface-safety__diagram-route,
+  .surface-safety__diagram-lookahead,
+  .surface-safety__diagram-corridor,
+  .surface-safety__diagram-crossing,
+  .surface-safety__diagram-vehicle,
+  .surface-safety__diagram-track {
+    forced-color-adjust: auto;
+    stroke: CanvasText;
+  }
+  .surface-safety__advisory,
+  .surface-safety__track,
+  .surface-safety__vehicle {
+    border-color: CanvasText;
   }
 }
 

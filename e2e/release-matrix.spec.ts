@@ -201,6 +201,80 @@ test("surface safety stays clear of primary transitions at release viewports", a
   await expect(page.locator("#surface-safety-panel")).toBeVisible();
 });
 
+test("surface safety preserves keyboard, readable, and assistive semantics", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "desktop-chromium",
+    "Keyboard and assistive-semantics audit runs once on desktop Chromium.",
+  );
+  await page.goto(
+    "/?airport=ORD&seed=10002&mode=auto&density=quiet&autostart=1&detail=low&renderFps=2",
+  );
+  await waitForRuntime(page);
+  await page.locator("#menu-toggle").click();
+  const toggle = page.locator("#surface-safety-toggle");
+  await toggle.focus();
+  await page.keyboard.press("Enter");
+
+  const panel = page.locator("#surface-safety-panel");
+  await expect(panel).toBeVisible();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator("#surface-safety-filter")).toBeFocused();
+  await expect(panel).toHaveAttribute(
+    "aria-labelledby",
+    "surface-safety-heading",
+  );
+  await expect(page.locator("#surface-safety-live-summary")).toHaveAttribute(
+    "aria-live",
+    "polite",
+  );
+  await expect(page.locator("#surface-safety-live-summary")).toContainText(
+    /moving aircraft.*protected runway.*held.*warnings.*critical/s,
+  );
+  await expect
+    .poll(() => panel.locator(".surface-safety__track").count())
+    .toBeGreaterThan(0);
+  await expect(panel.locator(".surface-safety__track").first()).toHaveAttribute(
+    "aria-label",
+    /Groundspeed .* knots.*Heading .* degrees.*Track age .* seconds/,
+  );
+
+  const audit = await panel.evaluate((root) => {
+    const visibleText = [
+      ...root.querySelectorAll<HTMLElement>(
+        ".surface-safety__filter, header span, footer, h2, .surface-safety__summary small, .surface-safety__lookahead, .surface-safety__layers label, .surface-safety__advisory, .surface-safety__track :is(b, i, span, small), .surface-safety__vehicle",
+      ),
+    ].filter((element) => element.checkVisibility());
+    const statusRows = [
+      ...root.querySelectorAll<HTMLElement>(
+        ".surface-safety__track[data-state], .surface-safety__advisory[data-severity], .surface-safety__vehicle[data-state]",
+      ),
+    ];
+    return {
+      minimumFontPx: Math.min(
+        ...visibleText.map((element) =>
+          Number.parseFloat(getComputedStyle(element).fontSize),
+        ),
+      ),
+      unlabeledStatusRows: statusRows.filter(
+        (row) =>
+          !row.textContent?.trim() && !row.getAttribute("aria-label")?.trim(),
+      ).length,
+    };
+  });
+  expect(audit.minimumFontPx).toBeGreaterThanOrEqual(9);
+  expect(audit.unlabeledStatusRows).toBe(0);
+
+  await page.screenshot({
+    path: testInfo.outputPath("surface-safety-accessibility-desktop.png"),
+  });
+  await page.keyboard.press("Escape");
+  await expect(panel).toBeHidden();
+  await expect(toggle).toBeFocused();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+});
+
 test("modal focus, keyboard flow, readable strips, and semantic contrast regressions stay bounded", async ({
   page,
 }, testInfo) => {
@@ -295,6 +369,27 @@ test("coarse-pointer controls retain usable touch targets", async ({
     "/?airport=ATL&seed=10000&mode=watch&autostart=1&detail=low&renderFps=4",
   );
   await waitForRuntime(page);
+  await page.locator("#menu-toggle").click();
+  await page.locator("#surface-safety-toggle").click();
+  const surfaceUndersized = await page.evaluate(() =>
+    [
+      ...document.querySelectorAll<HTMLElement>(
+        "#surface-safety-panel button, #surface-safety-panel select, #surface-safety-panel label:has(input)",
+      ),
+    ]
+      .filter((element) => element.checkVisibility())
+      .filter((element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.width < 44 || rect.height < 44;
+      })
+      .map((element) => ({
+        id: element.id || element.textContent?.trim() || element.tagName,
+        width: Math.round(element.getBoundingClientRect().width),
+        height: Math.round(element.getBoundingClientRect().height),
+      })),
+  );
+  expect(surfaceUndersized).toEqual([]);
+  await page.locator("#surface-safety-close").click();
   await page.locator("#menu-toggle").click();
   const undersized = await page.evaluate(() =>
     [

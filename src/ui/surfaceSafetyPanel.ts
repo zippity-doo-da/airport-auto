@@ -16,6 +16,7 @@ export interface SurfaceSafetyPanelElements {
   movers: HTMLElement;
   protectedRunways: HTMLElement;
   holds: HTMLElement;
+  liveSummary: HTMLElement;
 }
 
 export type SurfaceSafetyFilter =
@@ -83,6 +84,18 @@ export function renderSurfaceSafetyPanel(
     snapshot.protectedRunwayOccupancy,
   );
   elements.holds.textContent = String(snapshot.heldTracks);
+  const activeAdvisories = snapshot.advisories.filter(
+    (advisory) => advisory.status === "active",
+  );
+  const warningCount = activeAdvisories.filter(
+    (advisory) => advisory.severity === "warning",
+  ).length;
+  const criticalCount = activeAdvisories.filter(
+    (advisory) => advisory.severity === "critical",
+  ).length;
+  const liveSummary = `${snapshot.tracks.filter((track) => track.state !== "parked").length} moving aircraft, ${snapshot.protectedRunwayOccupancy} protected runway ${snapshot.protectedRunwayOccupancy === 1 ? "occupancy" : "occupancies"}, ${snapshot.heldTracks} held ${snapshot.heldTracks === 1 ? "track" : "tracks"}, ${warningCount} ${warningCount === 1 ? "warning" : "warnings"}, ${criticalCount} critical ${criticalCount === 1 ? "alert" : "alerts"}.`;
+  if (elements.liveSummary.textContent !== liveSummary)
+    elements.liveSummary.textContent = liveSummary;
   const visibleTracks = surfaceSafetyTracksForFilter(snapshot, filter);
   const visibleVehicles = surfaceSafetyVehiclesForFilter(snapshot, filter);
   const diagramVehicles = display.layers.vehicles ? visibleVehicles : [];
@@ -419,6 +432,10 @@ function updateTrackRow(
   row.dataset.flightId = String(track.id);
   row.dataset.state = track.state;
   row.setAttribute("aria-pressed", String(track.id === focusedFlightId));
+  row.setAttribute(
+    "aria-label",
+    `${track.callsign}. ${trackStateLabel(track)}. ${track.location}. Groundspeed ${track.groundspeedKts} knots. Heading ${track.headingDegrees} degrees. ${track.routeIntent}. ${track.clearanceSummary}. Track age ${track.surveillanceAgeSeconds} seconds.`,
+  );
   const content = `<b>${escapeHtml(track.callsign)}</b><i>${trackStateLabel(track)}</i><span>${escapeHtml(track.location)} · ${track.groundspeedKts} kt · ${track.headingDegrees.toString().padStart(3, "0")}°</span><small>${escapeHtml(track.routeIntent)} · ${escapeHtml(track.clearanceSummary)} · ${track.surveillanceAgeSeconds}s track age</small>`;
   if (row.innerHTML !== content) row.innerHTML = content;
 }
@@ -492,6 +509,10 @@ function vehicleRow(vehicle: SurfaceVehicleTrack): HTMLElement {
   row.className = "surface-safety__vehicle";
   row.dataset.state = vehicle.state;
   row.textContent = `${vehicle.callsign} · ${vehicle.location} · ${vehicle.groundspeedKts} kt · ${vehicle.state.replace("-", " ")}`;
+  row.setAttribute(
+    "aria-label",
+    `${vehicle.callsign}. ${vehicle.location}. Groundspeed ${vehicle.groundspeedKts} knots. ${vehicle.state.replace("-", " ")}.`,
+  );
   return row;
 }
 
