@@ -762,6 +762,13 @@ and touchdown actions complete the same flight. A pending route transmission is
 also proven to yield synchronously to an urgent go-around: cancellation is
 recorded first, the go-around and emergency events follow in order, no route
 component applies, and later pilot-response processing cannot revive it.
+The Data Comm disclosure now moves keyboard focus directly into its close
+control, publishes its expanded state, preserves the focused message by stable
+command ID while live status updates rebuild the list, and returns focus to the
+invoking toolbar control on close or Escape. A deterministic desktop browser
+flow uses keyboard activation for view navigation, flight/route selection,
+constraints, preview, send, live message inspection, and dismissal; screenshot
+review confirms the retained focus remains visibly identifiable.
 Operations analytics schema 5 now retains a bounded, typed Data Comm lifecycle
 record across Sent, Delivered, Wilco, Unable, Timed Out, cancellation, and
 supersession. The Operations Lab shows total, active, responded, and timed-out
@@ -864,13 +871,14 @@ authoritative flight state.
   station transfer; route-only and atomic packages are tested to time out
   without partial application and to reject premature and late direct
   acceptance. Non-route staged-message coverage remains open.
-- [~] Screen-reader and keyboard users can compose, inspect, send, and dismiss a
-  clearance without losing flight-strip focus. Data Comm now restores the
-  invoking control on close or Escape and exposes every message as a named,
-  keyboard-focusable row. Its native labeled form supports compose, preview,
-  send, and cancel without rebuilding the active controls during routine
-  message-list updates; a full keyboard-only arrival acceptance run remains
-  open.
+- [x] Screen-reader and keyboard users can compose, inspect, send, and dismiss a
+      clearance without losing focus. Data Comm exposes its expanded state,
+      moves focus into the panel, restores the invoking control on close or
+      Escape, and exposes every message as a named keyboard-focusable row. Its
+      native labeled form supports route selection, constraints, preview, send,
+      and cancel; stable command IDs preserve row focus across live status
+      updates. The deterministic desktop browser flow completes that sequence
+      without pointer activation and captures visible focus evidence.
 
 ## A4 — High-fidelity Atlanta
 

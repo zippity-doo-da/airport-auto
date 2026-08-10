@@ -1677,6 +1677,10 @@ function focusAdjacentFlight(direction: -1 | 1): void {
 
 function handleInputAction(action: InputActionId): void {
   if (action === "ui.cancel") {
+    if (digitalClearanceVisible) {
+      closeDigitalClearancePanel();
+      return;
+    }
     if (operationsLab.visible()) {
       operationsLab.setVisible(false);
       return;
@@ -2447,9 +2451,7 @@ digitalClearanceButton.addEventListener("click", () => {
   setDigitalClearancePanelVisible(!digitalClearanceVisible);
 });
 digitalClearanceClose.addEventListener("click", () => {
-  setDigitalClearancePanelVisible(false);
-  digitalClearanceReturnFocus?.focus({ preventScroll: true });
-  digitalClearanceReturnFocus = null;
+  closeDigitalClearancePanel();
 });
 digitalClearanceViews.addEventListener("click", (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
@@ -7921,12 +7923,22 @@ function setDigitalClearancePanelVisible(visible: boolean): void {
     operationsLab.setVisible(false, false);
   if (visible && focusNavigator.visible()) focusNavigator.setVisible(false);
   digitalClearanceButton.setAttribute("aria-pressed", String(visible));
+  digitalClearanceButton.setAttribute("aria-expanded", String(visible));
   digitalClearanceButton.classList.toggle("control--active", visible);
   digitalClearanceLabel.textContent = visible ? "Data on" : "Data Comm";
   digitalClearancePanel.hidden = !visible;
   digitalClearanceUiKey = "";
   digitalClearanceComposerUiKey = "";
-  if (visible) renderDigitalClearanceMessages();
+  if (visible) {
+    renderDigitalClearanceMessages();
+    digitalClearanceClose.focus({ preventScroll: true });
+  }
+}
+
+function closeDigitalClearancePanel(): void {
+  setDigitalClearancePanelVisible(false);
+  digitalClearanceReturnFocus?.focus({ preventScroll: true });
+  digitalClearanceReturnFocus = null;
 }
 
 function renderDigitalClearanceMessages(): void {
@@ -8256,9 +8268,7 @@ document.addEventListener(
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && digitalClearanceVisible) {
     event.preventDefault();
-    setDigitalClearancePanelVisible(false);
-    digitalClearanceReturnFocus?.focus({ preventScroll: true });
-    digitalClearanceReturnFocus = null;
+    closeDigitalClearancePanel();
     return;
   }
   if (event.key !== "Tab") return;

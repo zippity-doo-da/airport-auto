@@ -36,6 +36,13 @@ export function renderDigitalClearancePanel(
   snapshot: DigitalClearanceSnapshot,
   view: DigitalClearancePanelView,
 ): void {
+  const focusedCommandId =
+    document.activeElement instanceof HTMLElement &&
+    elements.list.contains(document.activeElement)
+      ? document.activeElement.closest<HTMLElement>(
+          "[data-clearance-command-id]",
+        )?.dataset.clearanceCommandId
+      : undefined;
   const actionable = messagesForView(snapshot, "action").length;
   elements.count.textContent = actionable
     ? `${actionable} need action`
@@ -60,39 +67,43 @@ export function renderDigitalClearancePanel(
     elements.list.replaceChildren(empty);
     return;
   }
-  elements.list.replaceChildren(
-    ...messages.map((message) => {
-      const row = document.createElement("button");
-      row.type = "button";
-      row.className = "digital-clearance__message";
-      row.dataset.status = message.status;
-      row.dataset.clearanceFlightId = String(message.flightId);
-      row.dataset.clearanceCommandId = message.commandId;
-      row.setAttribute(
-        "aria-label",
-        `Focus ${message.callsign} ${message.status} ${message.kind.replace("-", " ")} message. ${message.detail}`,
-      );
-      const heading = document.createElement("div");
-      const title = document.createElement("b");
-      title.textContent = `${message.callsign} · ${message.kind.replace("-", " ").toUpperCase()}`;
-      const status = document.createElement("span");
-      status.textContent =
-        message.kind === "revision"
-          ? "RECORDED"
-          : message.status.replace("-", " ").toUpperCase();
-      heading.append(title, status);
-      const route = document.createElement("p");
-      route.textContent = message.route.length
-        ? message.route.join(" › ")
-        : Object.entries(message.parameters)
-            .map(([key, value]) => `${key} ${value}`)
-            .join(" · ") || "No additional parameters";
-      const detail = document.createElement("small");
-      detail.textContent = `${elapsedLabel(message.createdAtSeconds)} · ${message.authority.toUpperCase()} · R${message.revision} · ${message.detail}`;
-      row.append(heading, route, detail);
-      return row;
-    }),
-  );
+  const rows = messages.map((message) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "digital-clearance__message";
+    row.dataset.status = message.status;
+    row.dataset.clearanceFlightId = String(message.flightId);
+    row.dataset.clearanceCommandId = message.commandId;
+    row.setAttribute(
+      "aria-label",
+      `Focus ${message.callsign} ${message.status} ${message.kind.replace("-", " ")} message. ${message.detail}`,
+    );
+    const heading = document.createElement("div");
+    const title = document.createElement("b");
+    title.textContent = `${message.callsign} · ${message.kind.replace("-", " ").toUpperCase()}`;
+    const status = document.createElement("span");
+    status.textContent =
+      message.kind === "revision"
+        ? "RECORDED"
+        : message.status.replace("-", " ").toUpperCase();
+    heading.append(title, status);
+    const route = document.createElement("p");
+    route.textContent = message.route.length
+      ? message.route.join(" › ")
+      : Object.entries(message.parameters)
+          .map(([key, value]) => `${key} ${value}`)
+          .join(" · ") || "No additional parameters";
+    const detail = document.createElement("small");
+    detail.textContent = `${elapsedLabel(message.createdAtSeconds)} · ${message.authority.toUpperCase()} · R${message.revision} · ${message.detail}`;
+    row.append(heading, route, detail);
+    return row;
+  });
+  elements.list.replaceChildren(...rows);
+  if (focusedCommandId) {
+    rows
+      .find((row) => row.dataset.clearanceCommandId === focusedCommandId)
+      ?.focus({ preventScroll: true });
+  }
 }
 
 export function messagesForView(
