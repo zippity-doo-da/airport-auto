@@ -1,4 +1,9 @@
-import type { DigitalClearanceSnapshot } from "../simulation/digitalClearances";
+import type {
+  DigitalClearanceChannel,
+  DigitalClearanceDeskAccess,
+  DigitalClearanceResponseMode,
+  DigitalClearanceSnapshot,
+} from "../simulation/digitalClearances";
 
 export interface DigitalClearancePanelElements {
   count: HTMLElement;
@@ -26,6 +31,9 @@ export function digitalClearancePanelKey(
         message.detail,
         message.deliveredAtSeconds,
         message.responseDueSeconds,
+        message.capability.channel,
+        message.capability.deskAccess,
+        message.capability.responseMode,
       ].join(":"),
     )
     .join("|")}`;
@@ -74,9 +82,12 @@ export function renderDigitalClearancePanel(
     row.dataset.status = message.status;
     row.dataset.clearanceFlightId = String(message.flightId);
     row.dataset.clearanceCommandId = message.commandId;
+    row.dataset.channel = message.capability.channel;
+    row.dataset.deskAccess = message.capability.deskAccess;
+    const limitation = message.capability.limitations.join(" ");
     row.setAttribute(
       "aria-label",
-      `Focus ${message.callsign} ${message.status} ${message.kind.replace("-", " ")} message. ${message.detail}`,
+      `Focus ${message.callsign} ${message.status} ${message.kind.replace("-", " ")} message. ${message.detail} ${limitation}`,
     );
     const heading = document.createElement("div");
     const title = document.createElement("b");
@@ -95,7 +106,10 @@ export function renderDigitalClearancePanel(
           .join(" · ") || "No additional parameters";
     const detail = document.createElement("small");
     detail.textContent = `${elapsedLabel(message.createdAtSeconds)} · ${message.authority.toUpperCase()} · R${message.revision} · ${message.detail}`;
-    row.append(heading, route, detail);
+    const capability = document.createElement("small");
+    capability.className = "digital-clearance__capability";
+    capability.textContent = `${channelLabel(message.capability.channel)} · ${deskAccessLabel(message.capability.deskAccess)} · ${responseModeLabel(message.capability.responseMode)}${limitation ? ` · ${limitation}` : ""}`;
+    row.append(heading, route, detail, capability);
     return row;
   });
   elements.list.replaceChildren(...rows);
@@ -104,6 +118,31 @@ export function renderDigitalClearancePanel(
       .find((row) => row.dataset.clearanceCommandId === focusedCommandId)
       ?.focus({ preventScroll: true });
   }
+}
+
+function channelLabel(channel: DigitalClearanceChannel): string {
+  return (
+    {
+      data: "Data Comm",
+      voice: "Voice / action",
+      coordination: "Coordination",
+      "state-record": "Record only",
+    }[channel] ?? channel
+  );
+}
+
+function deskAccessLabel(access: DigitalClearanceDeskAccess): string {
+  return access === "authorized" ? "Desk authorized" : "Handoff required";
+}
+
+function responseModeLabel(mode: DigitalClearanceResponseMode): string {
+  return (
+    {
+      panel: "Panel response",
+      "voice-action": "Flight controls",
+      none: "Monitor only",
+    }[mode] ?? mode
+  );
 }
 
 export function messagesForView(

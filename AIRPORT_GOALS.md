@@ -804,6 +804,14 @@ domain events that produced it. Shareable replay strips those correlation keys
 alongside controller identity and free text. Reset and retention limits are
 deterministic, while the local replay and live panel continue deriving their
 richer presentation from authoritative flight state.
+Digital-clearance envelope schema 3 now distinguishes actual staged Data Comm
+packages from immediate voice/action instructions, inter-position coordination,
+and passive operational records. Every message carries typed channel, selected-
+desk access, response surface, and generic-equipage status. The panel states
+whether its current desk is authorized, must receive a handoff, can respond in
+the composer, must use flight controls, or can only monitor the record. The same
+bounded capability metadata survives analytics and the redacted remote-agent
+projection; no alternate executor or hidden authority was added.
 
 ### Gameplay and UX
 
@@ -816,9 +824,10 @@ richer presentation from authoritative flight state.
       Active vector, hold, speed, altitude, and route state now project as
       structured messages, as do departure, taxi, and crossing state; direct-to,
       and frequency state now use dedicated envelopes, and every active-flight plan
-      amendment is exposed as a stable, timestamped Revision message. Version 2
+      amendment is exposed as a stable, timestamped Revision message. Version 3
       envelopes carry deterministic command IDs, causal references, expiry, and
-      structured response timing. Atomic route packages use one compound envelope
+      structured response timing plus typed channel, desk-access, response-mode,
+      and aircraft-support limitations. Atomic route packages use one compound envelope
       with typed altitude/speed parameters; Action, History, and All views expose
       the complete projection without mixing routine acknowledgements into the
       default attention queue.
@@ -844,8 +853,11 @@ richer presentation from authoritative flight state.
   turning the interface into avionics configuration management. The selected
   flight panel now shows aircraft/wake class, required takeoff and landing
   runway length, current data authority, and whether the selected desk can
-  issue a clearance or must obtain a transfer. Broader capability limits and
-  per-message limitation presentation remain open.
+  issue a clearance or must obtain a transfer. Each message now also identifies
+  Data Comm, voice/action, coordination, or record-only channel; current-desk
+  authority; the valid response surface; and the fact that aircraft Data Comm
+  equipage is still modeled generically. Aircraft-specific equipage and broader
+  performance capability limits remain open.
 - [x] Provide concise keyboard flows and an Assisted composer that explains why
       a message is valid, delayed, or rejected. Clearance rows are keyboard
       focusable and move to the existing flight workflow; the advisor now offers a
@@ -859,7 +871,8 @@ richer presentation from authoritative flight state.
 
 - [~] Define one versioned message envelope containing authority, command IDs,
   causal event IDs, content fields, delivery timing, response, and expiry.
-  Version 2 projections now include these fields for every projected message;
+  Version 3 projections now include these fields plus typed channel, desk-access,
+  response-mode, and aircraft-support limitations for every projected message;
   route messages distinguish delivery, expected response, hard expiry, and
   terminal response timing. Every route lifecycle transition now receives a
   deterministic simulation-domain event ID at creation, retains the complete
@@ -1412,6 +1425,10 @@ service or a full workload/debrief experience.
       locally before a release commit.
 - [ ] Production assets use relative URLs and both root and `/airport-auto/`
       layouts build from the same output.
+      The duplicated public/bundled stable manifests now carry the actual hashes
+      of the committed ORD vector and imported surface assets; the full asset
+      validator verifies all ten files and their source/license records. The two-
+      base-path browser proof remains part of the release gate.
 - [ ] Deployment remains additive and never removes the surrounding menagerie.
 - [ ] Public verification, when authorized, checks the airport page and menagerie
       root without triggering redundant build/test workflows.

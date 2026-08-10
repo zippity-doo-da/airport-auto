@@ -1,5 +1,22 @@
 import type { AirportState, Flight, FlightRouteClearanceState } from "./types";
 
+export type DigitalClearanceChannel =
+  "data" | "voice" | "coordination" | "state-record";
+export type DigitalClearanceDeskAccess = "authorized" | "handoff-required";
+export type DigitalClearanceResponseMode = "panel" | "voice-action" | "none";
+
+export interface DigitalClearanceCapability {
+  /** How the authoritative instruction entered the simulation. */
+  channel: DigitalClearanceChannel;
+  /** The selected workstation's access to the message's owning authority. */
+  deskAccess: DigitalClearanceDeskAccess;
+  /** Where a controller can respond; the inbox never invents an executor. */
+  responseMode: DigitalClearanceResponseMode;
+  /** Aircraft equipage is deliberately generic until profile data is sourced. */
+  aircraftSupport: "simulated-data-comm" | "not-applicable";
+  limitations: string[];
+}
+
 export type DigitalClearanceStatus =
   | "draft"
   | "sent"
@@ -53,6 +70,7 @@ export interface DigitalClearanceMessage extends DigitalClearanceDraft {
   causalEventIds: string[];
   /** Null for completed messages; otherwise the point at which the envelope expires. */
   expiresAtSeconds: number | null;
+  capability: DigitalClearanceCapability;
   response: {
     status: DigitalClearanceStatus;
     commandId?: string;
@@ -63,7 +81,7 @@ export interface DigitalClearanceMessage extends DigitalClearanceDraft {
 }
 
 export interface DigitalClearanceSnapshot {
-  schemaVersion: 2;
+  schemaVersion: 3;
   generatedAtSeconds: number;
   messages: DigitalClearanceMessage[];
   counts: Record<DigitalClearanceStatus, number>;
@@ -78,7 +96,7 @@ export function digitalClearanceSnapshot(
 ): DigitalClearanceSnapshot {
   const messages = state.flights
     .flatMap((flight) => flightDigitalClearanceMessages(flight))
-    .map(toEnvelope)
+    .map((draft) => toEnvelope(draft, state))
     .sort(
       (first, second) =>
         statusRank(second.status) - statusRank(first.status) ||
@@ -88,7 +106,7 @@ export function digitalClearanceSnapshot(
   const counts = emptyCounts();
   for (const message of messages) counts[message.status] += 1;
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     generatedAtSeconds: state.elapsed,
     messages,
     counts,
@@ -436,7 +454,10 @@ function routeStatus(
     : "cancelled";
 }
 
-function toEnvelope(draft: DigitalClearanceDraft): DigitalClearanceMessage {
+function toEnvelope(
+  draft: DigitalClearanceDraft,
+  state: AirportState,
+): DigitalClearanceMessage {
   const { responseCommandId, ...envelopeDraft } = draft;
   const terminal = [
     "wilco",
@@ -459,6 +480,7 @@ function toEnvelope(draft: DigitalClearanceDraft): DigitalClearanceMessage {
           `flight:${draft.flightId}`,
           `clearance:${draft.kind}:${draft.revision}`,
         ],
+    capability: messageCapability(draft, state),
     expiresAtSeconds,
     response: {
       status: draft.status,
@@ -474,6 +496,69 @@ function toEnvelope(draft: DigitalClearanceDraft): DigitalClearanceMessage {
         : { respondedAtSeconds: draft.respondedAtSeconds }),
     },
   };
+}
+
+function messageCapability(
+  draft: DigitalClearanceDraft,
+  state: AirportState,
+): DigitalClearanceCapability {
+  const channel = messageChannel(draft.kind);
+  const deskAccess =
+    state.station === "supervisor" || state.station === draft.authority
+      ? "authorized"
+      : "handoff-required";
+  const activeDataMessage =
+    channel === "data" && ["draft", "sent", "delivered"].includes(draft.status);
+  const responseMode: DigitalClearanceResponseMode = activeDataMessage
+    ? state.mode === "manual" || state.mode === "assisted"
+      ? deskAccess === "authorized"
+        ? "panel"
+        : "none"
+      : "none"
+    : channel === "voice" || channel === "coordination"
+      ? "voice-action"
+      : "none";
+  const limitations: string[] = [];
+  if (channel === "data")
+    limitations.push(
+      "Aircraft Data Comm equipage is simulated generically, not aircraft-specific.",
+    );
+  else
+    limitations.push(
+      channel === "state-record"
+        ? "Read-only operational record; no clearance was transmitted from this row."
+        : "Immediate instruction or coordination record; use the flight action controls.",
+    );
+  if (deskAccess === "handoff-required")
+    limitations.push(
+      `${draft.authority.toUpperCase()} authority required; current desk is ${state.station.toUpperCase()}.`,
+    );
+  if (activeDataMessage && !["manual", "assisted"].includes(state.mode))
+    limitations.push(
+      `${state.mode === "watch" ? "Watch" : "Auto"} mode provides monitor-only Data Comm access.`,
+    );
+  if (channel === "data" && !activeDataMessage)
+    limitations.push(
+      "Transmission is closed; no further response is available.",
+    );
+  return {
+    channel,
+    deskAccess,
+    responseMode,
+    aircraftSupport:
+      channel === "data" ? "simulated-data-comm" : "not-applicable",
+    limitations,
+  };
+}
+
+function messageChannel(
+  kind: DigitalClearanceDraft["kind"],
+): DigitalClearanceChannel {
+  if (kind === "route-amendment" || kind === "compound-clearance")
+    return "data";
+  if (kind === "frequency") return "coordination";
+  if (kind === "revision") return "state-record";
+  return "voice";
 }
 
 function emptyCounts(): Record<DigitalClearanceStatus, number> {

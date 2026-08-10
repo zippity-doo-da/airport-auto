@@ -23,7 +23,7 @@ const snapshot = projectRemoteOperationsSnapshot({
     },
   }],
   digitalClearances: {
-    schemaVersion: 2,
+    schemaVersion: 3,
     generatedAtSeconds: 18,
     counts: { delivered: 1 },
     messages: [{
@@ -44,6 +44,7 @@ const snapshot = projectRemoteOperationsSnapshot({
       route: ['FIX-A', 'FIX-B'],
       parameters: { distanceNm: 14 },
       response: { status: 'delivered', commandId: 'cmd:route-response:7:2', deliveredAtSeconds: 14, dueSeconds: 20 },
+      capability: { channel: 'data', deskAccess: 'authorized', responseMode: 'panel', aircraftSupport: 'simulated-data-comm', limitations: ['generic equipage'] },
       detail: 'free-form local detail must stay page-local',
       warningCount: 0,
     }],
@@ -95,6 +96,7 @@ const message = snapshot.digitalClearances.messages[0];
 assert(message?.commandId === 'cmd:route:7:2', 'remote projection dropped command identity');
 assert(message.causalEventIds.length === 2 && message.expiresAtSeconds === 20, 'remote projection dropped causal or expiry fields');
 assert(message.response?.status === 'delivered' && message.response.commandId === 'cmd:route-response:7:2' && message.response.deliveredAtSeconds === 14 && message.parameters.distanceNm === 14, 'remote projection dropped typed response content');
+assert(message.capability?.channel === 'data' && message.capability.deskAccess === 'authorized' && message.capability.responseMode === 'panel' && message.capability.limitations.length === 1, 'remote projection dropped typed capability limits');
 assert(!Object.hasOwn(message, 'detail'), 'remote projection leaked free-form clearance detail');
 assert(snapshot.surfaceSafety.schemaVersion === 3 && snapshot.surfaceSafety.tracks[0].routeIntent === 'RWY 09', 'remote projection omitted authoritative surface tracks');
 assert(snapshot.surfaceSafety.visible && snapshot.surfaceSafety.filter === 'tower' && snapshot.surfaceSafety.display.lookaheadSeconds === 60, 'remote projection omitted surface display configuration');

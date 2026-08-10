@@ -5523,6 +5523,17 @@ button.queue-entry:focus-visible,
   font-size: 7px;
   line-height: 1.25;
 }
+.digital-clearance__message .digital-clearance__capability {
+  border-top: 1px solid rgba(244, 232, 206, 0.1);
+  padding-top: 4px;
+  color: rgba(121, 200, 232, 0.74);
+  letter-spacing: 0.035em;
+  text-transform: none;
+}
+.digital-clearance__message[data-desk-access="handoff-required"]
+  .digital-clearance__capability {
+  color: var(--amber);
+}
 
 @media (max-width: 760px), (max-height: 520px) {
   .digital-clearance {

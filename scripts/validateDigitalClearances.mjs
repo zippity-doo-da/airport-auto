@@ -9,6 +9,8 @@ import { messagesForView } from './src/ui/digitalClearancePanel.ts';
 function assert(condition, message) { if (!condition) throw new Error(message); }
 
 const simulation = new AirportSimulation(generateHubConfig(HUB_AIRPORTS.findIndex((airport) => airport.code === 'ORD')));
+simulation.setMode('manual');
+simulation.setStation('approach');
 const flight = simulation.state.flights[0];
 assert(flight, 'ORD needs an initial flight for digital-clearance validation');
 let snapshot;
@@ -44,7 +46,7 @@ flight.surfaceRoute = ['RAMP-A', 'TAXI-B', 'HOLD-C'];
 flight.requiredCrossings = [1, 2];
 flight.crossingClearances = [1];
 snapshot = digitalClearanceSnapshot(simulation.state);
-assert(snapshot.messages.some((item) => item.kind === 'departure'), 'departure state did not project as a structured digital message');
+assert(snapshot.messages.some((item) => item.kind === 'departure' && item.capability.channel === 'voice' && item.capability.responseMode === 'voice-action'), 'departure state did not project as an explicit voice/action message');
 assert(snapshot.messages.some((item) => item.kind === 'taxi' && item.parameters.routeNodes === 3), 'taxi route did not project as a structured digital message');
 assert(snapshot.messages.some((item) => item.kind === 'crossing' && item.status === 'standby' && item.parameters.remaining === 1), 'pending runway crossing did not project as standby');
 flight.phase = 'approach';
@@ -63,7 +65,13 @@ assert(message?.status === 'sent' && message.expiresAtSeconds === 12, 'route tra
 flight.navigation.routeClearance = { ...flight.navigation.routeClearance, status: 'pending-readback', deliveredAtSeconds: 5, reason: 'awaiting pilot readback' };
 snapshot = digitalClearanceSnapshot(simulation.state);
 message = snapshot.messages[0];
-assert(snapshot.schemaVersion === 2 && message?.status === 'delivered' && message.route.join('>') === 'NORTH>LAKE', 'pending readback did not project as a delivered route message');
+assert(snapshot.schemaVersion === 3 && message?.status === 'delivered' && message.route.join('>') === 'NORTH>LAKE', 'pending readback did not project as a delivered route message');
+assert(message.capability.channel === 'data' && message.capability.deskAccess === 'authorized' && message.capability.responseMode === 'panel' && message.capability.aircraftSupport === 'simulated-data-comm', 'active Data Comm capability or authority was not explicit');
+simulation.setStation('tower');
+snapshot = digitalClearanceSnapshot(simulation.state);
+message = snapshot.messages[0];
+assert(message.capability.deskAccess === 'handoff-required' && message.capability.responseMode === 'none' && message.capability.limitations.some((item) => item.includes('APPROACH authority required')), 'wrong-desk limitation was not explicit');
+simulation.setStation('approach');
 assert(message.commandId === 'cmd:route:' + flight.id + ':4' && message.causalEventIds.length === 2, 'clearance envelope identity or causality is not deterministic');
 assert(message.expiresAtSeconds === 12 && message.deliveredAtSeconds === 5 && message.response.status === 'delivered' && message.response.deliveredAtSeconds === 5 && message.response.dueSeconds === 6, 'pending readback envelope timing or response is incomplete');
 message.route[0] = 'MUTATED';

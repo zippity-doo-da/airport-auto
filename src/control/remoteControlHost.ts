@@ -89,9 +89,7 @@ function compactFlight(value: unknown): JsonRecord | null {
       ? poseRenderer.position
       : {};
   const poseErrors =
-    poseAlignment && isRecord(poseAlignment.errors)
-      ? poseAlignment.errors
-      : {};
+    poseAlignment && isRecord(poseAlignment.errors) ? poseAlignment.errors : {};
   return {
     id: value.id,
     callsign: value.callsign,
@@ -614,6 +612,17 @@ function compactDigitalClearance(value: unknown): JsonRecord | null {
     route: Array.isArray(value.route) ? value.route.slice(0, 16) : [],
     parameters: isRecord(value.parameters) ? value.parameters : {},
     response: isRecord(value.response) ? value.response : null,
+    capability: isRecord(value.capability)
+      ? {
+          channel: value.capability.channel ?? null,
+          deskAccess: value.capability.deskAccess ?? null,
+          responseMode: value.capability.responseMode ?? null,
+          aircraftSupport: value.capability.aircraftSupport ?? null,
+          limitations: Array.isArray(value.capability.limitations)
+            ? value.capability.limitations.slice(0, 4)
+            : [],
+        }
+      : null,
     warningCount: value.warningCount ?? 0,
   };
 }

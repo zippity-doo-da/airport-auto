@@ -19,7 +19,7 @@
       "kind": "airport-vector",
       "path": "data/airports/KORD.vector.json",
       "contentType": "application/json",
-      "sha256": "93c0a55b78d5a151de2425435f7d0955926c56c92ccf246368cbdb7cb3f57431",
+      "sha256": "91092fda2d235b8037022e862aa4c3f79b9e5e688c6c00e913320080f20ad07f",
       "offlineRequired": true,
       "licenseRef": "src/data/airports/KORD.manifest.json"
     },
@@ -82,7 +82,7 @@
       "kind": "airport-surface-source",
       "path": "data/airports/KORD.osm-surface.json",
       "contentType": "application/json",
-      "sha256": "e7d614ab31bf650741aa7109749caeefc446e7e36c12901b09ed0edc0befdbf9",
+      "sha256": "d955485e2c03d3d5f999f3af41f784088773c1680896a38011808efb2ecaf2d0",
       "offlineRequired": true,
       "licenseRef": "src/data/airports/KORD.surface.manifest.json"
     },

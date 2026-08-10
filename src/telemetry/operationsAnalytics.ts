@@ -187,7 +187,7 @@ export interface TrafficFlowCauseAnalyticsRecord {
 }
 
 export interface DigitalClearanceAnalyticsRecord {
-  schemaVersion: 2;
+  schemaVersion: 3;
   id: string;
   commandId: string;
   responseCommandId: string | null;
@@ -196,6 +196,10 @@ export interface DigitalClearanceAnalyticsRecord {
   kind: DigitalClearanceMessage["kind"];
   status: DigitalClearanceStatus;
   authority: string;
+  channel: DigitalClearanceMessage["capability"]["channel"];
+  deskAccess: DigitalClearanceMessage["capability"]["deskAccess"];
+  responseMode: DigitalClearanceMessage["capability"]["responseMode"];
+  aircraftSupport: DigitalClearanceMessage["capability"]["aircraftSupport"];
   revision: number;
   createdAtSeconds: number;
   issuedAtSeconds: number | null;
@@ -1025,7 +1029,7 @@ export class OperationsAnalyticsRecorder {
         message.respondedAtSeconds ?? message.response.respondedAtSeconds;
       const responseOrigin = deliveredAtSeconds ?? message.issuedAtSeconds;
       const record: DigitalClearanceAnalyticsRecord = {
-        schemaVersion: 2,
+        schemaVersion: 3,
         id: message.id,
         commandId: message.commandId,
         responseCommandId: message.response.commandId ?? null,
@@ -1034,6 +1038,10 @@ export class OperationsAnalyticsRecorder {
         kind: message.kind,
         status: message.status,
         authority: message.authority,
+        channel: message.capability.channel,
+        deskAccess: message.capability.deskAccess,
+        responseMode: message.capability.responseMode,
+        aircraftSupport: message.capability.aircraftSupport,
         revision: message.revision,
         createdAtSeconds: rounded(message.createdAtSeconds, 3),
         issuedAtSeconds:
