@@ -304,6 +304,11 @@ const flowSnapshot = trafficFlowSnapshot(flow, 500);
 assert(flowSnapshot.history.length === 7 && flowSnapshot.backPressure.arrivalsHolding === 0 && flowSnapshot.backPressure.departuresWaiting === 0, 'flow snapshot is incomplete');
 totals.flowTransitions += 8;
 
+const rescheduledFlow = createTrafficFlowState('realistic', 0, 0);
+const rescheduledDeparture = registerDepartureDemand(rescheduledFlow, departureA, 0, 0, 6);
+const rescheduledExpiry = expireTrafficFlow(rescheduledFlow, 121, { rescheduleDepartureDemands: true });
+assert(rescheduledExpiry.cancelled.length === 0 && rescheduledExpiry.rescheduledDepartures[0] === rescheduledDeparture && rescheduledDeparture.status === 'rescheduled' && rescheduledFlow.totals.cancellations === 0, 'aged active departure slot was reported as a flight cancellation');
+
 const objectiveSimulation = new AirportSimulation(ordConfig);
 objectiveSimulation.setMode('manual');
 objectiveSimulation.setStation('ground');

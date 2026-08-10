@@ -39,6 +39,7 @@ import type {
   SurfaceDisruptionSource,
   SurfaceDisruptionState,
   TerminalWeatherHazard,
+  TrafficFlowEntry,
   TrafficFlowMeterTarget,
   TrafficFlowObjective,
   TrafficScenario,
@@ -6574,12 +6575,18 @@ export class AirportSimulation {
       (!this.state.sandbox.active || this.state.sandbox.backgroundTraffic) &&
       now + 1e-6 >= flow.nextArrivalDemandSeconds
     ) {
-      const demand = enqueueArrivalDemand(
-        flow,
-        now,
-        `${density.label} demand · ${this.operationStateAt(this.state, now).periodLabel}`,
-      );
-      if (demand.status === "diverted") this.metrics.diversions += 1;
+      // A full invisible holding buffer is back-pressure, not another flight
+      // appearing and instantly diverting every few seconds. Wait for room,
+      // then create the next real demand. Explicit/direct demand injection can
+      // still use enqueueArrivalDemand's overflow-diversion behavior.
+      if (flow.arrivalQueue.length < density.holdingCapacity) {
+        const demand = enqueueArrivalDemand(
+          flow,
+          now,
+          `${density.label} demand · ${this.operationStateAt(this.state, now).periodLabel}`,
+        );
+        if (demand.status === "diverted") this.metrics.diversions += 1;
+      }
       scheduleNextArrivalDemand(
         flow,
         now,
@@ -6620,9 +6627,33 @@ export class AirportSimulation {
       );
     }
 
-    const expired = expireTrafficFlow(flow, now);
+    const expired = expireTrafficFlow(flow, now, {
+      rescheduleDepartureDemands: true,
+    });
     this.metrics.diversions += expired.diverted.length;
     this.metrics.cancellations += expired.cancelled.length;
+    for (const entry of expired.rescheduledDepartures) {
+      const flight =
+        entry.flightId === undefined
+          ? undefined
+          : this.state.flights.find(
+              (candidate) => candidate.id === entry.flightId,
+            );
+      if (!flight) continue;
+      // Preserve the existing proven fairness recovery exactly: supersede the
+      // aged leg, create a fresh release plan, and clear discretionary holds.
+      // The traffic-flow record is a reschedule, not an operational cancel.
+      setFlightPlanStatus(flight.flightPlan, "cancelled", now, entry.reason);
+      this.archiveFlightPlan(flight);
+      this.prepareDepartureFlightPlan(
+        flight,
+        now + density.recoveryDelaySeconds,
+        true,
+      );
+      flight.pushbackCleared = false;
+      flight.controlHold = false;
+      flight.automaticHold = false;
+    }
     for (const entry of expired.cancelled) {
       const flight =
         entry.flightId === undefined
@@ -7007,7 +7038,7 @@ export class AirportSimulation {
     );
   }
 
-  private departureReleaseReady(flight: Flight): boolean {
+  private departureReleaseReady(flight: Flight): TrafficFlowEntry | null {
     const hazard = this.state.weather.activeHazard;
     if (
       hazard?.status === "active" &&
@@ -7016,14 +7047,14 @@ export class AirportSimulation {
     ) {
       flight.automaticHold = true;
       flight.automaticHoldReason = `${hazard.kind.replace("-", " ")} advisory protects ${this.activeRunwayDesignation(flight.runway)} departure`;
-      return false;
+      return null;
     }
     const performance = this.assessTakeoffPerformance(flight);
     flight.takeoffPerformance = performance;
     if (!performance.safe) {
       flight.automaticHold = true;
       flight.automaticHoldReason = `RwyCC ${performance.runwayConditionCode} leaves ${Math.round(Math.abs(performance.marginM))} m takeoff shortfall on ${this.activeRunwayDesignation(flight.runway)}`;
-      return false;
+      return null;
     }
     const flow = this.state.trafficFlow;
     const entry = registerDepartureDemand(
@@ -7051,7 +7082,7 @@ export class AirportSimulation {
     if (first !== entry && runwayReadyPredecessor) {
       flight.automaticHold = true;
       flight.automaticHoldReason = `departure release queue ${entryIndex + 1}/${flow.departureQueue.length} behind ${runwayReadyPredecessor.callsign}`;
-      return false;
+      return null;
     }
     if (
       this.state.elapsed + 1e-6 < entry.releaseSlotSeconds ||
@@ -7059,7 +7090,7 @@ export class AirportSimulation {
     ) {
       flight.automaticHold = true;
       flight.automaticHoldReason = `departure slot in ${Math.ceil(Math.max(entry.releaseSlotSeconds, flow.nextDepartureReleaseSeconds) - this.state.elapsed)} seconds`;
-      return false;
+      return null;
     }
     if (entryIndex > 0) {
       amendFlightPlan(
@@ -7069,16 +7100,7 @@ export class AirportSimulation {
         `runway-ready departure advanced from release position ${entryIndex + 1} while earlier flights remained upstream`,
       );
     }
-    releaseDepartureDemand(
-      flow,
-      entry,
-      this.state.elapsed,
-      this.departureSlotSpacing(),
-    );
-    flight.flightPlan.status = "active";
-    flight.automaticHold = false;
-    flight.automaticHoldReason = undefined;
-    return true;
+    return entry;
   }
 
   /**
@@ -7990,8 +8012,17 @@ export class AirportSimulation {
       }
       const crossingClear = !this.nextUnclearedCrossing(flight);
       if (!flight.runwayEntryCleared || !crossingClear) return;
-      if (!this.departureReleaseReady(flight) || !this.reserveDeparture(flight))
-        return;
+      const departureEntry = this.departureReleaseReady(flight);
+      if (!departureEntry || !this.reserveDeparture(flight)) return;
+      releaseDepartureDemand(
+        this.state.trafficFlow,
+        departureEntry,
+        this.state.elapsed,
+        this.departureSlotSpacing(),
+      );
+      flight.flightPlan.status = "active";
+      flight.automaticHold = false;
+      flight.automaticHoldReason = undefined;
     }
     if (next === "taxi-in" && !this.ensureArrivalGate(flight)) {
       flight.safetyHold = true;
@@ -10081,6 +10112,12 @@ export class AirportSimulation {
     );
     if (physicalRelease) return physicalRelease;
     if (kind !== "departure" || !this.isAutomaticMode()) return null;
+    // Strategic arrival metering may withhold a runway-entry clearance, but it
+    // must not reverse a departure Tower has already committed to the runway.
+    // From that point onward the physical separation history, conflicting
+    // runway reservations, and protected-motion envelopes above are the sole
+    // release authorities.
+    if (flight.runwayEntryCleared) return null;
 
     // A continuous departure stream can otherwise consume every converging
     // runway-release interval just before the invisible arrival meter becomes

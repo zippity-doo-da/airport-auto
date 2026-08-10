@@ -449,6 +449,19 @@ seconds and the longest airport-wide absence of traffic motion to 40 seconds,
 and reported zero collisions, incursions, or unexplained pauses. Simulation-tick
 p95 was 6.571 ms in Auto and 2.467 ms in Watch, both inside the runtime budget.
 
+The August 9 four-hour ORD Extreme Auto audit also closed a meter-accounting
+defect: an eligible departure slot is now released only after the same tick
+successfully reserves the runway, and a strategic arrival opening cannot
+reverse a departure already cleared onto the runway. A full holding buffer now
+back-pressures the demand clock instead of creating an extra instant diversion,
+while aged departure slots retain the proven fairness replan but are recorded
+as reschedules rather than cancelled flights. The acceptance run completed 55
+arrivals and 35 departures with zero collisions, incursions, unexplained pauses,
+or reported cancellations; its longest individual movement stop was 564.3
+seconds, simulation p95 was 2.422 ms, and retained-heap growth was 17.984
+MiB/hour. The soak gate now rejects non-atomic departure releases, inconsistent
+arrival-demand accounting, and cancellation churn.
+
 The 2.40 comparison is now executable rather than anecdotal. A fixed 30-minute
 ORD Rush/Auto bank at 3x uses the same seed, fixed step, stop/restart thresholds,
 and safety diagnostics against the frozen `92a269c` release result. Current

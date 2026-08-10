@@ -445,6 +445,23 @@ if (requestedAirport === 'ORD' && requestedHours >= 1) {
     failures.push('ORD all-moving-traffic stopped');
   if (maximumStationarySeconds > 900)
     failures.push('ORD individual movement hold exceeded 15 minutes');
+  const flowTotals = simulation.state.trafficFlow.totals;
+  const arrivalsNoLongerPending =
+    flowTotals.arrivalDemands -
+    flowTotals.arrivalReleases -
+    simulation.state.trafficFlow.arrivalQueue.length;
+  if (
+    arrivalsNoLongerPending < 0 ||
+    arrivalsNoLongerPending > flowTotals.diversions
+  )
+    failures.push('ORD arrival demand accounting mismatch');
+  if (flowTotals.cancellations > flowTotals.departureDemands * 0.25)
+    failures.push('ORD repeated departure-slot cancellation churn');
+  const committedDepartures =
+    simulation.state.departures +
+    simulation.state.flights.filter((flight) => flight.phase === 'takeoff').length;
+  if (flowTotals.departureReleases > committedDepartures + 2)
+    failures.push('ORD departure slot released without runway commitment');
 }
 
 const phaseCounts = Object.fromEntries(

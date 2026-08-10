@@ -94,6 +94,12 @@ const TRAFFIC_FLOW_OBJECTIVE_PROFILES: Record<
 export interface TrafficFlowExpiry {
   diverted: TrafficFlowEntry[];
   cancelled: TrafficFlowEntry[];
+  rescheduledDepartures: TrafficFlowEntry[];
+}
+
+export interface TrafficFlowExpiryOptions {
+  /** Recycle an active aircraft's aged meter slot without cancelling its service. */
+  rescheduleDepartureDemands?: boolean;
 }
 
 export interface TrafficFlowConstraint {
@@ -688,10 +694,12 @@ export function releaseDepartureDemand(
 export function expireTrafficFlow(
   state: TrafficFlowState,
   nowSeconds: number,
+  options: TrafficFlowExpiryOptions = {},
 ): TrafficFlowExpiry {
   const density = trafficDensityProfile(state.density);
   const diverted: TrafficFlowEntry[] = [];
   const cancelled: TrafficFlowEntry[] = [];
+  const rescheduledDepartures: TrafficFlowEntry[] = [];
   for (const entry of [...state.arrivalQueue]) {
     if (
       nowSeconds - entry.scheduledAtSeconds <
@@ -718,6 +726,25 @@ export function expireTrafficFlow(
     )
       continue;
     removeEntry(state.departureQueue, entry);
+    if (options.rescheduleDepartureDemands) {
+      entry.status = "rescheduled";
+      entry.updatedAtSeconds = nowSeconds;
+      entry.delaySeconds = nowSeconds - entry.scheduledAtSeconds;
+      setEntryConstraint(
+        entry,
+        `departure release exceeded ${density.maximumDepartureDelaySeconds}s; meter slot rescheduled and replanning required`,
+        {
+          category: "demand",
+          causeCode: "demand-capacity",
+          source: "demand",
+          relatedFlightId: entry.flightId,
+          relatedRunwayId: entry.runwayId,
+        },
+      );
+      archive(state, entry);
+      rescheduledDepartures.push(entry);
+      continue;
+    }
     entry.status = "cancelled";
     entry.updatedAtSeconds = nowSeconds;
     entry.delaySeconds = nowSeconds - entry.scheduledAtSeconds;
@@ -730,7 +757,7 @@ export function expireTrafficFlow(
     cancelled.push(entry);
   }
   refreshTrafficFlow(state, nowSeconds);
-  return { diverted, cancelled };
+  return { diverted, cancelled, rescheduledDepartures };
 }
 
 export function removeDepartureDemand(

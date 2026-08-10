@@ -1098,7 +1098,13 @@ export interface ControllerPerformanceSnapshot {
 }
 
 export type TrafficFlowStatus =
-  "scheduled" | "metered" | "holding" | "released" | "diverted" | "cancelled";
+  | "scheduled"
+  | "metered"
+  | "holding"
+  | "released"
+  | "rescheduled"
+  | "diverted"
+  | "cancelled";
 
 /** Stable, controller-visible classification of a meter-slot constraint. */
 export type TrafficFlowConstraintCategory =
