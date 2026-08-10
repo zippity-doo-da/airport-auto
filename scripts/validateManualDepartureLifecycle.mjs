@@ -80,6 +80,8 @@ const flight = simulation.state.flights[0];
 assert(flight.phase === 'resting' && flight.turnaround.status === 'ready', 'sandbox departure was not ready at a stand');
 assert(simulation.clearPushback(flight.id), 'Manual UI equivalent pushback was rejected: ' + simulation.lastCommandReason());
 assert(flight.pushbackCleared, 'pushback clearance was not stored on the flight');
+const pushbackInstruction = flight.surfaceInstructions?.find((instruction) => instruction.kind === 'pushback');
+assert(pushbackInstruction?.id === 'pushback:' + flight.id + ':1' && pushbackInstruction.evidence.causalEventIds.length === 1, 'pushback instruction lacks stable issue/event evidence');
 advanceUntil(simulation, () => flight.phase === 'taxi-out', 'pushback did not begin taxi-out', 5, assertCurrentSurfacePose);
 
 let crossingsCleared = 0;
@@ -112,9 +114,14 @@ assert(flight.runwayEntryCleared, 'departure entered takeoff without runway-entr
 assert(!flight.takeoffCleared, 'departure self-cleared for takeoff in Manual mode');
 assert(simulation.clearTakeoff(flight.id), 'Manual UI equivalent takeoff clearance was rejected: ' + simulation.lastCommandReason());
 assert(flight.takeoffCleared, 'takeoff clearance was not stored on the flight');
+const firstTakeoffInstruction = flight.surfaceInstructions?.find((instruction) => instruction.kind === 'takeoff');
+assert(firstTakeoffInstruction?.id === 'takeoff:' + flight.id + ':1' && firstTakeoffInstruction.evidence.causalEventIds.length === 1, 'takeoff instruction lacks stable issue/event evidence');
 assert(simulation.cancelTakeoffClearance(flight.id), 'Manual UI equivalent takeoff-cancellation was rejected: ' + simulation.lastCommandReason());
 assert(!flight.takeoffCleared, 'cancelled takeoff clearance remained active');
+assert(firstTakeoffInstruction.status === 'cancelled' && firstTakeoffInstruction.evidence.causalEventIds.length === 2, 'takeoff cancellation was not appended to the original instruction lifecycle');
 assert(simulation.clearTakeoff(flight.id), 'Manual UI equivalent re-clearance was rejected: ' + simulation.lastCommandReason());
+const secondTakeoffInstruction = flight.surfaceInstructions?.find((instruction) => instruction.id === 'takeoff:' + flight.id + ':2');
+assert(secondTakeoffInstruction?.status === 'active' && secondTakeoffInstruction.evidence.causalEventIds.length === 1, 'takeoff re-clearance did not create a distinct stable instruction');
 flight.progress = 0.2;
 syncFlightMotion(config, flight);
 assert(flight.motion.stage === 'takeoff-roll', 'late cancellation fixture did not reach its takeoff roll');
@@ -151,9 +158,12 @@ const result = await build({
 });
 
 const bundled = result.outputFiles[0]?.text;
-if (!bundled) throw new Error("Manual departure lifecycle validation bundle was empty.");
+if (!bundled)
+  throw new Error("Manual departure lifecycle validation bundle was empty.");
 try {
-  await import(`data:text/javascript;base64,${Buffer.from(bundled).toString("base64")}`);
+  await import(
+    `data:text/javascript;base64,${Buffer.from(bundled).toString("base64")}`
+  );
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;

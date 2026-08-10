@@ -75,8 +75,8 @@ const result = airportControl.dispatch({
     actorId: "tower-agent-a",
   },
   expects: {
-    apiVersion: "2.40.0",
-    snapshotSchemaVersion: 45,
+    apiVersion: "2.41.0",
+    snapshotSchemaVersion: 46,
   },
   command: {
     action: "clearTakeoff",
@@ -568,6 +568,8 @@ Routing interpretation: `surfaceRoutePlanning` reports the congestion penalty an
 
 Events carry `protocolVersion`, `apiVersion`, `sessionId`, a monotonic numeric `eventId`/`sequence`, and a globally unambiguous `eventKey`. A command attempt has a unique `commandId`; every synchronous simulation or lifecycle event it creates carries `causedByCommandId`, including accepted and rejected operational events. A scripted action has a unique `controller-*` decision ID; its resulting domain events and the typed `controller-decision` audit event carry `causedByControllerDecisionId`, while the audit payload contains the complete decision record. Scheduler-only traffic keeps both cause fields absent, so consumers can distinguish human/API commands, deterministic controllers, and background lifecycle behavior. Events also include command payloads and acceptance, flight/runway/taxiway context, and safety-hold or go-around details. Handoff coordination emits `handoff-offer`, `handoff-accept`, `handoff-reject`, `handoff-overdue`, `handoff-cancel`, `handoff-complete`, and compatibility `contact` events. Each atomic group issue emits one `group-instruction` event per member with the common instruction, authority, and callsign set in its detail. Route editing emits `route-preview`, `route-clearance-issued`, `route-readback-accepted`, `route-readback-rejected`, `route-readback-timed-out`, `route-clearance-cancelled`, and final `route-amendment` events with a deep-cloned clearance/warning/supplement payload. Other controller-authored movement adds `taxi-route-clearance`, `hold-position`, `taxi-resume`, `diversion`, and terminal-scope `divert` events. Gate planning adds structured `gate-assignment`, `gate-reassignment`, and `gate-release` payloads. Arrival planning emits `runway-exit-plan` with the complete resulting exit state whenever the stand, braking action, traffic, or final-approach refresh changes the decision. Surface changes emit `surface-reroute`, `recovery-start`, and `recovery-complete` with the resulting route/restriction context. Turnarounds add `turnaround-start`, per-task `service-start` / `service-complete`, and `turnaround-ready` events with service, progress, and readiness timing. Ramp equipment adds dispatch, arrival, hold/release, return, and stand-clear events with vehicle ID/type/status. Pushback adds `pushback-clearance`, `pushback-start`, `engine-start`, and `tug-release` events. Winter operations add `deicing-planned`, `deicing-queue`, `deicing-pad-entry`, `deicing-start`, `deicing-complete`, `deicing-expired`, and `deicing-return`, including the resulting pad, lane, cycle, queue, treatment, and holdover state. The in-page log retains the latest 500 events.
 
+Accepted pushback, controller taxi-route, individual runway-crossing, runway-entry / line-up, and takeoff commands also create bounded `surfaceInstructions` records on the flight. Each record has a stable per-flight revision ID, issuing desk, concise phraseology, command or scripted-controller identity, and ordered simulation-domain event IDs. Completion and cancellation update that same record; a re-clearance creates a new revision. These records explain controller intent but never replace the route, crossing, runway-protection, or movement arbiters. Unissued route requirements are not projected as clearances.
+
 `recording()` returns a `local-full` replay schema 4 audit with protocol/API/snapshot versions, fixed-step interval, airport seed, initial state, accepted and rejected commands, weather and sound decisions, complete causal event log, immutable full-state frames, event markers, sharing disclosure, per-component fingerprints, and one manifest receipt. The visible replay scrubber is read-only and drives the 3D world, spatial environment mix, and nearby recorded sound/caption decisions from those frames. `replayTools.verify()` detects and localizes modified frames; `compare()` returns a bounded path-level state diff; `load()` verifies before opening a local file; and schema 3 migrates in memory with an explicit unsealed-legacy warning.
 
 Raw Export files may include local controller identity, correlation IDs, event payloads, and free text. `replayTools.shareable()` instead creates a separately fingerprinted allowlisted package with those fields removed or replaced, while `seedLink()` produces a query/fragment-clean deterministic launch URL containing no replay or identity data. The browser inspector performs long fingerprint work cooperatively between animation updates. See [replay-verification.md](replay-verification.md) for exact semantics, limitations, migration, redaction, and validation.
@@ -596,7 +598,7 @@ channel.postMessage({
     clientId: "local-observer",
     source: "agent",
     authority: { station: "supervisor" },
-    expects: { apiVersion: "2.40.0", snapshotSchemaVersion: 45 },
+    expects: { apiVersion: "2.41.0", snapshotSchemaVersion: 46 },
     command: { action: "focusFlight", flightId: 12 },
   },
 });

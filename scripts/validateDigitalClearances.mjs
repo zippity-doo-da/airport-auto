@@ -45,10 +45,25 @@ flight.flightPlan.direction = 'departure';
 flight.surfaceRoute = ['RAMP-A', 'TAXI-B', 'HOLD-C'];
 flight.requiredCrossings = [1, 2];
 flight.crossingClearances = [1];
+flight.surfaceInstructions = [{
+  schemaVersion: 1, id: 'pushback:' + flight.id + ':1', kind: 'pushback', revision: 1, status: 'completed', issuedAtSeconds: 12, completedAtSeconds: 18,
+  evidence: { schemaVersion: 1, issuedBy: 'ramp', phraseology: flight.callsign + ', pushback approved, tail left.', commandId: 'cmd:pushback', causalEventIds: ['sim:pushback:1', 'sim:pushback:2'] },
+}, {
+  schemaVersion: 1, id: 'taxi:' + flight.id + ':1', kind: 'taxi', revision: 1, status: 'active', issuedAtSeconds: 20,
+  routeNodeIds: ['RAMP-A', 'TAXI-B', 'HOLD-C'], taxiwayIds: ['B'],
+  evidence: { schemaVersion: 1, issuedBy: 'ground', phraseology: flight.callsign + ', taxi via Bravo.', commandId: 'cmd:taxi', causalEventIds: ['sim:taxi:1'] },
+}, {
+  schemaVersion: 1, id: 'runway-crossing:' + flight.id + ':1', kind: 'runway-crossing', revision: 1, status: 'active', issuedAtSeconds: 24, runwayId: 1, crossingId: 'crossing-a',
+  evidence: { schemaVersion: 1, issuedBy: 'ground', phraseology: flight.callsign + ', cross runway 09.', commandId: 'cmd:cross', causalEventIds: ['sim:cross:1'] },
+}, {
+  schemaVersion: 1, id: 'runway-entry:' + flight.id + ':1', kind: 'runway-entry', revision: 1, status: 'active', issuedAtSeconds: 28, runwayId: flight.departureRunway,
+  evidence: { schemaVersion: 1, issuedBy: 'tower', phraseology: flight.callsign + ', line up and wait.', commandId: 'cmd:line-up', causalEventIds: ['sim:line-up:1'] },
+}];
 snapshot = digitalClearanceSnapshot(simulation.state);
-assert(snapshot.messages.some((item) => item.kind === 'departure' && item.capability.channel === 'voice' && item.capability.responseMode === 'voice-action'), 'departure state did not project as an explicit voice/action message');
-assert(snapshot.messages.some((item) => item.kind === 'taxi' && item.parameters.routeNodes === 3), 'taxi route did not project as a structured digital message');
-assert(snapshot.messages.some((item) => item.kind === 'crossing' && item.status === 'standby' && item.parameters.remaining === 1), 'pending runway crossing did not project as standby');
+assert(snapshot.messages.some((item) => item.id === 'runway-entry:' + flight.id + ':1' && item.commandId === 'cmd:line-up' && item.capability.channel === 'voice' && item.capability.responseMode === 'voice-action'), 'issued runway-entry instruction did not project as an explicit voice/action message');
+assert(snapshot.messages.some((item) => item.id === 'taxi:' + flight.id + ':1' && item.parameters.routeNodes === 3 && item.commandId === 'cmd:taxi'), 'issued taxi route did not project with stable command evidence');
+assert(snapshot.messages.some((item) => item.id === 'runway-crossing:' + flight.id + ':1' && item.parameters.crossingId === 'crossing-a' && item.commandId === 'cmd:cross'), 'issued runway crossing did not project with individual clearance evidence');
+assert(!snapshot.messages.some((item) => item.kind === 'crossing' && item.status === 'standby'), 'unissued crossings were fabricated as clearance messages');
 flight.phase = 'approach';
 flight.motion.onGround = false;
 flight.flightPlan.direction = 'arrival';

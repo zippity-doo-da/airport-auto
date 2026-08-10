@@ -77,7 +77,7 @@ assert(!flight.takeoffCleared && flight.rejectedTakeoff?.stoppedAtSeconds !== un
 const events = simulation.drainEvents();
 assert(events.some((event) => event.type === 'rejected-takeoff'), 'RTO command event was not emitted');
 assert(events.some((event) => event.type === 'rejected-takeoff-stopped'), 'RTO stop event was not emitted');
-const departureMessage = digitalClearanceSnapshot(simulation.state).messages.find((message) => message.flightId === flight.id && message.kind === 'departure');
+const departureMessage = digitalClearanceSnapshot(simulation.state).messages.find((message) => message.flightId === flight.id && message.kind === 'departure' && message.status === 'unable');
 assert(departureMessage?.status === 'unable' && departureMessage.parameters.rejectedTakeoff === 'yes', 'RTO outcome was not projected without becoming a queued instruction');
 assert(departureMessage.commandId === 'cmd-validator-reject-takeoff' && departureMessage.causalEventIds.length === 2 && departureMessage.causalEventIds.every((id) => id.includes(':instruction:')), 'RTO outcome omitted its issue/stop command and event evidence');
 

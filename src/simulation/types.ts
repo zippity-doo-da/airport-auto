@@ -936,6 +936,30 @@ export interface FlightInstructionEvidence {
   causalEventIds: string[];
 }
 
+export type FlightSurfaceInstructionKind =
+  "pushback" | "taxi" | "runway-crossing" | "runway-entry" | "takeoff";
+
+/**
+ * Replay-safe history for one issued surface or departure instruction. The
+ * movement booleans and route remain authoritative; this record explains the
+ * controller action and its lifecycle without reconstructing it from progress.
+ */
+export interface FlightSurfaceInstructionState {
+  schemaVersion: 1;
+  id: string;
+  kind: FlightSurfaceInstructionKind;
+  revision: number;
+  status: "active" | "completed" | "cancelled";
+  issuedAtSeconds: number;
+  completedAtSeconds?: number;
+  cancelledAtSeconds?: number;
+  runwayId?: number;
+  crossingId?: string;
+  routeNodeIds?: string[];
+  taxiwayIds?: string[];
+  evidence: FlightInstructionEvidence;
+}
+
 export interface FlightScalarClearance extends FlightInstructionEvidence {
   issuedAtSeconds: number;
   value: number;
@@ -1078,12 +1102,7 @@ export interface FlightNavigationState {
   handoffStatus: "owned" | "offered" | "accepted" | "rejected" | "overdue";
   handoff?: FlightHandoffState;
   readbackStatus:
-    | "not-required"
-    | "sent"
-    | "pending"
-    | "accepted"
-    | "rejected"
-    | "timed-out";
+    "not-required" | "sent" | "pending" | "accepted" | "rejected" | "timed-out";
   routeClearance?: FlightRouteClearanceState;
   vector?: FlightVectorClearance;
   hold?: FlightHoldingClearance;
@@ -1445,6 +1464,8 @@ export interface Flight {
   requiredCrossings?: number[];
   crossingClearances?: number[];
   crossingClearanceIds?: string[];
+  /** Stable issued-clearance history for replay, UI, analytics, and agents. */
+  surfaceInstructions?: FlightSurfaceInstructionState[];
   /** Individual route crossings still ahead and not yet cleared. */
   pendingCrossingCount?: number;
   crossingHoldRunway?: number;

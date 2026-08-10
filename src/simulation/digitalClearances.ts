@@ -1,4 +1,9 @@
-import type { AirportState, Flight, FlightRouteClearanceState } from "./types";
+import type {
+  AirportState,
+  Flight,
+  FlightRouteClearanceState,
+  FlightSurfaceInstructionState,
+} from "./types";
 import { aircraftProfile } from "./aircraftProfiles";
 
 export type DigitalClearanceChannel =
@@ -41,6 +46,7 @@ interface DigitalClearanceDraft {
     | "speed"
     | "altitude"
     | "departure"
+    | "pushback"
     | "ground-stop"
     | "taxi"
     | "crossing"
@@ -253,100 +259,41 @@ function flightDigitalClearanceMessages(
     });
   }
 
-  if (
-    (flight.phase === "taxi-out" || flight.phase === "takeoff") &&
-    flight.flightPlan.direction === "departure"
-  ) {
+  for (const instruction of flight.surfaceInstructions ?? [])
+    messages.push(surfaceInstructionMessage(flight, instruction));
+
+  if (flight.rejectedTakeoff) {
+    const rejected = flight.rejectedTakeoff;
     messages.push({
-      id: `departure:${flight.id}:${flight.departureRunway}:${flight.runwayEntryCleared ? 1 : 0}:${flight.rejectedTakeoff ? 1 : 0}`,
+      id: `rejected-takeoff:${flight.id}:${rejected.initiatedAtSeconds}`,
       flightId: flight.id,
       callsign: flight.callsign,
       kind: "departure",
-      status: flight.rejectedTakeoff ? "unable" : "wilco",
-      authority: flight.navigation.frequencyOwner,
+      status: "unable",
+      authority:
+        rejected.evidence?.issuedBy ?? flight.navigation.frequencyOwner,
       revision: 1,
-      createdAtSeconds: flight.flightPlan.createdAtSeconds,
-      issuedAtSeconds: flight.flightPlan.createdAtSeconds,
+      createdAtSeconds: rejected.initiatedAtSeconds,
+      issuedAtSeconds: rejected.initiatedAtSeconds,
+      respondedAtSeconds: rejected.stoppedAtSeconds,
       route: [flight.flightPlan.runwayIntent.designation],
       parameters: {
+        instructionKind: "rejected-takeoff",
+        rejectedTakeoff: "yes",
         runway: flight.flightPlan.runwayIntent.designation,
-        runwayEntryCleared: flight.runwayEntryCleared ? "yes" : "no",
-        takeoffCleared: flight.takeoffCleared ? "yes" : "no",
-        rejectedTakeoff: flight.rejectedTakeoff ? "yes" : "no",
-        ...(flight.rejectedTakeoff
-          ? {
-              rejectedTakeoffReason: flight.rejectedTakeoff.reason,
-              decisionSpeedKts: flight.rejectedTakeoff.decisionSpeedKts,
-            }
-          : {}),
+        reason: rejected.reason,
+        decisionSpeedKts: rejected.decisionSpeedKts,
+        stopping: rejected.stoppedAtSeconds === undefined ? "yes" : "no",
       },
-      detail: flight.rejectedTakeoff
-        ? `Takeoff rejected for ${flight.rejectedTakeoff.reason}; ${flight.rejectedTakeoff.stoppedAtSeconds === undefined ? "maximum safe braking in progress" : "stopped on the runway for recovery"}.`
-        : flight.takeoffCleared
-          ? `Cleared for departure on ${flight.flightPlan.runwayIntent.designation}.`
-          : flight.runwayEntryCleared
-            ? `Line up and await takeoff clearance on ${flight.flightPlan.runwayIntent.designation}.`
-            : `Taxi for departure to ${flight.flightPlan.runwayIntent.designation}.`,
-      warningCount: flight.rejectedTakeoff ? 1 : 0,
-      commandId: flight.rejectedTakeoff?.evidence?.commandId,
-      controllerDecisionId:
-        flight.rejectedTakeoff?.evidence?.controllerDecisionId,
-      causalEventIds: flight.rejectedTakeoff?.evidence?.causalEventIds
-        ? [...flight.rejectedTakeoff.evidence.causalEventIds]
+      detail:
+        rejected.evidence?.phraseology ??
+        `${flight.callsign}, reject takeoff. Stop immediately.`,
+      warningCount: 1,
+      commandId: rejected.evidence?.commandId,
+      controllerDecisionId: rejected.evidence?.controllerDecisionId,
+      causalEventIds: rejected.evidence?.causalEventIds
+        ? [...rejected.evidence.causalEventIds]
         : undefined,
-    });
-  }
-
-  if (
-    (flight.phase === "taxi-in" || flight.phase === "taxi-out") &&
-    flight.surfaceRoute?.length
-  ) {
-    messages.push({
-      id: `taxi:${flight.id}:${flight.surfaceRoute.length}:${flight.progress > 0.5 ? 1 : 0}`,
-      flightId: flight.id,
-      callsign: flight.callsign,
-      kind: "taxi",
-      status: "wilco",
-      authority: flight.navigation.frequencyOwner,
-      revision: 1,
-      createdAtSeconds: flight.flightPlan.createdAtSeconds,
-      issuedAtSeconds: flight.flightPlan.createdAtSeconds,
-      route: flight.surfaceRoute.slice(0, 8),
-      parameters: {
-        routeNodes: flight.surfaceRoute.length,
-        taxiway: flight.taxiway ?? "assigned surface route",
-      },
-      detail: `Taxi via the assigned surface route${flight.taxiway ? ` via ${flight.taxiway}` : ""}.`,
-      warningCount: 0,
-    });
-  }
-
-  const requiredCrossings = flight.requiredCrossings ?? [];
-  if (requiredCrossings.length) {
-    const cleared = new Set(flight.crossingClearances ?? []);
-    const remaining = requiredCrossings.filter(
-      (runway) => !cleared.has(runway),
-    );
-    messages.push({
-      id: `crossing:${flight.id}:${requiredCrossings.join(",")}:${[...cleared].join(",")}`,
-      flightId: flight.id,
-      callsign: flight.callsign,
-      kind: "crossing",
-      status: remaining.length ? "standby" : "wilco",
-      authority: flight.navigation.frequencyOwner,
-      revision: 1,
-      createdAtSeconds: flight.flightPlan.createdAtSeconds,
-      issuedAtSeconds: flight.flightPlan.createdAtSeconds,
-      route: requiredCrossings.map((runway) => `RWY ${runway + 1}`),
-      parameters: {
-        required: requiredCrossings.length,
-        cleared: cleared.size,
-        remaining: remaining.length,
-      },
-      detail: remaining.length
-        ? `${remaining.length} runway crossing${remaining.length === 1 ? "" : "s"} still require Ground clearance.`
-        : "All planned runway crossings are cleared.",
-      warningCount: remaining.length,
     });
   }
 
@@ -515,6 +462,51 @@ function instructionMessage(
   };
 }
 
+function surfaceInstructionMessage(
+  flight: Flight,
+  instruction: FlightSurfaceInstructionState,
+): DigitalClearanceDraft {
+  const kind =
+    instruction.kind === "runway-crossing"
+      ? "crossing"
+      : instruction.kind === "runway-entry" || instruction.kind === "takeoff"
+        ? "departure"
+        : instruction.kind;
+  const runwayDesignation =
+    instruction.runwayId === undefined
+      ? undefined
+      : flight.flightPlan.runwayIntent.runwayId === instruction.runwayId
+        ? flight.flightPlan.runwayIntent.designation
+        : `RWY ${instruction.runwayId + 1}`;
+  return {
+    id: instruction.id,
+    flightId: flight.id,
+    callsign: flight.callsign,
+    kind,
+    status: instruction.status === "cancelled" ? "cancelled" : "wilco",
+    authority: instruction.evidence.issuedBy,
+    revision: instruction.revision,
+    createdAtSeconds: instruction.issuedAtSeconds,
+    issuedAtSeconds: instruction.issuedAtSeconds,
+    respondedAtSeconds:
+      instruction.completedAtSeconds ?? instruction.cancelledAtSeconds,
+    route: instruction.routeNodeIds?.slice(0, 8) ?? [],
+    parameters: {
+      instructionKind: instruction.kind,
+      lifecycleStatus: instruction.status,
+      ...(runwayDesignation ? { runway: runwayDesignation } : {}),
+      ...(instruction.crossingId ? { crossingId: instruction.crossingId } : {}),
+      routeNodes: instruction.routeNodeIds?.length ?? 0,
+      taxiways: instruction.taxiwayIds?.join(" / ") ?? "",
+    },
+    detail: instruction.evidence.phraseology,
+    warningCount: instruction.status === "cancelled" ? 1 : 0,
+    commandId: instruction.evidence.commandId,
+    controllerDecisionId: instruction.evidence.controllerDecisionId,
+    causalEventIds: [...instruction.evidence.causalEventIds],
+  };
+}
+
 function routeClearanceMessage(
   flight: Flight,
   clearance: FlightRouteClearanceState,
@@ -661,7 +653,7 @@ function messageCapability(
           (state.mode === "manual" || state.mode === "assisted") &&
           deskAccess === "authorized"
         ? "voice-action"
-      : "none";
+        : "none";
   const limitations: string[] = [];
   const flight = state.flights.find((item) => item.id === draft.flightId);
   const profile = flight ? aircraftProfile(flight.aircraft) : null;
@@ -676,7 +668,7 @@ function messageCapability(
         ? "Read-only operational record; no clearance was transmitted from this row."
         : channel === "coordination" && !activeCoordinationMessage
           ? "Coordination is closed; no further response is available from this row."
-        : "Immediate instruction or coordination record; use the flight action controls.",
+          : "Immediate instruction or coordination record; use the flight action controls.",
     );
   if (deskAccess === "handoff-required")
     limitations.push(
@@ -686,10 +678,7 @@ function messageCapability(
     limitations.push(
       `${state.mode === "watch" ? "Watch" : "Auto"} mode provides monitor-only Data Comm access.`,
     );
-  if (
-    activeCoordinationMessage &&
-    !["manual", "assisted"].includes(state.mode)
-  )
+  if (activeCoordinationMessage && !["manual", "assisted"].includes(state.mode))
     limitations.push(
       `${state.mode === "watch" ? "Watch" : "Auto"} mode provides monitor-only coordination access.`,
     );

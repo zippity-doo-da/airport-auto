@@ -1,5 +1,11 @@
-import { generateAirportConfig, generateHubConfig, HUB_AIRPORTS, type AirportConfig, type RunwayOperationalRole } from './airportConfig';
-import { AirportSimulation } from './airportSimulation';
+import {
+  generateAirportConfig,
+  generateHubConfig,
+  HUB_AIRPORTS,
+  type AirportConfig,
+  type RunwayOperationalRole,
+} from "./airportConfig";
+import { AirportSimulation } from "./airportSimulation";
 import type {
   AirportEvent,
   ControlMode,
@@ -12,11 +18,14 @@ import type {
   SurfaceDisruptionState,
   TrafficScenario,
   WeatherState,
-} from './types';
-import { sampleFlightTrajectory, type FlightTrajectoryStage } from './flightTrajectory';
-import { cloneFlightPlan } from './flightPlanning';
-import type { TrafficDensity } from './trafficDensity';
-import type { TrafficFlowSnapshot } from './trafficFlowManagement';
+} from "./types";
+import {
+  sampleFlightTrajectory,
+  type FlightTrajectoryStage,
+} from "./flightTrajectory";
+import { cloneFlightPlan } from "./flightPlanning";
+import type { TrafficDensity } from "./trafficDensity";
+import type { TrafficFlowSnapshot } from "./trafficFlowManagement";
 
 const DEFAULT_STEP_SECONDS = 0.05;
 const MAX_STEP_SECONDS = 0.1;
@@ -33,7 +42,7 @@ export interface FixedStepHarnessOptions {
 export interface FixedStepHarnessEvent {
   tick: number;
   simulationTimeSeconds: number;
-  type: AirportEvent['type'];
+  type: AirportEvent["type"];
   flightId: number;
   callsign: string;
   phase: FlightPhase;
@@ -41,10 +50,10 @@ export interface FixedStepHarnessEvent {
   runway: number;
   taxiway?: string;
   detail?: string;
-  turnaroundService?: AirportEvent['turnaroundService'];
-  serviceVehicleId?: AirportEvent['serviceVehicleId'];
-  serviceVehicleType?: AirportEvent['serviceVehicleType'];
-  serviceVehicleStatus?: AirportEvent['serviceVehicleStatus'];
+  turnaroundService?: AirportEvent["turnaroundService"];
+  serviceVehicleId?: AirportEvent["serviceVehicleId"];
+  serviceVehicleType?: AirportEvent["serviceVehicleType"];
+  serviceVehicleStatus?: AirportEvent["serviceVehicleStatus"];
   domainEventId?: string;
   causedByCommandId?: string;
   causedByControllerDecisionId?: string;
@@ -64,10 +73,10 @@ export interface FixedStepFlightSnapshot {
   taxiway?: string;
   standId?: string;
   gateSlot: number;
-  operationPlan: Flight['operationPlan'];
-  flightPlan: Flight['flightPlan'];
-  flightPlanHistory: Flight['flightPlanHistory'];
-  fuelPlan: Flight['fuelPlan'];
+  operationPlan: Flight["operationPlan"];
+  flightPlan: Flight["flightPlan"];
+  flightPlanHistory: Flight["flightPlanHistory"];
+  fuelPlan: Flight["fuelPlan"];
   gateAssignment?: {
     standId: string;
     gateRef?: string;
@@ -77,13 +86,13 @@ export interface FixedStepFlightSnapshot {
     scheduledGateInSeconds: number;
     scheduledDepartureSeconds: number;
     nextDestination: string;
-    airlineFit: 'preferred' | 'compatible' | 'fallback';
-    serviceFit: 'preferred' | 'compatible' | 'fallback';
+    airlineFit: "preferred" | "compatible" | "fallback";
+    serviceFit: "preferred" | "compatible" | "fallback";
     score: number;
     revision: number;
   };
   turnaround: {
-    status: Flight['turnaround']['status'];
+    status: Flight["turnaround"]["status"];
     progress: number;
     elapsedSeconds: number;
     plannedDurationSeconds: number;
@@ -95,27 +104,27 @@ export interface FixedStepFlightSnapshot {
     initialFuelPercent: number;
     targetFuelPercent: number;
     tasks: Array<{
-      type: Flight['turnaround']['tasks'][number]['type'];
+      type: Flight["turnaround"]["tasks"][number]["type"];
       required: boolean;
-      status: Flight['turnaround']['tasks'][number]['status'];
+      status: Flight["turnaround"]["tasks"][number]["status"];
       durationSeconds: number;
       scheduledStartOffsetSeconds: number;
       elapsedSeconds: number;
-      dependencies: Flight['turnaround']['tasks'][number]['dependencies'];
+      dependencies: Flight["turnaround"]["tasks"][number]["dependencies"];
     }>;
   };
-  deicing: Flight['deicing'];
+  deicing: Flight["deicing"];
   pushbackCleared: boolean;
-  pushbackDirection: Flight['pushbackDirection'];
+  pushbackDirection: Flight["pushbackDirection"];
   pushbackProgress: number;
   pushbackReleaseProgress: number;
   tugAttached: boolean;
-  engineState: Flight['engineState'];
+  engineState: Flight["engineState"];
   surfaceNode?: string;
   surfaceEdge?: string;
   surfaceRoute: string[];
   surfaceRouteEdges: string[];
-  surfaceReroute?: Flight['surfaceReroute'];
+  surfaceReroute?: Flight["surfaceReroute"];
   controlPace: number;
   held: boolean;
   automaticHold: boolean;
@@ -124,19 +133,20 @@ export interface FixedStepFlightSnapshot {
   safetyHoldReason?: string;
   runwayEntryCleared: boolean;
   takeoffCleared: boolean;
-  takeoffPerformance?: Flight['takeoffPerformance'];
-  rejectedTakeoff?: Flight['rejectedTakeoff'];
-  groundStop?: Flight['groundStop'];
-  handoff?: Flight['navigation']['handoff'];
-  vectorEvidence?: NonNullable<Flight['navigation']['vector']>['evidence'];
-  holdEvidence?: NonNullable<Flight['navigation']['hold']>['evidence'];
-  altitudeClearance?: Flight['navigation']['altitudeClearance'];
-  speedClearance?: Flight['navigation']['speedClearance'];
-  goAroundEvidence?: NonNullable<Flight['goAround']>['evidence'];
-  weatherEscape?: Flight['weatherEscape'];
-  goAroundWeatherEscape?: NonNullable<Flight['goAround']>['weatherEscape'];
+  takeoffPerformance?: Flight["takeoffPerformance"];
+  rejectedTakeoff?: Flight["rejectedTakeoff"];
+  groundStop?: Flight["groundStop"];
+  handoff?: Flight["navigation"]["handoff"];
+  vectorEvidence?: NonNullable<Flight["navigation"]["vector"]>["evidence"];
+  holdEvidence?: NonNullable<Flight["navigation"]["hold"]>["evidence"];
+  altitudeClearance?: Flight["navigation"]["altitudeClearance"];
+  speedClearance?: Flight["navigation"]["speedClearance"];
+  goAroundEvidence?: NonNullable<Flight["goAround"]>["evidence"];
+  weatherEscape?: Flight["weatherEscape"];
+  goAroundWeatherEscape?: NonNullable<Flight["goAround"]>["weatherEscape"];
   crossingClearances: number[];
   crossingClearanceIds: string[];
+  surfaceInstructions?: Flight["surfaceInstructions"];
   airspeedKts: number;
   groundSpeedKts: number;
   altitudeFt: number;
@@ -159,7 +169,7 @@ export interface FixedStepFlightSnapshot {
 }
 
 export interface FixedStepSimulationSnapshot {
-  schemaVersion: 17;
+  schemaVersion: 18;
   seed: number;
   airportCode: string;
   stepSeconds: number;
@@ -178,7 +188,7 @@ export interface FixedStepSimulationSnapshot {
     trafficDensity: TrafficDensity;
     trafficFlow: TrafficFlowSnapshot;
     runwayConfigurationId: string;
-    runwayConfigurationMode: 'automatic' | 'manual';
+    runwayConfigurationMode: "automatic" | "manual";
     runwayConfigurationTransition: RunwayConfigurationTransition | null;
     activeRunwayEnds: Record<number, -1 | 1>;
     activeRunwayRoles: Record<number, RunwayOperationalRole>;
@@ -189,7 +199,7 @@ export interface FixedStepSimulationSnapshot {
       enabled: boolean;
       windEnabled: boolean;
       condition: string;
-      precipitation: WeatherState['precipitation'];
+      precipitation: WeatherState["precipitation"];
       intensity: number;
       cloudCover: number;
       windDirection: number;
@@ -198,20 +208,20 @@ export interface FixedStepSimulationSnapshot {
       visibility: number;
       ceilingFt: number;
       temperatureC: number;
-      surfaceCondition: 'dry' | 'wet' | 'contaminated';
-      runwayConditionReports: WeatherState['runwayConditionReports'];
+      surfaceCondition: "dry" | "wet" | "contaminated";
+      runwayConditionReports: WeatherState["runwayConditionReports"];
       hazardsEnabled: boolean;
-      activeHazard: WeatherState['activeHazard'];
-      hazardHistory: WeatherState['hazardHistory'];
+      activeHazard: WeatherState["activeHazard"];
+      hazardHistory: WeatherState["hazardHistory"];
     };
   };
   flights: FixedStepFlightSnapshot[];
   serviceVehicles: Array<{
     id: string;
     flightId: number;
-    service: AirportEvent['turnaroundService'];
-    type: AirportEvent['serviceVehicleType'];
-    status: AirportEvent['serviceVehicleStatus'];
+    service: AirportEvent["turnaroundService"];
+    type: AirportEvent["serviceVehicleType"];
+    status: AirportEvent["serviceVehicleStatus"];
     standId: string;
     progress: number;
     x: number;
@@ -261,20 +271,33 @@ export class FixedStepSimulationHarness {
   private remainder = 0;
   private readonly eventLog: FixedStepHarnessEvent[] = [];
 
-  constructor(readonly config: AirportConfig, options: FixedStepHarnessOptions = {}) {
+  constructor(
+    readonly config: AirportConfig,
+    options: FixedStepHarnessOptions = {},
+  ) {
     const stepSeconds = options.stepSeconds ?? DEFAULT_STEP_SECONDS;
-    if (!Number.isFinite(stepSeconds) || stepSeconds <= 0 || stepSeconds > MAX_STEP_SECONDS) {
-      throw new RangeError(`stepSeconds must be greater than 0 and no more than ${MAX_STEP_SECONDS}`);
+    if (
+      !Number.isFinite(stepSeconds) ||
+      stepSeconds <= 0 ||
+      stepSeconds > MAX_STEP_SECONDS
+    ) {
+      throw new RangeError(
+        `stepSeconds must be greater than 0 and no more than ${MAX_STEP_SECONDS}`,
+      );
     }
-    if (options.pace !== undefined && (!Number.isFinite(options.pace) || options.pace <= 0)) {
-      throw new RangeError('pace must be a positive finite number');
+    if (
+      options.pace !== undefined &&
+      (!Number.isFinite(options.pace) || options.pace <= 0)
+    ) {
+      throw new RangeError("pace must be a positive finite number");
     }
 
     this.stepSeconds = stepSeconds;
     this.simulation = new AirportSimulation(config, options.density);
     if (options.pace !== undefined) this.simulation.setPace(options.pace);
     if (options.mode !== undefined) this.simulation.setMode(options.mode);
-    if (options.scenario !== undefined) this.simulation.setScenario(options.scenario);
+    if (options.scenario !== undefined)
+      this.simulation.setScenario(options.scenario);
   }
 
   get tickCount(): number {
@@ -291,10 +314,12 @@ export class FixedStepSimulationHarness {
 
   advanceTicks(count: number): number {
     if (!Number.isSafeInteger(count) || count < 0) {
-      throw new RangeError('tick count must be a non-negative safe integer');
+      throw new RangeError("tick count must be a non-negative safe integer");
     }
     if (count > MAX_TICKS_PER_ADVANCE) {
-      throw new RangeError(`cannot advance more than ${MAX_TICKS_PER_ADVANCE} ticks at once`);
+      throw new RangeError(
+        `cannot advance more than ${MAX_TICKS_PER_ADVANCE} ticks at once`,
+      );
     }
     this.wallTime += count * this.stepSeconds;
     this.runTicks(count);
@@ -303,7 +328,9 @@ export class FixedStepSimulationHarness {
 
   advanceBy(seconds: number): number {
     if (!Number.isFinite(seconds) || seconds < 0) {
-      throw new RangeError('advance duration must be a non-negative finite number');
+      throw new RangeError(
+        "advance duration must be a non-negative finite number",
+      );
     }
     this.wallTime += seconds;
     this.remainder += seconds;
@@ -312,7 +339,9 @@ export class FixedStepSimulationHarness {
     if (ticks > MAX_TICKS_PER_ADVANCE) {
       this.wallTime -= seconds;
       this.remainder -= seconds;
-      throw new RangeError(`advance duration would exceed ${MAX_TICKS_PER_ADVANCE} ticks`);
+      throw new RangeError(
+        `advance duration would exceed ${MAX_TICKS_PER_ADVANCE} ticks`,
+      );
     }
     this.remainder -= ticks * this.stepSeconds;
     if (Math.abs(this.remainder) < epsilon) this.remainder = 0;
@@ -322,19 +351,26 @@ export class FixedStepSimulationHarness {
 
   advanceTo(wallTimeSeconds: number): number {
     if (!Number.isFinite(wallTimeSeconds) || wallTimeSeconds < this.wallTime) {
-      throw new RangeError('target wall time must be finite and cannot move backwards');
+      throw new RangeError(
+        "target wall time must be finite and cannot move backwards",
+      );
     }
     return this.advanceBy(wallTimeSeconds - this.wallTime);
   }
 
-  runUntil(predicate: (snapshot: FixedStepSimulationSnapshot) => boolean, timeoutSeconds: number): boolean {
+  runUntil(
+    predicate: (snapshot: FixedStepSimulationSnapshot) => boolean,
+    timeoutSeconds: number,
+  ): boolean {
     if (!Number.isFinite(timeoutSeconds) || timeoutSeconds < 0) {
-      throw new RangeError('timeout must be a non-negative finite number');
+      throw new RangeError("timeout must be a non-negative finite number");
     }
     if (predicate(this.snapshot())) return true;
     const maximumTicks = Math.ceil(timeoutSeconds / this.stepSeconds);
     if (maximumTicks > MAX_TICKS_PER_ADVANCE) {
-      throw new RangeError(`timeout would exceed ${MAX_TICKS_PER_ADVANCE} ticks`);
+      throw new RangeError(
+        `timeout would exceed ${MAX_TICKS_PER_ADVANCE} ticks`,
+      );
     }
     for (let index = 0; index < maximumTicks; index += 1) {
       this.advanceTicks(1);
@@ -350,7 +386,7 @@ export class FixedStepSimulationHarness {
   snapshot(): FixedStepSimulationSnapshot {
     const diagnostics = this.simulation.diagnostics();
     return {
-      schemaVersion: 17,
+      schemaVersion: 18,
       seed: this.config.seed,
       airportCode: this.config.code,
       stepSeconds: round(this.stepSeconds),
@@ -365,24 +401,38 @@ export class FixedStepSimulationHarness {
         paused: this.simulation.state.paused,
         mode: this.simulation.state.mode,
         scenario: this.simulation.state.scenario,
-        operationTimeOffsetMinutes: this.simulation.state.operationTimeOffsetMinutes,
+        operationTimeOffsetMinutes:
+          this.simulation.state.operationTimeOffsetMinutes,
         trafficDensity: this.simulation.state.trafficFlow.density,
         trafficFlow: this.simulation.trafficFlowSnapshot(),
         runwayConfigurationId: this.simulation.state.runwayConfigurationId,
         runwayConfigurationMode: this.simulation.state.runwayConfigurationMode,
-        runwayConfigurationTransition: this.simulation.state.runwayConfigurationTransition ? {
-          ...this.simulation.state.runwayConfigurationTransition,
-          changedRunwayIds: [...this.simulation.state.runwayConfigurationTransition.changedRunwayIds],
-          blockingFlightIds: [...this.simulation.state.runwayConfigurationTransition.blockingFlightIds],
-        } : null,
+        runwayConfigurationTransition: this.simulation.state
+          .runwayConfigurationTransition
+          ? {
+              ...this.simulation.state.runwayConfigurationTransition,
+              changedRunwayIds: [
+                ...this.simulation.state.runwayConfigurationTransition
+                  .changedRunwayIds,
+              ],
+              blockingFlightIds: [
+                ...this.simulation.state.runwayConfigurationTransition
+                  .blockingFlightIds,
+              ],
+            }
+          : null,
         activeRunwayEnds: { ...this.simulation.state.activeRunwayEnds },
         activeRunwayRoles: { ...this.simulation.state.activeRunwayRoles },
-        surfaceDisruptions: this.simulation.state.surfaceDisruptions.map((disruption) => ({
-          ...disruption,
-          edgeIds: [...disruption.edgeIds],
-          reroutedFlightIds: [...disruption.reroutedFlightIds],
-        })),
-        scriptedControllers: structuredClone(this.simulation.state.scriptedControllers),
+        surfaceDisruptions: this.simulation.state.surfaceDisruptions.map(
+          (disruption) => ({
+            ...disruption,
+            edgeIds: [...disruption.edgeIds],
+            reroutedFlightIds: [...disruption.reroutedFlightIds],
+          }),
+        ),
+        scriptedControllers: structuredClone(
+          this.simulation.state.scriptedControllers,
+        ),
         environment: { ...this.simulation.state.environment },
         weather: {
           enabled: this.simulation.state.weather.weatherEnabled,
@@ -398,20 +448,30 @@ export class FixedStepSimulationHarness {
           ceilingFt: round(this.simulation.state.weather.ceilingFt),
           temperatureC: round(this.simulation.state.weather.temperatureC),
           surfaceCondition: this.simulation.state.weather.surfaceCondition,
-          runwayConditionReports: this.simulation.state.weather.runwayConditionReports.map((report) => ({
-            ...report,
-            codes: [...report.codes],
-            reportedAtSeconds: round(report.reportedAtSeconds),
-          })),
+          runwayConditionReports:
+            this.simulation.state.weather.runwayConditionReports.map(
+              (report) => ({
+                ...report,
+                codes: [...report.codes],
+                reportedAtSeconds: round(report.reportedAtSeconds),
+              }),
+            ),
           hazardsEnabled: this.simulation.state.weather.hazardsEnabled,
-          activeHazard: this.simulation.state.weather.activeHazard ? {
-            ...this.simulation.state.weather.activeHazard,
-            affectedFlightIds: [...this.simulation.state.weather.activeHazard.affectedFlightIds],
-          } : null,
-          hazardHistory: this.simulation.state.weather.hazardHistory.map((hazard) => ({
-            ...hazard,
-            affectedFlightIds: [...hazard.affectedFlightIds],
-          })),
+          activeHazard: this.simulation.state.weather.activeHazard
+            ? {
+                ...this.simulation.state.weather.activeHazard,
+                affectedFlightIds: [
+                  ...this.simulation.state.weather.activeHazard
+                    .affectedFlightIds,
+                ],
+              }
+            : null,
+          hazardHistory: this.simulation.state.weather.hazardHistory.map(
+            (hazard) => ({
+              ...hazard,
+              affectedFlightIds: [...hazard.affectedFlightIds],
+            }),
+          ),
         },
       },
       flights: [...this.simulation.state.flights]
@@ -440,14 +500,27 @@ export class FixedStepSimulationHarness {
         approachCapacity: diagnostics.approachCapacity,
         nextArrivalIn: round(diagnostics.nextArrivalIn),
         activeFlights: diagnostics.activeFlights,
-        runwayReservations: [...diagnostics.runwayReservations]
-          .sort((first, second) => first.runway - second.runway || first.flight - second.flight),
+        runwayReservations: [...diagnostics.runwayReservations].sort(
+          (first, second) =>
+            first.runway - second.runway || first.flight - second.flight,
+        ),
         collisionPairs: diagnostics.collisions
-          .map((collision) => [collision.first, collision.second] as [number, number])
-          .sort((first, second) => first[0] - second[0] || first[1] - second[1]),
+          .map(
+            (collision) =>
+              [collision.first, collision.second] as [number, number],
+          )
+          .sort(
+            (first, second) => first[0] - second[0] || first[1] - second[1],
+          ),
         obstacleCollisions: diagnostics.obstacleCollisions
-          .map((collision) => [collision.flight, collision.obstacle] as [number, string])
-          .sort((first, second) => first[0] - second[0] || first[1].localeCompare(second[1])),
+          .map(
+            (collision) =>
+              [collision.flight, collision.obstacle] as [number, string],
+          )
+          .sort(
+            (first, second) =>
+              first[0] - second[0] || first[1].localeCompare(second[1]),
+          ),
         collisionEnvelopeCounts: {
           aircraft: diagnostics.collisionEnvelopes.aircraft.length,
           obstacles: diagnostics.collisionEnvelopes.obstacles.length,
@@ -499,22 +572,39 @@ export class FixedStepSimulationHarness {
   }
 }
 
-export function createSeededSimulationHarness(seed: number, options: FixedStepHarnessOptions = {}): FixedStepSimulationHarness {
-  if (!Number.isSafeInteger(seed)) throw new RangeError('seed must be a safe integer');
+export function createSeededSimulationHarness(
+  seed: number,
+  options: FixedStepHarnessOptions = {},
+): FixedStepSimulationHarness {
+  if (!Number.isSafeInteger(seed))
+    throw new RangeError("seed must be a safe integer");
   return new FixedStepSimulationHarness(generateAirportConfig(seed), options);
 }
 
-export function createHubSimulationHarness(airport: number | string, options: FixedStepHarnessOptions = {}): FixedStepSimulationHarness {
-  const index = typeof airport === 'number'
-    ? airport
-    : HUB_AIRPORTS.findIndex((profile) => profile.code === airport.toUpperCase());
-  if (!Number.isSafeInteger(index) || index < 0 || index >= HUB_AIRPORTS.length) {
+export function createHubSimulationHarness(
+  airport: number | string,
+  options: FixedStepHarnessOptions = {},
+): FixedStepSimulationHarness {
+  const index =
+    typeof airport === "number"
+      ? airport
+      : HUB_AIRPORTS.findIndex(
+          (profile) => profile.code === airport.toUpperCase(),
+        );
+  if (
+    !Number.isSafeInteger(index) ||
+    index < 0 ||
+    index >= HUB_AIRPORTS.length
+  ) {
     throw new RangeError(`unknown hub airport: ${airport}`);
   }
   return new FixedStepSimulationHarness(generateHubConfig(index), options);
 }
 
-function snapshotFlight(config: AirportConfig, flight: Flight): FixedStepFlightSnapshot {
+function snapshotFlight(
+  config: AirportConfig,
+  flight: Flight,
+): FixedStepFlightSnapshot {
   const trajectory = sampleFlightTrajectory(config, flight);
   return {
     id: flight.id,
@@ -539,20 +629,26 @@ function snapshotFlight(config: AirportConfig, flight: Flight): FixedStepFlightS
       departure: { ...flight.fuelPlan.departure },
       assumptions: [...flight.fuelPlan.assumptions],
     },
-    gateAssignment: flight.gateAssignment ? {
-      standId: flight.gateAssignment.standId,
-      gateRef: flight.gateAssignment.gateRef,
-      zoneName: flight.gateAssignment.zoneName,
-      terminalId: flight.gateAssignment.terminalId,
-      concourse: flight.gateAssignment.concourse,
-      scheduledGateInSeconds: round(flight.gateAssignment.scheduledGateInSeconds),
-      scheduledDepartureSeconds: round(flight.gateAssignment.scheduledDepartureSeconds),
-      nextDestination: flight.gateAssignment.nextDestination,
-      airlineFit: flight.gateAssignment.airlineFit,
-      serviceFit: flight.gateAssignment.serviceFit,
-      score: round(flight.gateAssignment.score),
-      revision: flight.gateAssignment.revision,
-    } : undefined,
+    gateAssignment: flight.gateAssignment
+      ? {
+          standId: flight.gateAssignment.standId,
+          gateRef: flight.gateAssignment.gateRef,
+          zoneName: flight.gateAssignment.zoneName,
+          terminalId: flight.gateAssignment.terminalId,
+          concourse: flight.gateAssignment.concourse,
+          scheduledGateInSeconds: round(
+            flight.gateAssignment.scheduledGateInSeconds,
+          ),
+          scheduledDepartureSeconds: round(
+            flight.gateAssignment.scheduledDepartureSeconds,
+          ),
+          nextDestination: flight.gateAssignment.nextDestination,
+          airlineFit: flight.gateAssignment.airlineFit,
+          serviceFit: flight.gateAssignment.serviceFit,
+          score: round(flight.gateAssignment.score),
+          revision: flight.gateAssignment.revision,
+        }
+      : undefined,
     turnaround: {
       status: flight.turnaround.status,
       progress: round(flight.turnaround.progress),
@@ -560,9 +656,18 @@ function snapshotFlight(config: AirportConfig, flight: Flight): FixedStepFlightS
       plannedDurationSeconds: round(flight.turnaround.plannedDurationSeconds),
       scheduledStartSeconds: round(flight.turnaround.scheduledStartSeconds),
       scheduledReadySeconds: round(flight.turnaround.scheduledReadySeconds),
-      actualStartSeconds: flight.turnaround.actualStartSeconds === undefined ? undefined : round(flight.turnaround.actualStartSeconds),
-      actualReadySeconds: flight.turnaround.actualReadySeconds === undefined ? undefined : round(flight.turnaround.actualReadySeconds),
-      releasedAtSeconds: flight.turnaround.releasedAtSeconds === undefined ? undefined : round(flight.turnaround.releasedAtSeconds),
+      actualStartSeconds:
+        flight.turnaround.actualStartSeconds === undefined
+          ? undefined
+          : round(flight.turnaround.actualStartSeconds),
+      actualReadySeconds:
+        flight.turnaround.actualReadySeconds === undefined
+          ? undefined
+          : round(flight.turnaround.actualReadySeconds),
+      releasedAtSeconds:
+        flight.turnaround.releasedAtSeconds === undefined
+          ? undefined
+          : round(flight.turnaround.releasedAtSeconds),
       initialFuelPercent: round(flight.turnaround.initialFuelPercent),
       targetFuelPercent: round(flight.turnaround.targetFuelPercent),
       tasks: flight.turnaround.tasks.map((task) => ({
@@ -586,12 +691,14 @@ function snapshotFlight(config: AirportConfig, flight: Flight): FixedStepFlightS
     surfaceEdge: flight.surfaceEdge,
     surfaceRoute: [...(flight.surfaceRoute ?? [])],
     surfaceRouteEdges: [...(flight.surfaceRouteEdges ?? [])],
-    surfaceReroute: flight.surfaceReroute ? {
-      ...flight.surfaceReroute,
-      disruptionIds: [...flight.surfaceReroute.disruptionIds],
-      previousEdgeIds: [...flight.surfaceReroute.previousEdgeIds],
-      routeEdgeIds: [...flight.surfaceReroute.routeEdgeIds],
-    } : undefined,
+    surfaceReroute: flight.surfaceReroute
+      ? {
+          ...flight.surfaceReroute,
+          disruptionIds: [...flight.surfaceReroute.disruptionIds],
+          previousEdgeIds: [...flight.surfaceReroute.previousEdgeIds],
+          routeEdgeIds: [...flight.surfaceReroute.routeEdgeIds],
+        }
+      : undefined,
     controlPace: round(flight.controlPace ?? 1),
     held: Boolean(flight.controlHold),
     automaticHold: Boolean(flight.automaticHold),
@@ -600,14 +707,18 @@ function snapshotFlight(config: AirportConfig, flight: Flight): FixedStepFlightS
     safetyHoldReason: flight.safetyHoldReason,
     runwayEntryCleared: Boolean(flight.runwayEntryCleared),
     takeoffCleared: Boolean(flight.takeoffCleared),
-    takeoffPerformance: flight.takeoffPerformance ? { ...flight.takeoffPerformance } : undefined,
+    takeoffPerformance: flight.takeoffPerformance
+      ? { ...flight.takeoffPerformance }
+      : undefined,
     rejectedTakeoff: flight.rejectedTakeoff
       ? {
           ...flight.rejectedTakeoff,
           evidence: flight.rejectedTakeoff.evidence
             ? {
                 ...flight.rejectedTakeoff.evidence,
-                causalEventIds: [...flight.rejectedTakeoff.evidence.causalEventIds],
+                causalEventIds: [
+                  ...flight.rejectedTakeoff.evidence.causalEventIds,
+                ],
               }
             : undefined,
         }
@@ -639,7 +750,9 @@ function snapshotFlight(config: AirportConfig, flight: Flight): FixedStepFlightS
     altitudeClearance: flight.navigation.altitudeClearance
       ? {
           ...flight.navigation.altitudeClearance,
-          causalEventIds: [...flight.navigation.altitudeClearance.causalEventIds],
+          causalEventIds: [
+            ...flight.navigation.altitudeClearance.causalEventIds,
+          ],
         }
       : undefined,
     speedClearance: flight.navigation.speedClearance
@@ -654,10 +767,29 @@ function snapshotFlight(config: AirportConfig, flight: Flight): FixedStepFlightS
           causalEventIds: [...flight.goAround.evidence.causalEventIds],
         }
       : undefined,
-    weatherEscape: flight.weatherEscape ? { ...flight.weatherEscape } : undefined,
-    goAroundWeatherEscape: flight.goAround?.weatherEscape ? { ...flight.goAround.weatherEscape } : undefined,
-    crossingClearances: [...(flight.crossingClearances ?? [])].sort((first, second) => first - second),
+    weatherEscape: flight.weatherEscape
+      ? { ...flight.weatherEscape }
+      : undefined,
+    goAroundWeatherEscape: flight.goAround?.weatherEscape
+      ? { ...flight.goAround.weatherEscape }
+      : undefined,
+    crossingClearances: [...(flight.crossingClearances ?? [])].sort(
+      (first, second) => first - second,
+    ),
     crossingClearanceIds: [...(flight.crossingClearanceIds ?? [])].sort(),
+    surfaceInstructions: flight.surfaceInstructions?.map((instruction) => ({
+      ...instruction,
+      routeNodeIds: instruction.routeNodeIds
+        ? [...instruction.routeNodeIds]
+        : undefined,
+      taxiwayIds: instruction.taxiwayIds
+        ? [...instruction.taxiwayIds]
+        : undefined,
+      evidence: {
+        ...instruction.evidence,
+        causalEventIds: [...instruction.evidence.causalEventIds],
+      },
+    })),
     airspeedKts: round(flight.kinematics.airspeedKts),
     groundSpeedKts: round(flight.kinematics.groundSpeedKts),
     altitudeFt: round(flight.kinematics.altitudeFt),
@@ -665,18 +797,20 @@ function snapshotFlight(config: AirportConfig, flight: Flight): FixedStepFlightS
     fuelPercent: round(flight.kinematics.fuelPercent),
     motionStage: flight.motion.stage,
     motionStageProgress: round(flight.motion.stageProgress),
-    trajectory: trajectory ? {
-      stage: trajectory.stage,
-      stageProgress: round(trajectory.stageProgress),
-      x: round(trajectory.x),
-      y: round(trajectory.y),
-      z: round(trajectory.z),
-      heading: round(trajectory.heading),
-      pitch: round(trajectory.pitch),
-      onGround: trajectory.onGround,
-      distanceAlong: round(trajectory.distanceAlong),
-      totalDistance: round(trajectory.totalDistance),
-    } : null,
+    trajectory: trajectory
+      ? {
+          stage: trajectory.stage,
+          stageProgress: round(trajectory.stageProgress),
+          x: round(trajectory.x),
+          y: round(trajectory.y),
+          z: round(trajectory.z),
+          heading: round(trajectory.heading),
+          pitch: round(trajectory.pitch),
+          onGround: trajectory.onGround,
+          distanceAlong: round(trajectory.distanceAlong),
+          totalDistance: round(trajectory.totalDistance),
+        }
+      : null,
   };
 }
 

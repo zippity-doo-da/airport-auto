@@ -29,6 +29,8 @@ import type {
   FlightRouteClearanceState,
   FlightRouteClearanceSupplement,
   FlightRunwayExitState,
+  FlightSurfaceInstructionKind,
+  FlightSurfaceInstructionState,
   RejectedTakeoffReason,
   GroupInstructionIssueResult,
   GroupInstructionPreview,
@@ -2235,7 +2237,12 @@ export class AirportSimulation {
       type === "go-around" &&
       (flight.phase === "approach" || flight.phase === "landing")
     ) {
-      this.goAround(flight, "controller instruction", undefined, this.state.station);
+      this.goAround(
+        flight,
+        "controller instruction",
+        undefined,
+        this.state.station,
+      );
     }
     if (type === "disabled") {
       flight.controlHold = true;
@@ -3318,13 +3325,26 @@ export class AirportSimulation {
       );
     }
     flight.runwayEntryCleared = true;
-    this.decisionReason = `runway entry accepted for ${this.activeRunwayDesignation(flight.runway)}`;
-    this.events.push({
-      type: "runway-entry",
+    const designation = this.activeRunwayDesignation(flight.runway);
+    const instruction = this.recordSurfaceInstruction(
       flight,
-      runway: flight.runway,
-      taxiway: flight.taxiway,
-    });
+      "runway-entry",
+      `${flight.callsign}, runway ${designation}, line up and wait.`,
+      {
+        runwayId: flight.runway,
+        taxiwayIds: flight.taxiway ? [flight.taxiway] : undefined,
+      },
+    );
+    this.decisionReason = `runway entry accepted for ${this.activeRunwayDesignation(flight.runway)}`;
+    this.pushInstructionEvent(
+      {
+        type: "runway-entry",
+        flight,
+        runway: flight.runway,
+        taxiway: flight.taxiway,
+      },
+      instruction.evidence,
+    );
     return true;
   }
 
@@ -3472,13 +3492,24 @@ export class AirportSimulation {
         );
     }
     flight.takeoffCleared = true;
+    this.completeSurfaceInstructions(flight, ["runway-entry"]);
+    const designation = this.activeRunwayDesignation(flight.runway);
+    const instruction = this.recordSurfaceInstruction(
+      flight,
+      "takeoff",
+      `${flight.callsign}, runway ${designation}, cleared for takeoff.`,
+      { runwayId: flight.runway },
+    );
     this.recordRunwayOperation(flight, "departure");
     this.decisionReason = `takeoff clearance accepted for ${this.activeRunwayDesignation(flight.runway)}`;
-    this.events.push({
-      type: "takeoff-clearance",
-      flight,
-      runway: flight.runway,
-    });
+    this.pushInstructionEvent(
+      {
+        type: "takeoff-clearance",
+        flight,
+        runway: flight.runway,
+      },
+      instruction.evidence,
+    );
     return true;
   }
 
@@ -3509,17 +3540,30 @@ export class AirportSimulation {
         flight,
       );
     flight.takeoffCleared = false;
+    const takeoffInstruction = [...(flight.surfaceInstructions ?? [])]
+      .reverse()
+      .find(
+        (instruction) =>
+          instruction.kind === "takeoff" && instruction.status === "active",
+      );
+    if (takeoffInstruction) {
+      takeoffInstruction.status = "cancelled";
+      takeoffInstruction.cancelledAtSeconds = this.state.elapsed;
+    }
     this.runwayOperationHistory = this.runwayOperationHistory.filter(
       (operation) =>
         !(operation.flightId === flight.id && operation.kind === "departure"),
     );
     this.decisionReason = `takeoff clearance cancelled for ${flight.callsign} · hold position on ${this.activeRunwayDesignation(flight.runway)}`;
-    this.events.push({
-      type: "takeoff-clearance-cancelled",
-      flight,
-      runway: flight.runway,
-      detail: this.decisionReason,
-    });
+    this.pushInstructionEvent(
+      {
+        type: "takeoff-clearance-cancelled",
+        flight,
+        runway: flight.runway,
+        detail: this.decisionReason,
+      },
+      takeoffInstruction?.evidence,
+    );
     return true;
   }
 
@@ -3592,6 +3636,16 @@ export class AirportSimulation {
       "urgent rejected-takeoff instruction superseded pending Data Comm",
     );
     flight.takeoffCleared = false;
+    const takeoffInstruction = [...(flight.surfaceInstructions ?? [])]
+      .reverse()
+      .find(
+        (instruction) =>
+          instruction.kind === "takeoff" && instruction.status === "active",
+      );
+    if (takeoffInstruction) {
+      takeoffInstruction.status = "cancelled";
+      takeoffInstruction.cancelledAtSeconds = this.state.elapsed;
+    }
     flight.rejectedTakeoff = {
       schemaVersion: 1,
       reason,
@@ -4883,12 +4937,22 @@ export class AirportSimulation {
     );
     this.metrics.manualCommands += 1;
     this.decisionReason = `${flight.callsign} taxi route accepted · ${edgeIds.length} pavement segments`;
-    this.events.push({
-      type: "taxi-route-clearance",
+    this.completeSurfaceInstructions(flight, ["taxi"]);
+    const instruction = this.recordSurfaceInstruction(
       flight,
-      taxiway: taxiwayIds.join(" / "),
-      detail: this.decisionReason,
-    });
+      "taxi",
+      `${flight.callsign}, taxi via ${taxiwayIds.join(", ") || "assigned pavement route"}.`,
+      { routeNodeIds: nodeIds, taxiwayIds },
+    );
+    this.pushInstructionEvent(
+      {
+        type: "taxi-route-clearance",
+        flight,
+        taxiway: taxiwayIds.join(" / "),
+        detail: this.decisionReason,
+      },
+      instruction.evidence,
+    );
     return true;
   }
 
@@ -6676,16 +6740,64 @@ export class AirportSimulation {
     };
   }
 
+  private recordSurfaceInstruction(
+    flight: Flight,
+    kind: FlightSurfaceInstructionKind,
+    phraseology: string,
+    context: Pick<
+      FlightSurfaceInstructionState,
+      "runwayId" | "crossingId" | "routeNodeIds" | "taxiwayIds"
+    > = {},
+  ): FlightSurfaceInstructionState {
+    flight.surfaceInstructions ??= [];
+    const revision =
+      flight.surfaceInstructions.filter((item) => item.kind === kind).length +
+      1;
+    const instruction: FlightSurfaceInstructionState = {
+      schemaVersion: 1,
+      id: `${kind}:${flight.id}:${revision}`,
+      kind,
+      revision,
+      status: "active",
+      issuedAtSeconds: this.state.elapsed,
+      ...context,
+      routeNodeIds: context.routeNodeIds
+        ? [...context.routeNodeIds]
+        : undefined,
+      taxiwayIds: context.taxiwayIds ? [...context.taxiwayIds] : undefined,
+      evidence: this.instructionEvidence(phraseology),
+    };
+    flight.surfaceInstructions.push(instruction);
+    // A flight only needs a bounded operational history. Completed records are
+    // retained long enough for replay and telemetry while preventing soak growth.
+    if (flight.surfaceInstructions.length > 24)
+      flight.surfaceInstructions.splice(
+        0,
+        flight.surfaceInstructions.length - 24,
+      );
+    return instruction;
+  }
+
+  private completeSurfaceInstructions(
+    flight: Flight,
+    kinds: readonly FlightSurfaceInstructionKind[],
+    atSeconds = this.state.elapsed,
+  ): void {
+    for (const instruction of flight.surfaceInstructions ?? []) {
+      if (instruction.status !== "active" || !kinds.includes(instruction.kind))
+        continue;
+      instruction.status = "completed";
+      instruction.completedAtSeconds = atSeconds;
+    }
+  }
+
   private pushInstructionEvent(
     event: AirportEvent,
     evidence?: FlightInstructionEvidence,
   ): void {
     event.domainEventId ??= `sim:${this.config.seed}:instruction:${this.nextInstructionDomainEventId++}`;
     this.events.push(event);
-    if (
-      evidence &&
-      !evidence.causalEventIds.includes(event.domainEventId)
-    )
+    if (evidence && !evidence.causalEventIds.includes(event.domainEventId))
       evidence.causalEventIds.push(event.domainEventId);
   }
 
@@ -6701,6 +6813,9 @@ export class AirportSimulation {
       flight.navigation.hold?.evidence,
       flight.goAround?.evidence,
       flight.rejectedTakeoff?.evidence,
+      ...(flight.surfaceInstructions ?? []).map(
+        (instruction) => instruction.evidence,
+      ),
     ];
     return candidates.filter(
       (evidence): evidence is FlightInstructionEvidence =>
@@ -8866,6 +8981,7 @@ export class AirportSimulation {
       return;
     }
     if (flight.phase === "takeoff") {
+      this.completeSurfaceInstructions(flight, ["takeoff"]);
       this.state.departures += 1;
       this.metrics.safeDepartures += 1;
       flight.flightPlan.status = "completed";
@@ -9032,6 +9148,10 @@ export class AirportSimulation {
       flight.runway,
       flight.runwayExit,
     );
+    if (next === "takeoff")
+      this.completeSurfaceInstructions(flight, ["taxi", "runway-crossing"]);
+    if (next === "resting")
+      this.completeSurfaceInstructions(flight, ["taxi", "runway-crossing"]);
     if (next === "taxi-in" || next === "resting" || next === "taxi-out") {
       const cached = this.phaseTransitionPreviewCache.get(flight)?.get(next);
       const signature = this.surfacePlanCacheSignature(flight, next);
@@ -15898,13 +16018,22 @@ export class AirportSimulation {
 
   private grantPushbackClearance(flight: Flight, automatic: boolean): void {
     flight.pushbackCleared = true;
-    this.decisionReason = `${automatic ? "automatic " : ""}${flight.pushbackDirection} pushback clearance accepted`;
-    this.events.push({
-      type: "pushback-clearance",
+    const instruction = this.recordSurfaceInstruction(
       flight,
-      taxiway: flight.taxiway,
-      detail: `${automatic ? "automatic" : "ground"} · push ${flight.pushbackDirection}`,
-    });
+      "pushback",
+      `${flight.callsign}, pushback approved, tail ${flight.pushbackDirection}.`,
+      { taxiwayIds: flight.taxiway ? [flight.taxiway] : undefined },
+    );
+    this.decisionReason = `${automatic ? "automatic " : ""}${flight.pushbackDirection} pushback clearance accepted`;
+    this.pushInstructionEvent(
+      {
+        type: "pushback-clearance",
+        flight,
+        taxiway: flight.taxiway,
+        detail: `${automatic ? "automatic" : "ground"} · push ${flight.pushbackDirection}`,
+      },
+      instruction.evidence,
+    );
   }
 
   /** Auto/Watch do not release an aircraft into the opposite live taxiway wave. */
@@ -16330,6 +16459,7 @@ export class AirportSimulation {
     }
     if (flight.tugAttached) {
       flight.tugAttached = false;
+      this.completeSurfaceInstructions(flight, ["pushback"]);
       this.events.push({
         type: "tug-release",
         flight,
@@ -16349,17 +16479,31 @@ export class AirportSimulation {
     flight.crossingClearanceIds ??= [];
     flight.crossingClearances ??= [];
     if (flight.crossingClearanceIds.includes(crossing.id)) return;
+    const designation = this.activeRunwayDesignation(runway);
+    const instruction = this.recordSurfaceInstruction(
+      flight,
+      "runway-crossing",
+      `${flight.callsign}, cross runway ${designation}.`,
+      {
+        runwayId: runway,
+        crossingId: crossing.id,
+        taxiwayIds: flight.taxiway ? [flight.taxiway] : undefined,
+      },
+    );
     flight.crossingClearanceIds.push(crossing.id);
     if (!flight.crossingClearances.includes(runway))
       flight.crossingClearances.push(runway);
     flight.crossingHoldRunway = undefined;
     flight.crossingHoldPointId = undefined;
-    this.events.push({
-      type: "runway-crossing",
-      flight,
-      runway,
-      taxiway: flight.taxiway,
-    });
+    this.pushInstructionEvent(
+      {
+        type: "runway-crossing",
+        flight,
+        runway,
+        taxiway: flight.taxiway,
+      },
+      instruction.evidence,
+    );
   }
 
   private intersectingRunways(runwayId: number): number[] {

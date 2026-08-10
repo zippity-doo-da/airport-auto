@@ -612,10 +612,10 @@ reason, while local analytics/export schema 4 preserves the same fields.
       same attribution; legacy entries derive it deterministically from their
       exact reason.
 - [x] Keep Auto capable of guaranteed flow without requiring a human to manage
-  the timeline. Seeded ORD Extreme Auto and Watch pass the enforceable
-  sustained-flow gate; the eight-hour ORD audit plus the ATL storm, DFW snow,
-  and HND evening matrix cover prolonged demand, adverse weather, sourced
-  surfaces, and a schematic surface without a stopped-traffic state.
+      the timeline. Seeded ORD Extreme Auto and Watch pass the enforceable
+      sustained-flow gate; the eight-hour ORD audit plus the ATL storm, DFW snow,
+      and HND evening matrix cover prolonged demand, adverse weather, sourced
+      surfaces, and a schematic surface without a stopped-traffic state.
 
 ### Simulation and API
 
@@ -713,9 +713,11 @@ The projection now also exposes active structured vector, hold, speed, and
 altitude instructions from the same navigation state, with typed parameters and
 instruction-specific presentation. It remains read-only: issuing or cancelling
 an instruction still goes through the normal command and safety arbiter.
-Departure runway status, assigned taxi route, and pending/cleared runway
-crossings now use the same structured message envelope; a pending crossing is
-shown as Standby rather than as an implicit clearance.
+Pushback, controller-assigned taxi routes, individual runway crossings,
+runway entry / line-up, and takeoff now use stable issued-instruction records.
+Unissued route requirements are no longer presented as if they were clearance
+messages; each row exists only after the shared authority and safety arbiter
+accepts the corresponding command.
 Direct-to vectors now identify themselves as Direct-To messages, and active
 controller handoffs project as Frequency messages with from/to, response timing,
 and overdue state.
@@ -832,19 +834,25 @@ the maneuver and emergency event in order, rejected takeoff records issue and
 physical stop, and exact replay, analytics, and remote projections preserve the
 bounded evidence without sharing phraseology. Entering a go-around also clears
 stale speed and altitude restrictions so they cannot override the authoritative
-missed-approach climb profile. Control snapshot schema 45 and fixed-step schema
-17 carry the new optional evidence.
+missed-approach climb profile. Surface and departure instructions now retain the
+same issuing authority, phraseology, command/scripted-controller identity, and
+ordered domain-event evidence through completion or cancellation. Reissued
+takeoff clearances receive distinct stable identities, while cancellation stays
+attached to the original record. Control snapshot schema 46 and fixed-step
+schema 18 carry the optional histories.
 
 ### Gameplay and UX
 
 - [x] Add a clearance inbox/outbox with Draft, Sent, Delivered, Wilco, Unable,
       Standby, Superseded, Timed Out, and Cancelled states. A compact panel
       now exposes the full route-clearance lifecycle, including a real fixed-step
-      Sent-to-Delivered transition; structured surface messages supply Standby.
+      Sent-to-Delivered transition; immediate surface instructions retain their
+      accepted or cancelled voice/action lifecycle.
 - [x] Build structured departure, route, altitude, speed, direct-to, hold,
       frequency, taxi, crossing, and revision messages from existing typed commands.
       Active vector, hold, speed, altitude, and route state now project as
-      structured messages, as do departure, taxi, and crossing state; direct-to,
+      structured messages, as do issued pushback, departure, taxi, and crossing
+      instructions; direct-to,
       and frequency state now use dedicated envelopes, and every active-flight plan
       amendment is exposed as a stable, timestamped Revision message. Version 5
       envelopes carry deterministic command IDs, causal references, expiry, and
@@ -881,16 +889,16 @@ missed-approach climb profile. Control snapshot schema 45 and fixed-step schema
   command/event evidence. Richer spoken-audio variants and additional tactical
   conflict-resolution phraseology remain open.
 - [x] Show aircraft capability and station/data-authority limitations without
-  turning the interface into avionics configuration management. The selected
-  flight panel now shows aircraft/wake class, required takeoff and landing
-  runway length, current data authority, and whether the selected desk can
-  issue a clearance or must obtain a transfer. Each message now also identifies
-  Data Comm, voice/action, coordination, or record-only channel; current-desk
-  authority; and the valid response surface. The aircraft catalog now records a
-  visible profile-level Data Comm or voice-only assumption, the composer blocks
-  voice-only route packages, and the shared arbiter rejects direct/API attempts
-  with a usable vector/direct-to alternative. These are fictional game-level
-  assumptions, not claims about an operator's installed avionics.
+      turning the interface into avionics configuration management. The selected
+      flight panel now shows aircraft/wake class, required takeoff and landing
+      runway length, current data authority, and whether the selected desk can
+      issue a clearance or must obtain a transfer. Each message now also identifies
+      Data Comm, voice/action, coordination, or record-only channel; current-desk
+      authority; and the valid response surface. The aircraft catalog now records a
+      visible profile-level Data Comm or voice-only assumption, the composer blocks
+      voice-only route packages, and the shared arbiter rejects direct/API attempts
+      with a usable vector/direct-to alternative. These are fictional game-level
+      assumptions, not claims about an operator's installed avionics.
 - [x] Provide concise keyboard flows and an Assisted composer that explains why
       a message is valid, delayed, or rejected. Clearance rows are keyboard
       focusable and move to the existing flight workflow; the advisor now offers a
@@ -902,34 +910,35 @@ missed-approach climb profile. Control snapshot schema 45 and fixed-step schema
 
 ### Simulation and API
 
-- [~] Define one versioned message envelope containing authority, command IDs,
-  causal event IDs, content fields, delivery timing, response, and expiry.
-  Version 5 projections now include these fields plus typed channel, desk-access,
-  response-mode, and aircraft-support limitations for every projected message;
-  route messages distinguish delivery, expected response, hard expiry, and
-  terminal response timing. Every route lifecycle transition now receives a
-  deterministic simulation-domain event ID at creation, retains the complete
-  causal chain across issue, delivery, and response, and records the issuing and
-  responding command IDs separately. Telemetry, replay, analytics, and remote
-  projections preserve that chain. The urgent ground-stop issue/brake/release
-  lifecycle, staged controller handoffs, airborne immediate instructions, and
-  rejected takeoff now use the same full command/event chain. Composite taxi,
-  crossing, and ordinary departure state records remain compatibility projections
-  rather than individual clearance lifecycles.
+- [x] Define one versioned message envelope containing authority, command IDs,
+      causal event IDs, content fields, delivery timing, response, and expiry.
+      Version 5 projections now include these fields plus typed channel, desk-access,
+      response-mode, and aircraft-support limitations for every projected message;
+      route messages distinguish delivery, expected response, hard expiry, and
+      terminal response timing. Every route lifecycle transition now receives a
+      deterministic simulation-domain event ID at creation, retains the complete
+      causal chain across issue, delivery, and response, and records the issuing and
+      responding command IDs separately. Telemetry, replay, analytics, and remote
+      projections preserve that chain. The urgent ground-stop issue/brake/release
+      lifecycle, staged controller handoffs, airborne immediate instructions, and
+      rejected takeoff now use the same full command/event chain. Pushback, taxi,
+      each runway crossing, runway entry / line-up, takeoff, takeoff cancellation,
+      and re-clearance now retain individual stable lifecycle records instead of
+      reconstructing messages from route progress and changing booleans.
 - [x] Reuse staged pilot-response and route-readback behavior rather than adding
       a parallel command executor. Compound previews are route-clearance schema
       2 records and use the existing Sent, delivery, pending-readback,
       cancellation, supersession, event, and deterministic pilot-response path.
 - [x] Enforce one current data authority and deterministic handoff behavior.
-  A sent transmission or pending route readback now cancels with an explicit
-  reason when the aircraft's frequency ownership transfers, and the receiving
-  desk cannot accept a route issued by the prior authority. Route-only and
-  atomic packages now also expire at a hard fixed-step deadline and reject
-  stale direct or automatic responses. The only modeled Data Comm packages are
-  route-only and atomic route/altitude/speed clearances; every other instruction
-  is explicitly voice/action, coordination, or record-only. Coordination now
-  retains deterministic offer, response, contact, completion, timeout,
-  cancellation, and rejection evidence, and ownership transfers only on contact.
+      A sent transmission or pending route readback now cancels with an explicit
+      reason when the aircraft's frequency ownership transfers, and the receiving
+      desk cannot accept a route issued by the prior authority. Route-only and
+      atomic packages now also expire at a hard fixed-step deadline and reject
+      stale direct or automatic responses. The only modeled Data Comm packages are
+      route-only and atomic route/altitude/speed clearances; every other instruction
+      is explicitly voice/action, coordination, or record-only. Coordination now
+      retains deterministic offer, response, contact, completion, timeout,
+      cancellation, and rejection evidence, and ownership transfers only on contact.
 - [x] Include messages in replay, analytics, controller evaluation, and remote
       projections with free text excluded from shared exports. Replay and live
       views derive versioned messages from authoritative state; the remote
@@ -952,14 +961,14 @@ missed-approach climb profile. Control snapshot schema 45 and fixed-step schema
       arrival validator also completes one coherent mixed digital/immediate
       sequence from route transmission through touchdown.
 - [x] Supersession, timeout, handoff, and rejection never apply stale commands.
-  Sent transmissions and pending route readbacks are tested to cancel on a
-  station transfer; route-only and atomic packages are tested to time out
-  without partial application and to reject premature and late direct
-  acceptance. Their lifecycle assertions now join issued and responding commands
-  to the exact preview, issue, delivery, and response domain events. Staged
-  handoff tests now also prove stable identity and ordered causality across offer,
-  accept, contact, completion, cancellation, rejection, and overdue recovery;
-  ownership transfers only after the accepted contact instruction.
+      Sent transmissions and pending route readbacks are tested to cancel on a
+      station transfer; route-only and atomic packages are tested to time out
+      without partial application and to reject premature and late direct
+      acceptance. Their lifecycle assertions now join issued and responding commands
+      to the exact preview, issue, delivery, and response domain events. Staged
+      handoff tests now also prove stable identity and ordered causality across offer,
+      accept, contact, completion, cancellation, rejection, and overdue recovery;
+      ownership transfers only after the accepted contact instruction.
 - [x] Screen-reader and keyboard users can compose, inspect, send, and dismiss a
       clearance without losing focus. Data Comm exposes its expanded state,
       moves focus into the panel, restores the invoking control on close or
@@ -1157,8 +1166,8 @@ has a deterministic operational lifecycle: an appropriately labeled airport
 response unit is dispatched, reports on scene, performs its modeled inspection,
 and then waits for an explicit Supervisor reopen action. It retains the common
 restriction/reroute/protected-pavement boundary throughout; a separately
-  rendered, route-reserved emergency vehicle and calm-severity policy are still
-  open.
+rendered, route-reserved emergency vehicle and calm-severity policy are still
+open.
 
 ### Content
 

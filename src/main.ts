@@ -3821,6 +3821,19 @@ function cloneAirportState(
       surfaceCongestedEdgeIds: flight.surfaceCongestedEdgeIds
         ? [...flight.surfaceCongestedEdgeIds]
         : undefined,
+      surfaceInstructions: flight.surfaceInstructions?.map((instruction) => ({
+        ...instruction,
+        routeNodeIds: instruction.routeNodeIds
+          ? [...instruction.routeNodeIds]
+          : undefined,
+        taxiwayIds: instruction.taxiwayIds
+          ? [...instruction.taxiwayIds]
+          : undefined,
+        evidence: {
+          ...instruction.evidence,
+          causalEventIds: [...instruction.evidence.causalEventIds],
+        },
+      })),
       runwayExit: flight.runwayExit
         ? {
             ...flight.runwayExit,
@@ -3932,9 +3945,7 @@ function cloneAirportState(
             evidence: flight.goAround.evidence
               ? {
                   ...flight.goAround.evidence,
-                  causalEventIds: [
-                    ...flight.goAround.evidence.causalEventIds,
-                  ],
+                  causalEventIds: [...flight.goAround.evidence.causalEventIds],
                 }
               : undefined,
             weatherEscape: flight.goAround.weatherEscape
@@ -9650,6 +9661,7 @@ function airportSnapshot() {
         crossingClearances: flight.crossingClearances ?? [],
         crossingClearanceIds: flight.crossingClearanceIds ?? [],
         crossingHoldPointId: flight.crossingHoldPointId,
+        instructions: structuredClone(flight.surfaceInstructions ?? []),
       })),
     serviceVehicles: simulation.state.serviceVehicles.map((vehicle) => ({
       id: vehicle.id,
@@ -9705,6 +9717,7 @@ function airportSnapshot() {
       operationPlan: { ...flight.operationPlan },
       flightPlan: cloneFlightPlan(flight.flightPlan),
       flightPlanHistory: flight.flightPlanHistory.map(cloneFlightPlan),
+      surfaceInstructions: structuredClone(flight.surfaceInstructions ?? []),
       navigation: {
         ...flight.navigation,
         routeFixIds: [...flight.navigation.routeFixIds],
@@ -9830,9 +9843,7 @@ function airportSnapshot() {
             evidence: flight.goAround.evidence
               ? {
                   ...flight.goAround.evidence,
-                  causalEventIds: [
-                    ...flight.goAround.evidence.causalEventIds,
-                  ],
+                  causalEventIds: [...flight.goAround.evidence.causalEventIds],
                 }
               : null,
             stage: flight.motion.stage,
@@ -11563,7 +11574,7 @@ window.airportControl = {
       validate:
         "airportControl.validate({ action: 'pause' }) // structural validation without execution",
       formalDispatch:
-        "airportControl.dispatch({ protocolVersion: '1.2.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.41.0', snapshotSchemaVersion: 45 }, command: { action: 'pause' } })",
+        "airportControl.dispatch({ protocolVersion: '1.2.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.41.0', snapshotSchemaVersion: 46 }, command: { action: 'pause' } })",
       liveData:
         "airportControl.liveData.snapshot() // redacted opt-in/cache/review state; credentials and raw feeds are never exposed",
       capture:
