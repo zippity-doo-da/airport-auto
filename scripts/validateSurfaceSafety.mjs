@@ -399,6 +399,47 @@ assert(
   "a tug recovery was allowed to move closer to a service vehicle",
 );
 
+// A departure tugged out of an inbound aircraft's path must not remain in the
+// synthetic drain hold until the 15-minute starvation gate. After a bounded
+// five-minute yield, normal surface reservations and collision arbitration
+// become authoritative again and can either release or re-hold the aircraft.
+const boundedYieldSimulation = new AirportSimulation(seededConfig);
+const yieldingDeparture = structuredClone(seededCrossingFlight);
+const drainingArrival = structuredClone(seededRunwayOwner);
+yieldingDeparture.id = 88001;
+yieldingDeparture.phase = "taxi-out";
+yieldingDeparture.surfaceYield = {
+  status: "holding",
+  direction: "reverse",
+  targetProgress: yieldingDeparture.progress,
+  startedAtSeconds: 0,
+  releaseAtSeconds: 15,
+  reason: "surface wait cycle validation · hold for inbound drain",
+  blockerFlightIds: [88002],
+  previousTugAttached: false,
+  previousEngineState: "running",
+};
+yieldingDeparture.automaticHold = true;
+yieldingDeparture.automaticHoldReason =
+  "surface recovery position held for crossing traffic";
+drainingArrival.id = 88002;
+drainingArrival.phase = "taxi-in";
+boundedYieldSimulation.state.flights = [yieldingDeparture, drainingArrival];
+boundedYieldSimulation.state.elapsed = 299.9;
+boundedYieldSimulation.updateSurfaceYields();
+assert(
+  yieldingDeparture.surfaceYield?.status === "holding",
+  "inbound-drain recovery released before its bounded protection window",
+);
+boundedYieldSimulation.state.elapsed = 315;
+boundedYieldSimulation.updateSurfaceYields();
+assert(
+  !yieldingDeparture.surfaceYield &&
+    !yieldingDeparture.automaticHold &&
+    !yieldingDeparture.safetyHold,
+  "inbound-drain recovery remained synthetically held for 15 minutes",
+);
+
 const safeParallelRunways = seededConfig.runways.flatMap((runway, index) =>
   seededConfig.runways.slice(index + 1).flatMap((other) =>
     Math.abs(Math.sin(runway.heading - other.heading)) < 0.08 &&

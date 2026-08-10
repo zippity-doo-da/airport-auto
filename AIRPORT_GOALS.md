@@ -1066,6 +1066,17 @@ around a projected conflict and pushed tick p95 to 53.49ms. The next required
 work is bounded recovery for those blocked pairs, followed by a fresh sustained
 ORD acceptance run.
 
+A follow-up four-hour ORD Extreme Auto acceptance run exposed a near-threshold
+fairness cliff: a departure tugged back for inbound traffic could inherit a
+synthetic drain hold for the full 15-minute starvation allowance. That
+recovery hold is now bounded to five minutes, after which the ordinary surface
+reservation and collision arbiters reassess movement; a deterministic
+surface-safety regression proves both the protected interval and its release.
+The post-fix four-hour run completes 43 arrivals and 31 departures with zero
+collisions, incursions, unexplained pauses, or failed gates, and reduces the
+maximum individual stationary period from 893.7 to 637.2 seconds.
+Multi-airport flow-matrix and longer retained-heap acceptance remain open.
+
 ### DFW parity track — August 7, 2026
 
 KDFW is the first additional hub being brought through the same sourced-asset

@@ -490,7 +490,13 @@ const SURFACE_YIELD_FORWARD_DISTANCES_M = [
 const SURFACE_YIELD_MINIMUM_DISTANCE_M = 5;
 const SURFACE_YIELD_SPEED_KTS = 4;
 const SURFACE_YIELD_HOLD_SECONDS = 15;
-const SURFACE_YIELD_INBOUND_DRAIN_TIMEOUT_SECONDS = 900;
+// A taxi-in movement can legitimately need several minutes to clear a shared
+// terminal corridor after a departure has been tugged back. Do not, however,
+// keep the departure in a synthetic recovery hold all the way to the
+// acceptance gate's 15-minute starvation limit. Once this bounded drain
+// window expires, release the recovery state and let the ordinary per-tick
+// reservation and collision arbiters decide whether normal taxi can resume.
+const SURFACE_YIELD_INBOUND_DRAIN_TIMEOUT_SECONDS = 300;
 const SURFACE_YIELD_BLOCKED_ABORT_SECONDS = 30;
 const SURFACE_YIELD_RETRY_COOLDOWN_SECONDS = 60;
 const LONG_SURFACE_HOLD_RECOVERY_SECONDS = 600;
