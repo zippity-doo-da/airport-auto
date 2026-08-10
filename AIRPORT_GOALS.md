@@ -498,6 +498,18 @@ spacing / constraint line; its full title and typed snapshot retain the complete
 attribution. Downstream saturation is also a direction-specific uncertainty
 factor, not an unexplained confidence reduction.
 
+Traffic-flow snapshot schema 7 now adds a pure, objective-aware adjacent bank
+optimizer. It evaluates the first six arrival and departure slots from their
+authoritative projected target time, readiness, urgency, and active blocker,
+then emits at most one beneficial move per direction. Minimum Holding favors
+arrival recovery, Minimum Taxi Delay favors departure recovery, and Watch / Calm
+requires a larger benefit. The recommendation names the displaced entry and its
+modeled benefit; approving it in the Queue inspector calls the same station-
+authorized, ten-second-frozen resequence command as a manual move. Optimizer
+approval also carries the expected displaced entry and fails closed if the bank
+changed after render. Reading the optimizer cannot change state, and approval
+cannot grant a clearance, reserve a resource, or move an aircraft.
+
 ### Gameplay and UX
 
 - [x] Add a timeline showing demand, runway capacity, target crossing times,
@@ -506,33 +518,37 @@ factor, not an unexplained confidence reduction.
       outlook, bounded confidence, and route-aware meter targets with explicit
       tolerance windows, plus active runway/spacing/constraint attribution and
       direction-specific downstream uncertainty.
-- [~] Let Supervisor choose Balanced, Minimum Holding, Minimum Taxi Delay,
-  Weather Recovery, or Watch/Calm scheduling objectives. The Queue
-  inspector and typed control API now select authoritative pacing profiles;
-  bounded forecast-based slot reviews now feed action-specific Assisted
-  proposals without mutating aircraft. Broader bank-level optimization remains
-  open.
-- [~] Give Approach advisories for speed, vector, hold, direct-to, and sequence
-  changes that satisfy target times through existing legal commands. Assisted
-  mode now maps authoritative runway-threshold error into bounded slow, speed,
-  timed-hold, vector, and direct-to proposals. Each proposal carries its target,
-  estimate, tolerance, and early/on-time/late state. Approach and Supervisor can
-  now move a non-imminent arrival one adjacent slot earlier or later through the
-  Queue inspector or typed API, with signed revisions for both affected slots.
-  Automatic sequence-change recommendations remain open.
-- [~] Give Tower a runway-ready sequence that respects wake, runway occupancy,
-  crossing queues, configuration transitions, and departure-release windows.
-  Assisted Tower now offers only the next physically releasable line-up or
-  takeoff in each conflicting-runway group after checking runway protection,
-  crossing priority, weather, performance, wake release, and the departure
-  envelope. Each proposal now also reports the authoritative planned departure
-  release window and queue position, so a controller can distinguish “safe now”
-  from “safe but metered.” Releasable line-up and takeoff proposals now carry
-  their authoritative departure-release target and timing state. Tower and
-  Supervisor can now make the same bounded adjacent change in the departure
-  queue. The ten-second release freeze prevents last-second swaps, and sequence
-  changes cannot grant clearance, reserve pavement, or alter aircraft motion.
-  Bank-level sequence optimization remains open.
+- [x] Let Supervisor choose Balanced, Minimum Holding, Minimum Taxi Delay,
+      Weather Recovery, or Watch/Calm scheduling objectives. The Queue
+      inspector and typed control API now select authoritative pacing profiles;
+      bounded forecast-based slot reviews now feed action-specific Assisted
+      proposals without mutating aircraft. The bounded adjacent bank optimizer
+      scores readiness, urgency, blockers, projected timing, and the selected
+      objective without becoming a movement authority.
+- [x] Give Approach advisories for speed, vector, hold, direct-to, and sequence
+      changes that satisfy target times through existing legal commands. Assisted
+      mode now maps authoritative runway-threshold error into bounded slow, speed,
+      timed-hold, vector, and direct-to proposals. Each proposal carries its target,
+      estimate, tolerance, and early/on-time/late state. Approach and Supervisor can
+      now move a non-imminent arrival one adjacent slot earlier or later through the
+      Queue inspector or typed API, with signed revisions for both affected slots.
+      Automatic sequence-change recommendations now appear ahead of routine Queue
+      reviews and use the existing safe resequence command for approval.
+- [x] Give Tower a runway-ready sequence that respects wake, runway occupancy,
+      crossing queues, configuration transitions, and departure-release windows.
+      Assisted Tower now offers only the next physically releasable line-up or
+      takeoff in each conflicting-runway group after checking runway protection,
+      crossing priority, weather, performance, wake release, and the departure
+      envelope. Each proposal now also reports the authoritative planned departure
+      release window and queue position, so a controller can distinguish “safe now”
+      from “safe but metered.” Releasable line-up and takeoff proposals now carry
+      their authoritative departure-release target and timing state. Tower and
+      Supervisor can now make the same bounded adjacent change in the departure
+      queue. The ten-second release freeze prevents last-second swaps, and sequence
+      changes cannot grant clearance, reserve pavement, or alter aircraft motion.
+      The same objective-aware bank evaluator now proposes one best adjacent
+      departure change, while the normal Tower arbiter retains wake, occupancy,
+      crossing, configuration, and release authority.
 - [~] Explain every slot movement: weather, missed approach, gate pressure,
   runway closure, aircraft performance, wake, or downstream saturation.
   The queue meter now labels the latest authoritative reason with a stable

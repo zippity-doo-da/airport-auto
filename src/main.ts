@@ -2480,6 +2480,13 @@ queueFlowHorizon.addEventListener("change", () => {
 });
 
 queueCapacity.addEventListener("click", (event) => {
+  const resequenceButton = (
+    event.target as HTMLElement
+  ).closest<HTMLButtonElement>("button[data-flow-resequence]");
+  if (resequenceButton) {
+    handleTrafficFlowResequence(resequenceButton);
+    return;
+  }
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
     "button[data-flow-advisory-action]",
   );
@@ -2513,9 +2520,14 @@ queueMeter.addEventListener("click", (event) => {
     "button[data-flow-resequence]",
   );
   if (!button) return;
+  handleTrafficFlowResequence(button);
+});
+
+function handleTrafficFlowResequence(button: HTMLButtonElement): void {
   const direction = button.dataset.flowDirection;
   const move = button.dataset.flowResequence;
   const entryId = button.dataset.flowEntryId ?? "";
+  const expectedAdjacentEntryId = button.dataset.flowExpectedAdjacent;
   if (
     (direction !== "arrival" && direction !== "departure") ||
     (move !== "earlier" && move !== "later") ||
@@ -2527,6 +2539,7 @@ queueMeter.addEventListener("click", (event) => {
     direction,
     entryId,
     move,
+    ...(expectedAdjacentEntryId ? { expectedAdjacentEntryId } : {}),
   });
   setStatus(
     result.accepted ? "Flow sequence revised" : "Resequence refused",
@@ -2535,7 +2548,7 @@ queueMeter.addEventListener("click", (event) => {
   );
   queueInspectorUiKey = "";
   renderQueueInspector();
-});
+}
 
 queueList.addEventListener("click", (event) => {
   const row = (event.target as HTMLElement).closest<HTMLElement>(
@@ -10430,6 +10443,7 @@ function executeAirportRequest(
         command.direction,
         command.entryId,
         command.move,
+        command.expectedAdjacentEntryId,
       );
     reason =
       validDirection && validMove

@@ -216,6 +216,40 @@ assert(sequenceEntries.slice(0, 2).every((entry) => entry.slotRevisions.at(-1)?.
 const frozenSequence = JSON.stringify(sequenceFlow);
 const frozenResult = resequenceTrafficFlowEntry(sequenceFlow, 'departure', sequenceEntries[1].id, 'later', 25);
 assert(!frozenResult.accepted && frozenResult.reason.includes('release freeze') && JSON.stringify(sequenceFlow) === frozenSequence, 'imminent release freeze allowed or partially applied a resequence');
+const staleSequence = JSON.stringify(sequenceFlow);
+const staleResult = resequenceTrafficFlowEntry(sequenceFlow, 'departure', sequenceEntries[2].id, 'earlier', 0, 10, sequenceEntries[1].id);
+assert(!staleResult.accepted && staleResult.reason.includes('sequence changed before approval') && JSON.stringify(sequenceFlow) === staleSequence, 'stale optimizer recommendation changed the current adjacent sequence');
+const sequenceSnapshot = trafficFlowSnapshot(sequenceFlow, 0, {
+  sequenceCandidates: [
+    { entryId: sequenceEntries[1].id, projectedTargetSeconds: 34, readiness: 0.9, urgency: 0 },
+    { entryId: sequenceEntries[0].id, projectedTargetSeconds: 120, readiness: 0.1, urgency: 0, blocker: 'gate readiness' },
+    { entryId: sequenceEntries[2].id, projectedTargetSeconds: 42, readiness: 1, urgency: 0.2 },
+  ],
+});
+const sequenceRecommendation = sequenceSnapshot.recommendations.find((recommendation) => recommendation.action === 'resequence-earlier');
+assert(sequenceRecommendation?.entryId === sequenceEntries[2].id && sequenceRecommendation.displacedEntryId === sequenceEntries[0].id && sequenceRecommendation.move === 'earlier', 'bank optimizer did not recommend the best adjacent ready departure');
+assert(sequenceRecommendation.advisoryOnly && sequenceRecommendation.requiresCommandArbiter && sequenceRecommendation.estimatedBenefitSeconds >= 20 && sequenceRecommendation.rationale.includes('release freeze'), 'sequence recommendation omitted its bounded benefit or safety rationale');
+const balancedSequenceBenefit = sequenceRecommendation.estimatedBenefitSeconds;
+sequenceFlow.objective = 'watch-calm';
+assert(!trafficFlowSnapshot(sequenceFlow, 0, { sequenceCandidates: [
+  { entryId: sequenceEntries[1].id, projectedTargetSeconds: 30, readiness: 0.9, urgency: 0 },
+  { entryId: sequenceEntries[0].id, projectedTargetSeconds: 40, readiness: 0.5, urgency: 0 },
+  { entryId: sequenceEntries[2].id, projectedTargetSeconds: 50, readiness: 0.9, urgency: 0 },
+] }).recommendations.some((recommendation) => recommendation.action === 'resequence-earlier'), 'Watch / Calm recommended a marginal bank swap below its calm threshold');
+sequenceFlow.objective = 'minimum-taxi-delay';
+const taxiPriorityRecommendation = trafficFlowSnapshot(sequenceFlow, 0, {
+  sequenceCandidates: [
+    { entryId: sequenceEntries[1].id, projectedTargetSeconds: 34, readiness: 0.9, urgency: 0 },
+    { entryId: sequenceEntries[0].id, projectedTargetSeconds: 120, readiness: 0.1, urgency: 0, blocker: 'gate readiness' },
+    { entryId: sequenceEntries[2].id, projectedTargetSeconds: 42, readiness: 1, urgency: 0.2 },
+  ],
+}).recommendations.find((recommendation) => recommendation.action === 'resequence-earlier');
+assert(taxiPriorityRecommendation?.objective === 'minimum-taxi-delay' && taxiPriorityRecommendation.estimatedBenefitSeconds > balancedSequenceBenefit, 'Minimum Taxi Delay did not increase departure bank priority');
+const recommendationState = JSON.stringify(sequenceFlow);
+trafficFlowSnapshot(sequenceFlow, 0, {
+  sequenceCandidates: [{ entryId: sequenceEntries[2].id, projectedTargetSeconds: 42, readiness: 1, urgency: 1 }],
+});
+assert(JSON.stringify(sequenceFlow) === recommendationState, 'reading sequence recommendations mutated traffic-flow state');
 
 const equalSlotFlow = createTrafficFlowState('realistic', 0, 0);
 equalSlotFlow.nextArrivalReleaseSeconds = 100;
@@ -234,7 +268,7 @@ const extendedMeterSnapshot = trafficFlowSnapshot(flow, 20);
 assert(extendedMeterSnapshot.forecastHorizonSeconds === 600 && extendedMeterSnapshot.capacityWindows.every((window, index) => window.horizonSeconds === 600 && window.predictedDemandCount >= meterSnapshot.capacityWindows[index].predictedDemandCount && window.predictedCapacityCount >= meterSnapshot.capacityWindows[index].predictedCapacityCount), 'configurable rolling horizon did not extend both demand and capacity forecasts');
 const uncertainForecast = trafficFlowSnapshot(flow, 20, { arrivalDemandIntervalSeconds: 12, arrivalSpacingSeconds: 24, departureSpacingSeconds: 18, uncertainty: { weather: 0.8, wind: 0.7, runwayCondition: 0.6, pilotResponse: 0.5 }, arrivalUncertainty: { procedure: 0.76, taxiCongestion: 0.72, gateReadiness: 0.64, downstreamSaturation: 0.68 }, departureUncertainty: { procedure: 0.54, taxiCongestion: 0.58, gateReadiness: 0.46, downstreamSaturation: 0.56 }, arrivalAttribution: capacityAttribution.arrival, departureAttribution: capacityAttribution.departure });
 assert(uncertainForecast.capacityWindows.every((window) => window.predictedDemandCount >= window.demandCount && window.predictedCapacityCount >= window.plannedReleaseCount && window.confidence === 'low' && window.uncertainty.weather === 0.8 && window.uncertainty.procedure > 0.5 && window.uncertainty.taxiCongestion > 0.5 && window.uncertainty.gateReadiness > 0.4 && window.uncertainty.downstreamSaturation > 0.5 && window.attribution.schemaVersion === 1 && window.attribution.configurationId && window.attribution.runways.length > 0 && /procedure|taxi congestion|gate readiness|downstream saturation/.test(window.confidenceReason)), 'rolling forecast did not expose bounded directional operational uncertainty and capacity attribution');
-assert(uncertainForecast.schemaVersion === 6 && Array.isArray(uncertainForecast.advisoryResponses), 'traffic flow snapshot did not advance its schema for capacity attribution');
+assert(uncertainForecast.schemaVersion === 7 && Array.isArray(uncertainForecast.advisoryResponses), 'traffic flow snapshot did not advance its schema for sequence optimization');
 assert(uncertainForecast.recommendations.length > 0 && uncertainForecast.recommendations.every((recommendation) => recommendation.advisoryOnly && recommendation.requiresCommandArbiter && recommendation.authority && /^review-(arrival|departure)-release$/.test(recommendation.action)), 'flow recommendations were not explicitly advisory-only');
 const advisory = uncertainForecast.recommendations[0];
 const advisoryEntries = advisory.direction === 'arrival' ? flow.arrivalQueue : flow.departureQueue;

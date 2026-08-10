@@ -218,6 +218,7 @@ import {
   trafficFlowSnapshot,
   type TrafficFlowSnapshot,
   type TrafficFlowResequenceMove,
+  type TrafficFlowSequenceCandidate,
 } from "./trafficFlowManagement";
 import { deriveTrafficFlowOperationalUncertainty } from "./trafficFlowUncertainty";
 import { deriveTrafficFlowCapacityAttribution } from "./trafficFlowCapacityAttribution";
@@ -1736,6 +1737,7 @@ export class AirportSimulation {
     direction: "arrival" | "departure",
     entryId: string,
     move: TrafficFlowResequenceMove,
+    expectedAdjacentEntryId?: string,
   ): boolean {
     if (this.state.mode !== "assisted" && this.state.mode !== "manual")
       return this.rejectDecision(
@@ -1755,6 +1757,8 @@ export class AirportSimulation {
       entryId,
       move,
       this.state.elapsed,
+      10,
+      expectedAdjacentEntryId,
     );
     this.decisionReason = result.reason;
     if (result.accepted) this.metrics.manualCommands += 1;
@@ -6227,6 +6231,75 @@ export class AirportSimulation {
       departureUncertainty: operationalUncertainty.departure,
       arrivalAttribution: capacityAttribution.arrival,
       departureAttribution: capacityAttribution.departure,
+      sequenceCandidates: this.trafficFlowSequenceCandidates(state),
+    });
+  }
+
+  private trafficFlowSequenceCandidates(
+    state: AirportState,
+  ): TrafficFlowSequenceCandidate[] {
+    const flights = new Map(state.flights.map((flight) => [flight.id, flight]));
+    return [
+      ...state.trafficFlow.arrivalQueue,
+      ...state.trafficFlow.departureQueue,
+    ].flatMap((entry) => {
+      const flight =
+        entry.flightId === undefined ? undefined : flights.get(entry.flightId);
+      if (!flight) return [];
+      const arrival = entry.direction === "arrival";
+      const activePhase = arrival
+        ? flight.phase === "approach" || flight.phase === "landing"
+        : flight.phase === "taxi-out" || flight.phase === "takeoff";
+      const phaseReadiness = arrival
+        ? flight.phase === "landing"
+          ? 1
+          : flight.phase === "approach"
+            ? 0.55 + flight.progress * 0.4
+            : 0.1
+        : flight.phase === "takeoff"
+          ? 1
+          : flight.phase === "taxi-out"
+            ? 0.5 + flight.progress * 0.45
+            : flight.phase === "resting" && flight.turnaround.status === "ready"
+              ? 0.4
+              : 0.1;
+      const blocker = arrival
+        ? flight.navigation.hold
+          ? `published hold at ${flight.navigation.hold.patternId}`
+          : flight.goAround
+            ? "go-around recovery"
+            : flight.diversion
+              ? "diversion"
+              : undefined
+        : flight.controlHold || flight.automaticHold || flight.safetyHold
+          ? (flight.safetyHoldReason ??
+            flight.automaticHoldReason ??
+            "surface hold")
+          : flight.phase === "resting" && flight.turnaround.status !== "ready"
+            ? "turnaround readiness"
+            : undefined;
+      const projectedTargetSeconds = activePhase
+        ? state.elapsed + Math.max(0, flight.duration - flight.phaseElapsed)
+        : Math.max(state.elapsed, entry.releaseSlotSeconds + 60);
+      const fuelUrgency = arrival
+        ? Math.max(0, Math.min(1, (30 - flight.kinematics.fuelPercent) / 20))
+        : 0;
+      const operationalUrgency =
+        (flight.emergency ? 1 : 0) +
+        (flight.navigation.hold ? 0.4 : 0) +
+        fuelUrgency;
+      return [
+        {
+          entryId: entry.id,
+          projectedTargetSeconds,
+          readiness: Math.max(
+            0,
+            Math.min(1, blocker ? phaseReadiness * 0.45 : phaseReadiness),
+          ),
+          urgency: Math.max(0, Math.min(1, operationalUrgency)),
+          ...(blocker ? { blocker } : {}),
+        },
+      ];
     });
   }
 

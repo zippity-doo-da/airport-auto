@@ -122,7 +122,7 @@ export function trafficFlowConstraint(reason: string): TrafficFlowConstraint {
 }
 
 export interface TrafficFlowSnapshot {
-  schemaVersion: 6;
+  schemaVersion: 7;
   density: ReturnType<typeof trafficDensityProfile>;
   objective: TrafficFlowObjectiveProfile;
   nextArrivalDemandInSeconds: number;
@@ -167,7 +167,10 @@ export interface TrafficFlowRecommendation {
   id: string;
   entryId: string;
   direction: "arrival" | "departure";
-  action: "review-arrival-release" | "review-departure-release";
+  action:
+    | "review-arrival-release"
+    | "review-departure-release"
+    | "resequence-earlier";
   priority: "routine" | "attention" | "urgent";
   flightId?: number;
   callsign?: string;
@@ -176,6 +179,19 @@ export interface TrafficFlowRecommendation {
   authority: "approach" | "tower";
   advisoryOnly: true;
   requiresCommandArbiter: true;
+  move?: TrafficFlowResequenceMove;
+  displacedEntryId?: string;
+  estimatedBenefitSeconds?: number;
+  objective?: TrafficFlowObjective;
+}
+
+/** Pure planning inputs projected from authoritative flight state. */
+export interface TrafficFlowSequenceCandidate {
+  entryId: string;
+  projectedTargetSeconds: number;
+  readiness: number;
+  urgency: number;
+  blocker?: string;
 }
 
 export interface TrafficFlowCapacityWindow {
@@ -240,6 +256,7 @@ export interface TrafficFlowForecastInput {
   departureUncertainty?: Partial<TrafficFlowUncertainty>;
   arrivalAttribution?: Partial<TrafficFlowCapacityAttribution>;
   departureAttribution?: Partial<TrafficFlowCapacityAttribution>;
+  sequenceCandidates?: TrafficFlowSequenceCandidate[];
 }
 
 export function createTrafficFlowState(
@@ -463,6 +480,7 @@ export function resequenceTrafficFlowEntry(
   move: TrafficFlowResequenceMove,
   nowSeconds: number,
   freezeSeconds = 10,
+  expectedAdjacentEntryId?: string,
 ): TrafficFlowResequenceResult {
   const queue =
     direction === "arrival" ? state.arrivalQueue : state.departureQueue;
@@ -480,6 +498,11 @@ export function resequenceTrafficFlowEntry(
     };
   const entry = queue[index];
   const neighbor = queue[targetIndex];
+  if (expectedAdjacentEntryId && neighbor.id !== expectedAdjacentEntryId)
+    return {
+      accepted: false,
+      reason: `${entryLabel(entry)} sequence changed before approval; expected ${expectedAdjacentEntryId} adjacent but found ${neighbor.id}`,
+    };
   const frozen = [entry, neighbor].find(
     (candidate) => candidate.releaseSlotSeconds <= nowSeconds + freezeSeconds,
   );
@@ -684,7 +707,12 @@ export function trafficFlowSnapshot(
       forecast.departureAttribution,
     ),
   ];
-  const recommendations = flowRecommendations(state, nowSeconds);
+  const recommendations = flowRecommendations(
+    state,
+    nowSeconds,
+    false,
+    forecast.sequenceCandidates,
+  );
   const advisoryResponses = (state.advisoryResponses ?? [])
     .slice(-12)
     .map((response) =>
@@ -698,7 +726,7 @@ export function trafficFlowSnapshot(
       ),
     );
   return {
-    schemaVersion: 6,
+    schemaVersion: 7,
     density: { ...density, assumptions: [...density.assumptions] },
     objective: { ...trafficFlowObjectiveProfile(state.objective) },
     nextArrivalDemandInSeconds: round(
@@ -830,6 +858,7 @@ function flowRecommendations(
   state: TrafficFlowState,
   nowSeconds: number,
   includeResponded = false,
+  sequenceCandidates: TrafficFlowSequenceCandidate[] = [],
 ): TrafficFlowRecommendation[] {
   const recommendations: TrafficFlowRecommendation[] = [];
   const arrival = state.arrivalQueue[0];
@@ -889,6 +918,15 @@ function flowRecommendations(
       requiresCommandArbiter: true,
     });
   }
+  for (const direction of ["arrival", "departure"] as const) {
+    const sequence = sequenceChangeRecommendation(
+      state,
+      direction,
+      nowSeconds,
+      sequenceCandidates,
+    );
+    if (sequence) recommendations.push(sequence);
+  }
   if (includeResponded) return recommendations;
   const responded = new Set(
     (state.advisoryResponses ?? []).map(
@@ -898,6 +936,129 @@ function flowRecommendations(
   return recommendations.filter(
     (recommendation) => !responded.has(recommendation.id),
   );
+}
+
+function sequenceChangeRecommendation(
+  state: TrafficFlowState,
+  direction: TrafficFlowEntry["direction"],
+  nowSeconds: number,
+  candidates: TrafficFlowSequenceCandidate[],
+): TrafficFlowRecommendation | null {
+  const queue =
+    direction === "arrival" ? state.arrivalQueue : state.departureQueue;
+  if (queue.length < 2 || candidates.length < 2) return null;
+  const candidateByEntry = new Map(
+    candidates.map((candidate) => [candidate.entryId, candidate]),
+  );
+  const objectiveProfile = trafficFlowObjectiveProfile(state.objective);
+  const directionalWeight =
+    state.objective === "minimum-holding"
+      ? direction === "arrival"
+        ? 1.35
+        : 0.75
+      : state.objective === "minimum-taxi-delay"
+        ? direction === "departure"
+          ? 1.35
+          : 0.75
+        : state.objective === "weather-recovery"
+          ? 1.15
+          : state.objective === "watch-calm"
+            ? 0.75
+            : 1;
+  const threshold = state.objective === "watch-calm" ? 40 : 20;
+  let best:
+    | {
+        entry: TrafficFlowEntry;
+        leader: TrafficFlowEntry;
+        benefit: number;
+        rationale: string;
+      }
+    | undefined;
+
+  for (let index = 1; index < Math.min(queue.length, 6); index += 1) {
+    const leader = queue[index - 1];
+    const entry = queue[index];
+    if (
+      leader.releaseSlotSeconds <= nowSeconds + 10 ||
+      entry.releaseSlotSeconds <= nowSeconds + 10
+    )
+      continue;
+    const leaderCandidate = candidateByEntry.get(leader.id);
+    const entryCandidate = candidateByEntry.get(entry.id);
+    if (!leaderCandidate || !entryCandidate || entryCandidate.readiness < 0.35)
+      continue;
+
+    const currentTimingCost =
+      Math.abs(
+        leaderCandidate.projectedTargetSeconds - leader.releaseSlotSeconds,
+      ) +
+      Math.abs(
+        entryCandidate.projectedTargetSeconds - entry.releaseSlotSeconds,
+      );
+    const swappedTimingCost =
+      Math.abs(
+        leaderCandidate.projectedTargetSeconds - entry.releaseSlotSeconds,
+      ) +
+      Math.abs(
+        entryCandidate.projectedTargetSeconds - leader.releaseSlotSeconds,
+      );
+    const timingBenefit = Math.max(0, currentTimingCost - swappedTimingCost);
+    const readinessBenefit = Math.max(
+      0,
+      (entryCandidate.readiness - leaderCandidate.readiness) * 60,
+    );
+    const urgencyBenefit = Math.max(
+      0,
+      (entryCandidate.urgency - leaderCandidate.urgency) * 45,
+    );
+    const blockedLeaderBenefit =
+      leaderCandidate.blocker && !entryCandidate.blocker ? 25 : 0;
+    const benefit =
+      (timingBenefit +
+        readinessBenefit +
+        urgencyBenefit +
+        blockedLeaderBenefit) *
+      directionalWeight;
+    if (benefit < threshold || (best && benefit <= best.benefit)) continue;
+
+    const reasons = [
+      `${entryLabel(entry)} is operationally ready ahead of ${entryLabel(leader)}`,
+      timingBenefit >= 1
+        ? `the adjacent swap reduces projected meter error by about ${Math.round(timingBenefit)} seconds`
+        : "the adjacent swap releases the more ready operation first",
+      leaderCandidate.blocker
+        ? `${entryLabel(leader)} remains constrained by ${leaderCandidate.blocker}`
+        : null,
+    ].filter((reason): reason is string => Boolean(reason));
+    best = {
+      entry,
+      leader,
+      benefit,
+      rationale: `${objectiveProfile.label}: ${reasons.join("; ")}. Approval rechecks the expected neighbor, release freeze, and station authority; any later movement still passes the clearance, reservation, wake, and runway-safety arbiters.`,
+    };
+  }
+
+  if (!best) return null;
+  return {
+    id: `sequence:${direction}:${best.entry.id}:${best.leader.id}`,
+    entryId: best.entry.id,
+    direction,
+    action: "resequence-earlier",
+    priority: best.benefit >= 70 ? "attention" : "routine",
+    ...(best.entry.flightId === undefined
+      ? {}
+      : { flightId: best.entry.flightId }),
+    ...(best.entry.callsign ? { callsign: best.entry.callsign } : {}),
+    targetSlotSeconds: best.leader.releaseSlotSeconds,
+    rationale: best.rationale,
+    authority: direction === "arrival" ? "approach" : "tower",
+    advisoryOnly: true,
+    requiresCommandArbiter: true,
+    move: "earlier",
+    displacedEntryId: best.leader.id,
+    estimatedBenefitSeconds: round(best.benefit),
+    objective: state.objective,
+  };
 }
 
 function advisoryResponseSnapshot(

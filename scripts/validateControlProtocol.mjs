@@ -34,7 +34,9 @@ assert(validateAirportControlCommand({ action: 'recoverTrafficFlowAdvisory', rec
 assert(validateAirportControlCommand({ action: 'setTrafficFlowForecastHorizon', seconds: 600 }).valid, 'traffic-flow forecast horizon command was rejected');
 assert(!validateAirportControlCommand({ action: 'setTrafficFlowForecastHorizon', seconds: 450 }).valid, 'unsupported traffic-flow forecast horizon was accepted');
 assert(validateAirportControlCommand({ action: 'resequenceTrafficFlow', direction: 'departure', entryId: 'DEP-2', move: 'earlier' }).valid, 'traffic-flow resequence command was rejected');
+assert(validateAirportControlCommand({ action: 'resequenceTrafficFlow', direction: 'departure', entryId: 'DEP-2', move: 'earlier', expectedAdjacentEntryId: 'DEP-1' }).valid, 'guarded traffic-flow resequence command was rejected');
 assert(!validateAirportControlCommand({ action: 'resequenceTrafficFlow', direction: 'departure', entryId: 'DEP-2', move: 'first' }).valid, 'unsupported traffic-flow resequence move was accepted');
+assert(!validateAirportControlCommand({ action: 'resequenceTrafficFlow', direction: 'departure', entryId: 'DEP-2', move: 'earlier', expectedAdjacentEntryId: 1 }).valid, 'non-string adjacent-entry guard was accepted');
 assert(validateAirportControlCommand({ action: 'setEnvironmentLightingMode', mode: 'automatic' }).valid, 'environment lighting command was rejected');
 assert(validateAirportControlCommand({ action: 'setEnvironmentSeasonMode', mode: 'winter' }).valid, 'environment season command was rejected');
 assert(validateAirportControlCommand({ action: 'applyAmbientProgram', id: 'quiet-overnight' }).valid, 'ambient program command was rejected');

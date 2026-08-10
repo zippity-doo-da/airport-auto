@@ -151,6 +151,7 @@ export interface AirportControlCommandParameters {
     direction: "arrival" | "departure";
     entryId: string;
     move: "earlier" | "later";
+    expectedAdjacentEntryId?: string;
   };
   ignoreTrafficFlowAdvisory: { recommendationId: string };
   recoverTrafficFlowAdvisory: { recommendationId: string };
@@ -1300,8 +1301,12 @@ const COMMAND_SPECS = {
       ]),
       entryId: stringSchema("Active traffic-flow entry ID."),
       move: stringSchema("Adjacent sequence change.", ["earlier", "later"]),
+      expectedAdjacentEntryId: stringSchema(
+        "Optional adjacent entry expected by a rendered optimizer recommendation; a mismatch fails closed.",
+      ),
     },
     { direction: "departure", entryId: "DEP-2", move: "earlier" },
+    { optionalParameters: ["expectedAdjacentEntryId"] },
   ),
   ignoreTrafficFlowAdvisory: command(
     "operations",

@@ -386,20 +386,49 @@ function renderCapacitySummary(
       return row;
     }),
   );
-  const advisory = flow.recommendations.slice(0, 3).map((recommendation) => {
+  const visibleRecommendations = [...flow.recommendations]
+    .sort(
+      (first, second) =>
+        Number(second.action === "resequence-earlier") -
+        Number(first.action === "resequence-earlier"),
+    )
+    .slice(0, 4);
+  const advisory = visibleRecommendations.map((recommendation) => {
     const row = document.createElement("div");
     row.className =
       "queue-panel__capacity-row queue-panel__capacity-row--advisory";
     row.dataset.direction =
       recommendation.direction === "arrival" ? "arr" : "dep";
     row.dataset.priority = recommendation.priority;
+    const isSequenceChange = recommendation.action === "resequence-earlier";
     const heading = document.createElement("b");
-    heading.textContent = `${recommendation.authority.toUpperCase()} · ${recommendation.callsign ?? recommendation.direction} · review slot`;
+    heading.textContent = `${recommendation.authority.toUpperCase()} · ${recommendation.callsign ?? recommendation.direction} · ${isSequenceChange ? "move earlier" : "review slot"}`;
     const detail = document.createElement("small");
-    detail.textContent = `${recommendation.priority} · advisory only · ignoring does not change score`;
+    detail.textContent = isSequenceChange
+      ? `${recommendation.priority} · ${Math.round(recommendation.estimatedBenefitSeconds ?? 0)}s modeled benefit · approval rechecks sequence`
+      : `${recommendation.priority} · advisory only · ignoring does not change score`;
     detail.title = recommendation.rationale;
     row.append(heading, detail);
-    if (interactions.canIgnore) {
+    const canApproveSequence =
+      isSequenceChange &&
+      (recommendation.direction === "arrival"
+        ? interactions.canResequenceArrival
+        : interactions.canResequenceDeparture);
+    if (canApproveSequence) {
+      const actions = document.createElement("span");
+      actions.className = "queue-panel__advisory-actions";
+      const approve = document.createElement("button");
+      approve.type = "button";
+      approve.dataset.flowResequence = recommendation.move ?? "earlier";
+      approve.dataset.flowDirection = recommendation.direction;
+      approve.dataset.flowEntryId = recommendation.entryId;
+      if (recommendation.displacedEntryId)
+        approve.dataset.flowExpectedAdjacent = recommendation.displacedEntryId;
+      approve.textContent = "Approve swap";
+      approve.title = recommendation.rationale;
+      actions.append(approve);
+      row.append(actions);
+    } else if (!isSequenceChange && interactions.canIgnore) {
       const actions = document.createElement("span");
       actions.className = "queue-panel__advisory-actions";
       const ignore = document.createElement("button");

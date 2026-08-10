@@ -256,10 +256,14 @@ airportControl.request({
   direction: "departure", // "arrival" | "departure"
   entryId: airportControl.snapshot().trafficManagement.departureQueue[1].id,
   move: "earlier", // "earlier" | "later"
+  expectedAdjacentEntryId:
+    airportControl.snapshot().trafficManagement.departureQueue[0].id, // optional stale-view guard
 });
 ```
 
 Approach owns arrival changes, Tower owns departure changes, and Supervisor may change either queue. The selected entry trades its adjacent neighbor's release-slot envelope and meter target; both entries receive signed `schedule` revisions explaining the move. The arbiter rejects moves past a queue boundary or involving a slot within the ten-second release freeze. Resequencing never grants a clearance, changes a reservation, or moves an aircraft. Auto and Watch reject human sequence changes.
+
+Traffic-flow snapshot schema 7 can also include a `resequence-earlier` recommendation. The pure bank evaluator compares the first six entries using authoritative projected target time, operational readiness, urgency, active blockers, and the selected flow objective. It emits at most one adjacent recommendation per direction, gives the displaced entry and bounded modeled benefit, and favors arrivals under Minimum Holding or departures under Minimum Taxi Delay. Watch / Calm requires a larger benefit. The Queue inspector places these recommendations ahead of routine slot reviews and offers **Approve swap** only to the owning Approach/Tower station or Supervisor. Optimizer approval includes `expectedAdjacentEntryId`; if the queue changed after render, the ordinary `resequenceTrafficFlow` command fails closed instead of displacing a different operation.
 
 Flight commands:
 
