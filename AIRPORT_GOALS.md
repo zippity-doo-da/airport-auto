@@ -516,8 +516,10 @@ factor, not an unexplained confidence reduction.
   changes that satisfy target times through existing legal commands. Assisted
   mode now maps authoritative runway-threshold error into bounded slow, speed,
   timed-hold, vector, and direct-to proposals. Each proposal carries its target,
-  estimate, tolerance, and early/on-time/late state; sequence amendment remains
-  open.
+  estimate, tolerance, and early/on-time/late state. Approach and Supervisor can
+  now move a non-imminent arrival one adjacent slot earlier or later through the
+  Queue inspector or typed API, with signed revisions for both affected slots.
+  Automatic sequence-change recommendations remain open.
 - [~] Give Tower a runway-ready sequence that respects wake, runway occupancy,
   crossing queues, configuration transitions, and departure-release windows.
   Assisted Tower now offers only the next physically releasable line-up or
@@ -526,8 +528,11 @@ factor, not an unexplained confidence reduction.
   envelope. Each proposal now also reports the authoritative planned departure
   release window and queue position, so a controller can distinguish “safe now”
   from “safe but metered.” Releasable line-up and takeoff proposals now carry
-  their authoritative departure-release target and timing state; more explicit
-  departure resequencing remains open.
+  their authoritative departure-release target and timing state. Tower and
+  Supervisor can now make the same bounded adjacent change in the departure
+  queue. The ten-second release freeze prevents last-second swaps, and sequence
+  changes cannot grant clearance, reserve pavement, or alter aircraft motion.
+  Bank-level sequence optimization remains open.
 - [~] Explain every slot movement: weather, missed approach, gate pressure,
   runway closure, aircraft performance, wake, or downstream saturation.
   The queue meter now labels the latest authoritative reason with a stable

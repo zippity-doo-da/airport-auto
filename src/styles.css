@@ -5122,6 +5122,34 @@ body.capture-clean #capture-clean-exit {
   color: rgba(188, 232, 216, 0.76);
   font-weight: 800;
 }
+.queue-meter-slot__actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  margin-top: 3px;
+}
+.queue-meter-slot__actions button {
+  min-height: 28px;
+  border: 1px solid rgba(121, 200, 232, 0.34);
+  padding: 4px 6px;
+  color: var(--ivory);
+  background: rgba(121, 200, 232, 0.07);
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.queue-meter-slot__actions button:hover,
+.queue-meter-slot__actions button:focus-visible {
+  border-color: var(--amber);
+  color: var(--ink);
+  background: var(--amber);
+}
+.queue-meter-slot__actions button:disabled {
+  opacity: 0.34;
+  cursor: not-allowed;
+}
 .queue-panel > label {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

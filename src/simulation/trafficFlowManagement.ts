@@ -442,6 +442,74 @@ export function setTrafficFlowForecastHorizon(
   state.forecastHorizonSeconds = seconds;
 }
 
+export type TrafficFlowResequenceMove = "earlier" | "later";
+
+export interface TrafficFlowResequenceResult {
+  accepted: boolean;
+  reason: string;
+  movedEntryId?: string;
+  displacedEntryId?: string;
+}
+
+/**
+ * Exchanges one entry with its immediate neighbor and transfers the complete
+ * slot envelope through the normal revision path. This changes schedule order
+ * only: it grants no clearance, reserves no resource, and moves no aircraft.
+ */
+export function resequenceTrafficFlowEntry(
+  state: TrafficFlowState,
+  direction: TrafficFlowEntry["direction"],
+  entryId: string,
+  move: TrafficFlowResequenceMove,
+  nowSeconds: number,
+  freezeSeconds = 10,
+): TrafficFlowResequenceResult {
+  const queue =
+    direction === "arrival" ? state.arrivalQueue : state.departureQueue;
+  const index = queue.findIndex((entry) => entry.id === entryId);
+  if (index < 0)
+    return {
+      accepted: false,
+      reason: `${direction} meter entry is no longer active`,
+    };
+  const targetIndex = index + (move === "earlier" ? -1 : 1);
+  if (targetIndex < 0 || targetIndex >= queue.length)
+    return {
+      accepted: false,
+      reason: `${entryLabel(queue[index])} is already ${move === "earlier" ? "first" : "last"} in the ${direction} sequence`,
+    };
+  const entry = queue[index];
+  const neighbor = queue[targetIndex];
+  const frozen = [entry, neighbor].find(
+    (candidate) => candidate.releaseSlotSeconds <= nowSeconds + freezeSeconds,
+  );
+  if (frozen)
+    return {
+      accepted: false,
+      reason: `${entryLabel(frozen)} is inside the ${freezeSeconds}-second release freeze; use tactical clearances or wait for release`,
+    };
+
+  const entrySlot = entry.releaseSlotSeconds;
+  const neighborSlot = neighbor.releaseSlotSeconds;
+  queue[index] = neighbor;
+  queue[targetIndex] = entry;
+  const movedReason = `${direction} sequence revised: ${entryLabel(entry)} moved ${move} ${entryLabel(neighbor)}`;
+  const displacedReason = `${direction} sequence revised: ${entryLabel(neighbor)} moved ${move === "earlier" ? "later behind" : "earlier ahead of"} ${entryLabel(entry)}`;
+  entry.reason = movedReason;
+  entry.updatedAtSeconds = nowSeconds;
+  neighbor.reason = displacedReason;
+  neighbor.updatedAtSeconds = nowSeconds;
+  reviseSlot(entry, nowSeconds, neighborSlot, movedReason, true);
+  reviseSlot(neighbor, nowSeconds, entrySlot, displacedReason, true);
+  refreshTrafficFlow(state, nowSeconds);
+  return {
+    accepted: true,
+    reason: `${entryLabel(entry)} moved ${move}; ${entryLabel(neighbor)} now follows in the ${direction} sequence`,
+    movedEntryId: entry.id,
+    displacedEntryId: neighbor.id,
+  };
+}
+
 export function releaseArrivalDemand(
   state: TrafficFlowState,
   entry: TrafficFlowEntry,
@@ -1167,8 +1235,13 @@ function reviseSlot(
   nowSeconds: number,
   releaseSlotSeconds: number,
   reason: string,
+  forceRevision = false,
 ): void {
-  if (Math.abs(entry.releaseSlotSeconds - releaseSlotSeconds) < 1e-6) return;
+  if (
+    !forceRevision &&
+    Math.abs(entry.releaseSlotSeconds - releaseSlotSeconds) < 1e-6
+  )
+    return;
   const shiftSeconds = releaseSlotSeconds - entry.releaseSlotSeconds;
   entry.releaseSlotSeconds = releaseSlotSeconds;
   for (const target of entry.meterTargets ?? [])
@@ -1187,6 +1260,10 @@ function reviseSlot(
       entry.slotRevisions.length - MAX_SLOT_REVISIONS,
     );
   }
+}
+
+function entryLabel(entry: TrafficFlowEntry): string {
+  return entry.callsign ?? entry.id;
 }
 
 function round(value: number): number {

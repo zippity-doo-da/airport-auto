@@ -2508,6 +2508,35 @@ queueCapacity.addEventListener("click", (event) => {
   renderQueueInspector();
 });
 
+queueMeter.addEventListener("click", (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
+    "button[data-flow-resequence]",
+  );
+  if (!button) return;
+  const direction = button.dataset.flowDirection;
+  const move = button.dataset.flowResequence;
+  const entryId = button.dataset.flowEntryId ?? "";
+  if (
+    (direction !== "arrival" && direction !== "departure") ||
+    (move !== "earlier" && move !== "later") ||
+    !entryId
+  )
+    return;
+  const result = executeAirportRequest({
+    action: "resequenceTrafficFlow",
+    direction,
+    entryId,
+    move,
+  });
+  setStatus(
+    result.accepted ? "Flow sequence revised" : "Resequence refused",
+    result.reason,
+    result.accepted ? "operational" : "warning",
+  );
+  queueInspectorUiKey = "";
+  renderQueueInspector();
+});
+
 queueList.addEventListener("click", (event) => {
   const row = (event.target as HTMLElement).closest<HTMLElement>(
     "[data-queue-focus]",
@@ -7683,6 +7712,16 @@ function renderQueueInspector(): void {
       canRecover:
         simulation.state.mode === "manual" &&
         simulation.state.station === "supervisor",
+      canResequenceArrival:
+        (simulation.state.mode === "manual" ||
+          simulation.state.mode === "assisted") &&
+        (simulation.state.station === "supervisor" ||
+          simulation.state.station === "approach"),
+      canResequenceDeparture:
+        (simulation.state.mode === "manual" ||
+          simulation.state.mode === "assisted") &&
+        (simulation.state.station === "supervisor" ||
+          simulation.state.station === "tower"),
     },
   );
 }
@@ -10380,6 +10419,23 @@ function executeAirportRequest(
       ? simulation.lastCommandReason()
       : "traffic-flow forecast horizon must be 300, 600, or 900 seconds";
   }
+  if (command.action === "resequenceTrafficFlow") {
+    const validDirection =
+      command.direction === "arrival" || command.direction === "departure";
+    const validMove = command.move === "earlier" || command.move === "later";
+    accepted =
+      validDirection &&
+      validMove &&
+      simulation.resequenceTrafficFlow(
+        command.direction,
+        command.entryId,
+        command.move,
+      );
+    reason =
+      validDirection && validMove
+        ? simulation.lastCommandReason()
+        : "traffic resequence requires arrival/departure and earlier/later";
+  }
   if (command.action === "ignoreTrafficFlowAdvisory") {
     accepted = simulation.ignoreTrafficFlowAdvisory(command.recommendationId);
     reason = simulation.lastCommandReason();
@@ -10934,6 +10990,8 @@ window.airportControl = {
         "airportControl.command({ action: 'setScenario', scenario: 'rush' })",
       trafficDensity:
         "airportControl.command({ action: 'setTrafficDensity', density: 'busy' })",
+      trafficResequence:
+        "airportControl.request({ action: 'resequenceTrafficFlow', direction: 'departure', entryId: airportControl.snapshot().trafficManagement.departureQueue[1].id, move: 'earlier' }) // adjacent move; Approach owns arrivals, Tower owns departures, Supervisor owns both",
       separationRules:
         "airportControl.command({ action: 'setSeparationRuleset', ruleset: 'realistic' })",
       station:

@@ -24,6 +24,8 @@ export interface TrafficFlowMeterRow {
   label: string;
   slotInSeconds: number;
   delaySeconds: number;
+  position: number;
+  queueLength: number;
   revisionCount: number;
   constraintLabel: string;
   constraintCategory: string;
@@ -42,6 +44,8 @@ export interface TrafficFlowMeterRow {
 export interface TrafficFlowAdvisoryInteractions {
   canIgnore: boolean;
   canRecover: boolean;
+  canResequenceArrival: boolean;
+  canResequenceDeparture: boolean;
 }
 
 export function operationQueueRenderKey(
@@ -136,6 +140,8 @@ export function renderOperationQueueInspector(
   interactions: TrafficFlowAdvisoryInteractions = {
     canIgnore: false,
     canRecover: false,
+    canResequenceArrival: false,
+    canResequenceDeparture: false,
   },
 ): void {
   const entries =
@@ -147,7 +153,7 @@ export function renderOperationQueueInspector(
     snapshot.longestWaitSeconds > 0
       ? `Longest ${formatWait(snapshot.longestWaitSeconds)}`
       : "Flowing";
-  renderMeterPlan(elements, flow);
+  renderMeterPlan(elements, flow, interactions);
   renderCapacitySummary(elements.capacity, flow, interactions);
 
   if (!entries.length) {
@@ -202,10 +208,16 @@ export function trafficFlowMeterRows(
   flow: TrafficFlowSnapshot,
 ): TrafficFlowMeterRow[] {
   return [
-    ...flow.arrivalQueue.slice(0, 3).map((entry) => meterRow("arrival", entry)),
+    ...flow.arrivalQueue
+      .slice(0, 5)
+      .map((entry, index) =>
+        meterRow("arrival", entry, index, flow.arrivalQueue.length),
+      ),
     ...flow.departureQueue
-      .slice(0, 3)
-      .map((entry) => meterRow("departure", entry)),
+      .slice(0, 5)
+      .map((entry, index) =>
+        meterRow("departure", entry, index, flow.departureQueue.length),
+      ),
   ];
 }
 
@@ -235,6 +247,7 @@ function shortCategory(category: OperationQueueCategory): string {
 function renderMeterPlan(
   elements: QueueInspectorElements,
   flow: TrafficFlowSnapshot,
+  interactions: TrafficFlowAdvisoryInteractions,
 ): void {
   const rows = trafficFlowMeterRows(flow);
   if (!rows.length) {
@@ -284,6 +297,31 @@ function renderMeterPlan(
       )
       .join("\n");
     slot.append(label, timing, targets, reason);
+    const canResequence =
+      row.direction === "arrival"
+        ? interactions.canResequenceArrival
+        : interactions.canResequenceDeparture;
+    if (canResequence && row.queueLength > 1) {
+      const actions = document.createElement("span");
+      actions.className = "queue-meter-slot__actions";
+      for (const move of ["earlier", "later"] as const) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.flowResequence = move;
+        button.dataset.flowDirection = row.direction;
+        button.dataset.flowEntryId = row.id;
+        button.textContent = move === "earlier" ? "Move earlier" : "Move later";
+        button.disabled =
+          move === "earlier"
+            ? row.position === 0
+            : row.position === row.queueLength - 1;
+        button.title = button.disabled
+          ? `${row.label} is already ${move === "earlier" ? "first" : "last"} in sequence.`
+          : `Exchange ${row.label} with the adjacent ${row.direction}; release freeze and station authority are rechecked on approval.`;
+        actions.append(button);
+      }
+      slot.append(actions);
+    }
     return slot;
   });
   elements.meter.replaceChildren(...slots);
@@ -413,6 +451,8 @@ function renderCapacitySummary(
 function meterRow(
   direction: TrafficFlowMeterRow["direction"],
   entry: TrafficFlowEntry,
+  position: number,
+  queueLength: number,
 ): TrafficFlowMeterRow {
   const constraint = trafficFlowConstraint(entry.reason);
   return {
@@ -421,6 +461,8 @@ function meterRow(
     label: entry.callsign ?? entry.id,
     slotInSeconds: slotInSeconds(entry),
     delaySeconds: entry.delaySeconds,
+    position,
+    queueLength,
     revisionCount: entry.slotRevisions.length,
     constraintLabel: constraint.label,
     constraintCategory: constraint.category,

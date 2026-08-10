@@ -147,6 +147,11 @@ export interface AirportControlCommandParameters {
   setTrafficFlowForecastHorizon: {
     seconds: TrafficFlowForecastHorizonSeconds;
   };
+  resequenceTrafficFlow: {
+    direction: "arrival" | "departure";
+    entryId: string;
+    move: "earlier" | "later";
+  };
   ignoreTrafficFlowAdvisory: { recommendationId: string };
   recoverTrafficFlowAdvisory: { recommendationId: string };
   setSeparationRuleset: { ruleset: SeparationRulesetId };
@@ -1284,14 +1289,26 @@ const COMMAND_SPECS = {
     },
     { seconds: 600 },
   ),
+  resequenceTrafficFlow: command(
+    "operations",
+    "Move one active arrival or departure meter entry by one adjacent position. The command revises schedule slots only and grants no movement clearance.",
+    AUTHORITY.session,
+    {
+      direction: stringSchema("Traffic-flow direction.", [
+        "arrival",
+        "departure",
+      ]),
+      entryId: stringSchema("Active traffic-flow entry ID."),
+      move: stringSchema("Adjacent sequence change.", ["earlier", "later"]),
+    },
+    { direction: "departure", entryId: "DEP-2", move: "earlier" },
+  ),
   ignoreTrafficFlowAdvisory: command(
     "operations",
     "Explicitly ignore one active Manual flow advisory while retaining visible delay, fuel, and queue consequences.",
     AUTHORITY.session,
     {
-      recommendationId: stringSchema(
-        "Active traffic-flow recommendation ID.",
-      ),
+      recommendationId: stringSchema("Active traffic-flow recommendation ID."),
     },
     { recommendationId: "arrival:ARR-1:review" },
   ),

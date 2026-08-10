@@ -204,6 +204,7 @@ import {
   markArrivalHolding,
   refreshTrafficFlow,
   recoverTrafficFlowRecommendation,
+  resequenceTrafficFlowEntry,
   registerDepartureDemand,
   releaseArrivalDemand,
   releaseDepartureDemand,
@@ -216,6 +217,7 @@ import {
   trafficFlowObjectiveProfile,
   trafficFlowSnapshot,
   type TrafficFlowSnapshot,
+  type TrafficFlowResequenceMove,
 } from "./trafficFlowManagement";
 import { deriveTrafficFlowOperationalUncertainty } from "./trafficFlowUncertainty";
 import { deriveTrafficFlowCapacityAttribution } from "./trafficFlowCapacityAttribution";
@@ -1728,6 +1730,35 @@ export class AirportSimulation {
     setTrafficFlowForecastHorizon(this.state.trafficFlow, seconds);
     this.decisionReason = `${seconds / 60}-minute traffic-flow forecast active`;
     return true;
+  }
+
+  resequenceTrafficFlow(
+    direction: "arrival" | "departure",
+    entryId: string,
+    move: TrafficFlowResequenceMove,
+  ): boolean {
+    if (this.state.mode !== "assisted" && this.state.mode !== "manual")
+      return this.rejectDecision(
+        "traffic resequencing is available only in Assisted or Manual control",
+      );
+    const requiredStation = direction === "arrival" ? "approach" : "tower";
+    if (
+      this.state.station !== "supervisor" &&
+      this.state.station !== requiredStation
+    )
+      return this.rejectDecision(
+        `${this.state.station} station cannot resequence ${direction} flow; ${requiredStation} or supervisor authority is required`,
+      );
+    const result = resequenceTrafficFlowEntry(
+      this.state.trafficFlow,
+      direction,
+      entryId,
+      move,
+      this.state.elapsed,
+    );
+    this.decisionReason = result.reason;
+    if (result.accepted) this.metrics.manualCommands += 1;
+    return result.accepted;
   }
 
   ignoreTrafficFlowAdvisory(recommendationId: string): boolean {

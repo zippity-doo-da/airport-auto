@@ -13,6 +13,7 @@ import {
   ignoreTrafficFlowRecommendation,
   markArrivalHolding,
   recoverTrafficFlowRecommendation,
+  resequenceTrafficFlowEntry,
   registerDepartureDemand,
   releaseArrivalDemand,
   releaseDepartureDemand,
@@ -199,6 +200,30 @@ assert(slotB.releaseSlotSeconds >= slotA.releaseSlotSeconds + 6 && flow.departur
 registerDepartureDemand(flow, departureB, 11, 24, 6);
 assert(slotB.slotRevisions.length === 2 && slotB.slotRevisions.at(-1)?.reason === 'departure readiness revised', 'departure slot revision did not retain its cause');
 assert(slotB.meterTargets.length === 1 && slotB.meterTargets[0].kind === 'departure-release' && slotB.meterTargets[0].targetSeconds === slotB.releaseSlotSeconds, 'departure slot revision did not move its authoritative release target');
+
+const sequenceFlow = createTrafficFlowState('realistic', 0, 0);
+const sequenceFlights = [
+  { id: 31, callsign: 'SEQ 31', departureRunway: 2 },
+  { id: 32, callsign: 'SEQ 32', departureRunway: 2 },
+  { id: 33, callsign: 'SEQ 33', departureRunway: 2 },
+];
+const sequenceEntries = sequenceFlights.map((flight, index) => registerDepartureDemand(sequenceFlow, flight, 0, 30 + index * 10, 10));
+const originalSequenceSlots = sequenceEntries.map((entry) => entry.releaseSlotSeconds);
+const promoted = resequenceTrafficFlowEntry(sequenceFlow, 'departure', sequenceEntries[1].id, 'earlier', 0);
+assert(promoted.accepted && sequenceFlow.departureQueue.map((entry) => entry.id).join(',') === [sequenceEntries[1].id, sequenceEntries[0].id, sequenceEntries[2].id].join(','), 'adjacent departure resequence did not change authoritative queue order');
+assert(sequenceEntries[1].releaseSlotSeconds === originalSequenceSlots[0] && sequenceEntries[0].releaseSlotSeconds === originalSequenceSlots[1] && sequenceEntries[1].meterTargets[0].targetSeconds === originalSequenceSlots[0], 'resequence did not exchange the complete slot envelope');
+assert(sequenceEntries.slice(0, 2).every((entry) => entry.slotRevisions.at(-1)?.category === 'schedule' && entry.slotRevisions.at(-1)?.reason.includes('sequence revised')), 'resequence did not record both signed revision causes');
+const frozenSequence = JSON.stringify(sequenceFlow);
+const frozenResult = resequenceTrafficFlowEntry(sequenceFlow, 'departure', sequenceEntries[1].id, 'later', 25);
+assert(!frozenResult.accepted && frozenResult.reason.includes('release freeze') && JSON.stringify(sequenceFlow) === frozenSequence, 'imminent release freeze allowed or partially applied a resequence');
+
+const equalSlotFlow = createTrafficFlowState('realistic', 0, 0);
+equalSlotFlow.nextArrivalReleaseSeconds = 100;
+const equalFirst = enqueueArrivalDemand(equalSlotFlow, 0, 'equal-slot first');
+const equalSecond = enqueueArrivalDemand(equalSlotFlow, 0, 'equal-slot second');
+assert(equalFirst.releaseSlotSeconds === equalSecond.releaseSlotSeconds, 'equal-slot resequence fixture did not share a slot');
+assert(resequenceTrafficFlowEntry(equalSlotFlow, 'arrival', equalSecond.id, 'earlier', 0).accepted && equalSlotFlow.arrivalQueue[0] === equalSecond, 'equal-slot arrival order could not be revised');
+assert(equalFirst.slotRevisions.length === 2 && equalSecond.slotRevisions.length === 2 && equalFirst.slotRevisions.at(-1)?.releaseSlotSeconds === equalSecond.slotRevisions.at(-1)?.releaseSlotSeconds, 'equal-slot sequence change was not auditable');
 releaseDepartureDemand(flow, slotA, slotA.releaseSlotSeconds, 6);
 assert(flow.totals.departureReleases === 1 && flow.departureQueue[0] === slotB, 'departure release did not advance the queue');
 const meterSnapshot = trafficFlowSnapshot(flow, 20);
@@ -254,6 +279,24 @@ const metricsBeforeRecovery = JSON.stringify(objectiveSimulation.shiftMetrics())
 assert(objectiveSimulation.recoverTrafficFlowAdvisory(manualAdvisory.id), 'Supervisor could not recover an ignored flow advisory: ' + objectiveSimulation.lastCommandReason());
 assert(JSON.stringify(objectiveSimulation.shiftMetrics()) === metricsBeforeRecovery, 'recovering a flow advisory manipulated the score or shift metrics');
 assert(objectiveSimulation.state.trafficFlow.objective === (manualAdvisory.direction === 'arrival' ? 'minimum-holding' : 'minimum-taxi-delay'), 'flow-advisory recovery did not select the direction-appropriate scheduler objective');
+
+const resequenceSimulation = new AirportSimulation(ordConfig, 'quiet');
+resequenceSimulation.setMode('manual');
+resequenceSimulation.state.elapsed = 0;
+resequenceSimulation.state.trafficFlow.departureQueue = [];
+const resequenceFlights = resequenceSimulation.state.flights.slice(0, 2);
+assert(resequenceFlights.length === 2, 'station-authority resequence fixture needs two flights');
+const firstResequenceEntry = registerDepartureDemand(resequenceSimulation.state.trafficFlow, resequenceFlights[0], 0, 30, 10);
+const secondResequenceEntry = registerDepartureDemand(resequenceSimulation.state.trafficFlow, resequenceFlights[1], 0, 40, 10);
+const motionBeforeResequence = JSON.stringify(resequenceFlights.map((flight) => flight.motion));
+resequenceSimulation.setStation('ground');
+assert(!resequenceSimulation.resequenceTrafficFlow('departure', secondResequenceEntry.id, 'earlier'), 'Ground changed the Tower departure sequence');
+resequenceSimulation.setStation('tower');
+assert(resequenceSimulation.resequenceTrafficFlow('departure', secondResequenceEntry.id, 'earlier'), 'Tower could not promote a non-imminent departure slot: ' + resequenceSimulation.lastCommandReason());
+assert(resequenceSimulation.state.trafficFlow.departureQueue[0] === secondResequenceEntry && JSON.stringify(resequenceFlights.map((flight) => flight.motion)) === motionBeforeResequence, 'schedule resequence directly moved an aircraft');
+assert(!resequenceSimulation.resequenceTrafficFlow('arrival', firstResequenceEntry.id, 'earlier'), 'Tower changed the Approach arrival sequence');
+resequenceSimulation.setMode('auto');
+assert(!resequenceSimulation.resequenceTrafficFlow('departure', firstResequenceEntry.id, 'earlier'), 'Auto accepted a human schedule resequence');
 
 const balancedRelease = new AirportSimulation(ordConfig, 'quiet');
 balancedRelease.setMode('auto');

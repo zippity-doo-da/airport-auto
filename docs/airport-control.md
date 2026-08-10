@@ -248,6 +248,19 @@ airportControl.request({
 
 `snapshot().trafficManagement.forecastHorizonSeconds` reports the selection, and both capacity windows repeat it in `horizonSeconds`. Changing the horizon recalculates forecast demand, capacity, utilization, and confidence only; it does not revise existing slots or move aircraft.
 
+Assisted and Manual controllers can make a bounded adjacent sequence change from the Queue inspector or the typed API:
+
+```js
+airportControl.request({
+  action: "resequenceTrafficFlow",
+  direction: "departure", // "arrival" | "departure"
+  entryId: airportControl.snapshot().trafficManagement.departureQueue[1].id,
+  move: "earlier", // "earlier" | "later"
+});
+```
+
+Approach owns arrival changes, Tower owns departure changes, and Supervisor may change either queue. The selected entry trades its adjacent neighbor's release-slot envelope and meter target; both entries receive signed `schedule` revisions explaining the move. The arbiter rejects moves past a queue boundary or involving a slot within the ten-second release freeze. Resequencing never grants a clearance, changes a reservation, or moves an aircraft. Auto and Watch reject human sequence changes.
+
 Flight commands:
 
 ```js
