@@ -2878,6 +2878,7 @@ function frame(now: number): void {
     const routeClearanceEvent =
       event.type === "route-preview" ||
       event.type === "route-clearance-issued" ||
+      event.type === "route-clearance-delivered" ||
       event.type === "route-readback-accepted" ||
       event.type === "route-readback-rejected" ||
       event.type === "route-readback-timed-out" ||
@@ -3150,8 +3151,13 @@ function frame(now: number): void {
       );
     if (event.type === "route-clearance-issued")
       setStatus(
-        `${event.flight.callsign} route issued`,
-        event.detail ?? "readback pending",
+        `${event.flight.callsign} route sent`,
+        event.detail ?? "delivery confirmation pending",
+      );
+    if (event.type === "route-clearance-delivered")
+      setStatus(
+        `${event.flight.callsign} route delivered`,
+        event.detail ?? "pilot readback pending",
       );
     if (event.type === "route-readback-accepted")
       setStatus(
@@ -5734,6 +5740,7 @@ function renderFlightActions(): void {
       flight.phase === "approach" &&
       flight.progress < 0.62 &&
       (routeClearance?.status === "preview" ||
+        routeClearance?.status === "sent" ||
         routeClearance?.status === "pending-readback");
     if (routeWorkflowActive && routeClearance?.status === "preview") {
       add(
@@ -5754,7 +5761,8 @@ function renderFlightActions(): void {
       );
     } else if (
       routeWorkflowActive &&
-      routeClearance?.status === "pending-readback"
+      (routeClearance?.status === "sent" ||
+        routeClearance?.status === "pending-readback")
     ) {
       add(
         "route-cancel",
@@ -6071,6 +6079,8 @@ function createNavigationPanel(flight: Flight): HTMLElement {
     routeTitle.textContent =
       clearance.status === "preview"
         ? "Route preview"
+        : clearance.status === "sent"
+          ? "Sent route"
         : clearance.status === "pending-readback"
           ? "Issued route"
           : "Route clearance";
@@ -6089,7 +6099,8 @@ function createNavigationPanel(flight: Flight): HTMLElement {
     routeHeading.append(routeTitle, routeStatus);
     const routeMetrics = document.createElement("p");
     const responseWindowSeconds =
-      clearance.status === "pending-readback" &&
+      (clearance.status === "sent" ||
+        clearance.status === "pending-readback") &&
       clearance.issuedAtSeconds !== undefined &&
       clearance.readbackExpiresSeconds !== undefined
         ? Math.max(
@@ -6116,7 +6127,9 @@ function createNavigationPanel(flight: Flight): HTMLElement {
     routeDetail.textContent =
       clearance.warnings[0]?.detail ??
       clearance.reason ??
-      (clearance.status === "pending-readback"
+      (clearance.status === "sent"
+        ? "Transmission pending; the original route remains authoritative."
+        : clearance.status === "pending-readback"
         ? "Pilot readback pending; the original route remains authoritative."
         : "No forecast conflict inside the terminal look-ahead.");
     route.append(
@@ -6135,6 +6148,7 @@ function createNavigationPanel(flight: Flight): HTMLElement {
     !flight.goAround &&
     !flight.diversion &&
     clearance?.status !== "preview" &&
+    clearance?.status !== "sent" &&
     clearance?.status !== "pending-readback"
   ) {
     panel.append(createRouteEditor(flight));
@@ -10993,7 +11007,7 @@ window.airportControl = {
       validate:
         "airportControl.validate({ action: 'pause' }) // structural validation without execution",
       formalDispatch:
-        "airportControl.dispatch({ protocolVersion: '1.2.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.41.0', snapshotSchemaVersion: 43 }, command: { action: 'pause' } })",
+        "airportControl.dispatch({ protocolVersion: '1.2.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.41.0', snapshotSchemaVersion: 44 }, command: { action: 'pause' } })",
       liveData:
         "airportControl.liveData.snapshot() // redacted opt-in/cache/review state; credentials and raw feeds are never exposed",
       capture:

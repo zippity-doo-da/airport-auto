@@ -177,7 +177,7 @@ function procedureUncertainty(
     return (
       sum +
       Math.min(0.3, Math.max(0, flight.flightPlan.revision - 1) * 0.08) +
-      (readback === "pending-readback" || readback === "preview" ? 0.25 : 0) +
+      (readback === "sent" || readback === "pending-readback" || readback === "preview" ? 0.25 : 0) +
       (readback === "rejected" ? 0.35 : 0) +
       (flight.navigation.hold ? 0.2 : 0) +
       (flight.goAround ? 0.3 : 0)

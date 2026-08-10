@@ -14,6 +14,7 @@ export function digitalClearancePanelKey(
         message.id,
         message.status,
         message.detail,
+        message.deliveredAtSeconds,
         message.responseDueSeconds,
       ].join(":"),
     )

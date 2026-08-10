@@ -604,6 +604,7 @@ function compactDigitalClearance(value: unknown): JsonRecord | null {
     revision: value.revision ?? null,
     createdAtSeconds: value.createdAtSeconds ?? null,
     issuedAtSeconds: value.issuedAtSeconds ?? null,
+    deliveredAtSeconds: value.deliveredAtSeconds ?? null,
     responseDueSeconds: value.responseDueSeconds ?? null,
     respondedAtSeconds: value.respondedAtSeconds ?? null,
     expiresAtSeconds: value.expiresAtSeconds ?? null,

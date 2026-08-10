@@ -51,6 +51,7 @@ export const AIRPORT_DOMAIN_EVENT_TYPES = [
   "vector",
   "route-preview",
   "route-clearance-issued",
+  "route-clearance-delivered",
   "route-readback-accepted",
   "route-readback-rejected",
   "route-readback-timed-out",

@@ -50,7 +50,7 @@ export type { AirportDomainEventType } from "./eventTypes";
 
 export const CONTROL_PROTOCOL_VERSION = "1.2.0" as const;
 export const CONTROL_API_VERSION = "2.41.0" as const;
-export const CONTROL_SNAPSHOT_SCHEMA_VERSION = 43 as const;
+export const CONTROL_SNAPSHOT_SCHEMA_VERSION = 44 as const;
 export const CONTROL_REPLAY_SCHEMA_VERSION = 4 as const;
 export const CONTROL_BROADCAST_CHANNEL = "airport-auto" as const;
 

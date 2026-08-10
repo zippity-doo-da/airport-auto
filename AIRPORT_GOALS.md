@@ -665,10 +665,10 @@ fictional, not-for-navigation message set. Reference: [FAA Data Comm](https://ww
 The existing route-preview, issue, simulated readback, accept/reject, and
 supersession workflow now has a compact, optional **Digital clearances** panel.
 It is a versioned, read-only projection of that same authoritative workflow:
-route previews appear as Draft, pending pilot readbacks as Delivered, accepted
-messages as Wilco, rejected messages as Unable, and superseded/cancelled routes
-retain their result. It does not create a parallel command executor or claim
-real Data Comm behavior.
+route previews appear as Draft, newly transmitted routes as Sent, pending pilot
+readbacks as Delivered, accepted messages as Wilco, rejected messages as
+Unable, and superseded/cancelled routes retain their result. It does not create
+a parallel command executor or claim real Data Comm behavior.
 Selecting a message focuses its authoritative flight, bridging the inbox to the
 existing flight-strip route actions without silently issuing any instruction.
 The projection now also exposes active structured vector, hold, speed, and
@@ -702,22 +702,23 @@ whole package without leaving a partial route, altitude, or speed assignment.
 The page-local control protocol exposes the same bounded preview and issue
 commands, and the Digital Clearances panel projects one compound envelope rather
 than misleading duplicate component messages.
-Every newly issued route clearance now carries separate expected-response and
-hard-expiry times. The fixed-step lifecycle accepts a valid response before the
-boundary, but converts an unanswered package to authoritative **Timed Out**
-state at expiry, emits a typed timeout event, and rejects every late response.
-The route, altitude, and speed remain unchanged, and the controller may start a
-fresh revision. Snapshot schema 43, exact replay frames, remote projections,
-the selected-flight card, and the Data Comm panel preserve that distinction.
+Every newly issued route clearance now enters an authoritative **Sent** state
+with a deterministic delivery target before becoming **Delivered** and awaiting
+pilot readback. The fixed-step lifecycle records the actual delivery time,
+rejects premature responses, accepts a valid response before the hard boundary,
+and converts an unanswered or undelivered package to authoritative **Timed Out**
+state at expiry. It emits typed delivery and timeout events and rejects every
+late response. The route, altitude, and speed remain unchanged throughout
+transport and response staging, and the controller may start a fresh revision.
+Snapshot schema 44, exact replay frames, remote projections, the selected-flight
+card, and the Data Comm panel preserve those distinctions.
 
 ### Gameplay and UX
 
-- [~] Add a clearance inbox/outbox with Draft, Sent, Delivered, Wilco, Unable,
+- [x] Add a clearance inbox/outbox with Draft, Sent, Delivered, Wilco, Unable,
   Standby, Superseded, Timed Out, and Cancelled states. A compact panel
-  now exposes route-clearance Draft, Delivered, Wilco, Unable, Superseded,
-  Timed Out, and Cancelled states; structured surface messages supply Standby.
-  A distinct Sent transport stage and additional writable message categories
-  remain open.
+  now exposes the full route-clearance lifecycle, including a real fixed-step
+  Sent-to-Delivered transition; structured surface messages supply Standby.
 - [~] Build structured departure, route, altitude, speed, direct-to, hold,
   frequency, taxi, crossing, and revision messages from existing typed commands.
   Active vector, hold, speed, altitude, and route state now project as
@@ -759,21 +760,21 @@ the selected-flight card, and the Data Comm panel preserve that distinction.
 - [~] Define one versioned message envelope containing authority, command IDs,
   causal event IDs, content fields, delivery timing, response, and expiry.
   Version 2 projections now include these fields for every projected message;
-  route messages distinguish expected response from hard expiry and terminal
-  timeouts clear the live expiry while retaining response time. Causal
+  route messages distinguish delivery, expected response, hard expiry, and
+  terminal response timing. Causal
   references are deterministic flight/clearance identifiers until the full
   event-history export is added.
 - [x] Reuse staged pilot-response and route-readback behavior rather than adding
       a parallel command executor. Compound previews are route-clearance schema
-      2 records and use the existing issue, pending-readback, cancellation,
-      supersession, event, and deterministic pilot-response path.
+      2 records and use the existing Sent, delivery, pending-readback,
+      cancellation, supersession, event, and deterministic pilot-response path.
 - [~] Enforce one current data authority and deterministic handoff behavior.
-  A pending route readback now cancels with an explicit reason when the
-  aircraft's frequency ownership transfers, and the receiving desk cannot
-  accept a route issued by the prior authority. Route-only and atomic packages
-  now also expire at a hard fixed-step deadline and reject stale direct or
-  automatic responses. Other clearance kinds and full coordination coverage
-  remain open.
+  A sent transmission or pending route readback now cancels with an explicit
+  reason when the aircraft's frequency ownership transfers, and the receiving
+  desk cannot accept a route issued by the prior authority. Route-only and
+  atomic packages now also expire at a hard fixed-step deadline and reject
+  stale direct or automatic responses. Other clearance kinds and full
+  coordination coverage remain open.
 - [~] Include messages in replay, analytics, controller evaluation, and remote
   projections with free text excluded from shared exports. Replay frames
   and remote snapshots derive versioned messages from authoritative state;
@@ -794,9 +795,10 @@ the selected-flight card, and the Data Comm panel preserve that distinction.
   controls without opening developer telemetry. A coherent mixed
   digital/immediate clearance sequence remains open.
 - [~] Supersession, timeout, handoff, and rejection never apply stale commands.
-  Pending route readbacks are tested to cancel on a station transfer; route-only
-  and atomic packages are tested to time out without partial application and to
-  reject late direct acceptance. Non-route staged-message coverage remains open.
+  Sent transmissions and pending route readbacks are tested to cancel on a
+  station transfer; route-only and atomic packages are tested to time out
+  without partial application and to reject premature and late direct
+  acceptance. Non-route staged-message coverage remains open.
 - [~] Screen-reader and keyboard users can compose, inspect, send, and dismiss a
   clearance without losing flight-strip focus. Data Comm now restores the
   invoking control on close or Escape and exposes every message as a named,

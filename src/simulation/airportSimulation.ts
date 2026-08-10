@@ -342,6 +342,7 @@ const PHASE_DURATION: Record<FlightPhase, number> = {
 
 const HANDOFF_RESPONSE_SECONDS = 12;
 const HANDOFF_RETRY_SECONDS = 4;
+const ROUTE_DELIVERY_BASE_SECONDS = 0.3;
 const ROUTE_READBACK_VALIDITY_SECONDS = 8;
 
 function incidentResponsePhaseLabel(
@@ -3798,20 +3799,22 @@ export class AirportSimulation {
       this.state.station === "supervisor"
         ? flight.navigation.frequencyOwner
         : this.state.station;
-    const readbackDelay = 0.9 + (flight.id % 5) * 0.18;
+    const deliveryDelay = routeDeliveryDelaySeconds(flight);
+    const readbackDelay = deliveryDelay + 0.9 + (flight.id % 5) * 0.18;
     flight.navigation.routeClearance = {
       ...result.candidate.clearance,
-      status: "pending-readback",
+      status: "sent",
       issuedAtSeconds: this.state.elapsed,
+      deliveryDueSeconds: this.state.elapsed + deliveryDelay,
       readbackDueSeconds: this.state.elapsed + readbackDelay,
       readbackExpiresSeconds:
         this.state.elapsed + ROUTE_READBACK_VALIDITY_SECONDS,
       issuedBy: issuingStation,
-      reason: "atomic route package awaiting pilot readback",
+      reason: "atomic route package sent; delivery confirmation pending",
     };
-    flight.navigation.readbackStatus = "pending";
+    flight.navigation.readbackStatus = "sent";
     this.metrics.manualCommands += 1;
-    this.decisionReason = `${flight.callsign} atomic route package issued · readback pending`;
+    this.decisionReason = `${flight.callsign} atomic route package sent · delivery pending`;
     this.events.push({
       type: "route-clearance-issued",
       flight,
@@ -4023,20 +4026,22 @@ export class AirportSimulation {
       this.state.station === "supervisor"
         ? flight.navigation.frequencyOwner
         : this.state.station;
-    const readbackDelay = 0.9 + (flight.id % 5) * 0.18;
+    const deliveryDelay = routeDeliveryDelaySeconds(flight);
+    const readbackDelay = deliveryDelay + 0.9 + (flight.id % 5) * 0.18;
     flight.navigation.routeClearance = {
       ...candidate.clearance,
-      status: "pending-readback",
+      status: "sent",
       issuedAtSeconds: this.state.elapsed,
+      deliveryDueSeconds: this.state.elapsed + deliveryDelay,
       readbackDueSeconds: this.state.elapsed + readbackDelay,
       readbackExpiresSeconds:
         this.state.elapsed + ROUTE_READBACK_VALIDITY_SECONDS,
       issuedBy: issuingStation,
-      reason: "awaiting pilot readback",
+      reason: "route sent; delivery confirmation pending",
     };
-    flight.navigation.readbackStatus = "pending";
+    flight.navigation.readbackStatus = "sent";
     this.metrics.manualCommands += 1;
-    this.decisionReason = `${flight.callsign} route issued · readback pending`;
+    this.decisionReason = `${flight.callsign} route sent · delivery pending`;
     this.events.push({
       type: "route-clearance-issued",
       flight,
@@ -4058,6 +4063,21 @@ export class AirportSimulation {
         flight,
       );
     const pending = flight.navigation.routeClearance;
+    if (pending?.status === "sent") {
+      if (
+        pending.readbackExpiresSeconds !== undefined &&
+        this.state.elapsed + 1e-6 >= pending.readbackExpiresSeconds
+      )
+        return this.timeoutRouteReadback(
+          flight,
+          pending,
+          "route response arrived after the transmission deadline",
+        );
+      return this.rejectDecision(
+        `${flight.callsign} route message has not been delivered yet`,
+        flight,
+      );
+    }
     if (pending?.status !== "pending-readback") {
       return this.rejectDecision(
         `${flight.callsign} has no pending route readback`,
@@ -4102,6 +4122,7 @@ export class AirportSimulation {
     if (
       !clearance ||
       (clearance.status !== "preview" &&
+        clearance.status !== "sent" &&
         clearance.status !== "pending-readback")
     ) {
       return this.rejectDecision(
@@ -4125,6 +4146,7 @@ export class AirportSimulation {
     if (
       !clearance ||
       (clearance.status !== "preview" &&
+        clearance.status !== "sent" &&
         clearance.status !== "pending-readback")
     )
       return false;
@@ -4178,9 +4200,12 @@ export class AirportSimulation {
       );
       return null;
     }
-    if (flight.navigation.routeClearance?.status === "pending-readback") {
+    if (
+      flight.navigation.routeClearance?.status === "sent" ||
+      flight.navigation.routeClearance?.status === "pending-readback"
+    ) {
       this.rejectDecision(
-        "cancel or complete the pending route readback before issuing another amendment",
+        "cancel or complete the active route transmission before issuing another amendment",
         flight,
       );
       return null;
@@ -5545,7 +5570,11 @@ export class AirportSimulation {
   private updateRouteReadbacks(): void {
     for (const flight of this.state.flights) {
       const clearance = flight.navigation.routeClearance;
-      if (clearance?.status !== "pending-readback") continue;
+      if (
+        clearance?.status !== "sent" &&
+        clearance?.status !== "pending-readback"
+      )
+        continue;
       if (flight.navigation.frequencyOwner !== clearance.issuedBy) {
         this.supersedeActiveRouteClearance(
           flight,
@@ -5553,8 +5582,39 @@ export class AirportSimulation {
         );
         continue;
       }
-      const due = clearance.readbackDueSeconds ?? Infinity;
       const expires = clearance.readbackExpiresSeconds ?? Infinity;
+      if (clearance.status === "sent") {
+        if (this.state.elapsed + 1e-6 >= expires) {
+          this.timeoutRouteReadback(
+            flight,
+            clearance,
+            "route transmission expired before delivery confirmation",
+          );
+          continue;
+        }
+        if (
+          this.state.elapsed + 1e-6 >=
+          (clearance.deliveryDueSeconds ?? clearance.issuedAtSeconds ?? Infinity)
+        ) {
+          flight.navigation.routeClearance = {
+            ...clearance,
+            status: "pending-readback",
+            deliveredAtSeconds: this.state.elapsed,
+            reason: (clearance.supplements?.length ?? 0)
+              ? "atomic route package delivered; pilot readback pending"
+              : "route delivered; pilot readback pending",
+          };
+          flight.navigation.readbackStatus = "pending";
+          this.decisionReason = `${flight.callsign} route delivered · readback pending`;
+          this.events.push({
+            type: "route-clearance-delivered",
+            flight,
+            detail: this.decisionReason,
+          });
+        }
+        continue;
+      }
+      const due = clearance.readbackDueSeconds ?? Infinity;
       if (this.state.elapsed + 1e-6 >= due && due < expires) {
         this.resolveRouteReadback(flight);
         continue;
@@ -15673,4 +15733,8 @@ function supplementLabel(
   return supplement.kind === "altitude"
     ? `${supplement.altitudeFt.toLocaleString()} ft`
     : `${supplement.speedKts} kt`;
+}
+
+function routeDeliveryDelaySeconds(flight: Flight): number {
+  return ROUTE_DELIVERY_BASE_SECONDS + (flight.id % 4) * 0.08;
 }

@@ -201,7 +201,7 @@ test("Assisted ORD shift exposes proposals, station workload, and structured con
       requestId: "e2e-authority-rejection",
       source: "test",
       authority: { station: "tower", actorId: "tower-test-agent" },
-      expects: { apiVersion: "2.40.0", snapshotSchemaVersion: 43 },
+      expects: { apiVersion: "2.40.0", snapshotSchemaVersion: 44 },
       command: { action: "pause" },
     });
     const paused = window.airportControl.dispatch({
@@ -210,7 +210,7 @@ test("Assisted ORD shift exposes proposals, station workload, and structured con
       clientId: "playwright",
       source: "test",
       authority: { station: "supervisor", actorId: "supervisor-test-agent" },
-      expects: { apiVersion: "2.40.0", snapshotSchemaVersion: 43 },
+      expects: { apiVersion: "2.40.0", snapshotSchemaVersion: 44 },
       command: { action: "pause" },
     });
     const resumed = window.airportControl.dispatch({
@@ -320,7 +320,7 @@ test("Assisted ORD shift exposes proposals, station workload, and structured con
               clientId: "playwright-channel",
               source: "test",
               authority: { station: "supervisor" },
-              expects: { apiVersion: "2.40.0", snapshotSchemaVersion: 43 },
+              expects: { apiVersion: "2.40.0", snapshotSchemaVersion: 44 },
               command: { action: "setRadarVisible", enabled: false },
             },
           });
@@ -1330,7 +1330,7 @@ test("Assisted ORD shift exposes proposals, station workload, and structured con
     schemaVersion: 4,
     protocolVersion: "1.2.0",
     simulationVersion: "2.40.0",
-    snapshotSchemaVersion: 43,
+    snapshotSchemaVersion: 44,
     sessionId: expect.stringMatching(/^session-/),
   });
   expect(recording.seed).toBe(10_004);
@@ -1638,16 +1638,46 @@ test("Manual ORD supports live procedure control, ownership handoffs, and physic
   );
   expect(issuedRoute).toMatchObject({
     accepted: true,
-    reason: expect.stringContaining("readback pending"),
+    reason: expect.stringContaining("delivery pending"),
   });
   expect(
     issuedRoute.resultingState.flights.find(
       (flight) => flight.id === arrival!.id,
     )?.navigation,
   ).toMatchObject({
-    readbackStatus: "pending",
-    routeClearance: { status: "pending-readback" },
+    readbackStatus: "sent",
+    routeClearance: { status: "sent" },
   });
+  const prematureReadback = await page.evaluate(
+    (flightId) =>
+      window.airportControl.request({
+        action: "acceptRouteReadback",
+        flightId,
+      }),
+    arrival!.id,
+  );
+  expect(prematureReadback).toMatchObject({
+    accepted: false,
+    reason: expect.stringContaining("not been delivered"),
+  });
+  await page.evaluate(() =>
+    window.airportControl.request({ action: "resume" }),
+  );
+  await expect
+    .poll(() =>
+      page.evaluate(
+        (flightId) =>
+          window.airportControl
+            .snapshot()
+            .flights.find((flight) => flight.id === flightId)?.navigation
+            .routeClearance?.status,
+        arrival!.id,
+      ),
+    )
+    .toBe("pending-readback");
+  await page.evaluate(() =>
+    window.airportControl.request({ action: "pause" }),
+  );
   const acceptedRoute = await page.evaluate(
     (flightId) =>
       window.airportControl.request({
@@ -3843,7 +3873,7 @@ test("Replay inspector verifies, migrates, compares, imports, and shares exact s
   });
   expect(api.recording).toMatchObject({
     schemaVersion: 4,
-    snapshotSchemaVersion: 43,
+    snapshotSchemaVersion: 44,
     fixedStepSeconds: 0.05,
     frames: expect.any(Number),
     markers: expect.any(Number),
@@ -4045,7 +4075,7 @@ test("Controller policies expose capacity, preserve safety authority, and surviv
       requestId: "policy-supervisor-change",
       source: "test",
       authority: { station: "supervisor", actorId: "supervisor-policy-test" },
-      expects: { apiVersion: "2.40.0", snapshotSchemaVersion: 43 },
+      expects: { apiVersion: "2.40.0", snapshotSchemaVersion: 44 },
       command: { action: "setControllerPolicyPreset", preset: "efficient" },
     });
   });

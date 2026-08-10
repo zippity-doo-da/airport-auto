@@ -47,14 +47,18 @@ flight.surfaceRoute = undefined;
 flight.requiredCrossings = [];
 flight.crossingClearances = [];
 flight.navigation.routeClearance = {
-  schemaVersion: 2, revision: 4, status: 'pending-readback', routeFixIds: ['FIX-A', 'FIX-B'], routeFixNames: ['NORTH', 'LAKE'], previousRouteFixIds: ['OLD'], supplements: [], safeguards: [],
-  previewedAtSeconds: 3, issuedAtSeconds: 4, readbackDueSeconds: 6, readbackExpiresSeconds: 12, issuedBy: 'approach', distanceNm: 18, estimatedSeconds: 440, initialTurnDegrees: 14, safeToIssue: true, warnings: [], reason: 'awaiting pilot readback',
+  schemaVersion: 2, revision: 4, status: 'sent', routeFixIds: ['FIX-A', 'FIX-B'], routeFixNames: ['NORTH', 'LAKE'], previousRouteFixIds: ['OLD'], supplements: [], safeguards: [],
+  previewedAtSeconds: 3, issuedAtSeconds: 4, deliveryDueSeconds: 5, readbackDueSeconds: 6, readbackExpiresSeconds: 12, issuedBy: 'approach', distanceNm: 18, estimatedSeconds: 440, initialTurnDegrees: 14, safeToIssue: true, warnings: [], reason: 'delivery pending',
 };
 snapshot = digitalClearanceSnapshot(simulation.state);
-const message = snapshot.messages[0];
+let message = snapshot.messages[0];
+assert(message?.status === 'sent' && message.expiresAtSeconds === 12, 'route transmission did not project as Sent');
+flight.navigation.routeClearance = { ...flight.navigation.routeClearance, status: 'pending-readback', deliveredAtSeconds: 5, reason: 'awaiting pilot readback' };
+snapshot = digitalClearanceSnapshot(simulation.state);
+message = snapshot.messages[0];
 assert(snapshot.schemaVersion === 2 && message?.status === 'delivered' && message.route.join('>') === 'NORTH>LAKE', 'pending readback did not project as a delivered route message');
 assert(message.commandId === 'cmd:route:' + flight.id + ':4' && message.causalEventIds.length === 2, 'clearance envelope identity or causality is not deterministic');
-assert(message.expiresAtSeconds === 12 && message.response.status === 'delivered' && message.response.dueSeconds === 6, 'pending readback envelope timing or response is incomplete');
+assert(message.expiresAtSeconds === 12 && message.deliveredAtSeconds === 5 && message.response.status === 'delivered' && message.response.deliveredAtSeconds === 5 && message.response.dueSeconds === 6, 'pending readback envelope timing or response is incomplete');
 message.route[0] = 'MUTATED';
 assert(flight.navigation.routeClearance.routeFixNames[0] === 'NORTH', 'digital-clearance snapshot shared route references with state');
 flight.navigation.frequencyOwner = 'tower';

@@ -956,6 +956,7 @@ export interface FlightHoldingClearance {
 
 export type FlightRouteClearanceStatus =
   | "preview"
+  | "sent"
   | "pending-readback"
   | "accepted"
   | "rejected"
@@ -980,8 +981,8 @@ export type FlightRouteClearanceSupplement =
 
 /**
  * A non-authoritative route proposal until its simulated pilot readback is
- * accepted. The currently flown route remains unchanged during preview and
- * pending-readback states.
+ * accepted. The currently flown route remains unchanged during preview, sent,
+ * and pending-readback states.
  */
 export interface FlightRouteClearanceState {
   schemaVersion: 1 | 2;
@@ -992,6 +993,10 @@ export interface FlightRouteClearanceState {
   previousRouteFixIds: string[];
   previewedAtSeconds: number;
   issuedAtSeconds?: number;
+  /** Expected acknowledgement that the data-link message reached the flight. */
+  deliveryDueSeconds?: number;
+  /** Actual fixed-step delivery time. */
+  deliveredAtSeconds?: number;
   /** Expected automatic pilot response time. */
   readbackDueSeconds?: number;
   /** Hard validity boundary; a response at or after this time cannot apply. */
@@ -1030,6 +1035,7 @@ export interface FlightNavigationState {
   handoff?: FlightHandoffState;
   readbackStatus:
     | "not-required"
+    | "sent"
     | "pending"
     | "accepted"
     | "rejected"

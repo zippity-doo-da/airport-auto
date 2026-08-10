@@ -240,7 +240,7 @@ function updateRoutePreviews(
       ...fixes.map((fix) => new THREE.Vector3(fix.position[0], fix.position[1], 0.96)),
     ];
     const blocking = clearance.warnings.some((warning) => warning.severity === 'blocking');
-    const style = blocking ? 'blocking' : clearance.status === 'pending-readback' ? 'pending' : clearance.warnings.length ? 'warning' : 'safe';
+    const style = blocking ? 'blocking' : clearance.status === 'sent' || clearance.status === 'pending-readback' ? 'pending' : clearance.warnings.length ? 'warning' : 'safe';
     const color = style === 'blocking' ? 0xef765f : style === 'safe' ? 0x8ed1dc : 0xefc775;
     let visual = visuals.get(flight.id);
     if (!visual || visual.userData.style !== style) {
@@ -452,7 +452,7 @@ function isAirborne(flight: Flight): boolean {
 
 function hasRoutePreview(flight: Flight): boolean {
   const status = flight.navigation.routeClearance?.status;
-  return isAirborne(flight) && (status === 'preview' || status === 'pending-readback');
+  return isAirborne(flight) && (status === 'preview' || status === 'sent' || status === 'pending-readback');
 }
 
 function disposeObject(object: THREE.Object3D): void {

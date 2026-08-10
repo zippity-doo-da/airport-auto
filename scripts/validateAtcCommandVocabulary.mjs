@@ -55,7 +55,6 @@ routeFlight.diversion = undefined;
 routeFlight.navigation.hold = undefined;
 routeFlight.navigation.frequencyOwner = 'approach';
 syncFlightMotion(routeFixture.config, routeFlight);
-const routeStart = { ...routeFlight.motion };
 const procedure = routeFixture.config.airspaceProgram.procedures.find((candidate) => candidate.id === routeFlight.navigation.procedureId);
 assert(procedure?.kind === 'STAR', 'arrival lost its assigned STAR');
 const amendedFixIds = Array.from({ length: Math.max(1, procedure.commonFixIds.length - 2) }, (_, index) => procedure.commonFixIds.slice(index))
@@ -75,8 +74,17 @@ assert(routeFlight.navigation.routeClearance?.status === 'preview', 'route previ
 assert(routeFlight.navigation.routeClearance.safeToIssue && routeFlight.navigation.routeClearance.warnings.length === 0, 'isolated route preview unexpectedly reported a conflict: ' + JSON.stringify(routeFlight.navigation.routeClearance.warnings));
 assert(routeFlight.navigation.routeFixIds.join(',') === originalRoute, 'route preview mutated the authoritative route');
 assert(routeFixture.simulation.issueFlightRoute(routeFlight.id), 'safe route preview could not be issued: ' + routeFixture.simulation.lastCommandReason());
-assert(routeFlight.navigation.routeClearance?.status === 'pending-readback' && routeFlight.navigation.readbackStatus === 'pending', 'issued route did not enter pending-readback state');
-assert(routeFlight.navigation.routeFixIds.join(',') === originalRoute, 'pending readback mutated the authoritative route');
+assert(routeFlight.navigation.routeClearance?.status === 'sent' && routeFlight.navigation.readbackStatus === 'sent', 'issued route skipped the Sent transport state');
+assert(routeFlight.navigation.routeClearance.deliveryDueSeconds > routeFlight.navigation.routeClearance.issuedAtSeconds, 'sent route omitted its delivery target');
+assert(routeFlight.navigation.routeFixIds.join(',') === originalRoute, 'sent route mutated the authoritative route');
+assert(!routeFixture.simulation.acceptRouteReadback(routeFlight.id), 'a route readback was accepted before delivery');
+assert(routeFixture.simulation.lastCommandReason().includes('not been delivered'), 'pre-delivery readback rejection was not explicit');
+for (let tick = 0; tick < 10 && routeFlight.navigation.routeClearance?.status === 'sent'; tick += 1) routeFixture.simulation.update(0.1);
+assert(routeFlight.navigation.routeClearance?.status === 'pending-readback' && routeFlight.navigation.readbackStatus === 'pending', 'sent route did not enter Delivered/pending-readback state');
+assert(routeFlight.navigation.routeClearance.deliveredAtSeconds >= routeFlight.navigation.routeClearance.deliveryDueSeconds, 'delivery transition omitted its authoritative time');
+assert(routeFixture.simulation.drainEvents().some((event) => event.type === 'route-clearance-delivered'), 'delivery transition omitted its typed lifecycle event');
+assert(routeFlight.navigation.routeFixIds.join(',') === originalRoute, 'delivered pending readback mutated the authoritative route');
+const routeDeliveryPose = { ...routeFlight.motion };
 assert(!routeFixture.simulation.acceptRouteReadback(routeFlight.id), 'Supervisor consumed a pilot readback owned by Approach');
 routeFixture.simulation.setStation('approach');
 assert(routeFixture.simulation.acceptRouteReadback(routeFlight.id), 'valid route readback was rejected: ' + routeFixture.simulation.lastCommandReason());
@@ -84,12 +92,12 @@ assert(routeFlight.navigation.routeFixIds.join(',') === amendedFixIds.join(','),
 assert(routeFlight.navigation.routeClearance?.status === 'accepted' && routeFlight.navigation.readbackStatus === 'accepted', 'accepted route did not preserve explicit readback state');
 assert(routeFlight.flightPlan.revision === originalRevision + 1 && routeFlight.flightPlan.amendments.at(-1)?.kind === 'route-change', 'route amendment was not recorded in the flight plan');
 const routeStartSample = sampleFlightTrajectory(routeFixture.config, routeFlight, routeFlight.progress);
-assert(routeStartSample && Math.hypot(routeStartSample.x - routeStart.x, routeStartSample.y - routeStart.y) < 0.01, 'route amendment teleported the aircraft instead of bridging from its current pose');
+assert(routeStartSample && Math.hypot(routeStartSample.x - routeDeliveryPose.x, routeStartSample.y - routeDeliveryPose.y) < 0.01, 'route amendment teleported the aircraft instead of bridging from its current pose');
 assert(!routeFixture.simulation.amendFlightRoute(routeFlight.id, [...amendedFixIds.slice(0, -1), routeFixture.config.airspaceProgram.fixes.find((fix) => fix.kind === 'entry').id]), 'arrival route without the assigned final fix was accepted');
 const automaticRevision = routeFlight.flightPlan.revision;
 assert(routeFixture.simulation.previewFlightRoute(routeFlight.id, amendedFixIds), 'automatic readback fixture could not preview its route');
 assert(routeFixture.simulation.issueFlightRoute(routeFlight.id), 'automatic readback fixture could not issue its route');
-for (let tick = 0; tick < 40 && routeFlight.navigation.routeClearance?.status === 'pending-readback'; tick += 1) routeFixture.simulation.update(0.1);
+for (let tick = 0; tick < 40 && ['sent', 'pending-readback'].includes(routeFlight.navigation.routeClearance?.status); tick += 1) routeFixture.simulation.update(0.1);
 assert(routeFlight.navigation.routeClearance?.status === 'accepted' && routeFlight.flightPlan.revision >= automaticRevision, 'deterministic pilot readback did not automatically accept the safe route');
 assert(routeFixture.simulation.previewFlightRoute(routeFlight.id, routeFlight.navigation.routeFixIds), 'superseded-readback fixture could not preview its current route');
 assert(routeFixture.simulation.issueFlightRoute(routeFlight.id), 'superseded-readback fixture could not issue its route');
@@ -104,7 +112,8 @@ const timeoutRoute = routeFlight.navigation.routeFixIds.join(',');
 assert(routeFixture.simulation.previewFlightRoute(routeFlight.id, routeFlight.navigation.routeFixIds), 'timeout fixture could not preview its current route');
 assert(routeFixture.simulation.issueFlightRoute(routeFlight.id), 'timeout fixture could not issue its route');
 routeFlight.navigation.routeClearance.readbackDueSeconds = routeFlight.navigation.routeClearance.readbackExpiresSeconds + 1;
-for (let tick = 0; tick < 100 && routeFlight.navigation.routeClearance?.status === 'pending-readback'; tick += 1) routeFixture.simulation.update(0.1);
+routeFlight.navigation.routeClearance.deliveryDueSeconds = routeFlight.navigation.routeClearance.readbackExpiresSeconds + 1;
+for (let tick = 0; tick < 100 && ['sent', 'pending-readback'].includes(routeFlight.navigation.routeClearance?.status); tick += 1) routeFixture.simulation.update(0.1);
 assert(routeFlight.navigation.routeClearance?.status === 'timed-out' && routeFlight.navigation.readbackStatus === 'timed-out', 'route-only readback did not time out at its hard deadline');
 assert(routeFlight.flightPlan.revision === timeoutRevision && routeFlight.navigation.routeFixIds.join(',') === timeoutRoute, 'timed-out route-only instruction changed authoritative navigation');
 
@@ -209,6 +218,7 @@ assert(diversionEvents.some((event) => event.type === 'diversion') && diversionE
 console.log(JSON.stringify({
   routeFixes: amendedFixIds.length,
   routeReadback: 'accepted',
+  deliveryState: 'delivered',
   supersededReadback,
   timedOutReadback: routeFlight.navigation.routeClearance.status,
   blockingPreview: conflictFlight.navigation.routeClearance.warnings[0].conflictingCallsign,

@@ -33,6 +33,7 @@ interface DigitalClearanceDraft {
   revision: number;
   createdAtSeconds: number;
   issuedAtSeconds?: number;
+  deliveredAtSeconds?: number;
   responseDueSeconds?: number;
   expiresAtSeconds?: number | null;
   respondedAtSeconds?: number;
@@ -51,6 +52,7 @@ export interface DigitalClearanceMessage extends DigitalClearanceDraft {
   expiresAtSeconds: number | null;
   response: {
     status: DigitalClearanceStatus;
+    deliveredAtSeconds?: number;
     dueSeconds?: number;
     respondedAtSeconds?: number;
   };
@@ -352,6 +354,7 @@ function routeClearanceMessage(
     revision: clearance.revision,
     createdAtSeconds: clearance.previewedAtSeconds,
     issuedAtSeconds: clearance.issuedAtSeconds,
+    deliveredAtSeconds: clearance.deliveredAtSeconds,
     responseDueSeconds: clearance.readbackDueSeconds,
     expiresAtSeconds: clearance.readbackExpiresSeconds,
     respondedAtSeconds: clearance.respondedAtSeconds,
@@ -393,6 +396,7 @@ function routeStatus(
   clearance: FlightRouteClearanceState,
 ): DigitalClearanceStatus {
   if (clearance.status === "preview") return "draft";
+  if (clearance.status === "sent") return "sent";
   if (clearance.status === "pending-readback") return "delivered";
   if (clearance.status === "accepted") return "wilco";
   if (clearance.status === "rejected") return "unable";
@@ -421,6 +425,9 @@ function toEnvelope(draft: DigitalClearanceDraft): DigitalClearanceMessage {
     expiresAtSeconds,
     response: {
       status: draft.status,
+      ...(draft.deliveredAtSeconds === undefined
+        ? {}
+        : { deliveredAtSeconds: draft.deliveredAtSeconds }),
       ...(draft.responseDueSeconds === undefined
         ? {}
         : { dueSeconds: draft.responseDueSeconds }),

@@ -2440,6 +2440,7 @@ summary:focus-visible {
   font-weight: 900;
   letter-spacing: 0.08em;
 }
+.route-clearance[data-status="sent"] .route-clearance__heading span,
 .route-clearance[data-status="pending-readback"] .route-clearance__heading span,
 .route-clearance[data-status="preview"] .route-clearance__heading span {
   color: var(--amber);
@@ -5339,6 +5340,9 @@ button.queue-entry:focus-visible,
 }
 .digital-clearance__message[data-status="delivered"] {
   border-left-color: var(--amber);
+}
+.digital-clearance__message[data-status="sent"] {
+  border-left-color: #79c8e8;
 }
 .digital-clearance__message[data-status="unable"] {
   border-left-color: var(--rose);
