@@ -45,6 +45,7 @@ interface DigitalClearanceDraft {
     | "taxi"
     | "crossing"
     | "direct-to"
+    | "go-around"
     | "frequency"
     | "revision";
   status: DigitalClearanceStatus;
@@ -61,6 +62,7 @@ interface DigitalClearanceDraft {
   detail: string;
   warningCount: number;
   commandId?: string;
+  controllerDecisionId?: string;
   responseCommandId?: string;
   causalEventIds?: string[];
 }
@@ -83,7 +85,7 @@ export interface DigitalClearanceMessage extends DigitalClearanceDraft {
 }
 
 export interface DigitalClearanceSnapshot {
-  schemaVersion: 4;
+  schemaVersion: 5;
   generatedAtSeconds: number;
   messages: DigitalClearanceMessage[];
   counts: Record<DigitalClearanceStatus, number>;
@@ -108,7 +110,7 @@ export function digitalClearanceSnapshot(
   const counts = emptyCounts();
   for (const message of messages) counts[message.status] += 1;
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     generatedAtSeconds: state.elapsed,
     messages,
     counts,
@@ -205,12 +207,18 @@ function flightDigitalClearanceMessages(
         ...(vector.rejoinFixId ? { rejoinFix: vector.rejoinFixId } : {}),
       },
       detail:
-        isDirectTo && vector.rejoinFixId
+        vector.evidence?.phraseology ??
+        (isDirectTo && vector.rejoinFixId
           ? `Proceed direct ${vector.rejoinFixId}; fly heading ${Math.round(vector.headingDegrees)}°.`
           : vector.rejoinFixId
             ? `Fly heading ${Math.round(vector.headingDegrees)}°; rejoin ${vector.rejoinFixId}.`
-            : `Fly heading ${Math.round(vector.headingDegrees)}° as assigned.`,
+            : `Fly heading ${Math.round(vector.headingDegrees)}° as assigned.`),
       warningCount: 0,
+      commandId: vector.evidence?.commandId,
+      controllerDecisionId: vector.evidence?.controllerDecisionId,
+      causalEventIds: vector.evidence?.causalEventIds
+        ? [...vector.evidence.causalEventIds]
+        : undefined,
     });
   }
 
@@ -233,8 +241,15 @@ function flightDigitalClearanceMessages(
         turns: hold.turns,
         expectFurtherClearanceAtSeconds: hold.expectFurtherClearanceAtSeconds,
       },
-      detail: `Hold ${hold.fixId} ${hold.turns} turns; expect further clearance at ${Math.ceil(hold.expectFurtherClearanceAtSeconds)}s.`,
+      detail:
+        hold.evidence?.phraseology ??
+        `Hold ${hold.fixId} ${hold.turns} turns; expect further clearance at ${Math.ceil(hold.expectFurtherClearanceAtSeconds)}s.`,
       warningCount: 0,
+      commandId: hold.evidence?.commandId,
+      controllerDecisionId: hold.evidence?.controllerDecisionId,
+      causalEventIds: hold.evidence?.causalEventIds
+        ? [...hold.evidence.causalEventIds]
+        : undefined,
     });
   }
 
@@ -273,6 +288,12 @@ function flightDigitalClearanceMessages(
             ? `Line up and await takeoff clearance on ${flight.flightPlan.runwayIntent.designation}.`
             : `Taxi for departure to ${flight.flightPlan.runwayIntent.designation}.`,
       warningCount: flight.rejectedTakeoff ? 1 : 0,
+      commandId: flight.rejectedTakeoff?.evidence?.commandId,
+      controllerDecisionId:
+        flight.rejectedTakeoff?.evidence?.controllerDecisionId,
+      causalEventIds: flight.rejectedTakeoff?.evidence?.causalEventIds
+        ? [...flight.rejectedTakeoff.evidence.causalEventIds]
+        : undefined,
     });
   }
 
@@ -403,7 +424,13 @@ function flightDigitalClearanceMessages(
     const speed = Math.round(flight.navigation.assignedSpeedKts);
     if (!acceptedCompoundIncludes(flight, "speed"))
       messages.push(
-        instructionMessage(flight, "speed", speed, `Maintain ${speed} knots.`),
+        instructionMessage(
+          flight,
+          "speed",
+          speed,
+          `Maintain ${speed} knots.`,
+          flight.navigation.speedClearance,
+        ),
       );
   }
   if (
@@ -420,8 +447,40 @@ function flightDigitalClearanceMessages(
           "altitude",
           altitude,
           `Maintain ${altitude.toLocaleString()} feet.`,
+          flight.navigation.altitudeClearance,
         ),
       );
+  }
+  if (flight.goAround) {
+    const evidence = flight.goAround.evidence;
+    messages.push({
+      id: `go-around:${flight.id}:${flight.goAround.startedAt}`,
+      flightId: flight.id,
+      callsign: flight.callsign,
+      kind: "go-around",
+      status: "wilco",
+      authority: evidence?.issuedBy ?? flight.navigation.frequencyOwner,
+      revision: flight.goAround.cycle,
+      createdAtSeconds: flight.goAround.startedAt,
+      issuedAtSeconds: flight.goAround.startedAt,
+      route: flight.navigation.missedApproachId
+        ? [flight.navigation.missedApproachId]
+        : [],
+      parameters: {
+        cycle: flight.goAround.cycle,
+        reason: flight.goAround.detail,
+        weatherEscape: flight.goAround.weatherEscape ? "yes" : "no",
+      },
+      detail:
+        evidence?.phraseology ??
+        `${flight.callsign}, go around. Fly the published missed approach.`,
+      warningCount: 1,
+      commandId: evidence?.commandId,
+      controllerDecisionId: evidence?.controllerDecisionId,
+      causalEventIds: evidence?.causalEventIds
+        ? [...evidence.causalEventIds]
+        : undefined,
+    });
   }
   return messages;
 }
@@ -431,8 +490,9 @@ function instructionMessage(
   kind: "speed" | "altitude",
   value: number,
   detail: string,
+  clearance?: Flight["navigation"]["speedClearance"],
 ): DigitalClearanceDraft {
-  const issuedAtSeconds = flight.navigation.vector?.issuedAtSeconds ?? 0;
+  const issuedAtSeconds = clearance?.issuedAtSeconds ?? 0;
   return {
     id: `${kind}:${flight.id}:${value}`,
     flightId: flight.id,
@@ -445,8 +505,13 @@ function instructionMessage(
     issuedAtSeconds,
     route: [],
     parameters: { [kind === "speed" ? "speedKts" : "altitudeFt"]: value },
-    detail,
+    detail: clearance?.phraseology ?? detail,
     warningCount: 0,
+    commandId: clearance?.commandId,
+    controllerDecisionId: clearance?.controllerDecisionId,
+    causalEventIds: clearance?.causalEventIds
+      ? [...clearance.causalEventIds]
+      : undefined,
   };
 }
 

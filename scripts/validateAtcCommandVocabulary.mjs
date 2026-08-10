@@ -103,8 +103,12 @@ assert(routeFlight.navigation.routeClearance?.status === 'accepted' && routeFlig
 assert(routeFixture.simulation.previewFlightRoute(routeFlight.id, routeFlight.navigation.routeFixIds), 'superseded-readback fixture could not preview its current route');
 assert(routeFixture.simulation.issueFlightRoute(routeFlight.id), 'superseded-readback fixture could not issue its route');
 const directFixId = routeFlight.navigation.routeFixIds[0];
+const directEventCursor = routeFixture.simulation.eventCursor();
 assert(routeFixture.simulation.directFlightTo(routeFlight.id, directFixId), 'direct-to command could not supersede a pending readback');
+routeFixture.simulation.tagEventsSince(directEventCursor, 'cmd-validator-direct');
 assert(routeFlight.navigation.routeClearance?.status === 'cancelled', 'direct-to did not cancel the superseded route readback');
+const directMessage = digitalClearanceSnapshot(routeFixture.simulation.state).messages.find((message) => message.kind === 'direct-to');
+assert(directMessage?.commandId === 'cmd-validator-direct' && directMessage.causalEventIds.length === 1 && directMessage.capability.channel === 'voice', 'direct-to instruction omitted its voice/action command and event evidence');
 for (let tick = 0; tick < 40; tick += 1) routeFixture.simulation.update(0.1);
 assert(routeFlight.navigation.routeClearance?.status === 'cancelled', 'cancelled route readback was later auto-accepted');
 const supersededReadback = routeFlight.navigation.routeClearance.status;
@@ -118,6 +122,34 @@ for (let tick = 0; tick < 100 && ['sent', 'pending-readback'].includes(routeFlig
 assert(routeFlight.navigation.routeClearance?.status === 'timed-out' && routeFlight.navigation.readbackStatus === 'timed-out', 'route-only readback did not time out at its hard deadline');
 assert(routeFlight.flightPlan.revision === timeoutRevision && routeFlight.navigation.routeFixIds.join(',') === timeoutRoute, 'timed-out route-only instruction changed authoritative navigation');
 
+const immediateFixture = isolatedSimulation();
+const immediateFlight = immediateFixture.flight;
+immediateFlight.progress = 0.2;
+immediateFlight.phaseElapsed = immediateFlight.duration * immediateFlight.progress;
+immediateFlight.navigation.frequencyOwner = 'approach';
+syncFlightMotion(immediateFixture.config, immediateFlight);
+let immediateCursor = immediateFixture.simulation.eventCursor();
+assert(immediateFixture.simulation.assignHeading(immediateFlight.id, 180), 'immediate heading instruction was rejected: ' + immediateFixture.simulation.lastCommandReason());
+immediateFixture.simulation.tagEventsSince(immediateCursor, 'cmd-validator-heading');
+immediateCursor = immediateFixture.simulation.eventCursor();
+assert(immediateFixture.simulation.assignAltitude(immediateFlight.id, 1500), 'immediate altitude instruction was rejected: ' + immediateFixture.simulation.lastCommandReason());
+immediateFixture.simulation.tagEventsSince(immediateCursor, 'cmd-validator-altitude');
+immediateCursor = immediateFixture.simulation.eventCursor();
+const immediateSpeed = Math.max(aircraftProfile(immediateFlight.aircraft).approachKts, 145);
+assert(immediateFixture.simulation.assignAirspeed(immediateFlight.id, immediateSpeed), 'immediate speed instruction was rejected: ' + immediateFixture.simulation.lastCommandReason());
+immediateFixture.simulation.tagEventsSince(immediateCursor, 'cmd-validator-speed');
+let immediateMessages = digitalClearanceSnapshot(immediateFixture.simulation.state).messages;
+for (const [kind, commandId] of [['vector', 'cmd-validator-heading'], ['altitude', 'cmd-validator-altitude'], ['speed', 'cmd-validator-speed']]) {
+  const message = immediateMessages.find((candidate) => candidate.kind === kind);
+  assert(message?.commandId === commandId && message.causalEventIds.length === 1 && message.causalEventIds[0].includes(':instruction:'), kind + ' instruction omitted deterministic voice/action causality');
+}
+immediateCursor = immediateFixture.simulation.eventCursor();
+assert(immediateFixture.simulation.holdFlight(immediateFlight.id), 'immediate hold instruction was rejected: ' + immediateFixture.simulation.lastCommandReason());
+immediateFixture.simulation.tagEventsSince(immediateCursor, 'cmd-validator-hold');
+immediateMessages = digitalClearanceSnapshot(immediateFixture.simulation.state).messages;
+const holdMessage = immediateMessages.find((message) => message.kind === 'hold');
+assert(holdMessage?.commandId === 'cmd-validator-hold' && holdMessage.causalEventIds.length === 1 && holdMessage.detail.includes(immediateFlight.callsign), 'hold instruction omitted command evidence or explicit phraseology');
+
 const urgentFixture = isolatedSimulation();
 const urgentFlight = urgentFixture.flight;
 urgentFlight.progress = 0.22;
@@ -128,18 +160,26 @@ urgentFlight.navigation.hold = undefined;
 urgentFlight.navigation.frequencyOwner = 'approach';
 syncFlightMotion(urgentFixture.config, urgentFlight);
 const urgentRoute = urgentFlight.navigation.routeFixIds.join(',');
-const urgentRevision = urgentFlight.flightPlan.revision;
+let urgentRevision = urgentFlight.flightPlan.revision;
 assert(urgentFixture.simulation.previewFlightRoute(urgentFlight.id, amendedFixIds), 'urgent-action fixture could not preview its route');
 assert(urgentFixture.simulation.issueFlightRoute(urgentFlight.id), 'urgent-action fixture could not transmit its route: ' + urgentFixture.simulation.lastCommandReason());
 assert(urgentFlight.navigation.routeClearance?.status === 'sent', 'urgent-action fixture skipped the Sent state');
+assert(urgentFixture.simulation.assignAltitude(urgentFlight.id, 1800), 'go-around fixture altitude instruction was rejected');
+assert(urgentFixture.simulation.assignAirspeed(urgentFlight.id, Math.max(aircraftProfile(urgentFlight.aircraft).approachKts, 145)), 'go-around fixture speed instruction was rejected');
+urgentRevision = urgentFlight.flightPlan.revision;
+const goAroundEventCursor = urgentFixture.simulation.eventCursor();
 assert(urgentFixture.simulation.triggerEmergency(urgentFlight.id, 'go-around'), 'go-around did not bypass the pending Data Comm transmission: ' + urgentFixture.simulation.lastCommandReason());
+urgentFixture.simulation.tagEventsSince(goAroundEventCursor, 'cmd-validator-go-around');
 assert(urgentFlight.goAround && urgentFlight.navigation.routeClearance?.status === 'cancelled' && urgentFlight.navigation.readbackStatus === 'not-required', 'go-around did not synchronously supersede the pending Data Comm route');
+assert(urgentFlight.navigation.assignedAltitudeFt === undefined && urgentFlight.navigation.assignedSpeedKts === undefined, 'go-around retained stale speed or altitude restrictions over the missed-approach profile');
 assert(urgentFlight.navigation.routeFixIds.join(',') === urgentRoute && urgentFlight.flightPlan.revision === urgentRevision, 'urgent go-around partially applied the superseded route');
 const urgentEvents = urgentFixture.simulation.drainEvents();
 const cancelledIndex = urgentEvents.findIndex((event) => event.type === 'route-clearance-cancelled');
 const goAroundIndex = urgentEvents.findIndex((event) => event.type === 'go-around');
 const emergencyIndex = urgentEvents.findIndex((event) => event.type === 'emergency');
 assert(cancelledIndex >= 0 && goAroundIndex > cancelledIndex && emergencyIndex > goAroundIndex, 'urgent action did not emit an ordered cancellation, go-around, and emergency event chain');
+const goAroundMessage = digitalClearanceSnapshot(urgentFixture.simulation.state).messages.find((message) => message.kind === 'go-around');
+assert(goAroundMessage?.commandId === 'cmd-validator-go-around' && goAroundMessage.causalEventIds.length === 2 && goAroundMessage.warningCount === 1, 'go-around omitted its urgent voice/action command and event chain');
 for (let tick = 0; tick < 40; tick += 1) urgentFixture.simulation.update(0.1);
 assert(urgentFlight.navigation.routeClearance?.status === 'cancelled' && urgentFlight.flightPlan.revision === urgentRevision, 'superseded Data Comm route applied after the immediate go-around');
 
@@ -274,6 +314,7 @@ console.log(JSON.stringify({
   supersededReadback,
   timedOutReadback: routeFlight.navigation.routeClearance.status,
   urgentGoAround: urgentFlight.navigation.routeClearance.status,
+  immediateInstructionKinds: ['vector', 'altitude', 'speed', 'hold', 'direct-to', 'go-around'],
   blockingPreview: conflictFlight.navigation.routeClearance.warnings[0].conflictingCallsign,
   taxiSegments: surfaceFlight.surfaceRouteEdges.length,
   holdUsesContinuousBraking: true,

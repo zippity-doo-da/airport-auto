@@ -22,6 +22,7 @@ import type {
   FlightGateAssignment,
   FlightHandoffState,
   FlightInstruction,
+  FlightInstructionEvidence,
   FlightNavigationState,
   FlightOperationPlan,
   FlightPhase,
@@ -729,6 +730,7 @@ export class AirportSimulation {
   private nextRouteDomainEventId = 1;
   private nextGroundStopDomainEventId = 1;
   private nextHandoffDomainEventId = 1;
+  private nextInstructionDomainEventId = 1;
   private speed = 1;
   private runwayReservations = new Map<number, number>();
   private runwayOperationHistory: RunwayOperationRecord[] = [];
@@ -2233,13 +2235,18 @@ export class AirportSimulation {
       type === "go-around" &&
       (flight.phase === "approach" || flight.phase === "landing")
     ) {
-      this.goAround(flight, "controller instruction");
+      this.goAround(flight, "controller instruction", undefined, this.state.station);
     }
     if (type === "disabled") {
       flight.controlHold = true;
       this.createDisabledAircraftDisruption(flight);
     }
-    this.events.push({ type: "emergency", flight });
+    if (type === "go-around" && flight.goAround?.evidence)
+      this.pushInstructionEvent(
+        { type: "emergency", flight },
+        flight.goAround.evidence,
+      );
+    else this.events.push({ type: "emergency", flight });
     this.decisionReason = `${type} handling active for ${flight.callsign}`;
     return true;
   }
@@ -3594,6 +3601,9 @@ export class AirportSimulation {
       decisionSpeedKts,
       projectedStopProgress,
       projectedStoppingDistanceM,
+      evidence: this.instructionEvidence(
+        `${flight.callsign}, reject takeoff. Stop immediately.`,
+      ),
     };
     this.runwayOperationHistory = this.runwayOperationHistory.filter(
       (operation) =>
@@ -3601,12 +3611,15 @@ export class AirportSimulation {
     );
     this.metrics.manualCommands += 1;
     this.decisionReason = `${flight.callsign} rejected takeoff · ${reason} · maximum safe braking below modeled V1 ${decisionSpeedKts} kt`;
-    this.events.push({
-      type: "rejected-takeoff",
-      flight,
-      runway: flight.runway,
-      detail: this.decisionReason,
-    });
+    this.pushInstructionEvent(
+      {
+        type: "rejected-takeoff",
+        flight,
+        runway: flight.runway,
+        detail: this.decisionReason,
+      },
+      flight.rejectedTakeoff.evidence,
+    );
     return true;
   }
 
@@ -3681,6 +3694,7 @@ export class AirportSimulation {
       );
     flight.navigation.assignedHeadingDegrees = heading;
     if (departure) flight.navigation.departureHeadingDegrees = heading;
+    const phraseology = `${flight.callsign}, fly heading ${String(Math.round(heading)).padStart(3, "0")}.`;
     flight.navigation.vector = {
       issuedAtSeconds: this.state.elapsed,
       startProgress: flight.progress,
@@ -3694,6 +3708,7 @@ export class AirportSimulation {
           )
         ],
       start: this.motionStart(flight),
+      evidence: this.instructionEvidence(phraseology),
     };
     flight.navigation.readbackStatus = "accepted";
     amendFlightPlan(
@@ -3704,7 +3719,10 @@ export class AirportSimulation {
     );
     this.metrics.manualCommands += 1;
     this.decisionReason = `${flight.callsign} heading ${String(Math.round(heading)).padStart(3, "0")} accepted`;
-    this.events.push({ type: "vector", flight, detail: this.decisionReason });
+    this.pushInstructionEvent(
+      { type: "vector", flight, detail: this.decisionReason },
+      flight.navigation.vector.evidence,
+    );
     return true;
   }
 
@@ -3747,6 +3765,12 @@ export class AirportSimulation {
       );
     }
     flight.navigation.assignedAltitudeFt = rounded;
+    const phraseology = `${flight.callsign}, maintain ${rounded.toLocaleString()} feet.`;
+    flight.navigation.altitudeClearance = {
+      ...this.instructionEvidence(phraseology),
+      issuedAtSeconds: this.state.elapsed,
+      value: rounded,
+    };
     if (flight.phase === "approach" && !flight.navigation.vector) {
       flight.navigation.vector = {
         issuedAtSeconds: this.state.elapsed,
@@ -3772,7 +3796,10 @@ export class AirportSimulation {
     );
     this.metrics.manualCommands += 1;
     this.decisionReason = `${flight.callsign} ${rounded.toLocaleString()} ft accepted`;
-    this.events.push({ type: "vector", flight, detail: this.decisionReason });
+    this.pushInstructionEvent(
+      { type: "vector", flight, detail: this.decisionReason },
+      flight.navigation.altitudeClearance,
+    );
     return true;
   }
 
@@ -3810,6 +3837,12 @@ export class AirportSimulation {
         flight,
       );
     flight.navigation.assignedSpeedKts = rounded;
+    const phraseology = `${flight.callsign}, maintain ${rounded} knots.`;
+    flight.navigation.speedClearance = {
+      ...this.instructionEvidence(phraseology),
+      issuedAtSeconds: this.state.elapsed,
+      value: rounded,
+    };
     flight.navigation.readbackStatus = "accepted";
     amendFlightPlan(
       flight.flightPlan,
@@ -3819,7 +3852,10 @@ export class AirportSimulation {
     );
     this.metrics.manualCommands += 1;
     this.decisionReason = `${flight.callsign} ${rounded} kt accepted`;
-    this.events.push({ type: "vector", flight, detail: this.decisionReason });
+    this.pushInstructionEvent(
+      { type: "vector", flight, detail: this.decisionReason },
+      flight.navigation.speedClearance,
+    );
     return true;
   }
 
@@ -3871,6 +3907,7 @@ export class AirportSimulation {
     );
     flight.navigation.routeFixIds = [...new Set(remaining)];
     flight.navigation.activeFixIndex = 0;
+    const phraseology = `${flight.callsign}, proceed direct ${fix.name}.`;
     flight.navigation.vector = {
       issuedAtSeconds: this.state.elapsed,
       startProgress: flight.progress,
@@ -3883,6 +3920,7 @@ export class AirportSimulation {
       ),
       rejoinFixId: fix.id,
       start: this.motionStart(flight),
+      evidence: this.instructionEvidence(phraseology),
     };
     flight.navigation.readbackStatus = "accepted";
     amendFlightPlan(
@@ -3901,7 +3939,10 @@ export class AirportSimulation {
     this.state.trafficFlow.totals.routeAmendments += 1;
     this.metrics.manualCommands += 1;
     this.decisionReason = `${flight.callsign} direct ${fix.name} accepted`;
-    this.events.push({ type: "vector", flight, detail: this.decisionReason });
+    this.pushInstructionEvent(
+      { type: "vector", flight, detail: this.decisionReason },
+      flight.navigation.vector.evidence,
+    );
     return true;
   }
 
@@ -5053,6 +5094,8 @@ export class AirportSimulation {
     flight.goAround = undefined;
     flight.navigation.hold = undefined;
     flight.navigation.vector = undefined;
+    flight.navigation.altitudeClearance = undefined;
+    flight.navigation.speedClearance = undefined;
     flight.navigation.approachCleared = false;
     flight.navigation.routeFixIds = [exit.value.id];
     flight.navigation.activeFixIndex = 0;
@@ -5198,8 +5241,12 @@ export class AirportSimulation {
       legSeconds: pattern.legSeconds,
       altitudeFt: altitude,
       start: this.motionStart(flight),
+      evidence: this.instructionEvidence(
+        `${flight.callsign}, hold at ${pattern.name}; expect further clearance in ${efc} minutes.`,
+      ),
     };
     flight.navigation.assignedAltitudeFt = altitude;
+    flight.navigation.altitudeClearance = undefined;
     flight.navigation.vector = undefined;
     flight.navigation.approachCleared = false;
     flight.cleared = false;
@@ -5217,11 +5264,14 @@ export class AirportSimulation {
     this.metrics.holdsIssued += 1;
     this.metrics.manualCommands += 1;
     this.decisionReason = `${flight.callsign} holding at ${pattern.name}; EFC in ${efc} min`;
-    this.events.push({
-      type: "airborne-hold",
-      flight,
-      detail: this.decisionReason,
-    });
+    this.pushInstructionEvent(
+      {
+        type: "airborne-hold",
+        flight,
+        detail: this.decisionReason,
+      },
+      flight.navigation.hold.evidence,
+    );
     return true;
   }
 
@@ -5688,6 +5738,7 @@ export class AirportSimulation {
     flight: Flight,
     detail: string,
     weatherHazard?: TerminalWeatherHazard,
+    issuedBy: ControllerStation = flight.navigation.frequencyOwner,
   ): void {
     if (flight.goAround || flight.diversion || flight.motion.onGround) return;
     this.metrics.goArounds += 1;
@@ -5706,6 +5757,10 @@ export class AirportSimulation {
       startedAt: this.state.elapsed,
       detail,
       cycle: 1,
+      evidence: this.instructionEvidence(
+        `${flight.callsign}, go around. Fly the published missed approach.`,
+        issuedBy,
+      ),
       weatherEscape: weatherHazard
         ? {
             hazardId: weatherHazard.id,
@@ -5735,6 +5790,10 @@ export class AirportSimulation {
     flight.navigation.approachCleared = false;
     flight.navigation.hold = undefined;
     flight.navigation.vector = undefined;
+    flight.navigation.altitudeClearance = undefined;
+    flight.navigation.speedClearance = undefined;
+    flight.navigation.assignedAltitudeFt = undefined;
+    flight.navigation.assignedSpeedKts = undefined;
     flight.clearanceLeft = flight.duration;
     flight.controlPattern = undefined;
     flight.controlPatternStart = undefined;
@@ -5743,12 +5802,15 @@ export class AirportSimulation {
     syncFlightMotion(this.config, flight);
     flight.kinematics.altitudeFt = this.motionAltitudeFt(flight);
     this.metrics.estimatedDelaySeconds += 90;
-    this.events.push({
-      type: "go-around",
-      flight,
-      runway: flight.runway,
-      detail,
-    });
+    this.pushInstructionEvent(
+      {
+        type: "go-around",
+        flight,
+        runway: flight.runway,
+        detail,
+      },
+      flight.goAround.evidence,
+    );
   }
 
   private releaseHoldToArrival(flight: Flight, detail: string): void {
@@ -5756,6 +5818,7 @@ export class AirportSimulation {
     if (!hold) return;
     flight.navigation.hold = undefined;
     flight.navigation.assignedAltitudeFt = undefined;
+    flight.navigation.altitudeClearance = undefined;
     flight.navigation.vector = {
       issuedAtSeconds: this.state.elapsed,
       startProgress: 0,
@@ -5819,11 +5882,16 @@ export class AirportSimulation {
       legSeconds: pattern.legSeconds,
       altitudeFt: altitude,
       start,
+      evidence: this.instructionEvidence(
+        `${flight.callsign}, hold at ${pattern.name} for traffic sequencing.`,
+        "approach",
+      ),
     };
     flight.navigation.frequencyOwner = "approach";
     flight.navigation.handoff = undefined;
     flight.navigation.handoffStatus = "owned";
     flight.navigation.assignedAltitudeFt = altitude;
+    flight.navigation.altitudeClearance = undefined;
     flight.navigation.vector = undefined;
     flight.navigation.approachCleared = false;
     flight.cleared = false;
@@ -5833,7 +5901,10 @@ export class AirportSimulation {
     flight.clearanceLeft = flight.duration * 20;
     syncFlightMotion(this.config, flight);
     this.metrics.holdsIssued += 1;
-    this.events.push({ type: "airborne-hold", flight, detail });
+    this.pushInstructionEvent(
+      { type: "airborne-hold", flight, detail },
+      flight.navigation.hold.evidence,
+    );
   }
 
   reset(scenario: TrafficScenario = "normal"): void {
@@ -6354,12 +6425,15 @@ export class AirportSimulation {
           flight.rejectedTakeoff.stopProgress = flight.progress;
           flight.automaticHold = true;
           flight.automaticHoldReason = `rejected takeoff stopped on ${this.activeRunwayDesignation(flight.runway)} · runway recovery required`;
-          this.events.push({
-            type: "rejected-takeoff-stopped",
-            flight,
-            runway: flight.runway,
-            detail: flight.automaticHoldReason,
-          });
+          this.pushInstructionEvent(
+            {
+              type: "rejected-takeoff-stopped",
+              flight,
+              runway: flight.runway,
+              detail: flight.automaticHoldReason,
+            },
+            flight.rejectedTakeoff.evidence,
+          );
         }
         if (
           onSurface &&
@@ -6590,6 +6664,50 @@ export class AirportSimulation {
       handoff.causalEventIds.push(event.domainEventId);
   }
 
+  private instructionEvidence(
+    phraseology: string,
+    issuedBy: ControllerStation = this.state.station,
+  ): FlightInstructionEvidence {
+    return {
+      schemaVersion: 1,
+      issuedBy,
+      phraseology,
+      causalEventIds: [],
+    };
+  }
+
+  private pushInstructionEvent(
+    event: AirportEvent,
+    evidence?: FlightInstructionEvidence,
+  ): void {
+    event.domainEventId ??= `sim:${this.config.seed}:instruction:${this.nextInstructionDomainEventId++}`;
+    this.events.push(event);
+    if (
+      evidence &&
+      !evidence.causalEventIds.includes(event.domainEventId)
+    )
+      evidence.causalEventIds.push(event.domainEventId);
+  }
+
+  private instructionEvidenceForEvent(
+    event: AirportEvent,
+  ): FlightInstructionEvidence[] {
+    if (!event.domainEventId) return [];
+    const flight = event.flight;
+    const candidates = [
+      flight.navigation.vector?.evidence,
+      flight.navigation.altitudeClearance,
+      flight.navigation.speedClearance,
+      flight.navigation.hold?.evidence,
+      flight.goAround?.evidence,
+      flight.rejectedTakeoff?.evidence,
+    ];
+    return candidates.filter(
+      (evidence): evidence is FlightInstructionEvidence =>
+        Boolean(evidence?.causalEventIds.includes(event.domainEventId!)),
+    );
+  }
+
   drainEvents(): AirportEvent[] {
     const result = this.events;
     this.events = [];
@@ -6605,6 +6723,8 @@ export class AirportSimulation {
     for (let index = start; index < this.events.length; index += 1) {
       const event = this.events[index];
       event.causedByCommandId ??= commandId;
+      for (const evidence of this.instructionEvidenceForEvent(event))
+        evidence.commandId ??= commandId;
       if (event.type.startsWith("ground-stop")) {
         const groundStop = event.flight.groundStop;
         if (groundStop) {
@@ -9250,7 +9370,10 @@ export class AirportSimulation {
   ): void {
     const start = Math.max(0, Math.min(this.events.length, Math.trunc(cursor)));
     for (let index = start; index < this.events.length; index += 1) {
-      this.events[index].causedByControllerDecisionId ??= decisionId;
+      const event = this.events[index];
+      event.causedByControllerDecisionId ??= decisionId;
+      for (const evidence of this.instructionEvidenceForEvent(event))
+        evidence.controllerDecisionId ??= decisionId;
     }
   }
 

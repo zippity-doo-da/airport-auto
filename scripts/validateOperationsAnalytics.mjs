@@ -63,6 +63,11 @@ first.navigation.routeClearance = {
   schemaVersion: 2, revision: 7, status: 'sent', routeFixIds: ['FIX-A'], routeFixNames: ['NORTH'], previousRouteFixIds: [], supplements: [], safeguards: [], commandId: 'cmd:analytics:issue', causalEventIds: ['sim:analytics:route:1'],
   previewedAtSeconds: 0, issuedAtSeconds: 0, deliveryDueSeconds: 1, readbackDueSeconds: 2, readbackExpiresSeconds: 8, issuedBy: 'approach', distanceNm: 10, estimatedSeconds: 240, initialTurnDegrees: 8, safeToIssue: true, warnings: [], reason: 'PRIVATE SENT DETAIL',
 };
+first.navigation.assignedSpeedKts = 140;
+first.navigation.speedClearance = {
+  schemaVersion: 1, issuedBy: 'approach', phraseology: 'PRIVATE VOICE PHRASEOLOGY', issuedAtSeconds: 0, value: 140,
+  commandId: 'cmd:analytics:speed', controllerDecisionId: 'controller:analytics:speed', causalEventIds: ['sim:analytics:instruction:1'],
+};
 second.navigation.routeClearance = {
   schemaVersion: 2, revision: 3, status: 'timed-out', routeFixIds: ['FIX-B'], routeFixNames: ['SOUTH'], previousRouteFixIds: [], supplements: [], safeguards: [],
   previewedAtSeconds: 0, issuedAtSeconds: 0, deliveryDueSeconds: 1, readbackDueSeconds: 2, readbackExpiresSeconds: 3, respondedAtSeconds: 3, issuedBy: 'ground', distanceNm: 8, estimatedSeconds: 180, initialTurnDegrees: 4, safeToIssue: true, warnings: [], reason: 'PRIVATE TIMEOUT DETAIL',
@@ -132,9 +137,11 @@ assert(snapshot.trafficFlowCauses.find((entry) => entry.category === 'weather')?
 assert(snapshot.trafficFlowRevisions.find((entry) => entry.reason === 'weather recovery arrival metering')?.causeCode === 'weather-capacity' && snapshot.trafficFlowRevisions.find((entry) => entry.reason === 'weather recovery arrival metering')?.source === 'weather', 'flow revision analytics omitted structured cause/source attribution');
 const acceptedClearance = snapshot.digitalClearances.find((entry) => entry.commandId === 'cmd:analytics:issue');
 assert(acceptedClearance?.status === 'wilco' && acceptedClearance.responseCommandId === 'cmd:analytics:readback' && acceptedClearance.deliveredAtSeconds === 1 && acceptedClearance.respondedAtSeconds === 2 && acceptedClearance.responseSeconds === 1 && acceptedClearance.causalEventIds.length === 2, 'digital-clearance analytics lost the delivered/readback causal lifecycle');
-assert(acceptedClearance?.schemaVersion === 4 && acceptedClearance.channel === 'data' && acceptedClearance.aircraftSupport === 'data-comm-supported', 'digital-clearance analytics omitted capability metadata');
+assert(acceptedClearance?.schemaVersion === 5 && acceptedClearance.channel === 'data' && acceptedClearance.aircraftSupport === 'data-comm-supported', 'digital-clearance analytics omitted capability metadata');
 const completedHandoff = snapshot.digitalClearances.find((entry) => entry.commandId === 'cmd:analytics:handoff-offer');
 assert(completedHandoff?.kind === 'frequency' && completedHandoff.status === 'wilco' && completedHandoff.responseCommandId === 'cmd:analytics:handoff-contact' && completedHandoff.causalEventIds.length === 4, 'handoff analytics lost its completed command/event lifecycle');
+const immediateSpeed = snapshot.digitalClearances.find((entry) => entry.commandId === 'cmd:analytics:speed');
+assert(immediateSpeed?.kind === 'speed' && immediateSpeed.channel === 'voice' && immediateSpeed.controllerDecisionId === 'controller:analytics:speed' && immediateSpeed.causalEventIds.join(',') === 'sim:analytics:instruction:1', 'immediate-instruction analytics lost its command/decision/event causality');
 assert(snapshot.digitalClearanceSummary.total === snapshot.summary.digitalClearancesObserved && snapshot.digitalClearanceSummary.responded >= 2 && snapshot.digitalClearanceSummary.timedOut >= 1, 'digital-clearance analytics summary is incomplete');
 assert(!('detail' in acceptedClearance) && !JSON.stringify(snapshot.digitalClearances).includes('PRIVATE'), 'digital-clearance analytics retained free-form message or handoff detail');
 assert(snapshot.disclosure.localOnly && !snapshot.disclosure.cloudUpload && !snapshot.disclosure.shareableByDefault, 'local/privacy disclosure drifted');

@@ -629,6 +629,7 @@ export interface FlightRejectedTakeoffState {
   projectedStoppingDistanceM: number;
   stoppedAtSeconds?: number;
   stopProgress?: number;
+  evidence?: FlightInstructionEvidence;
 }
 
 export type TerminalWeatherHazardKind = "wind-shear" | "microburst";
@@ -798,6 +799,7 @@ export interface FlightGoAroundState {
   startedAt: number;
   detail: string;
   cycle: number;
+  evidence?: FlightInstructionEvidence;
   weatherEscape?: {
     hazardId: string;
     kind: TerminalWeatherHazardKind;
@@ -925,6 +927,20 @@ export interface FlightPlan {
   amendments: FlightPlanAmendment[];
 }
 
+export interface FlightInstructionEvidence {
+  schemaVersion: 1;
+  issuedBy: ControllerStation;
+  phraseology: string;
+  commandId?: string;
+  controllerDecisionId?: string;
+  causalEventIds: string[];
+}
+
+export interface FlightScalarClearance extends FlightInstructionEvidence {
+  issuedAtSeconds: number;
+  value: number;
+}
+
 export interface FlightVectorClearance {
   issuedAtSeconds: number;
   startProgress: number;
@@ -943,6 +959,8 @@ export interface FlightVectorClearance {
     | "groundBlend"
     | "protectedRunway"
   >;
+  /** Causal evidence for a controller-issued vector or direct-to instruction. */
+  evidence?: FlightInstructionEvidence;
 }
 
 export interface FlightHoldingClearance {
@@ -968,6 +986,8 @@ export interface FlightHoldingClearance {
     | "groundBlend"
     | "protectedRunway"
   >;
+  /** Causal evidence for the instruction that entered this hold. */
+  evidence?: FlightInstructionEvidence;
 }
 
 export type FlightRouteClearanceStatus =
@@ -1048,6 +1068,8 @@ export interface FlightNavigationState {
   assignedHeadingDegrees?: number;
   assignedAltitudeFt?: number;
   assignedSpeedKts?: number;
+  altitudeClearance?: FlightScalarClearance;
+  speedClearance?: FlightScalarClearance;
   departureHeadingDegrees?: number;
   initialClimbAltitudeFt?: number;
   handoffFixId?: string;

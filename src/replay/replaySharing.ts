@@ -63,6 +63,8 @@ const SHARED_STATE_REDACTED_KEYS = new Set([
   "domainEventId",
   "causalEventIds",
   "responseCommandId",
+  "completionCommandId",
+  "controllerDecisionId",
   "token",
   "credential",
   "endpoint",
@@ -72,6 +74,7 @@ const SHARED_STATE_REDACTED_KEYS = new Set([
   "feedback",
   "note",
   "rationale",
+  "phraseology",
 ]);
 
 function redactSharedValue(value: unknown): unknown {
@@ -146,7 +149,7 @@ function sharedReplayDraft(recording: ReplayRecording): ReplayRecordingDraft {
       redactions: [
         "controller, client, request, command, event, and session correlation identity",
         "event payloads and causal identifiers",
-        "free-text reason, detail, feedback, note, and rationale fields",
+        "free-text reason, detail, feedback, note, rationale, and phraseology fields",
         "time-of-day precision beyond the UTC date",
       ],
     },

@@ -624,6 +624,7 @@ function compactDigitalClearance(value: unknown): JsonRecord | null {
   return {
     id: value.id ?? null,
     commandId: value.commandId ?? null,
+    controllerDecisionId: value.controllerDecisionId ?? null,
     flightId: value.flightId ?? null,
     callsign: value.callsign ?? null,
     kind: value.kind ?? null,

@@ -5,6 +5,7 @@ import { generateHubConfig, HUB_AIRPORTS } from './src/simulation/airportConfig.
 import { AirportSimulation } from './src/simulation/airportSimulation.ts';
 import { CONTROLLER_STATIONS, OPERATIONAL_CONTROLLER_STATIONS } from './src/simulation/controllerOperations.ts';
 import { planScriptedControllerActions } from './src/simulation/scriptedControllers.ts';
+import { digitalClearanceSnapshot } from './src/simulation/digitalClearances.ts';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -227,6 +228,8 @@ protectedArrival.safetyHoldReason = 'validation conflict inside final';
 supervision.update(0.05);
 const supervisorIntervention = supervision.state.scriptedControllers.decisions.find((decision) => decision.station === 'supervisor' && decision.action === 'go-around');
 assert(supervisorIntervention?.accepted && protectedArrival.goAround, 'scripted Supervisor did not execute a safety go-around through the arbiter');
+const scriptedGoAround = digitalClearanceSnapshot(supervision.state).messages.find((message) => message.kind === 'go-around');
+assert(scriptedGoAround?.controllerDecisionId === supervisorIntervention.id && scriptedGoAround.causalEventIds.length === 2, 'scripted go-around omitted its controller-decision/event evidence');
 
 const touchdown = new AirportSimulation(config, 'quiet');
 touchdown.setMode('manual');

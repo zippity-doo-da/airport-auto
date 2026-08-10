@@ -3862,12 +3862,44 @@ function cloneAirportState(
           ? {
               ...flight.navigation.vector,
               start: { ...flight.navigation.vector.start },
+              evidence: flight.navigation.vector.evidence
+                ? {
+                    ...flight.navigation.vector.evidence,
+                    causalEventIds: [
+                      ...flight.navigation.vector.evidence.causalEventIds,
+                    ],
+                  }
+                : undefined,
             }
           : undefined,
         hold: flight.navigation.hold
           ? {
               ...flight.navigation.hold,
               start: { ...flight.navigation.hold.start },
+              evidence: flight.navigation.hold.evidence
+                ? {
+                    ...flight.navigation.hold.evidence,
+                    causalEventIds: [
+                      ...flight.navigation.hold.evidence.causalEventIds,
+                    ],
+                  }
+                : undefined,
+            }
+          : undefined,
+        altitudeClearance: flight.navigation.altitudeClearance
+          ? {
+              ...flight.navigation.altitudeClearance,
+              causalEventIds: [
+                ...flight.navigation.altitudeClearance.causalEventIds,
+              ],
+            }
+          : undefined,
+        speedClearance: flight.navigation.speedClearance
+          ? {
+              ...flight.navigation.speedClearance,
+              causalEventIds: [
+                ...flight.navigation.speedClearance.causalEventIds,
+              ],
             }
           : undefined,
       },
@@ -3897,6 +3929,14 @@ function cloneAirportState(
       goAround: flight.goAround
         ? {
             ...flight.goAround,
+            evidence: flight.goAround.evidence
+              ? {
+                  ...flight.goAround.evidence,
+                  causalEventIds: [
+                    ...flight.goAround.evidence.causalEventIds,
+                  ],
+                }
+              : undefined,
             weatherEscape: flight.goAround.weatherEscape
               ? { ...flight.goAround.weatherEscape }
               : undefined,
@@ -3910,7 +3950,17 @@ function cloneAirportState(
         ? { ...flight.takeoffPerformance }
         : undefined,
       rejectedTakeoff: flight.rejectedTakeoff
-        ? { ...flight.rejectedTakeoff }
+        ? {
+            ...flight.rejectedTakeoff,
+            evidence: flight.rejectedTakeoff.evidence
+              ? {
+                  ...flight.rejectedTakeoff.evidence,
+                  causalEventIds: [
+                    ...flight.rejectedTakeoff.evidence.causalEventIds,
+                  ],
+                }
+              : undefined,
+          }
         : undefined,
       groundStop: flight.groundStop
         ? {
@@ -9673,12 +9723,44 @@ function airportSnapshot() {
           ? {
               ...flight.navigation.vector,
               start: { ...flight.navigation.vector.start },
+              evidence: flight.navigation.vector.evidence
+                ? {
+                    ...flight.navigation.vector.evidence,
+                    causalEventIds: [
+                      ...flight.navigation.vector.evidence.causalEventIds,
+                    ],
+                  }
+                : null,
             }
           : null,
         hold: flight.navigation.hold
           ? {
               ...flight.navigation.hold,
               start: { ...flight.navigation.hold.start },
+              evidence: flight.navigation.hold.evidence
+                ? {
+                    ...flight.navigation.hold.evidence,
+                    causalEventIds: [
+                      ...flight.navigation.hold.evidence.causalEventIds,
+                    ],
+                  }
+                : null,
+            }
+          : null,
+        altitudeClearance: flight.navigation.altitudeClearance
+          ? {
+              ...flight.navigation.altitudeClearance,
+              causalEventIds: [
+                ...flight.navigation.altitudeClearance.causalEventIds,
+              ],
+            }
+          : null,
+        speedClearance: flight.navigation.speedClearance
+          ? {
+              ...flight.navigation.speedClearance,
+              causalEventIds: [
+                ...flight.navigation.speedClearance.causalEventIds,
+              ],
             }
           : null,
       },
@@ -9745,6 +9827,14 @@ function airportSnapshot() {
         ? {
             startedAt: Number(flight.goAround.startedAt.toFixed(2)),
             detail: flight.goAround.detail,
+            evidence: flight.goAround.evidence
+              ? {
+                  ...flight.goAround.evidence,
+                  causalEventIds: [
+                    ...flight.goAround.evidence.causalEventIds,
+                  ],
+                }
+              : null,
             stage: flight.motion.stage,
             stageProgress: Number(flight.motion.stageProgress.toFixed(3)),
             start: {
@@ -9767,6 +9857,14 @@ function airportSnapshot() {
       rejectedTakeoff: flight.rejectedTakeoff
         ? {
             ...flight.rejectedTakeoff,
+            evidence: flight.rejectedTakeoff.evidence
+              ? {
+                  ...flight.rejectedTakeoff.evidence,
+                  causalEventIds: [
+                    ...flight.rejectedTakeoff.evidence.causalEventIds,
+                  ],
+                }
+              : null,
             initiatedAtSeconds: Number(
               flight.rejectedTakeoff.initiatedAtSeconds.toFixed(2),
             ),
@@ -11465,7 +11563,7 @@ window.airportControl = {
       validate:
         "airportControl.validate({ action: 'pause' }) // structural validation without execution",
       formalDispatch:
-        "airportControl.dispatch({ protocolVersion: '1.2.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.41.0', snapshotSchemaVersion: 44 }, command: { action: 'pause' } })",
+        "airportControl.dispatch({ protocolVersion: '1.2.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.41.0', snapshotSchemaVersion: 45 }, command: { action: 'pause' } })",
       liveData:
         "airportControl.liveData.snapshot() // redacted opt-in/cache/review state; credentials and raw feeds are never exposed",
       capture:

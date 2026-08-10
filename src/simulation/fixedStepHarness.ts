@@ -128,6 +128,11 @@ export interface FixedStepFlightSnapshot {
   rejectedTakeoff?: Flight['rejectedTakeoff'];
   groundStop?: Flight['groundStop'];
   handoff?: Flight['navigation']['handoff'];
+  vectorEvidence?: NonNullable<Flight['navigation']['vector']>['evidence'];
+  holdEvidence?: NonNullable<Flight['navigation']['hold']>['evidence'];
+  altitudeClearance?: Flight['navigation']['altitudeClearance'];
+  speedClearance?: Flight['navigation']['speedClearance'];
+  goAroundEvidence?: NonNullable<Flight['goAround']>['evidence'];
   weatherEscape?: Flight['weatherEscape'];
   goAroundWeatherEscape?: NonNullable<Flight['goAround']>['weatherEscape'];
   crossingClearances: number[];
@@ -154,7 +159,7 @@ export interface FixedStepFlightSnapshot {
 }
 
 export interface FixedStepSimulationSnapshot {
-  schemaVersion: 16;
+  schemaVersion: 17;
   seed: number;
   airportCode: string;
   stepSeconds: number;
@@ -345,7 +350,7 @@ export class FixedStepSimulationHarness {
   snapshot(): FixedStepSimulationSnapshot {
     const diagnostics = this.simulation.diagnostics();
     return {
-      schemaVersion: 16,
+      schemaVersion: 17,
       seed: this.config.seed,
       airportCode: this.config.code,
       stepSeconds: round(this.stepSeconds),
@@ -596,7 +601,17 @@ function snapshotFlight(config: AirportConfig, flight: Flight): FixedStepFlightS
     runwayEntryCleared: Boolean(flight.runwayEntryCleared),
     takeoffCleared: Boolean(flight.takeoffCleared),
     takeoffPerformance: flight.takeoffPerformance ? { ...flight.takeoffPerformance } : undefined,
-    rejectedTakeoff: flight.rejectedTakeoff ? { ...flight.rejectedTakeoff } : undefined,
+    rejectedTakeoff: flight.rejectedTakeoff
+      ? {
+          ...flight.rejectedTakeoff,
+          evidence: flight.rejectedTakeoff.evidence
+            ? {
+                ...flight.rejectedTakeoff.evidence,
+                causalEventIds: [...flight.rejectedTakeoff.evidence.causalEventIds],
+              }
+            : undefined,
+        }
+      : undefined,
     groundStop: flight.groundStop
       ? {
           ...flight.groundStop,
@@ -607,6 +622,36 @@ function snapshotFlight(config: AirportConfig, flight: Flight): FixedStepFlightS
       ? {
           ...flight.navigation.handoff,
           causalEventIds: [...(flight.navigation.handoff.causalEventIds ?? [])],
+        }
+      : undefined,
+    vectorEvidence: flight.navigation.vector?.evidence
+      ? {
+          ...flight.navigation.vector.evidence,
+          causalEventIds: [...flight.navigation.vector.evidence.causalEventIds],
+        }
+      : undefined,
+    holdEvidence: flight.navigation.hold?.evidence
+      ? {
+          ...flight.navigation.hold.evidence,
+          causalEventIds: [...flight.navigation.hold.evidence.causalEventIds],
+        }
+      : undefined,
+    altitudeClearance: flight.navigation.altitudeClearance
+      ? {
+          ...flight.navigation.altitudeClearance,
+          causalEventIds: [...flight.navigation.altitudeClearance.causalEventIds],
+        }
+      : undefined,
+    speedClearance: flight.navigation.speedClearance
+      ? {
+          ...flight.navigation.speedClearance,
+          causalEventIds: [...flight.navigation.speedClearance.causalEventIds],
+        }
+      : undefined,
+    goAroundEvidence: flight.goAround?.evidence
+      ? {
+          ...flight.goAround.evidence,
+          causalEventIds: [...flight.goAround.evidence.causalEventIds],
         }
       : undefined,
     weatherEscape: flight.weatherEscape ? { ...flight.weatherEscape } : undefined,

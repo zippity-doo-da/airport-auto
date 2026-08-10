@@ -76,7 +76,7 @@ const result = airportControl.dispatch({
   },
   expects: {
     apiVersion: "2.40.0",
-    snapshotSchemaVersion: 44,
+    snapshotSchemaVersion: 45,
   },
   command: {
     action: "clearTakeoff",
@@ -402,6 +402,15 @@ Sent/Delivered/readback lifecycle; Cancel retains the original route and
 supplemental assignments. The form becomes read-only during replay and disables
 instructions outside the selected desk's Approach authority.
 
+Digital-clearance projection schema 5 also records immediate voice/action
+instructions without turning them into queued Data Comm. Heading, direct-to,
+altitude, speed, hold, go-around, urgent ground-stop, and rejected-takeoff
+records retain the issuing desk, modeled phraseology, originating command or
+scripted-controller decision, and ordered simulation-domain event IDs. The
+bounded remote projection and analytics retain those identifiers but exclude
+free-form phraseology. A go-around clears obsolete assigned speed and altitude
+constraints before the authoritative missed-approach path is flown.
+
 The panel has three views. **Action** is the default controller-attention queue
 and contains Draft, Sent, Delivered, Standby, Unable, and Timed Out messages.
 **History** contains acknowledged instructions, terminal outcomes, and every
@@ -587,7 +596,7 @@ channel.postMessage({
     clientId: "local-observer",
     source: "agent",
     authority: { station: "supervisor" },
-    expects: { apiVersion: "2.40.0", snapshotSchemaVersion: 44 },
+    expects: { apiVersion: "2.40.0", snapshotSchemaVersion: 45 },
     command: { action: "focusFlight", flightId: 12 },
   },
 });

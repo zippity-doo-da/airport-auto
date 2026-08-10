@@ -65,7 +65,7 @@ assert(message?.status === 'sent' && message.expiresAtSeconds === 12, 'route tra
 flight.navigation.routeClearance = { ...flight.navigation.routeClearance, status: 'pending-readback', deliveredAtSeconds: 5, reason: 'awaiting pilot readback' };
 snapshot = digitalClearanceSnapshot(simulation.state);
 message = snapshot.messages[0];
-assert(snapshot.schemaVersion === 4 && message?.status === 'delivered' && message.route.join('>') === 'NORTH>LAKE', 'pending readback did not project as a delivered route message');
+assert(snapshot.schemaVersion === 5 && message?.status === 'delivered' && message.route.join('>') === 'NORTH>LAKE', 'pending readback did not project as a delivered route message');
 assert(message.capability.channel === 'data' && message.capability.deskAccess === 'authorized' && message.capability.responseMode === 'panel' && message.capability.aircraftSupport === 'data-comm-supported', 'active Data Comm capability or authority was not explicit');
 simulation.setStation('tower');
 snapshot = digitalClearanceSnapshot(simulation.state);

@@ -749,7 +749,7 @@ and converts an unanswered or undelivered package to authoritative **Timed Out**
 state at expiry. It emits typed delivery and timeout events and rejects every
 late response. The route, altitude, and speed remain unchanged throughout
 transport and response staging, and the controller may start a fresh revision.
-Snapshot schema 44, exact replay frames, remote projections, the selected-flight
+Snapshot schema 45, exact replay frames, remote projections, the selected-flight
 card, and the Data Comm panel preserve those distinctions.
 The panel is now writable in Manual and Assisted modes. Its native, labeled
 composer selects an eligible inbound and published route, accepts optional
@@ -804,7 +804,7 @@ domain events that produced it. Shareable replay strips those correlation keys
 alongside controller identity and free text. Reset and retention limits are
 deterministic, while the local replay and live panel continue deriving their
 richer presentation from authoritative flight state.
-Digital-clearance envelope schema 4 now distinguishes actual staged Data Comm
+Digital-clearance envelope schema 5 now distinguishes actual staged Data Comm
 packages from immediate voice/action instructions, inter-position coordination,
 and passive operational records. Every message carries typed channel, selected-
 desk access, response surface, and profile-level equipage status. The panel states
@@ -824,6 +824,16 @@ identity. The handoff state retains separate offer, response, and contact comman
 IDs plus the ordered domain-event chain; fixed-step replay, local analytics, and
 the bounded remote projection preserve those fields while excluding the free-form
 coordination reason.
+Immediate airborne instructions now carry that evidence standard as well.
+Heading, direct-to, altitude, speed, hold, go-around, and rejected-takeoff state
+retain modeled phraseology, issuing authority, command or scripted-controller
+identity, and deterministic simulation-domain event IDs. Go-around records both
+the maneuver and emergency event in order, rejected takeoff records issue and
+physical stop, and exact replay, analytics, and remote projections preserve the
+bounded evidence without sharing phraseology. Entering a go-around also clears
+stale speed and altitude restrictions so they cannot override the authoritative
+missed-approach climb profile. Control snapshot schema 45 and fixed-step schema
+17 carry the new optional evidence.
 
 ### Gameplay and UX
 
@@ -836,7 +846,7 @@ coordination reason.
       Active vector, hold, speed, altitude, and route state now project as
       structured messages, as do departure, taxi, and crossing state; direct-to,
       and frequency state now use dedicated envelopes, and every active-flight plan
-      amendment is exposed as a stable, timestamped Revision message. Version 4
+      amendment is exposed as a stable, timestamped Revision message. Version 5
       envelopes carry deterministic command IDs, causal references, expiry, and
       structured response timing plus typed channel, desk-access, response-mode,
       and aircraft-support limitations. Atomic route packages use one compound envelope
@@ -866,8 +876,10 @@ coordination reason.
   the instruction as an urgent voice/action record rather than routine Data Comm.
   An urgent go-around is now explicitly tested to cancel a pending Data Comm route
   before executing, emit an ordered immediate-action event chain, and prevent
-  stale later application. Broader conflict-resolution phraseology and spoken-
-  action work remain open.
+  stale later application. Heading, direct-to, altitude, speed, hold, go-around,
+  and rejected-takeoff records now retain explicit voice phraseology and full
+  command/event evidence. Richer spoken-audio variants and additional tactical
+  conflict-resolution phraseology remain open.
 - [x] Show aircraft capability and station/data-authority limitations without
   turning the interface into avionics configuration management. The selected
   flight panel now shows aircraft/wake class, required takeoff and landing
@@ -892,7 +904,7 @@ coordination reason.
 
 - [~] Define one versioned message envelope containing authority, command IDs,
   causal event IDs, content fields, delivery timing, response, and expiry.
-  Version 4 projections now include these fields plus typed channel, desk-access,
+  Version 5 projections now include these fields plus typed channel, desk-access,
   response-mode, and aircraft-support limitations for every projected message;
   route messages distinguish delivery, expected response, hard expiry, and
   terminal response timing. Every route lifecycle transition now receives a
@@ -900,20 +912,24 @@ coordination reason.
   causal chain across issue, delivery, and response, and records the issuing and
   responding command IDs separately. Telemetry, replay, analytics, and remote
   projections preserve that chain. The urgent ground-stop issue/brake/release
-  lifecycle and staged controller handoffs now use the same full command/event
-  chain; remaining stateless instruction records still use stable compatibility
-  references rather than complete domain-event histories.
+  lifecycle, staged controller handoffs, airborne immediate instructions, and
+  rejected takeoff now use the same full command/event chain. Composite taxi,
+  crossing, and ordinary departure state records remain compatibility projections
+  rather than individual clearance lifecycles.
 - [x] Reuse staged pilot-response and route-readback behavior rather than adding
       a parallel command executor. Compound previews are route-clearance schema
       2 records and use the existing Sent, delivery, pending-readback,
       cancellation, supersession, event, and deterministic pilot-response path.
-- [~] Enforce one current data authority and deterministic handoff behavior.
+- [x] Enforce one current data authority and deterministic handoff behavior.
   A sent transmission or pending route readback now cancels with an explicit
   reason when the aircraft's frequency ownership transfers, and the receiving
   desk cannot accept a route issued by the prior authority. Route-only and
   atomic packages now also expire at a hard fixed-step deadline and reject
-  stale direct or automatic responses. Other clearance kinds and full
-  coordination coverage remain open.
+  stale direct or automatic responses. The only modeled Data Comm packages are
+  route-only and atomic route/altitude/speed clearances; every other instruction
+  is explicitly voice/action, coordination, or record-only. Coordination now
+  retains deterministic offer, response, contact, completion, timeout,
+  cancellation, and rejection evidence, and ownership transfers only on contact.
 - [x] Include messages in replay, analytics, controller evaluation, and remote
       projections with free text excluded from shared exports. Replay and live
       views derive versioned messages from authoritative state; the remote

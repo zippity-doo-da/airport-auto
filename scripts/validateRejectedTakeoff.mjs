@@ -46,7 +46,9 @@ flight.kinematics.airspeedKts = flight.kinematics.groundSpeedKts;
 const startProgress = flight.progress;
 const startSpeed = flight.kinematics.groundSpeedKts;
 simulation.drainEvents();
+const rejectEventCursor = simulation.eventCursor();
 assert(simulation.rejectTakeoff(flight.id, 'traffic'), 'below-V1 rejected takeoff failed: ' + simulation.lastCommandReason());
+simulation.tagEventsSince(rejectEventCursor, 'cmd-validator-reject-takeoff');
 assert(!flight.takeoffCleared && flight.rejectedTakeoff?.reason === 'traffic', 'RTO did not replace the takeoff clearance with explicit state');
 assert(flight.rejectedTakeoff.projectedStopProgress > startProgress, 'RTO omitted its forward braking distance');
 assert(flight.rejectedTakeoff.projectedStopProgress < 1, 'RTO projected a stop beyond the departure path');
@@ -77,6 +79,7 @@ assert(events.some((event) => event.type === 'rejected-takeoff'), 'RTO command e
 assert(events.some((event) => event.type === 'rejected-takeoff-stopped'), 'RTO stop event was not emitted');
 const departureMessage = digitalClearanceSnapshot(simulation.state).messages.find((message) => message.flightId === flight.id && message.kind === 'departure');
 assert(departureMessage?.status === 'unable' && departureMessage.parameters.rejectedTakeoff === 'yes', 'RTO outcome was not projected without becoming a queued instruction');
+assert(departureMessage.commandId === 'cmd-validator-reject-takeoff' && departureMessage.causalEventIds.length === 2 && departureMessage.causalEventIds.every((id) => id.includes(':instruction:')), 'RTO outcome omitted its issue/stop command and event evidence');
 
 console.log(JSON.stringify({
   airport: 'ORD',

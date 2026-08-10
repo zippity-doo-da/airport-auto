@@ -8,7 +8,7 @@ function assert(condition, message) {
 }
 
 const snapshot = projectRemoteOperationsSnapshot({
-  schemaVersion: 44,
+  schemaVersion: 45,
   airport: { code: 'ORD', name: 'Chicago O’Hare' },
   flights: [{
     id: 7,
@@ -36,7 +36,7 @@ const snapshot = projectRemoteOperationsSnapshot({
     },
   }],
   digitalClearances: {
-    schemaVersion: 4,
+    schemaVersion: 5,
     generatedAtSeconds: 18,
     counts: { delivered: 1 },
     messages: [{
@@ -60,6 +60,11 @@ const snapshot = projectRemoteOperationsSnapshot({
       capability: { channel: 'data', deskAccess: 'authorized', responseMode: 'panel', aircraftSupport: 'data-comm-supported', limitations: [] },
       detail: 'free-form local detail must stay page-local',
       warningCount: 0,
+    }, {
+      id: 'go-around:7:18', commandId: 'cmd:go-around:7', controllerDecisionId: 'controller:go-around:7', flightId: 7, callsign: 'TEST 7', kind: 'go-around', status: 'wilco', authority: 'tower', revision: 1,
+      createdAtSeconds: 18, issuedAtSeconds: 18, expiresAtSeconds: null, causalEventIds: ['sim:7:instruction:1', 'sim:7:instruction:2'], route: ['MISSED-1'], parameters: { cycle: 1 },
+      response: { status: 'wilco' }, capability: { channel: 'voice', deskAccess: 'authorized', responseMode: 'voice-action', aircraftSupport: 'not-applicable', limitations: ['use flight controls'] },
+      detail: 'private urgent phraseology', warningCount: 1,
     }],
   },
   surfaceSafety: {
@@ -111,6 +116,8 @@ assert(message.causalEventIds.length === 2 && message.expiresAtSeconds === 20, '
 assert(message.response?.status === 'delivered' && message.response.commandId === 'cmd:route-response:7:2' && message.response.deliveredAtSeconds === 14 && message.parameters.distanceNm === 14, 'remote projection dropped typed response content');
 assert(message.capability?.channel === 'data' && message.capability.deskAccess === 'authorized' && message.capability.responseMode === 'panel' && message.capability.aircraftSupport === 'data-comm-supported' && message.capability.limitations.length === 0, 'remote projection dropped typed capability limits');
 assert(!Object.hasOwn(message, 'detail'), 'remote projection leaked free-form clearance detail');
+const immediateMessage = snapshot.digitalClearances.messages.find((candidate) => candidate.kind === 'go-around');
+assert(immediateMessage?.commandId === 'cmd:go-around:7' && immediateMessage.controllerDecisionId === 'controller:go-around:7' && immediateMessage.causalEventIds.length === 2 && !Object.hasOwn(immediateMessage, 'detail'), 'remote projection lost or leaked immediate-instruction evidence');
 assert(snapshot.surfaceSafety.schemaVersion === 3 && snapshot.surfaceSafety.tracks[0].routeIntent === 'RWY 09', 'remote projection omitted authoritative surface tracks');
 assert(snapshot.surfaceSafety.visible && snapshot.surfaceSafety.filter === 'tower' && snapshot.surfaceSafety.display.lookaheadSeconds === 60, 'remote projection omitted surface display configuration');
 assert(snapshot.surfaceSafety.display.layers.corridors === false && snapshot.surfaceSafety.display.layers.vehicles === false, 'remote projection changed surface diagram layer visibility');
