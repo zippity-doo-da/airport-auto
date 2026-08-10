@@ -157,6 +157,12 @@ import {
   renderDigitalClearancePanel,
 } from "./ui/digitalClearancePanel";
 import {
+  digitalClearanceComposerKey,
+  readDigitalClearanceComposer,
+  renderDigitalClearanceComposer,
+  type DigitalClearanceComposerModel,
+} from "./ui/digitalClearanceComposer";
+import {
   renderSurfaceDisruptionPanel,
   surfaceDisruptionPanelKey,
   updateSurfaceDisruptionTargetOptions,
@@ -537,6 +543,27 @@ const digitalClearancePanel = $<HTMLElement>("#digital-clearance-panel");
 const digitalClearanceClose = $<HTMLButtonElement>("#digital-clearance-close");
 const digitalClearanceCount = $<HTMLElement>("#digital-clearance-count");
 const digitalClearanceList = $<HTMLElement>("#digital-clearance-list");
+const digitalClearanceComposer = $<HTMLFormElement>(
+  "#digital-clearance-composer",
+);
+const digitalClearanceComposerState = $<HTMLElement>(
+  "#digital-clearance-composer-state",
+);
+const digitalClearanceFlight = $<HTMLSelectElement>(
+  "#digital-clearance-flight",
+);
+const digitalClearanceRoute = $<HTMLSelectElement>("#digital-clearance-route");
+const digitalClearanceAltitude = $<HTMLInputElement>(
+  "#digital-clearance-altitude",
+);
+const digitalClearanceSpeed = $<HTMLInputElement>("#digital-clearance-speed");
+const digitalClearancePreview = $<HTMLButtonElement>(
+  "#digital-clearance-preview",
+);
+const digitalClearanceIssue = $<HTMLButtonElement>("#digital-clearance-issue");
+const digitalClearanceCancel = $<HTMLButtonElement>(
+  "#digital-clearance-cancel",
+);
 const operationsLabButton = $<HTMLButtonElement>("#operations-lab-toggle");
 const operationsLabPanel = $<HTMLElement>("#operations-lab");
 const performanceButton = $<HTMLButtonElement>("#performance-toggle");
@@ -925,6 +952,8 @@ let queueInspectorFilter: OperationQueueFilter = "all";
 let queueInspectorUiKey = "";
 let digitalClearanceVisible = false;
 let digitalClearanceUiKey = "";
+let digitalClearanceComposerUiKey = "";
+let digitalClearanceComposerFlightId: number | null = null;
 let digitalClearanceReturnFocus: HTMLElement | null = null;
 let windOverlayVisible = false;
 let serviceVehiclesVisible = true;
@@ -2428,7 +2457,97 @@ digitalClearanceList.addEventListener("click", (event) => {
     setStatus("Clearance message unavailable", result.reason, "warning");
     return;
   }
+  digitalClearanceComposerFlightId = flightId;
+  digitalClearanceComposerUiKey = "";
+  renderDigitalClearanceMessages();
   setStatus("Clearance message selected", result.reason);
+});
+digitalClearanceFlight.addEventListener("change", () => {
+  const flightId = Number(digitalClearanceFlight.value);
+  digitalClearanceComposerFlightId = Number.isInteger(flightId)
+    ? flightId
+    : null;
+  digitalClearanceAltitude.value = "";
+  digitalClearanceSpeed.value = "";
+  digitalClearanceComposerUiKey = "";
+  renderDigitalClearanceMessages();
+});
+digitalClearanceComposer.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const selection = readDigitalClearanceComposer(digitalClearanceElements());
+  if (!selection) {
+    setStatus(
+      "Clearance preview unavailable",
+      "select an eligible flight and published route",
+      "warning",
+    );
+    return;
+  }
+  digitalClearanceComposerFlightId = selection.flightId;
+  const compound =
+    selection.altitudeFt !== undefined || selection.speedKts !== undefined;
+  const result = executeAirportRequest(
+    compound
+      ? {
+          action: "previewCompoundClearance",
+          flightId: selection.flightId,
+          fixIds: selection.fixIds,
+          ...(selection.altitudeFt === undefined
+            ? {}
+            : { altitudeFt: selection.altitudeFt }),
+          ...(selection.speedKts === undefined
+            ? {}
+            : { speedKts: selection.speedKts }),
+        }
+      : {
+          action: "previewRoute",
+          flightId: selection.flightId,
+          fixIds: selection.fixIds,
+        },
+  );
+  setStatus(
+    result.accepted ? "Clearance preview ready" : "Clearance preview rejected",
+    result.reason,
+    result.accepted ? "operational" : "warning",
+  );
+  digitalClearanceComposerUiKey = "";
+  digitalClearanceUiKey = "";
+  renderDigitalClearanceMessages();
+  renderFlightActions();
+});
+digitalClearanceIssue.addEventListener("click", () => {
+  const flightId = Number(digitalClearanceFlight.value);
+  if (!Number.isInteger(flightId)) return;
+  const result = executeAirportRequest({
+    action: "issueRouteAmendment",
+    flightId,
+  });
+  setStatus(
+    result.accepted ? "Digital clearance sent" : "Clearance send rejected",
+    result.reason,
+    result.accepted ? "operational" : "warning",
+  );
+  digitalClearanceComposerUiKey = "";
+  digitalClearanceUiKey = "";
+  renderDigitalClearanceMessages();
+  renderFlightActions();
+});
+digitalClearanceCancel.addEventListener("click", () => {
+  const flightId = Number(digitalClearanceFlight.value);
+  if (!Number.isInteger(flightId)) return;
+  const result = executeAirportRequest({
+    action: "cancelRouteAmendment",
+    flightId,
+  });
+  setStatus(
+    result.accepted ? "Digital clearance cancelled" : "Cancellation rejected",
+    result.reason,
+    result.accepted ? "operational" : "warning",
+  );
+  digitalClearanceComposerUiKey = "";
+  digitalClearanceUiKey = "";
+  renderDigitalClearanceMessages();
+  renderFlightActions();
 });
 
 performanceButton.addEventListener("click", () => {
@@ -6081,9 +6200,9 @@ function createNavigationPanel(flight: Flight): HTMLElement {
         ? "Route preview"
         : clearance.status === "sent"
           ? "Sent route"
-        : clearance.status === "pending-readback"
-          ? "Issued route"
-          : "Route clearance";
+          : clearance.status === "pending-readback"
+            ? "Issued route"
+            : "Route clearance";
     const routeStatus = document.createElement("span");
     const blocking = clearance.warnings.filter(
       (warning) => warning.severity === "blocking",
@@ -6116,11 +6235,13 @@ function createNavigationPanel(flight: Flight): HTMLElement {
     const routeSupplements = document.createElement("small");
     const supplements = clearance.supplements ?? [];
     routeSupplements.textContent = supplements.length
-      ? `ATOMIC · ${supplements.map((supplement) =>
-          supplement.kind === "altitude"
-            ? `${supplement.altitudeFt.toLocaleString()} FT`
-            : `${supplement.speedKts} KT`,
-        ).join(" · ")}`
+      ? `ATOMIC · ${supplements
+          .map((supplement) =>
+            supplement.kind === "altitude"
+              ? `${supplement.altitudeFt.toLocaleString()} FT`
+              : `${supplement.speedKts} KT`,
+          )
+          .join(" · ")}`
       : "ROUTE ONLY";
     const routeDetail = document.createElement("small");
     routeDetail.className = "route-clearance__detail";
@@ -6130,8 +6251,8 @@ function createNavigationPanel(flight: Flight): HTMLElement {
       (clearance.status === "sent"
         ? "Transmission pending; the original route remains authoritative."
         : clearance.status === "pending-readback"
-        ? "Pilot readback pending; the original route remains authoritative."
-        : "No forecast conflict inside the terminal look-ahead.");
+          ? "Pilot readback pending; the original route remains authoritative."
+          : "No forecast conflict inside the terminal look-ahead.");
     route.append(
       routeHeading,
       routeMetrics,
@@ -7760,18 +7881,109 @@ function setDigitalClearancePanelVisible(visible: boolean): void {
   digitalClearanceLabel.textContent = visible ? "Data on" : "Data Comm";
   digitalClearancePanel.hidden = !visible;
   digitalClearanceUiKey = "";
+  digitalClearanceComposerUiKey = "";
   if (visible) renderDigitalClearanceMessages();
 }
 
 function renderDigitalClearanceMessages(): void {
   const snapshot = digitalClearanceSnapshot(displayState());
   const key = digitalClearancePanelKey(snapshot);
-  if (key === digitalClearanceUiKey) return;
-  digitalClearanceUiKey = key;
-  renderDigitalClearancePanel(
-    { count: digitalClearanceCount, list: digitalClearanceList },
-    snapshot,
-  );
+  if (key !== digitalClearanceUiKey) {
+    digitalClearanceUiKey = key;
+    renderDigitalClearancePanel(
+      { count: digitalClearanceCount, list: digitalClearanceList },
+      snapshot,
+    );
+  }
+  const composerModel = createDigitalClearanceComposerModel();
+  const composerKey = digitalClearanceComposerKey(composerModel);
+  if (composerKey !== digitalClearanceComposerUiKey) {
+    digitalClearanceComposerUiKey = composerKey;
+    digitalClearanceComposerFlightId = renderDigitalClearanceComposer(
+      digitalClearanceElements(),
+      composerModel,
+    );
+  }
+}
+
+function digitalClearanceElements() {
+  return {
+    form: digitalClearanceComposer,
+    state: digitalClearanceComposerState,
+    flight: digitalClearanceFlight,
+    route: digitalClearanceRoute,
+    altitude: digitalClearanceAltitude,
+    speed: digitalClearanceSpeed,
+    preview: digitalClearancePreview,
+    issue: digitalClearanceIssue,
+    cancel: digitalClearanceCancel,
+  };
+}
+
+function createDigitalClearanceComposerModel(): DigitalClearanceComposerModel {
+  const state = displayState();
+  const enabled = state.mode === "manual" || state.mode === "assisted";
+  const flights = state.flights
+    .filter((flight) => {
+      const activeStatus = flight.navigation.routeClearance?.status;
+      const active =
+        activeStatus === "preview" ||
+        activeStatus === "sent" ||
+        activeStatus === "pending-readback";
+      return (
+        flight.flightPlan.direction === "arrival" &&
+        flight.phase === "approach" &&
+        flight.progress < 0.62 &&
+        (active ||
+          (!flight.navigation.hold && !flight.goAround && !flight.diversion))
+      );
+    })
+    .map((flight) => {
+      const ownsFlight =
+        state.station === "supervisor" ||
+        flight.navigation.frequencyOwner === state.station;
+      const approachAuthority = simulation.canIssue("approach");
+      const canIssue = ownsFlight && approachAuthority;
+      return {
+        id: flight.id,
+        callsign: flight.callsign,
+        owner: flight.navigation.frequencyOwner,
+        canIssue,
+        ...(canIssue
+          ? {}
+          : {
+              unavailableReason: !ownsFlight
+                ? `Owned by ${flight.navigation.frequencyOwner.toUpperCase()}`
+                : "Approach authority required",
+            }),
+        clearanceStatus: flight.navigation.routeClearance?.status,
+        clearanceSafeToIssue: flight.navigation.routeClearance?.safeToIssue,
+        clearanceReason:
+          flight.navigation.routeClearance?.warnings[0]?.detail ??
+          flight.navigation.routeClearance?.reason,
+        routes: routeAmendmentOptions(flight)
+          .slice(0, 8)
+          .map((option) => ({
+            fixIds: option.fixIds,
+            label: option.label,
+            turnDegrees: Math.round((option.turn * 180) / Math.PI),
+          })),
+      };
+    });
+  const selectedFlightId = flights.some(
+    (flight) => flight.id === digitalClearanceComposerFlightId,
+  )
+    ? digitalClearanceComposerFlightId
+    : flights.some((flight) => flight.id === focusedFlightId)
+      ? focusedFlightId
+      : (flights[0]?.id ?? null);
+  return {
+    enabled,
+    replayMode,
+    station: state.station,
+    selectedFlightId,
+    flights,
+  };
 }
 
 function renderQueueInspector(): void {
@@ -10329,7 +10541,7 @@ function executeAirportRequest(
       valid && simulation.issueFlightRoute(command.flightId, command.fixIds);
     reason = valid
       ? simulation.lastCommandReason()
-        : "route issue requires an optional array of fix IDs";
+      : "route issue requires an optional array of fix IDs";
   }
   if (
     command.action === "previewCompoundClearance" ||
@@ -11300,7 +11512,9 @@ function cloneFlightRouteClearance(
     routeFixNames: [...clearance.routeFixNames],
     previousRouteFixIds: [...clearance.previousRouteFixIds],
     warnings: clearance.warnings.map((warning) => ({ ...warning })),
-    supplements: clearance.supplements?.map((supplement) => ({ ...supplement })),
+    supplements: clearance.supplements?.map((supplement) => ({
+      ...supplement,
+    })),
     safeguards: clearance.safeguards ? [...clearance.safeguards] : undefined,
   };
 }

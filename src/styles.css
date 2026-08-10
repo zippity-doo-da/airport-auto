@@ -5266,15 +5266,21 @@ button.queue-entry:focus-visible,
   right: max(18px, env(safe-area-inset-right));
   z-index: 5;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   width: min(352px, calc(100vw - 36px));
   max-height: min(560px, calc(100vh - 300px));
   gap: 9px;
+  overflow: hidden;
   border: 1px solid rgba(121, 200, 232, 0.48);
   padding: 10px;
   color: var(--ivory);
   background: rgba(5, 24, 25, 0.94);
   box-shadow: 0 22px 54px rgba(2, 13, 14, 0.34);
   backdrop-filter: blur(14px);
+}
+.digital-clearance > * {
+  min-width: 0;
 }
 .digital-clearance header,
 .digital-clearance header > div {
@@ -5313,8 +5319,80 @@ button.queue-entry:focus-visible,
 .digital-clearance__disclosure,
 .digital-clearance__empty {
   margin: 0;
+  overflow-wrap: anywhere;
   font-size: 8px;
   line-height: 1.35;
+}
+.digital-clearance__composer {
+  display: grid;
+  gap: 7px;
+  border: 1px solid rgba(121, 200, 232, 0.2);
+  padding: 8px;
+  background: rgba(121, 200, 232, 0.04);
+}
+.digital-clearance__composer-heading,
+.digital-clearance__composer-actions,
+.digital-clearance__composer-supplements {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.digital-clearance__composer-heading {
+  justify-content: space-between;
+}
+.digital-clearance__composer-heading b {
+  font:
+    400 12px/1 Georgia,
+    serif;
+}
+.digital-clearance__composer-heading span,
+.digital-clearance__composer label > span {
+  color: rgba(244, 232, 206, 0.56);
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.digital-clearance__composer label {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+.digital-clearance__composer > label {
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: center;
+}
+.digital-clearance__composer select,
+.digital-clearance__composer input,
+.digital-clearance__composer button {
+  min-height: 30px;
+  border: 1px solid rgba(244, 232, 206, 0.2);
+  border-radius: 0;
+  color: var(--ivory);
+  background: rgba(3, 17, 18, 0.76);
+  font: 800 9px/1.2 sans-serif;
+}
+.digital-clearance__composer select,
+.digital-clearance__composer input {
+  width: 100%;
+  padding: 5px 7px;
+}
+.digital-clearance__composer-supplements > label {
+  flex: 1 1 0;
+}
+.digital-clearance__composer-actions button {
+  flex: 1 1 0;
+  padding: 5px 7px;
+  cursor: pointer;
+}
+.digital-clearance__composer-actions button:first-child,
+.digital-clearance__composer-actions button:nth-child(2) {
+  border-color: rgba(121, 200, 232, 0.54);
+  background: rgba(121, 200, 232, 0.12);
+}
+.digital-clearance__composer :disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
 }
 .digital-clearance__list {
   display: grid;
@@ -5388,6 +5466,11 @@ button.queue-entry:focus-visible,
     max-height: calc(100dvh - 88px);
   }
   .digital-clearance header button {
+    min-height: 44px;
+  }
+  .digital-clearance__composer select,
+  .digital-clearance__composer input,
+  .digital-clearance__composer button {
     min-height: 44px;
   }
 }

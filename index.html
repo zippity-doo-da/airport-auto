@@ -1706,6 +1706,65 @@
           Fictional, local Data Comm-style route workflow. Messages remain
           non-navigational.
         </p>
+        <form
+          id="digital-clearance-composer"
+          class="digital-clearance__composer"
+          aria-label="Compose a digital route clearance"
+        >
+          <div class="digital-clearance__composer-heading">
+            <b>Compose</b
+            ><span id="digital-clearance-composer-state"
+              >Select an arrival</span
+            >
+          </div>
+          <label>
+            <span>Flight</span>
+            <select
+              id="digital-clearance-flight"
+              aria-label="Clearance flight"
+            ></select>
+          </label>
+          <label>
+            <span>Route</span>
+            <select
+              id="digital-clearance-route"
+              aria-label="Route amendment"
+            ></select>
+          </label>
+          <div class="digital-clearance__composer-supplements">
+            <label>
+              <span>Altitude, optional</span>
+              <input
+                id="digital-clearance-altitude"
+                type="number"
+                inputmode="numeric"
+                min="1000"
+                max="10000"
+                step="100"
+                placeholder="Route only"
+              />
+            </label>
+            <label>
+              <span>Speed, optional</span>
+              <input
+                id="digital-clearance-speed"
+                type="number"
+                inputmode="numeric"
+                min="90"
+                max="250"
+                step="5"
+                placeholder="Route only"
+              />
+            </label>
+          </div>
+          <div class="digital-clearance__composer-actions">
+            <button id="digital-clearance-preview" type="submit">
+              Preview
+            </button>
+            <button id="digital-clearance-issue" type="button">Send</button>
+            <button id="digital-clearance-cancel" type="button">Cancel</button>
+          </div>
+        </form>
         <div
           id="digital-clearance-list"
           class="digital-clearance__list"

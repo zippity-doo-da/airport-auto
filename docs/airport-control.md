@@ -394,6 +394,14 @@ The normal selected-flight panel includes a collapsible route chooser plus a one
 
 `previewCompoundClearance` stages a route plus one or both of `altitudeFt` and `speedKts`; `issueCompoundClearance` issues that staged candidate. At least one supplement is required. Values are normalized to 100-foot and 5-knot increments and checked against the same phase, aircraft, authority, route, turn, and terminal-separation limits as their individual commands. The route forecast uses the proposed altitude and speed, not the aircraft's old assignments. The original route, altitude, and speed remain authoritative through preview, transmission, delivery, and pending readback. Final readback revalidates the complete package and either applies every component or none; cancellation, authority transfer, or a new blocking conflict cannot leave a partial assignment. The existing `issueRouteAmendment` UI action deliberately recognizes a staged compound preview and sends it through this same path. Digital Clearances projects one `compound-clearance` message with typed parameters and suppresses redundant altitude/speed messages for the accepted package.
 
+In Manual and Assisted modes, the Data Comm panel provides the writable UI for
+that same workflow. Choose an eligible inbound and published route, optionally
+enter altitude and/or speed, then Preview. The safety result and any blocking
+reason remain visible before Send is enabled. Send enters the authoritative
+Sent/Delivered/readback lifecycle; Cancel retains the original route and
+supplemental assignments. The form becomes read-only during replay and disables
+instructions outside the selected desk's Approach authority.
+
 `assignTaxiRoute` accepts up to eight ordered via-node IDs from `snapshot().surfaceGraph.nodes`; omit `viaNodeIds` to refresh the safest available route to the already-cleared destination. It never changes that destination or teleports the aircraft. The current pavement segment remains committed, and the suffix passes through the same edge direction, aircraft-width, closure, congestion, deicing, reservation, and runway-crossing systems as automatic routing. A controller must separately clear every crossing newly derived from the accepted route. `holdPosition` decelerates with the aircraft and surface-condition braking model; `resumeTaxi` removes only the controller hold, so a crossing, automatic-flow, or collision hold can still keep the aircraft stopped.
 
 `divertFlight` applies to an inbound aircraft owned by Approach or Supervisor. It captures the current pose, amends the destination and flight-plan status, climbs continuously through either the requested terminal `exitFixId` or the smallest-turn scope-edge fix, and removes the flight only after it flies beyond terminal scope. It does not disappear in place or run the landing-clearance timeout while exiting.

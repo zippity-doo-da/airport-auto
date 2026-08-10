@@ -712,13 +712,22 @@ late response. The route, altitude, and speed remain unchanged throughout
 transport and response staging, and the controller may start a fresh revision.
 Snapshot schema 44, exact replay frames, remote projections, the selected-flight
 card, and the Data Comm panel preserve those distinctions.
+The panel is now writable in Manual and Assisted modes. Its native, labeled
+composer selects an eligible inbound and published route, accepts optional
+altitude and speed constraints, previews the complete instruction through the
+same authority and separation arbiter, and then sends or cancels the staged
+package. Unsafe previews retain an explainable blocking reason; authority,
+active-transmission, and replay states disable invalid controls instead of
+offering commands that will silently fail. Desktop and phone-sized browser
+passes verify bounded layout, touch targets, and Draft → Sent → Cancelled
+operation while paused.
 
 ### Gameplay and UX
 
 - [x] Add a clearance inbox/outbox with Draft, Sent, Delivered, Wilco, Unable,
-  Standby, Superseded, Timed Out, and Cancelled states. A compact panel
-  now exposes the full route-clearance lifecycle, including a real fixed-step
-  Sent-to-Delivered transition; structured surface messages supply Standby.
+      Standby, Superseded, Timed Out, and Cancelled states. A compact panel
+      now exposes the full route-clearance lifecycle, including a real fixed-step
+      Sent-to-Delivered transition; structured surface messages supply Standby.
 - [~] Build structured departure, route, altitude, speed, direct-to, hold,
   frequency, taxi, crossing, and revision messages from existing typed commands.
   Active vector, hold, speed, altitude, and route state now project as
@@ -748,12 +757,14 @@ card, and the Data Comm panel preserve those distinctions.
   runway length, current data authority, and whether the selected desk can
   issue a clearance or must obtain a transfer. Broader capability limits and
   per-message limitation presentation remain open.
-- [~] Provide concise keyboard flows and an Assisted composer that explains why
-  a message is valid, delayed, or rejected. Clearance rows are keyboard
-  focusable and move to the existing flight workflow; the advisor now offers a
-  timed, published Approach hold when sequence pressure cannot be solved by
-  speed alone, plus an early published-route direct-to or vector when a safe
-  route correction is available. Full composer editing remains open.
+- [x] Provide concise keyboard flows and an Assisted composer that explains why
+      a message is valid, delayed, or rejected. Clearance rows are keyboard
+      focusable and move to the existing flight workflow; the advisor now offers a
+      timed, published Approach hold when sequence pressure cannot be solved by
+      speed alone, plus an early published-route direct-to or vector when a safe
+      route correction is available. The labeled Data Comm form now composes
+      route-only or atomic route/altitude/speed previews, exposes blocking reasons,
+      and sends or cancels them through the authoritative command path.
 
 ### Simulation and API
 
@@ -802,8 +813,10 @@ card, and the Data Comm panel preserve those distinctions.
 - [~] Screen-reader and keyboard users can compose, inspect, send, and dismiss a
   clearance without losing flight-strip focus. Data Comm now restores the
   invoking control on close or Escape and exposes every message as a named,
-  keyboard-focusable row; compose/send/dismiss actions still finish through
-  the standard flight-strip workflow.
+  keyboard-focusable row. Its native labeled form supports compose, preview,
+  send, and cancel without rebuilding the active controls during routine
+  message-list updates; a full keyboard-only arrival acceptance run remains
+  open.
 
 ## A4 — High-fidelity Atlanta
 
