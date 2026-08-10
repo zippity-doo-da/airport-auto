@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "name": "Airport Auto offline sound library",
-  "updated": "2026-07-27",
+  "updated": "2026-08-10",
   "license": "CC0-1.0 for project-original generated WAV assets; source code remains under the project license.",
   "networkAudio": false,
   "runtimeVoiceGeneration": false,
@@ -1014,6 +1014,101 @@
       "station": "approach",
       "speaker": "controller-f",
       "captionTemplate": "{callsign}, priority handling acknowledged. Follow the escape procedure.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "tower-reject-takeoff-1",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/tower-reject-takeoff-1.wav",
+      "durationSeconds": 3,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "d96754bea378fe18053c564f52dd17f2f8ac47c7fcb50d8f080e03ea3ba366bc",
+      "triggers": [
+        "radio-emergency"
+      ],
+      "states": [],
+      "station": "tower",
+      "speaker": "controller-c",
+      "captionTemplate": "{callsign}, reject takeoff. Stop immediately.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "tower-reject-takeoff-2",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/tower-reject-takeoff-2.wav",
+      "durationSeconds": 3.2,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "f04ed368c98b1cc99f99616cdefc5d4465a05ea4e658a7fd610f432746ce13bd",
+      "triggers": [
+        "radio-emergency"
+      ],
+      "states": [],
+      "station": "tower",
+      "speaker": "controller-e",
+      "captionTemplate": "{callsign}, cancel takeoff clearance. Hold position.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "ground-traffic-stop-1",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/ground-traffic-stop-1.wav",
+      "durationSeconds": 3.1,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "e070be30e84dd5fcf1ee208f2f1a053d9fd0c1a3cb7c507f5f3176d435c024b0",
+      "triggers": [
+        "radio-emergency"
+      ],
+      "states": [],
+      "station": "ground",
+      "speaker": "controller-d",
+      "captionTemplate": "STOP IMMEDIATELY, {callsign}. Conflicting traffic.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "ground-traffic-stop-2",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/ground-traffic-stop-2.wav",
+      "durationSeconds": 3.3,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "a42adae598a1cd2df1d8b7001922f8a1e54a339d1d285ea6d807bb9c717746b8",
+      "triggers": [
+        "radio-emergency"
+      ],
+      "states": [],
+      "station": "ground",
+      "speaker": "controller-f",
+      "captionTemplate": "{callsign}, traffic alert. Hold position.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "ramp-traffic-stop-1",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/ramp-traffic-stop-1.wav",
+      "durationSeconds": 3,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "09652a8e6bc4f9f339fd3aae8ec4b7e4cd005197c57cf5a5c22e764e2e2966ff",
+      "triggers": [
+        "radio-emergency"
+      ],
+      "states": [],
+      "station": "ramp",
+      "speaker": "ramp-b",
+      "captionTemplate": "STOP IMMEDIATELY, {callsign}. Ramp traffic.",
       "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
       "license": "CC0-1.0"
     }

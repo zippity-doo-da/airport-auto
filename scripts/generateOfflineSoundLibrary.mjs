@@ -63,6 +63,11 @@ const specifications = [
   { id: 'handoff-4', family: 'radio', channel: 'radio', duration: 3.0, seed: 320, synthesis: 'voice-soft', triggers: ['radio-handoff'], station: 'ramp', speaker: 'ramp-b', captionTemplate: '{callsign}, handoff complete. Continue with the next controller.' },
   { id: 'emergency-3', family: 'radio', channel: 'radio', duration: 3.3, seed: 321, synthesis: 'voice-mid', triggers: ['radio-emergency'], station: 'tower', speaker: 'controller-e', captionTemplate: '{callsign}, go around now. Maintain the assigned missed approach.' },
   { id: 'emergency-4', family: 'radio', channel: 'radio', duration: 3.6, seed: 322, synthesis: 'voice-soft', triggers: ['radio-emergency'], station: 'approach', speaker: 'controller-f', captionTemplate: '{callsign}, priority handling acknowledged. Follow the escape procedure.' },
+  { id: 'tower-reject-takeoff-1', family: 'radio', channel: 'radio', duration: 3.0, seed: 323, synthesis: 'voice-low', triggers: ['radio-emergency'], station: 'tower', speaker: 'controller-c', captionTemplate: '{callsign}, reject takeoff. Stop immediately.' },
+  { id: 'tower-reject-takeoff-2', family: 'radio', channel: 'radio', duration: 3.2, seed: 324, synthesis: 'voice-mid', triggers: ['radio-emergency'], station: 'tower', speaker: 'controller-e', captionTemplate: '{callsign}, cancel takeoff clearance. Hold position.' },
+  { id: 'ground-traffic-stop-1', family: 'radio', channel: 'radio', duration: 3.1, seed: 325, synthesis: 'voice-high', triggers: ['radio-emergency'], station: 'ground', speaker: 'controller-d', captionTemplate: 'STOP IMMEDIATELY, {callsign}. Conflicting traffic.' },
+  { id: 'ground-traffic-stop-2', family: 'radio', channel: 'radio', duration: 3.3, seed: 326, synthesis: 'voice-soft', triggers: ['radio-emergency'], station: 'ground', speaker: 'controller-f', captionTemplate: '{callsign}, traffic alert. Hold position.' },
+  { id: 'ramp-traffic-stop-1', family: 'radio', channel: 'radio', duration: 3.0, seed: 327, synthesis: 'voice-mid', triggers: ['radio-emergency'], station: 'ramp', speaker: 'ramp-b', captionTemplate: 'STOP IMMEDIATELY, {callsign}. Ramp traffic.' },
 ];
 
 function randomFactory(seed) {
@@ -197,7 +202,7 @@ for (const specification of specifications) {
 const manifest = {
   schemaVersion: 2,
   name: 'Airport Auto offline sound library',
-  updated: '2026-07-27',
+  updated: '2026-08-10',
   license: 'CC0-1.0 for project-original generated WAV assets; source code remains under the project license.',
   networkAudio: false,
   runtimeVoiceGeneration: false,

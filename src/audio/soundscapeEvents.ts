@@ -92,6 +92,7 @@ interface SoundEventDraft {
   flight?: Flight;
   station?: SoundscapeEvent["station"];
   caption?: string;
+  captionVariants?: string[];
   sourceEventType?: string;
 }
 
@@ -102,11 +103,17 @@ const RADIO_EVENT_TYPES = new Set([
   "pushback-clearance",
   "taxi-route-clearance",
   "hold-position",
+  "ground-stop",
+  "ground-stop-released",
   "taxi-resume",
   "hold-short",
   "runway-entry",
   "runway-crossing",
   "takeoff-clearance",
+  "takeoff-clearance-cancelled",
+  "rejected-takeoff",
+  "safety-hold",
+  "conflict",
   "handoff-offer",
   "handoff-accept",
   "handoff-reject",
@@ -163,7 +170,12 @@ function radioDraft(event: AirportEvent): SoundEventDraft | null {
         channel: "radio",
         flight,
         station: "tower",
-        caption: `${flight.callsign}, cleared to land on your assigned runway.`,
+        captionVariants: [
+          `${flight.callsign}, cleared to land on your assigned runway.`,
+          `${flight.callsign}, runway assignment confirmed, cleared to land.`,
+          `${flight.callsign}, continue landing, runway is protected.`,
+          `${flight.callsign}, wind checked, cleared to land.`,
+        ],
         sourceEventType: event.type,
       };
     case "pushback-clearance":
@@ -181,7 +193,12 @@ function radioDraft(event: AirportEvent): SoundEventDraft | null {
         channel: "radio",
         flight,
         station: "ground",
-        caption: `${flight.callsign}, taxi via the assigned route${detail ? `, ${detail}` : ""}.`,
+        captionVariants: [
+          `${flight.callsign}, taxi via the assigned route${detail ? `, ${detail}` : ""}.`,
+          `${flight.callsign}, proceed on the cleared taxi route${detail ? `, ${detail}` : ""}.`,
+          `${flight.callsign}, taxi as assigned${detail ? `, ${detail}` : ""}.`,
+          `${flight.callsign}, cleared along the assigned pavement route${detail ? `, ${detail}` : ""}.`,
+        ],
         sourceEventType: event.type,
       };
     case "hold-position":
@@ -201,6 +218,33 @@ function radioDraft(event: AirportEvent): SoundEventDraft | null {
         flight,
         station: "ground",
         caption: `${flight.callsign}, resume taxi.`,
+        sourceEventType: event.type,
+      };
+    case "ground-stop":
+      return {
+        kind: "radio-emergency",
+        channel: "radio",
+        flight,
+        station:
+          flight.navigation.frequencyOwner === "ramp" ? "ramp" : "ground",
+        priority: "critical",
+        caption:
+          flight.groundStop?.phraseology ??
+          `STOP IMMEDIATELY, ${flight.callsign}. Hold position.`,
+        sourceEventType: event.type,
+      };
+    case "ground-stop-released":
+      return {
+        kind: "radio-ground",
+        channel: "radio",
+        flight,
+        station:
+          flight.navigation.frequencyOwner === "ramp" ? "ramp" : "ground",
+        captionVariants: [
+          `${flight.callsign}, stop cancelled, resume taxi.`,
+          `${flight.callsign}, traffic clear, continue taxi.`,
+          `${flight.callsign}, released from the stop, taxi as assigned.`,
+        ],
         sourceEventType: event.type,
       };
     case "runway-entry":
@@ -227,9 +271,67 @@ function radioDraft(event: AirportEvent): SoundEventDraft | null {
         channel: "radio",
         flight,
         station: "tower",
-        caption: `${flight.callsign}, cleared for takeoff on your assigned runway.`,
+        captionVariants: [
+          `${flight.callsign}, cleared for takeoff on your assigned runway.`,
+          `${flight.callsign}, runway protected, cleared for takeoff.`,
+          `${flight.callsign}, wind checked, cleared for takeoff.`,
+          `${flight.callsign}, takeoff clearance issued, assigned runway.`,
+        ],
         sourceEventType: event.type,
       };
+    case "takeoff-clearance-cancelled":
+      return {
+        kind: "radio-emergency",
+        channel: "radio",
+        flight,
+        station: "tower",
+        priority: "critical",
+        caption: `${flight.callsign}, cancel takeoff clearance. Hold position.`,
+        sourceEventType: event.type,
+      };
+    case "rejected-takeoff":
+      return {
+        kind: "radio-emergency",
+        channel: "radio",
+        flight,
+        station: "tower",
+        priority: "critical",
+        caption:
+          flight.rejectedTakeoff?.evidence?.phraseology ??
+          `${flight.callsign}, reject takeoff. Stop immediately.`,
+        sourceEventType: event.type,
+      };
+    case "safety-hold":
+    case "conflict": {
+      const surface = flight.motion.onGround;
+      return {
+        kind: "radio-emergency",
+        channel: "radio",
+        flight,
+        station: surface
+          ? flight.navigation.frequencyOwner === "ramp"
+            ? "ramp"
+            : "ground"
+          : flight.phase === "approach"
+            ? "approach"
+            : "tower",
+        priority: event.type === "conflict" ? "critical" : "warning",
+        captionVariants: surface
+          ? [
+              `${flight.callsign}, traffic alert, hold position.`,
+              `${flight.callsign}, stop, conflicting traffic.`,
+              `${flight.callsign}, hold your position for traffic.`,
+              `${flight.callsign}, remain stopped, movement conflict ahead.`,
+            ]
+          : [
+              `${flight.callsign}, traffic alert, maintain present course.`,
+              `${flight.callsign}, maintain heading and altitude, traffic.`,
+              `${flight.callsign}, traffic conflict, hold present flight path.`,
+              `${flight.callsign}, maintain present course, expect further clearance.`,
+            ],
+        sourceEventType: event.type,
+      };
+    }
     case "handoff-offer":
     case "handoff-accept":
     case "handoff-reject":
@@ -259,7 +361,15 @@ function radioDraft(event: AirportEvent): SoundEventDraft | null {
         priority: "warning",
         caption: flight.goAround?.weatherEscape
           ? `${flight.callsign}, wind shear escape. Maximum thrust, fly straight ahead.`
-          : `${flight.callsign}, go around. Fly the missed approach.`,
+          : undefined,
+        captionVariants: flight.goAround?.weatherEscape
+          ? undefined
+          : [
+              `${flight.callsign}, go around. Fly the missed approach.`,
+              `${flight.callsign}, go around, climb on the published missed approach.`,
+              `${flight.callsign}, discontinue the approach, go around.`,
+              `${flight.callsign}, go around now, follow the missed approach.`,
+            ],
         sourceEventType: event.type,
       };
     case "weather-escape":
@@ -735,7 +845,10 @@ export class SoundscapeEventScheduler {
           }
         : undefined,
       station: draft.station,
-      caption: draft.caption,
+      caption:
+        draft.captionVariants?.length
+          ? draft.captionVariants[variant % draft.captionVariants.length]
+          : draft.caption,
       sourceEventType: draft.sourceEventType,
     };
     this.emitted += 1;

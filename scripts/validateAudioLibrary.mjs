@@ -28,6 +28,7 @@ const requiredTriggers = new Set([
 ]);
 const stations = new Set();
 const speakers = new Set();
+const emergencyStations = new Set();
 const ids = new Set();
 let bytesTotal = 0;
 let durationTotal = 0;
@@ -60,13 +61,17 @@ for (const asset of manifest.assets) {
     if (!asset.captionTemplate?.includes('{callsign}')) throw new Error(`${asset.id} lacks a callsign-safe caption template`);
     stations.add(asset.station);
     speakers.add(asset.speaker);
+    if (asset.triggers.includes('radio-emergency')) emergencyStations.add(asset.station);
   }
 }
 
 if (requiredStates.size) throw new Error(`missing offline beds: ${[...requiredStates].join(', ')}`);
 if (requiredTriggers.size) throw new Error(`missing detailed event recordings: ${[...requiredTriggers].join(', ')}`);
 if (stations.size < 4 || speakers.size < 8) throw new Error('offline fictional radio library lacks station or voice variety');
-if (manifest.assets.filter((asset) => asset.family === 'radio').length < 20) throw new Error('offline fictional radio library is too small');
+if (manifest.assets.filter((asset) => asset.family === 'radio').length < 27) throw new Error('offline fictional radio library is too small');
+if (![...['approach', 'tower', 'ground', 'ramp']].every((station) => emergencyStations.has(station))) {
+  throw new Error('urgent fictional radio lacks station-matched coverage');
+}
 if (bytesTotal > 8 * 1024 * 1024) throw new Error(`offline sound library exceeds the 8 MiB shipping budget (${bytesTotal})`);
 
 console.log(JSON.stringify({
@@ -77,6 +82,7 @@ console.log(JSON.stringify({
   radioClips: manifest.assets.filter((asset) => asset.family === 'radio').length,
   speakers: speakers.size,
   stations: stations.size,
+  emergencyStations: [...emergencyStations].sort(),
   durationMinutes: Number((durationTotal / 60).toFixed(2)),
   bytes: bytesTotal,
 }));

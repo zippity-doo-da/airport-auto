@@ -27,6 +27,50 @@ assert(firstEvents[0].variant >= 0 && firstEvents[0].variant < 4, 'sound variant
 assert(first.observe(spawn, simulation.state).length === 0, 'duplicate domain event bypassed the radio cooldown');
 assert(first.snapshot().suppressed === 1, 'cooldown suppression was not observable');
 
+const phraseologyScheduler = new SoundscapeEventScheduler(config.seed);
+const phraseologyFlight = spawn.flight;
+phraseologyFlight.groundStop = {
+  schemaVersion: 1, issuedAtSeconds: 20, issuedBy: 'ground', reason: 'crossing traffic',
+  phraseology: 'STOP IMMEDIATELY, ' + phraseologyFlight.callsign + '. Crossing traffic.',
+  initialSpeedKts: 12, targetDecelerationMps2: 1.8, causalEventIds: [],
+};
+simulation.state.elapsed = 20;
+let urgent = phraseologyScheduler.observe({ type: 'ground-stop', flight: phraseologyFlight }, simulation.state)[0];
+assert(urgent?.kind === 'radio-emergency' && urgent.priority === 'critical' && urgent.station === 'ground', 'urgent surface stop did not enter the ground emergency radio channel');
+assert(urgent.caption === phraseologyFlight.groundStop.phraseology, 'urgent surface stop did not preserve its authoritative phraseology');
+phraseologyFlight.rejectedTakeoff = {
+  schemaVersion: 1, reason: 'traffic', initiatedAtSeconds: 24, startProgress: 0.2, startSpeedKts: 70,
+  decisionSpeedKts: 140, projectedStopProgress: 0.45, projectedStoppingDistanceM: 600,
+  evidence: { schemaVersion: 1, issuedBy: 'tower', phraseology: phraseologyFlight.callsign + ', reject takeoff. Stop immediately.', causalEventIds: [] },
+};
+simulation.state.elapsed = 24;
+urgent = phraseologyScheduler.observe({ type: 'rejected-takeoff', flight: phraseologyFlight }, simulation.state)[0];
+assert(urgent?.priority === 'critical' && urgent.station === 'tower' && urgent.caption === phraseologyFlight.rejectedTakeoff.evidence.phraseology, 'rejected takeoff did not produce authoritative Tower emergency phraseology');
+simulation.state.elapsed = 28;
+urgent = phraseologyScheduler.observe({ type: 'takeoff-clearance-cancelled', flight: phraseologyFlight }, simulation.state)[0];
+assert(urgent?.caption?.includes('cancel takeoff clearance') && urgent.priority === 'critical', 'cancelled takeoff clearance did not produce an immediate critical transmission');
+phraseologyFlight.motion.onGround = true;
+simulation.state.elapsed = 32;
+urgent = phraseologyScheduler.observe({ type: 'safety-hold', flight: phraseologyFlight, detail: 'projected path conflict' }, simulation.state)[0];
+assert(urgent?.caption?.includes('traffic') && /hold|stop|stopped/.test(urgent.caption), 'surface conflict intervention lacked tactical stop/hold phraseology');
+phraseologyFlight.motion.onGround = false;
+phraseologyFlight.phase = 'approach';
+phraseologyFlight.navigation.frequencyOwner = 'approach';
+simulation.state.elapsed = 36;
+urgent = phraseologyScheduler.observe({ type: 'conflict', flight: phraseologyFlight, detail: 'predicted loss of separation' }, simulation.state)[0];
+assert(urgent?.station === 'approach' && urgent.priority === 'critical' && /maintain|course|flight path/.test(urgent.caption ?? ''), 'airborne conflict lacked tactical Approach phraseology');
+
+const variantScheduler = new SoundscapeEventScheduler(config.seed);
+const clearanceCaptions = [];
+for (let index = 0; index < 8; index += 1) {
+  simulation.state.elapsed = 50 + index * 3;
+  const variantFlight = { ...spawn.flight, id: 1_000 + index, callsign: 'TEST ' + index, motion: { ...spawn.flight.motion } };
+  const event = variantScheduler.observe({ type: 'clear', flight: variantFlight }, simulation.state)[0];
+  assert(event?.caption?.includes(variantFlight.callsign), 'clearance phraseology variant omitted its callsign');
+  clearanceCaptions.push(event.caption.replace(variantFlight.callsign, 'CALLSIGN'));
+}
+assert(new Set(clearanceCaptions).size >= 3, 'routine clearance captions did not rotate through meaningful phraseology variants');
+
 const trackedFirst = new SoundscapeEventScheduler(config.seed);
 const trackedSecond = new SoundscapeEventScheduler(config.seed);
 assert(

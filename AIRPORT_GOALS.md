@@ -869,7 +869,7 @@ schema 18 carry the optional histories.
       a pure candidate flight, the common terminal forecast, current Approach
       authority, and a second all-component validation at readback. Acceptance
       applies all components together; every failure path applies none.
-- [~] Make urgent, immediate, go-around, stop, rejected-takeoff, and conflict
+- [x] Make urgent, immediate, go-around, stop, rejected-takeoff, and conflict
   instructions voice/action-first rather than queued behind digital messages.
   Go-around and hold actions already bypass the message queue; Tower can now
   cancel an active takeoff clearance while the aircraft is still lined up,
@@ -886,8 +886,15 @@ schema 18 carry the optional histories.
   before executing, emit an ordered immediate-action event chain, and prevent
   stale later application. Heading, direct-to, altitude, speed, hold, go-around,
   and rejected-takeoff records now retain explicit voice phraseology and full
-  command/event evidence. Richer spoken-audio variants and additional tactical
-  conflict-resolution phraseology remain open.
+  command/event evidence. The deterministic soundscape now consumes the same
+  accepted ground-stop, stop-release, takeoff-cancellation, rejected-takeoff,
+  safety-hold, and conflict events as immediate radio actions. Station-aware
+  ground, ramp, Tower, and Approach wording distinguishes surface stop/hold from
+  airborne maintain-course responses; routine landing, taxi, takeoff, and
+  go-around captions rotate without dropping the callsign. Five new local,
+  project-original emergency radio clips give Ground, Ramp, and rejected-
+  takeoff calls station-matched audio while preserving the offline/no-microphone
+  boundary and the existing shipping budget.
 - [x] Show aircraft capability and station/data-authority limitations without
       turning the interface into avionics configuration management. The selected
       flight panel now shows aircraft/wake class, required takeoff and landing

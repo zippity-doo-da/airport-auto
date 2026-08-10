@@ -7,10 +7,10 @@ Airport Auto 2.34 adds a deterministic long-form sound foundation for Auto, Watc
 - Persistent per-aircraft voices follow the authoritative model, engine type, power state, position, and ground/air state. The nearest 14 useful voices receive camera-relative stereo position, distance attenuation, restrained Doppler, simple distance/ground occlusion, and smooth gain/frequency targets.
 - Field, tower-room, ramp, APU, wind, rain, and snow beds crossfade from the displayed live or replay weather and traffic state. Low visibility shifts the field/room balance, thunderstorm precipitation drives the rain layer, and wind audio is silent when either weather or wind is switched off.
 - Deterministic event decisions add touchdown, reverse thrust, takeoff power, engine start, tug, service vehicle, ramp clatter, deicing spray, gear, gust, weather-transition, and optional rare-thunder cues.
-- Fictional offline ATC captions are derived from accepted simulation events. They use a bounded priority queue and 4.2–8 second wall-clock dwell, so busy traffic cannot make them flicker unreadably.
-- Five independent buses—Ambience, Aircraft, Weather, Radio, and UI—support Full field, Calm, Radio focus, Engines only, and Silent presets.
+- Fictional offline ATC captions are derived from accepted simulation events. Routine landing, taxi, takeoff, and go-around calls rotate deterministic wording, while ground stops, stop releases, cancelled/rejected takeoffs, safety holds, and conflict interventions use immediate station-aware phraseology. Surface conflicts instruct a stop or hold; airborne conflicts instruct the aircraft to maintain its present course pending further clearance. The bounded priority queue and 4.2–8 second wall-clock dwell keep busy traffic readable.
+- Six independent buses—Ambience, Aircraft, Weather, Terminal, Radio, and UI—support Full field, Calm, Radio focus, Engines only, and Silent presets.
 
-The current procedural engine and event synthesis is an original low-bandwidth foundation, not a claim of recorded-aircraft fidelity. License-cleared recorded engine, ramp, terminal, and pre-rendered fictional voice libraries remain future production work.
+The current procedural engine and event synthesis is an original low-bandwidth foundation, not a claim of recorded-aircraft fidelity. The bundled project-original library includes 27 abstract formant-like fictional radio clips, including station-matched Ground/Ramp traffic stops and Tower rejected-takeoff calls; they are reusable offline variants, not real speech or real-world radio traffic. License-cleared recorded engine, ramp, and terminal libraries remain future production work.
 
 ## Player controls
 
@@ -48,4 +48,4 @@ npm run test:soundscape
 npx playwright test e2e/soundscape.spec.ts --project=desktop-chromium
 ```
 
-The deterministic gate covers seeded variants, cooldowns, actual weather switches, optional thunder, flight tracking, caption dwell, priority interruption, and reset. The browser gate covers the real Web Audio context, bounded spatial voices, readable captions, independent toggles, replay events, snapshot state, and the served source manifest.
+The deterministic gate covers seeded wording and clip variants, callsign retention, station-matched urgent actions, tactical surface/airborne conflict language, cooldowns, actual weather switches, optional thunder, flight tracking, caption dwell, priority interruption, and reset. The browser gate covers the real Web Audio context, bounded spatial voices, readable captions, independent toggles, replay events, snapshot state, and the served source manifest.
