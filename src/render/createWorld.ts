@@ -59,6 +59,7 @@ import {
 } from "./gateActivityLights";
 import { createTerminalAccessScene } from "./terminalAccessScene";
 import { createTerminalGateScene } from "./terminalGateScene";
+import { matchPassengerFacilityFootprints } from "./passengerFacilityFootprints";
 import {
   createSurfaceProjectionOverlay,
   createSurfaceProtectionOverlay,
@@ -111,6 +112,7 @@ type AirportBuild = {
   runwayLights: RunwayLight[];
   runwayProtectionLights: RunwayProtectionLight[];
   runwayVisuals: RunwayVisual[];
+  passengerFacilityLabels: THREE.Group | null;
   gateLights: GateActivityLights | null;
   surfaceProtection: SurfaceProtectionOverlay;
   surfaceProjections: SurfaceProjectionOverlay;
@@ -1460,6 +1462,8 @@ export function createWorld(
       runwayLabelsVisible = visible;
       for (const runway of airportBuild.runwayVisuals)
         for (const label of runway.labels) label.visible = visible;
+      if (airportBuild.passengerFacilityLabels)
+        airportBuild.passengerFacilityLabels.visible = visible;
     },
     setServiceVehiclesVisible(visible) {
       serviceVehiclesVisible = visible;
@@ -2224,7 +2228,11 @@ function buildAirport(
   addHoldShortMarkings(root, config, unitBox);
 
   if (config.vectorData) {
-    addImportedBuildings(root, config.obstacles);
+    addImportedBuildings(
+      root,
+      config.obstacles,
+      config.surfaceGraph.passengerFacilities,
+    );
   } else {
     const terminalEnvelope = config.obstacles.find(
       (obstacle) => obstacle.kind === "terminal",
@@ -2271,7 +2279,10 @@ function buildAirport(
     terminal.add(windows);
     root.add(terminal);
   }
-  addPassengerFacilityLabels(root, config.surfaceGraph.passengerFacilities);
+  const passengerFacilityLabels = addPassengerFacilityLabels(
+    root,
+    config.surfaceGraph.passengerFacilities,
+  );
   const gateLights = createGateActivityLights(root, config, unitLight, lowDetail);
 
   const towerEnvelope = config.obstacles.find(
@@ -2304,6 +2315,7 @@ function buildAirport(
     runwayLights,
     runwayProtectionLights,
     runwayVisuals,
+    passengerFacilityLabels,
     gateLights,
     surfaceProtection,
     surfaceProjections,
@@ -2336,10 +2348,27 @@ function addImportedAprons(
 function addImportedBuildings(
   root: THREE.Group,
   obstacles: AirportConfig["obstacles"],
+  facilities: AirportConfig["surfaceGraph"]["passengerFacilities"],
 ): void {
+  const facilityFootprints = matchPassengerFacilityFootprints(
+    obstacles,
+    facilities,
+  );
   const terminalMaterial = new THREE.MeshStandardMaterial({
     color: COLORS.terminal,
     roughness: 0.78,
+  });
+  const concourseMaterial = new THREE.MeshStandardMaterial({
+    color: 0xc9bfa8,
+    roughness: 0.8,
+  });
+  const terminalRoofMaterial = new THREE.MeshStandardMaterial({
+    color: 0xded5bf,
+    roughness: 0.9,
+  });
+  const concourseRoofMaterial = new THREE.MeshStandardMaterial({
+    color: 0xd2cab8,
+    roughness: 0.92,
   });
   const buildingMaterial = new THREE.MeshStandardMaterial({
     color: 0xb8ae98,
@@ -2350,16 +2379,31 @@ function addImportedBuildings(
       continue;
     const shape = shapeFromRings([obstacle.points]);
     if (!shape) continue;
-    const height = obstacle.kind === "terminal" ? 4.2 : 2.6;
+    const facility = facilityFootprints.get(obstacle.id);
+    const role = facility?.role ??
+      (obstacle.kind === "terminal" ? "terminal" : undefined);
+    const height = role === "terminal" ? 4.6 : role === "concourse" ? 3.7 : 2.6;
     const geometry = new THREE.ExtrudeGeometry(shape, {
       depth: height,
       bevelEnabled: false,
       curveSegments: 1,
     });
+    const material =
+      role === "terminal"
+        ? [terminalRoofMaterial, terminalMaterial]
+        : role === "concourse"
+          ? [concourseRoofMaterial, concourseMaterial]
+          : buildingMaterial;
     const mesh = new THREE.Mesh(
       geometry,
-      obstacle.kind === "terminal" ? terminalMaterial : buildingMaterial,
+      material,
     );
+    mesh.name = facility
+      ? `passenger-facility-footprint:${facility.facilityIds.join("+")}`
+      : `airport-building:${obstacle.id}`;
+    mesh.userData.obstacleId = obstacle.id;
+    mesh.userData.passengerFacilityIds = facility?.facilityIds ?? [];
+    mesh.userData.passengerFacilityRole = role ?? null;
     mesh.position.z = 1.64;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -3377,10 +3421,11 @@ function createMapLabel(
 function addPassengerFacilityLabels(
   root: THREE.Group,
   facilities: AirportConfig["surfaceGraph"]["passengerFacilities"],
-): void {
-  if (!facilities.length) return;
+): THREE.Group | null {
+  if (!facilities.length) return null;
   const group = new THREE.Group();
   group.name = "passenger-facilities";
+  group.visible = false;
   for (const facility of facilities) {
     const terminal = facility.kind === "terminal";
     const canvas = document.createElement("canvas");
@@ -3438,6 +3483,7 @@ function addPassengerFacilityLabels(
     group.add(sprite);
   }
   root.add(group);
+  return group;
 }
 
 function addSurfaceMapLayers(

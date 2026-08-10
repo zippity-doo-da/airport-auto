@@ -1136,8 +1136,13 @@ the remaining named hubs are still open.
   airline schedules, and real-time service remain deliberately out of scope.
 - [~] Situate terminal and ramp geometry correctly relative to the runways; no
   scenery or building may overlap operational pavement.
-  Source terminal/concourse centers and apron-connected stands are now used;
-  full rendered scenery/context intersection validation remains open.
+  Source terminal/concourse centers and apron-connected stands are now used.
+  The renderer now joins every Atlanta T/A–F passenger-facility anchor to its
+  distinct FAA building polygon, preserving the seven sourced silhouettes and
+  applying terminal/concourse roof treatment without creating duplicate
+  structures. Deterministic validation protects their west-to-east ordering,
+  central position between the runway pairs, and sub-four-world-unit source
+  join. Full rendered scenery/context intersection validation remains open.
 
 ### Acceptance gate
 
@@ -1156,8 +1161,14 @@ the remaining named hubs are still open.
   rather than one airport-wide lock. ATL's first modeled hour now sustains
   arrivals and departures without a safety breach; its multi-hour
   retained-heap and sustained-flow acceptance remains open.
-- [ ] The airport is visually recognizable from its runway/terminal relationship
-      before labels are enabled.
+- [x] The airport is visually recognizable from its runway/terminal relationship
+      before labels are enabled. Its five parallel sourced runways and seven
+      distinct sourced T/A–F passenger-building silhouettes now retain the
+      defining Atlanta topology and visual hierarchy. The shared labels toggle
+      now hides passenger-facility badges as well as runway numbers, so the
+      geometry can be reviewed without textual cues. Labels-off daylight
+      captures passed at the default desktop viewport and a 390 × 844 phone
+      viewport on August 10, 2026.
 - [ ] Auto, Assisted, Manual, Watch, weather, replay, radar, agent control, and
       mobile/desktop camera paths pass the same gate as ORD.
 

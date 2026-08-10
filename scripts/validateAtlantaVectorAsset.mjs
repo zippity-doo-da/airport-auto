@@ -28,6 +28,7 @@ import { generateHubConfig, HUB_AIRPORTS } from './src/simulation/airportConfig.
 import { airportVectorManifest } from './src/simulation/airportVectorMetadata.ts';
 import { airportSurfaceDataManifest, importedAirportSurfaceGraph } from './src/simulation/importedAirportData.ts';
 import { surfaceRouteForFlight } from './src/simulation/surfaceGraph.ts';
+import { matchPassengerFacilityFootprints } from './src/render/passengerFacilityFootprints.ts';
 
 function assert(condition, message) { if (!condition) throw new Error(message); }
 const atlIndex = HUB_AIRPORTS.findIndex((airport) => airport.code === 'ATL');
@@ -47,6 +48,40 @@ assert(instrument?.procedure === 'instrument-parallel' && instrument.departureRu
 const graph = importedAirportSurfaceGraph('ATL', 1234);
 assert(graph?.airportCode === 'ATL' && graph.stands.length >= 32, 'Atlanta imported surface graph is missing operational stands');
 assert(graph.runwayAccess.length === 10 && graph.passengerFacilities.length >= 9, 'Atlanta imported surface graph is incomplete');
+const facilityFootprints = matchPassengerFacilityFootprints(
+  config.obstacles,
+  graph.passengerFacilities,
+);
+const footprintByFacilityId = new Map(
+  [...facilityFootprints.values()].flatMap((match) =>
+    match.facilityIds.map((facilityId) => [facilityId, match] as const),
+  ),
+);
+const concourseIds = ['ATL-CONCOURSE-T', 'ATL-CONCOURSE-A', 'ATL-CONCOURSE-B', 'ATL-CONCOURSE-C', 'ATL-CONCOURSE-D', 'ATL-CONCOURSE-E', 'ATL-CONCOURSE-F'];
+assert(
+  concourseIds.every((facilityId) => footprintByFacilityId.get(facilityId)?.role),
+  'Atlanta did not map every passenger concourse to a sourced FAA building footprint',
+);
+assert(
+  new Set(concourseIds.map((facilityId) => footprintByFacilityId.get(facilityId)?.obstacleId)).size === concourseIds.length,
+  'Atlanta concourses do not retain seven distinct sourced building silhouettes',
+);
+assert(
+  [...facilityFootprints.values()].every((match) => match.maximumAnchorDistance < 4),
+  'Atlanta passenger facility anchor is too far from its matched FAA building footprint',
+);
+const orderedConcourses = concourseIds.map((facilityId) =>
+  graph.passengerFacilities.find((facility) => facility.id === facilityId),
+);
+assert(
+  orderedConcourses.every(Boolean) && orderedConcourses.every((facility, index) => index === 0 || facility.center[0] > orderedConcourses[index - 1].center[0]),
+  'Atlanta T/A-F concourse relationship no longer reads west-to-east',
+);
+const runwayYs = config.runways.map((runway) => runway.center[1]).sort((first, second) => second - first);
+assert(
+  orderedConcourses.every((facility) => facility.center[1] < runwayYs[1] && facility.center[1] > runwayYs[2]),
+  'Atlanta passenger complex is no longer situated between the north and midfield runway pairs',
+);
 let routes = 0;
 for (const stand of graph.stands) {
   for (const runway of config.runways) {
@@ -66,7 +101,7 @@ for (let index = 0; index < config.runways.length; index += 1) {
   assert(runway.designation?.join('/') === source.designation.join('/'), 'Atlanta runtime designation differs from FAA vector reference');
   assert(Math.abs(runway.length - source.length) < 0.0001, 'Atlanta runtime length differs from FAA vector reference');
 }
-console.log(JSON.stringify({ airport: config.code, runways: config.runways.length, configurations: config.runwayConfigurations.length, surface: config.surfaceData ? 'sourced' : 'schematic', stands: graph.stands.length, routes }));
+console.log(JSON.stringify({ airport: config.code, runways: config.runways.length, configurations: config.runwayConfigurations.length, surface: config.surfaceData ? 'sourced' : 'schematic', stands: graph.stands.length, passengerFacilityFootprints: facilityFootprints.size, routes }));
 `;
 const result = await build({
   absWorkingDir: process.cwd(),
