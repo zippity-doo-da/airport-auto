@@ -1169,8 +1169,15 @@ the remaining named hubs are still open.
       geometry can be reviewed without textual cues. Labels-off daylight
       captures passed at the default desktop viewport and a 390 × 844 phone
       viewport on August 10, 2026.
-- [ ] Auto, Assisted, Manual, Watch, weather, replay, radar, agent control, and
-      mobile/desktop camera paths pass the same gate as ORD.
+- [x] Auto, Assisted, Manual, Watch, weather, replay, radar, agent control, and
+      mobile/desktop camera paths pass the same gate as ORD. A focused KATL
+      release-matrix gate now exercises all four modes, weather and wind
+      changes, the radar inset, structured command receipts, API zoom/orbit,
+      desktop keyboard pan, mobile touch pan, exact replay verification/import,
+      replay-authoritative renderer positions, viewport ground coverage, and a
+      clean collision/obstacle/service-vehicle state. Desktop Chrome and Pixel
+      7 emulation both passed with visually reviewed captures on August 10,
+      2026.
 
 ## A5 — Irregular operations and recovery
 

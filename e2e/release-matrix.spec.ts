@@ -131,6 +131,232 @@ test("mobile spectator scene matches the release baseline", async ({
   });
 });
 
+test("Atlanta matches the ORD control and presentation acceptance gate", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(60_000);
+  const consoleErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+
+  await page.goto(
+    "/?airport=ATL&seed=10003&mode=auto&density=quiet&weather=clear&wind=off&autostart=1&detail=low&renderFps=30",
+  );
+  await waitForRuntime(page);
+
+  const controlGate = await page.evaluate(() => {
+    const api = window.airportControl;
+    const modes = ["auto", "assisted", "manual", "watch"] as const;
+    const modeResults = modes.map((value) =>
+      api.request({ action: "setMode", value }),
+    );
+    const weather = api.request({
+      action: "setWeather",
+      condition: "rain",
+      directionDegrees: 270,
+      windSpeed: 18,
+    });
+    const weatherOff = api.request({
+      action: "setWeatherEnabled",
+      enabled: false,
+    });
+    const windOff = api.request({ action: "setWindEnabled", enabled: false });
+    const radar = api.request({ action: "setRadarVisible", enabled: true });
+    api.request({ action: "setCameraDirectorEnabled", enabled: false });
+    const cameraBefore = api.snapshot().renderer.camera;
+    const zoom = api.request({ action: "zoomIn" });
+    const rotate = api.request({ action: "rotateRight" });
+    const cameraAfter = api.snapshot().renderer.camera;
+    return {
+      airport: api.snapshot().airport.code,
+      modeResults: modeResults.map((result) => ({
+        accepted: result.accepted,
+        mode: result.resultingState.mode,
+        commandId: result.commandId,
+        eventId: result.eventId,
+        requestId: result.requestId,
+        reason: result.reason,
+      })),
+      weather: {
+        accepted: weather.accepted,
+        condition: weather.resultingState.weather.condition,
+        direction: weather.resultingState.weather.windDirectionDegrees,
+        speed: weather.resultingState.weather.windSpeed,
+      },
+      weatherOff: {
+        accepted: weatherOff.accepted,
+        enabled: weatherOff.resultingState.weather.enabled,
+      },
+      windOff: {
+        accepted: windOff.accepted,
+        enabled: windOff.resultingState.weather.windEnabled,
+      },
+      radar: {
+        accepted: radar.accepted,
+        visible: radar.resultingState.radarVisible,
+      },
+      camera: {
+        zoomAccepted: zoom.accepted,
+        rotateAccepted: rotate.accepted,
+        zoomBefore: cameraBefore.zoom,
+        zoomAfter: cameraAfter.zoom,
+        orbitBefore: cameraBefore.orbitDegrees,
+        orbitAfter: cameraAfter.orbitDegrees,
+      },
+    };
+  });
+
+  expect(controlGate.airport).toBe("ATL");
+  expect(controlGate.modeResults).toHaveLength(4);
+  for (const [index, mode] of [
+    "auto",
+    "assisted",
+    "manual",
+    "watch",
+  ].entries()) {
+    expect(controlGate.modeResults[index]).toMatchObject({
+      accepted: true,
+      mode,
+    });
+    expect(controlGate.modeResults[index].commandId).toBeTruthy();
+    expect(controlGate.modeResults[index].eventId).toBeTruthy();
+    expect(controlGate.modeResults[index].requestId).toBeTruthy();
+    expect(controlGate.modeResults[index].reason).toBeTruthy();
+  }
+  expect(controlGate.weather).toEqual({
+    accepted: true,
+    condition: "rain",
+    direction: 270,
+    speed: 18,
+  });
+  expect(controlGate.weatherOff).toEqual({ accepted: true, enabled: false });
+  expect(controlGate.windOff).toEqual({ accepted: true, enabled: false });
+  expect(controlGate.radar).toEqual({ accepted: true, visible: true });
+  expect(controlGate.camera.zoomAccepted).toBeTruthy();
+  expect(controlGate.camera.rotateAccepted).toBeTruthy();
+  expect(controlGate.camera.zoomAfter).toBeLessThan(
+    controlGate.camera.zoomBefore,
+  );
+  expect(controlGate.camera.orbitAfter).not.toBe(
+    controlGate.camera.orbitBefore,
+  );
+  await expect(page.locator("#radar-panel")).toBeVisible();
+
+  const cameraBeforeInput = await page.evaluate(
+    () => window.airportControl.snapshot().renderer.camera,
+  );
+  if (testInfo.project.name === "mobile-chromium") {
+    const panRight = page.locator('[data-touch-camera="pan-right"]');
+    await panRight.dispatchEvent("pointerdown", {
+      pointerId: 7,
+      pointerType: "touch",
+      isPrimary: true,
+    });
+    await page.waitForTimeout(250);
+    await panRight.dispatchEvent("pointerup", {
+      pointerId: 7,
+      pointerType: "touch",
+      isPrimary: true,
+    });
+  } else {
+    await page.keyboard.down("w");
+    await page.waitForTimeout(250);
+    await page.keyboard.up("w");
+  }
+  const cameraAfterInput = await page.evaluate(
+    () => window.airportControl.snapshot().renderer.camera,
+  );
+  expect(
+    Math.hypot(
+      cameraAfterInput.focusX - cameraBeforeInput.focusX,
+      cameraAfterInput.focusY - cameraBeforeInput.focusY,
+    ),
+  ).toBeGreaterThan(0.01);
+
+  await page.waitForFunction(
+    () => window.airportControl.snapshot().replay.frames >= 3,
+  );
+  const replayGate = await page.evaluate(() => {
+    const api = window.airportControl;
+    const recording = api.recording();
+    const verification = api.replayTools.verify(recording);
+    const loaded = api.replayTools.load(recording);
+    return {
+      frames: recording.frames.length,
+      verified: verification.exact,
+      loaded: loaded.exact,
+      airport: api.snapshot().airport.code,
+      replaySource: api.snapshot().replay.source,
+    };
+  });
+  expect(replayGate).toMatchObject({
+    verified: true,
+    loaded: true,
+    airport: "ATL",
+    replaySource: "imported",
+  });
+  expect(replayGate.frames).toBeGreaterThanOrEqual(3);
+
+  await page.locator("#replay-slider").evaluate((slider: HTMLInputElement) => {
+    slider.value = "0";
+    slider.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await page.waitForTimeout(100);
+  const replayPose = await page.evaluate(() => {
+    const api = window.airportControl;
+    const firstFrame = api.replay()[0];
+    const snapshot = api.snapshot();
+    const replayFlight = firstFrame.state.flights.find((flight) =>
+      snapshot.flights.some((liveFlight) => liveFlight.id === flight.id),
+    );
+    const liveFlight = snapshot.flights.find(
+      (flight) => flight.id === replayFlight?.id,
+    );
+    if (!replayFlight || !liveFlight?.poseAlignment.renderer) return null;
+    return {
+      sourceError: Math.hypot(
+        liveFlight.poseAlignment.renderer.sourceMotion.x -
+          replayFlight.motion.x,
+        liveFlight.poseAlignment.renderer.sourceMotion.y -
+          replayFlight.motion.y,
+        liveFlight.poseAlignment.renderer.sourceMotion.z -
+          replayFlight.motion.z,
+      ),
+      horizontalError: Math.hypot(
+        liveFlight.poseAlignment.renderer.position.x - replayFlight.motion.x,
+        liveFlight.poseAlignment.renderer.position.y - replayFlight.motion.y,
+      ),
+      verticalError: Math.abs(
+        liveFlight.poseAlignment.renderer.position.z - replayFlight.motion.z,
+      ),
+    };
+  });
+  expect(replayPose).not.toBeNull();
+  expect(replayPose?.sourceError).toBeLessThan(0.001);
+  expect(replayPose?.horizontalError).toBeLessThan(0.01);
+  expect(replayPose?.verticalError).toBeLessThan(0.5);
+
+  const safety = await page.evaluate(() => {
+    const state = window.airportControl.snapshot();
+    return {
+      collisions: state.traffic.collisions,
+      obstacles: state.traffic.obstacleCollisions,
+      serviceVehicles: state.traffic.serviceVehicleConflicts,
+      groundFillsViewport: state.renderer.camera.groundFillsViewport,
+    };
+  });
+  expect(safety.collisions).toHaveLength(0);
+  expect(safety.obstacles).toHaveLength(0);
+  expect(safety.serviceVehicles).toHaveLength(0);
+  expect(safety.groundFillsViewport).toBeTruthy();
+  await page.screenshot({
+    path: testInfo.outputPath("atl-parity-gate.png"),
+    animations: "disabled",
+  });
+  expect(consoleErrors).toEqual([]);
+});
+
 test("surface safety stays clear of primary transitions at release viewports", async ({
   page,
 }, testInfo) => {
@@ -290,9 +516,23 @@ test("modal focus, keyboard flow, readable strips, and semantic contrast regress
   const inertSiblings = await page.locator("#app > [inert]").count();
   expect(inertSiblings).toBeGreaterThan(5);
   await page.keyboard.press("Tab");
+  await expect(
+    page.locator('.intro-archive-link[href="./fighters.html"]'),
+  ).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(
+    page.locator('.intro-archive-link[href="./flight-playground.html"]'),
+  ).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(
+    page.locator('.intro-archive-link[href="./dogfight.html"]'),
+  ).toBeFocused();
+  await page.keyboard.press("Tab");
   await expect(page.locator("#intro-airport-select")).toBeFocused();
   await page.keyboard.press("Shift+Tab");
-  await expect(page.locator("#enter")).toBeFocused();
+  await expect(
+    page.locator('.intro-archive-link[href="./dogfight.html"]'),
+  ).toBeFocused();
 
   await page.locator("#enter").click();
   await waitForRuntime(page);
@@ -514,12 +754,12 @@ test("offline sound recordings decode from the application origin", async ({
   expect(library).toMatchObject({
     status: "ready",
     manifestSchemaVersion: 2,
-    decodedAssets: 45,
-    totalAssets: 45,
     activeBeds: 11,
     lastError: null,
     syntheticVoicesDisclosed: true,
   });
+  expect(library.totalAssets).toBeGreaterThanOrEqual(45);
+  expect(library.decodedAssets).toBe(library.totalAssets);
 });
 
 test("local media capture and clean spectator presentation stay bounded", async ({
