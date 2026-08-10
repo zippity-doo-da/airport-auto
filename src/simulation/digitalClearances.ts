@@ -17,6 +17,7 @@ interface DigitalClearanceDraft {
   callsign: string;
   kind:
     | "route-amendment"
+    | "compound-clearance"
     | "vector"
     | "hold"
     | "speed"
@@ -293,7 +294,8 @@ function flightDigitalClearanceMessages(flight: Flight): DigitalClearanceDraft[]
     !flight.diversion
   ) {
     const speed = Math.round(flight.navigation.assignedSpeedKts);
-    messages.push(instructionMessage(flight, "speed", speed, `Maintain ${speed} knots.`));
+    if (!acceptedCompoundIncludes(flight, "speed"))
+      messages.push(instructionMessage(flight, "speed", speed, `Maintain ${speed} knots.`));
   }
   if (
     flight.navigation.assignedAltitudeFt !== undefined &&
@@ -302,7 +304,8 @@ function flightDigitalClearanceMessages(flight: Flight): DigitalClearanceDraft[]
     !flight.diversion
   ) {
     const altitude = Math.round(flight.navigation.assignedAltitudeFt);
-    messages.push(instructionMessage(flight, "altitude", altitude, `Maintain ${altitude.toLocaleString()} feet.`));
+    if (!acceptedCompoundIncludes(flight, "altitude"))
+      messages.push(instructionMessage(flight, "altitude", altitude, `Maintain ${altitude.toLocaleString()} feet.`));
   }
   return messages;
 }
@@ -335,11 +338,14 @@ function routeClearanceMessage(
   flight: Flight,
   clearance: FlightRouteClearanceState,
 ): DigitalClearanceDraft {
+  const supplements = clearance.supplements ?? [];
+  const altitude = supplements.find((item) => item.kind === "altitude");
+  const speed = supplements.find((item) => item.kind === "speed");
   return {
     id: `route:${flight.id}:${clearance.revision}`,
     flightId: flight.id,
     callsign: flight.callsign,
-    kind: "route-amendment",
+    kind: supplements.length ? "compound-clearance" : "route-amendment",
     status: routeStatus(clearance),
     authority: clearance.issuedBy,
     revision: clearance.revision,
@@ -351,13 +357,34 @@ function routeClearanceMessage(
     parameters: {
       distanceNm: Number(clearance.distanceNm.toFixed(1)),
       estimatedSeconds: Math.round(clearance.estimatedSeconds),
+      ...(altitude?.kind === "altitude"
+        ? { altitudeFt: altitude.altitudeFt }
+        : {}),
+      ...(speed?.kind === "speed" ? { speedKts: speed.speedKts } : {}),
     },
     detail:
       clearance.reason ??
       clearance.warnings[0]?.detail ??
-      "Route proposal awaiting controller action.",
+      (supplements.length
+        ? `Atomic route package: ${supplements.map((item) =>
+            item.kind === "altitude"
+              ? `${item.altitudeFt.toLocaleString()} ft`
+              : `${item.speedKts} kt`,
+          ).join(" · ")}.`
+        : "Route proposal awaiting controller action."),
     warningCount: clearance.warnings.length,
   };
+}
+
+function acceptedCompoundIncludes(
+  flight: Flight,
+  kind: "altitude" | "speed",
+): boolean {
+  const clearance = flight.navigation.routeClearance;
+  return Boolean(
+    clearance?.status === "accepted" &&
+      (clearance.supplements ?? []).some((item) => item.kind === kind),
+  );
 }
 
 function routeStatus(

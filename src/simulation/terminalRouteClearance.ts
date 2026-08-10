@@ -111,7 +111,7 @@ export function buildTerminalRouteClearancePreview(
     value: {
       fixes: validation.value,
       clearance: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         revision,
         status: 'preview',
         routeFixIds: validation.value.map((fix) => fix.id),
@@ -124,6 +124,12 @@ export function buildTerminalRouteClearancePreview(
         initialTurnDegrees: round(initialTurnDegrees, 1),
         safeToIssue: !warnings.some((warning) => warning.severity === 'blocking'),
         warnings: warnings.slice(0, 6),
+        supplements: [],
+        safeguards: [
+          'route and procedure compatibility checked',
+          'initial turn checked',
+          'terminal separation forecast checked',
+        ],
       },
     },
   };
@@ -178,9 +184,14 @@ function forecastRouteConflict(
 }
 
 function routePoints(flight: Flight, fixes: readonly AirspaceFix[]): RoutePoint[] {
+  const assignedAltitudeFt = flight.navigation.assignedAltitudeFt;
   return [
     { x: flight.motion.x, y: flight.motion.y, altitudeFt: flight.kinematics.altitudeFt },
-    ...fixes.map((fix) => ({ x: fix.position[0], y: fix.position[1], altitudeFt: fix.altitudeFt })),
+    ...fixes.map((fix) => ({
+      x: fix.position[0],
+      y: fix.position[1],
+      altitudeFt: assignedAltitudeFt ?? fix.altitudeFt,
+    })),
   ];
 }
 

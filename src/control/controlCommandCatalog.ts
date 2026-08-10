@@ -119,6 +119,18 @@ export interface AirportControlCommandParameters {
   amendRoute: { flightId: number; fixIds: string[] };
   previewRoute: { flightId: number; fixIds: string[] };
   issueRouteAmendment: { flightId: number; fixIds?: string[] };
+  previewCompoundClearance: {
+    flightId: number;
+    fixIds: string[];
+    altitudeFt?: number;
+    speedKts?: number;
+  };
+  issueCompoundClearance: {
+    flightId: number;
+    fixIds: string[];
+    altitudeFt?: number;
+    speedKts?: number;
+  };
   acceptRouteReadback: { flightId: number };
   cancelRouteAmendment: { flightId: number };
   clearApproach: { flightId: number };
@@ -332,7 +344,11 @@ export interface CommandProtocolDefinition {
   result: {
     schemaRef: string;
     stateEffect: "none" | "presentation" | "simulation";
-    data: "none" | "group-instruction-preview" | "group-instruction-issue";
+    data:
+      | "none"
+      | "group-instruction-preview"
+      | "group-instruction-issue"
+      | "compound-clearance-preview";
     commandEventType: string;
     rejectionContract: string;
   };
@@ -1075,6 +1091,35 @@ const COMMAND_SPECS = {
     },
     { flightId: 1 },
     { optionalParameters: ["fixIds"] },
+  ),
+  previewCompoundClearance: command(
+    "approach",
+    "Preview one atomic route, altitude, and/or speed package without changing the flown clearance.",
+    AUTHORITY.approach,
+    {
+      flightId: flightIdSchema,
+      fixIds: stringArraySchema("Ordered terminal fix IDs.", 1),
+      altitudeFt: numberSchema("Optional altitude in feet."),
+      speedKts: numberSchema("Optional indicated airspeed in knots."),
+    },
+    { flightId: 1, fixIds: ["ORD-W-ENTRY", "ORD-R0-A-FAF"], altitudeFt: 3000, speedKts: 180 },
+    {
+      optionalParameters: ["altitudeFt", "speedKts"],
+      resultData: "compound-clearance-preview",
+    },
+  ),
+  issueCompoundClearance: command(
+    "approach",
+    "Issue an atomically previewed route package for one staged pilot readback; all components apply or none do.",
+    AUTHORITY.approach,
+    {
+      flightId: flightIdSchema,
+      fixIds: stringArraySchema("Ordered terminal fix IDs.", 1),
+      altitudeFt: numberSchema("Optional altitude in feet."),
+      speedKts: numberSchema("Optional indicated airspeed in knots."),
+    },
+    { flightId: 1, fixIds: ["ORD-W-ENTRY", "ORD-R0-A-FAF"], altitudeFt: 3000, speedKts: 180 },
+    { optionalParameters: ["altitudeFt", "speedKts"] },
   ),
   acceptRouteReadback: command(
     "approach",

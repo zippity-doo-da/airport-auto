@@ -47,7 +47,7 @@ flight.surfaceRoute = undefined;
 flight.requiredCrossings = [];
 flight.crossingClearances = [];
 flight.navigation.routeClearance = {
-  schemaVersion: 1, revision: 4, status: 'pending-readback', routeFixIds: ['FIX-A', 'FIX-B'], routeFixNames: ['NORTH', 'LAKE'], previousRouteFixIds: ['OLD'],
+  schemaVersion: 2, revision: 4, status: 'pending-readback', routeFixIds: ['FIX-A', 'FIX-B'], routeFixNames: ['NORTH', 'LAKE'], previousRouteFixIds: ['OLD'], supplements: [], safeguards: [],
   previewedAtSeconds: 3, issuedAtSeconds: 4, readbackDueSeconds: 6, issuedBy: 'approach', distanceNm: 18, estimatedSeconds: 440, initialTurnDegrees: 14, safeToIssue: true, warnings: [], reason: 'awaiting pilot readback',
 };
 snapshot = digitalClearanceSnapshot(simulation.state);

@@ -969,13 +969,17 @@ export interface FlightRouteConflictWarning {
   verticalFt?: number;
 }
 
+export type FlightRouteClearanceSupplement =
+  | { kind: "altitude"; altitudeFt: number }
+  | { kind: "speed"; speedKts: number };
+
 /**
  * A non-authoritative route proposal until its simulated pilot readback is
  * accepted. The currently flown route remains unchanged during preview and
  * pending-readback states.
  */
 export interface FlightRouteClearanceState {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   revision: number;
   status: FlightRouteClearanceStatus;
   routeFixIds: string[];
@@ -991,6 +995,10 @@ export interface FlightRouteClearanceState {
   initialTurnDegrees: number;
   safeToIssue: boolean;
   warnings: FlightRouteConflictWarning[];
+  /** Additional instructions committed with the route or not at all. */
+  supplements?: FlightRouteClearanceSupplement[];
+  /** Human-readable checks retained for replay, UI, and agent inspection. */
+  safeguards?: string[];
   reason?: string;
 }
 

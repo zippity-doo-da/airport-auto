@@ -26,6 +26,7 @@ import type {
   FlightOperationPlan,
   FlightPhase,
   FlightRouteClearanceState,
+  FlightRouteClearanceSupplement,
   FlightRunwayExitState,
   GroupInstructionIssueResult,
   GroupInstructionPreview,
@@ -3726,6 +3727,188 @@ export class AirportSimulation {
     return true;
   }
 
+  previewCompoundFlightRoute(
+    id: number,
+    fixIds: readonly string[],
+    altitudeFt?: number,
+    speedKts?: number,
+  ): FlightRouteClearanceState | null {
+    const flight = this.routeAmendmentFlight(id);
+    if (!flight) return null;
+    const result = this.compoundRouteCandidate(
+      flight,
+      fixIds,
+      altitudeFt,
+      speedKts,
+    );
+    if (!result.accepted) {
+      this.rejectDecision(result.reason, flight);
+      return null;
+    }
+    flight.navigation.routeClearance = result.candidate.clearance;
+    flight.navigation.readbackStatus = "not-required";
+    const blocking = result.candidate.clearance.warnings.filter(
+      (warning) => warning.severity === "blocking",
+    ).length;
+    this.decisionReason = `${flight.callsign} atomic route package preview · ${blocking ? `${blocking} blocking` : "safe to issue"}`;
+    this.events.push({
+      type: "route-preview",
+      flight,
+      detail: this.decisionReason,
+    });
+    return cloneRouteClearance(result.candidate.clearance);
+  }
+
+  issueCompoundFlightRoute(
+    id: number,
+    fixIds: readonly string[],
+    altitudeFt?: number,
+    speedKts?: number,
+  ): boolean {
+    const flight = this.routeAmendmentFlight(id);
+    if (!flight) return false;
+    const existing = flight.navigation.routeClearance;
+    const result = this.compoundRouteCandidate(
+      flight,
+      fixIds,
+      altitudeFt,
+      speedKts,
+      existing?.status === "preview" &&
+        existing.routeFixIds.join(">") === fixIds.join(">")
+        ? existing.revision
+        : undefined,
+    );
+    if (!result.accepted)
+      return this.rejectDecision(result.reason, flight);
+    const blocking = result.candidate.clearance.warnings.find(
+      (warning) => warning.severity === "blocking",
+    );
+    if (blocking) {
+      flight.navigation.routeClearance = {
+        ...result.candidate.clearance,
+        status: "rejected",
+        respondedAtSeconds: this.state.elapsed,
+        reason: blocking.detail,
+      };
+      flight.navigation.readbackStatus = "rejected";
+      return this.rejectDecision(blocking.detail, flight);
+    }
+    const issuingStation =
+      this.state.station === "supervisor"
+        ? flight.navigation.frequencyOwner
+        : this.state.station;
+    const readbackDelay = 0.9 + (flight.id % 5) * 0.18;
+    flight.navigation.routeClearance = {
+      ...result.candidate.clearance,
+      status: "pending-readback",
+      issuedAtSeconds: this.state.elapsed,
+      readbackDueSeconds: this.state.elapsed + readbackDelay,
+      issuedBy: issuingStation,
+      reason: "atomic route package awaiting pilot readback",
+    };
+    flight.navigation.readbackStatus = "pending";
+    this.metrics.manualCommands += 1;
+    this.decisionReason = `${flight.callsign} atomic route package issued · readback pending`;
+    this.events.push({
+      type: "route-clearance-issued",
+      flight,
+      detail: this.decisionReason,
+    });
+    return true;
+  }
+
+  private compoundRouteCandidate(
+    flight: Flight,
+    fixIds: readonly string[],
+    altitudeFt?: number,
+    speedKts?: number,
+    revision = (flight.navigation.routeClearance?.revision ?? 0) + 1,
+    issuedBy: ControllerStation = this.state.station,
+  ):
+    | { accepted: true; candidate: TerminalRouteClearanceCandidate }
+    | { accepted: false; reason: string } {
+    const supplements: FlightRouteClearanceSupplement[] = [];
+    if (altitudeFt !== undefined) {
+      if (!Number.isFinite(altitudeFt))
+        return { accepted: false, reason: "altitude must be a finite number of feet" };
+      const rounded = Math.round(altitudeFt / 100) * 100;
+      const maximum = this.config.scope === "center" ? 10_000 : 5_000;
+      if (rounded < 500 || rounded > maximum)
+        return {
+          accepted: false,
+          reason: `altitude must be between 500 and ${maximum.toLocaleString()} ft in this terminal scope`,
+        };
+      if (flight.phase === "approach" && flight.progress > 0.7 && rounded > 2_000)
+        return {
+          accepted: false,
+          reason: "high altitude assignment would destabilize the established final approach",
+        };
+      supplements.push({ kind: "altitude", altitudeFt: rounded });
+    }
+    if (speedKts !== undefined) {
+      if (!Number.isFinite(speedKts))
+        return { accepted: false, reason: "airspeed must be a finite number of knots" };
+      const profile = aircraftProfile(flight.aircraft);
+      const minimum =
+        flight.phase === "approach"
+          ? Math.max(80, profile.approachKts - 10)
+          : Math.round(profile.approachKts * 1.18);
+      const maximum = 250;
+      const rounded = Math.round(speedKts / 5) * 5;
+      if (rounded < minimum || rounded > maximum)
+        return {
+          accepted: false,
+          reason: `speed must be ${minimum}–${maximum} kt for ${flight.aircraft} in this phase`,
+        };
+      supplements.push({ kind: "speed", speedKts: rounded });
+    }
+    if (!supplements.length)
+      return {
+        accepted: false,
+        reason: "an atomic route package requires altitude or speed in addition to the route",
+      };
+    const previewFlight: Flight = {
+      ...flight,
+      navigation: {
+        ...flight.navigation,
+        assignedAltitudeFt:
+          supplements.find((item) => item.kind === "altitude")?.altitudeFt ??
+          flight.navigation.assignedAltitudeFt,
+        assignedSpeedKts:
+          supplements.find((item) => item.kind === "speed")?.speedKts ??
+          flight.navigation.assignedSpeedKts,
+      },
+    };
+    const result = buildTerminalRouteClearancePreview(
+      this.config,
+      previewFlight,
+      this.state.flights,
+      fixIds,
+      separationRuleset(this.state.separationRuleset),
+      this.state.weather,
+      this.state.elapsed,
+      revision,
+      issuedBy,
+    );
+    if (!result.accepted) return result;
+    return {
+      accepted: true,
+      candidate: {
+        ...result.value,
+        clearance: {
+          ...result.value.clearance,
+          supplements,
+          safeguards: [
+            ...(result.value.clearance.safeguards ?? []),
+            "altitude and speed limits checked as one package",
+            "complete package will be revalidated at readback",
+            "no component applies before correct readback",
+          ],
+        },
+      },
+    };
+  }
+
   amendFlightRoute(id: number, fixIds: readonly string[]): boolean {
     const flight = this.routeAmendmentFlight(id);
     if (!flight) return false;
@@ -3788,6 +3971,19 @@ export class AirportSimulation {
         "preview a route before issuing the amendment",
         flight,
       );
+    const existingSupplements = existing?.supplements ?? [];
+    if (existing?.status === "preview" && existingSupplements.length) {
+      const altitude = existingSupplements.find(
+        (item) => item.kind === "altitude",
+      );
+      const speed = existingSupplements.find((item) => item.kind === "speed");
+      return this.issueCompoundFlightRoute(
+        id,
+        requestedFixIds,
+        altitude?.altitudeFt,
+        speed?.speedKts,
+      );
+    }
     const reusesPreview =
       existing?.status === "preview" &&
       existing.routeFixIds.join(">") === requestedFixIds.join(">");
@@ -4017,20 +4213,39 @@ export class AirportSimulation {
       this.decisionReason = `${flight.callsign} route readback cancelled after authority transfer`;
       return false;
     }
-    const result = buildTerminalRouteClearancePreview(
-      this.config,
-      flight,
-      this.state.flights,
-      pending.routeFixIds,
-      separationRuleset(this.state.separationRuleset),
-      this.state.weather,
-      this.state.elapsed,
-      pending.revision,
-      pending.issuedBy,
+    const pendingSupplements = pending.supplements ?? [];
+    const altitude = pendingSupplements.find(
+      (item) => item.kind === "altitude",
     );
-    if (!result.accepted)
-      return this.rejectRouteReadback(flight, pending, result.reason);
-    const blocking = result.value.clearance.warnings.find(
+    const speed = pendingSupplements.find((item) => item.kind === "speed");
+    const compoundResult = pendingSupplements.length
+      ? this.compoundRouteCandidate(
+          flight,
+          pending.routeFixIds,
+          altitude?.altitudeFt,
+          speed?.speedKts,
+          pending.revision,
+          pending.issuedBy,
+        )
+      : null;
+    const routeResult = compoundResult
+      ? compoundResult.accepted
+        ? { accepted: true as const, value: compoundResult.candidate }
+        : compoundResult
+      : buildTerminalRouteClearancePreview(
+          this.config,
+          flight,
+          this.state.flights,
+          pending.routeFixIds,
+          separationRuleset(this.state.separationRuleset),
+          this.state.weather,
+          this.state.elapsed,
+          pending.revision,
+          pending.issuedBy,
+        );
+    if (!routeResult.accepted)
+      return this.rejectRouteReadback(flight, pending, routeResult.reason);
+    const blocking = routeResult.value.clearance.warnings.find(
       (warning) => warning.severity === "blocking",
     );
     if (blocking)
@@ -4040,7 +4255,7 @@ export class AirportSimulation {
         `readback withheld: ${blocking.detail}`,
       );
     const clearance: FlightRouteClearanceState = {
-      ...result.value.clearance,
+      ...routeResult.value.clearance,
       status: "accepted",
       previousRouteFixIds: [...pending.previousRouteFixIds],
       previewedAtSeconds: pending.previewedAtSeconds,
@@ -4048,22 +4263,48 @@ export class AirportSimulation {
       readbackDueSeconds: pending.readbackDueSeconds,
       respondedAtSeconds: this.state.elapsed,
       issuedBy: pending.issuedBy,
-      reason: "pilot readback accepted; amended route is authoritative",
+      reason: pendingSupplements.length
+        ? "pilot readback accepted; atomic route package is authoritative"
+        : "pilot readback accepted; amended route is authoritative",
     };
     flight.navigation.routeClearance = clearance;
     flight.navigation.readbackStatus = "accepted";
-    this.decisionReason = `${flight.callsign} readback correct`;
+    this.decisionReason = `${flight.callsign} ${pendingSupplements.length ? "atomic package " : ""}readback correct`;
     this.events.push({
       type: "route-readback-accepted",
       flight,
       detail: this.decisionReason,
     });
-    return this.applyTerminalRouteAmendment(
+    this.applyTerminalRouteAmendment(
       flight,
-      result.value,
+      routeResult.value,
       clearance,
       false,
     );
+    const acceptedSupplements = clearance.supplements ?? [];
+    if (acceptedSupplements.length) {
+      this.applyRouteClearanceSupplements(flight, acceptedSupplements);
+      amendFlightPlan(
+        flight.flightPlan,
+        "clearance",
+        this.state.elapsed,
+        `atomic package accepted · ${acceptedSupplements.map(supplementLabel).join(" · ")}`,
+      );
+      this.decisionReason = `${flight.callsign} atomic route package accepted · ${acceptedSupplements.map(supplementLabel).join(" · ")}`;
+    }
+    return true;
+  }
+
+  private applyRouteClearanceSupplements(
+    flight: Flight,
+    supplements: readonly FlightRouteClearanceSupplement[],
+  ): void {
+    for (const supplement of supplements) {
+      if (supplement.kind === "altitude")
+        flight.navigation.assignedAltitudeFt = supplement.altitudeFt;
+      if (supplement.kind === "speed")
+        flight.navigation.assignedSpeedKts = supplement.speedKts;
+    }
   }
 
   private rejectRouteReadback(
@@ -15353,4 +15594,26 @@ export class AirportSimulation {
   private isAutomaticMode(): boolean {
     return this.state.mode === "auto" || this.state.mode === "watch";
   }
+}
+
+function cloneRouteClearance(
+  clearance: FlightRouteClearanceState,
+): FlightRouteClearanceState {
+  return {
+    ...clearance,
+    routeFixIds: [...clearance.routeFixIds],
+    routeFixNames: [...clearance.routeFixNames],
+    previousRouteFixIds: [...clearance.previousRouteFixIds],
+    warnings: clearance.warnings.map((warning) => ({ ...warning })),
+    supplements: (clearance.supplements ?? []).map((supplement) => ({ ...supplement })),
+    safeguards: [...(clearance.safeguards ?? [])],
+  };
+}
+
+function supplementLabel(
+  supplement: FlightRouteClearanceSupplement,
+): string {
+  return supplement.kind === "altitude"
+    ? `${supplement.altitudeFt.toLocaleString()} ft`
+    : `${supplement.speedKts} kt`;
 }

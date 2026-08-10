@@ -660,7 +660,7 @@ controllers and flight crews to exchange digital ATC information and load
 reviewed instructions into flight systems; the game will use a simplified,
 fictional, not-for-navigation message set. Reference: [FAA Data Comm](https://www.faa.gov/air_traffic/technology/DataComm).
 
-### Current progress — July 28, 2026
+### Current progress — August 9, 2026
 
 The existing route-preview, issue, simulated readback, accept/reject, and
 supersession workflow now has a compact, optional **Digital clearances** panel.
@@ -692,6 +692,16 @@ Controller evaluation now carries a read-only digital-clearance summary with
 active, delivered, standby, Unable, and per-kind counts, so a human, replay
 reviewer, or agent evaluator can measure message workload without receiving
 shared free text as a command.
+Route editing now offers an atomic route + altitude + speed package beside each
+route-only preview. The simulator normalizes and validates every component,
+forecasts the proposed route with the proposed vertical and speed profile, and
+then stages the complete package behind the existing pilot-readback lifecycle.
+No component becomes authoritative before an accepted readback. Authority
+transfer, cancellation, or a newly detected separation conflict rejects the
+whole package without leaving a partial route, altitude, or speed assignment.
+The page-local control protocol exposes the same bounded preview and issue
+commands, and the Digital Clearances panel projects one compound envelope rather
+than misleading duplicate component messages.
 
 ### Gameplay and UX
 
@@ -707,10 +717,14 @@ shared free text as a command.
   and frequency state now use dedicated envelopes, and the latest plan
   amendment is exposed as a Revision message. Version 2 envelopes now carry
   deterministic command IDs, causal references, expiry, and structured
-  response timing; full revision-history UI and remaining message families
-  remain open.
-- [ ] Permit multi-part clearances only when the atomic preview says the complete
-      instruction is safe and authorized.
+  response timing. Atomic route packages use one compound envelope with typed
+  altitude/speed parameters; full revision-history UI and remaining message
+  families remain open.
+- [x] Permit multi-part clearances only when the atomic preview says the complete
+      instruction is safe and authorized. Route + altitude + speed packages use
+      a pure candidate flight, the common terminal forecast, current Approach
+      authority, and a second all-component validation at readback. Acceptance
+      applies all components together; every failure path applies none.
 - [~] Make urgent, immediate, go-around, stop, rejected-takeoff, and conflict
   instructions voice/action-first rather than queued behind digital messages.
   Go-around and hold actions already bypass the message queue; Tower can now
@@ -739,8 +753,10 @@ shared free text as a command.
   Version 2 projections now include these fields for every projected message;
   causal references are deterministic flight/clearance identifiers until the
   full event-history export is added.
-- [ ] Reuse staged pilot-response and route-readback behavior rather than adding
-      a parallel command executor.
+- [x] Reuse staged pilot-response and route-readback behavior rather than adding
+      a parallel command executor. Compound previews are route-clearance schema
+      2 records and use the existing issue, pending-readback, cancellation,
+      supersession, event, and deterministic pilot-response path.
 - [~] Enforce one current data authority and deterministic handoff behavior.
   A pending route readback now cancels with an explicit reason when the
   aircraft's frequency ownership transfers, and the receiving desk cannot

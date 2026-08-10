@@ -28,7 +28,7 @@ assert(CONTROL_SNAPSHOT_SCHEMA_VERSION === 42, 'snapshot schema version changed 
 assert(CONTROL_REPLAY_SCHEMA_VERSION === 4, 'replay schema version changed unexpectedly');
 
 const definitions = Object.values(AIRPORT_CONTROL_COMMAND_DEFINITIONS);
-assert(definitions.length === 107, 'formal command catalog count changed unexpectedly');
+assert(definitions.length === 109, 'formal command catalog count changed unexpectedly');
 assert(validateAirportControlCommand({ action: 'ignoreTrafficFlowAdvisory', recommendationId: 'arrival:1:review' }).valid, 'flow-advisory ignore command was rejected');
 assert(validateAirportControlCommand({ action: 'recoverTrafficFlowAdvisory', recommendationId: 'arrival:1:review' }).valid, 'flow-advisory recovery command was rejected');
 assert(validateAirportControlCommand({ action: 'setTrafficFlowForecastHorizon', seconds: 600 }).valid, 'traffic-flow forecast horizon command was rejected');
@@ -64,6 +64,10 @@ assert(!validateAirportControlCommand({ action: 'setSpeed' }).valid, 'missing co
 assert(!validateAirportControlCommand({ action: 'pause', surprise: true }).valid, 'unknown command parameter was accepted');
 assert(!validateAirportControlCommand({ action: 'setSpeed', value: Number.NaN }).valid, 'non-finite command number was accepted');
 assert(validateAirportControlCommand({ action: 'issueRouteAmendment', flightId: 1 }).valid, 'optional route fix list became required');
+assert(validateAirportControlCommand({ action: 'previewCompoundClearance', flightId: 1, fixIds: ['ORD-W-ENTRY'], altitudeFt: 3000, speedKts: 180 }).valid, 'compound-clearance preview command was rejected');
+assert(validateAirportControlCommand({ action: 'issueCompoundClearance', flightId: 1, fixIds: ['ORD-W-ENTRY'], altitudeFt: 3000 }).valid, 'compound-clearance issue command was rejected');
+assert(!validateAirportControlCommand({ action: 'issueCompoundClearance', flightId: 1, fixIds: [] }).valid, 'compound-clearance command accepted an empty route');
+assert(!validateAirportControlCommand({ action: 'issueCompoundClearance', flightId: 1, fixIds: ['ORD-W-ENTRY'], speedKts: Number.NaN }).valid, 'compound-clearance command accepted a non-finite speed');
 assert(validateAirportControlCommand({ action: 'setControllerPolicyPreset', preset: 'realistic' }).valid, 'controller policy command was rejected');
 assert(validateAirportControlCommand({ action: 'setAirportLifeVisible', enabled: true }).valid, 'airport-life presentation command was rejected');
 assert(validateAirportControlCommand({ action: 'reassignArrivalGate', flightId: 1 }).valid, 'supervisor gate-reassignment command was rejected');

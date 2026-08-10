@@ -78,6 +78,7 @@ import type {
   ConflictPrediction,
   Flight,
   FlightPhase,
+  FlightRouteClearanceState,
   GroupFlightInstruction,
   GroupInstructionIssueResult,
   GroupInstructionPreview,
@@ -333,7 +334,10 @@ type AirportControlResult = {
   };
   snapshot: ReturnType<typeof airportSnapshot>;
   resultingState: ReturnType<typeof airportSnapshot>;
-  data?: GroupInstructionPreview | GroupInstructionIssueResult;
+  data?:
+    | GroupInstructionPreview
+    | GroupInstructionIssueResult
+    | FlightRouteClearanceState;
 };
 
 type RecordedCommand = ReplayRecordedCommand;
@@ -1393,6 +1397,8 @@ flightActions.addEventListener("click", (event) => {
     button.dataset.flightAction ?? "",
     button.dataset.runway,
     button.dataset.routeFixes,
+    button.dataset.altitudeFt,
+    button.dataset.speedKts,
   );
 });
 clearanceAdvisor.addEventListener("click", (event) => {
@@ -5603,6 +5609,13 @@ function renderFlightActions(): void {
         flight.navigation.routeClearance?.warnings
           .map((warning) => `${warning.severity}:${warning.code}`)
           .join(",") ?? "no-route-warnings",
+        flight.navigation.routeClearance?.supplements
+          ?.map((supplement) =>
+            supplement.kind === "altitude"
+              ? `altitude:${supplement.altitudeFt}`
+              : `speed:${supplement.speedKts}`,
+          )
+          .join(",") ?? "no-route-supplements",
         displayState().surfaceDisruptions.find(
           (disruption) => disruption.flightId === flight.id,
         )?.status ?? "no-recovery",
@@ -5744,7 +5757,11 @@ function renderFlightActions(): void {
     if (routeWorkflowActive && routeClearance?.status === "preview") {
       add(
         "route-issue",
-        routeClearance.safeToIssue ? "Issue route" : "Route blocked",
+        routeClearance.safeToIssue
+          ? (routeClearance.supplements?.length ?? 0)
+            ? "Issue package"
+            : "Issue route"
+          : "Route blocked",
         !routeClearance.safeToIssue ||
           !simulation.canIssue("approach") ||
           !ownsFlight,
@@ -6093,6 +6110,15 @@ function createNavigationPanel(flight: Flight): HTMLElement {
     routeMetrics.textContent = `${clearance.distanceNm.toFixed(1)} NM · ${Math.max(1, Math.ceil(clearance.estimatedSeconds / 60))} MIN · TURN ${Math.round(clearance.initialTurnDegrees)}°`;
     const routeFixes = document.createElement("small");
     routeFixes.textContent = clearance.routeFixNames.join(" › ");
+    const routeSupplements = document.createElement("small");
+    const supplements = clearance.supplements ?? [];
+    routeSupplements.textContent = supplements.length
+      ? `ATOMIC · ${supplements.map((supplement) =>
+          supplement.kind === "altitude"
+            ? `${supplement.altitudeFt.toLocaleString()} FT`
+            : `${supplement.speedKts} KT`,
+        ).join(" · ")}`
+      : "ROUTE ONLY";
     const routeDetail = document.createElement("small");
     routeDetail.className = "route-clearance__detail";
     routeDetail.textContent =
@@ -6101,7 +6127,13 @@ function createNavigationPanel(flight: Flight): HTMLElement {
       (clearance.status === "pending-readback"
         ? "Pilot readback pending; the original route remains authoritative."
         : "No forecast conflict inside the terminal look-ahead.");
-    route.append(routeHeading, routeMetrics, routeFixes, routeDetail);
+    route.append(
+      routeHeading,
+      routeMetrics,
+      routeFixes,
+      routeSupplements,
+      routeDetail,
+    );
     panel.append(route);
   }
   if (
@@ -6125,7 +6157,7 @@ function createRouteEditor(flight: Flight): HTMLElement {
   summary.textContent = "Choose route preview";
   const guidance = document.createElement("small");
   guidance.textContent =
-    "Candidate fixes remain non-authoritative until issue and correct readback.";
+    "Preview route only, or stage route + altitude + speed as one all-or-none readback.";
   const options = document.createElement("div");
   options.className = "route-editor__options";
   const ownsFlight =
@@ -6141,6 +6173,38 @@ function createRouteEditor(flight: Flight): HTMLElement {
     button.disabled =
       replayMode || !simulation.canIssue("approach") || !ownsFlight;
     options.append(button);
+    const firstFix = config.airspaceProgram.fixes.find(
+      (fix) => fix.id === option.fixIds[0],
+    );
+    const profile = aircraftProfile(flight.aircraft);
+    const altitudeFt = Math.max(
+      1_000,
+      Math.min(
+        config.scope === "center" ? 10_000 : 5_000,
+        firstFix?.altitudeFt ?? 3_000,
+      ),
+    );
+    const speedKts = Math.max(
+      profile.approachKts,
+      Math.min(
+        210,
+        Math.round(
+          (flight.navigation.assignedSpeedKts ??
+            flight.kinematics.airspeedKts) / 5,
+        ) * 5,
+      ),
+    );
+    const packageButton = document.createElement("button");
+    packageButton.type = "button";
+    packageButton.dataset.flightAction = "compound-preview-selection";
+    packageButton.dataset.routeFixes = option.fixIds.join(">");
+    packageButton.dataset.altitudeFt = String(altitudeFt);
+    packageButton.dataset.speedKts = String(speedKts);
+    packageButton.textContent = `${option.label} + ${altitudeFt.toLocaleString()} ft / ${speedKts} kt`;
+    packageButton.title = `${option.fixIds.join(" › ")} · atomic route, altitude, and speed preview`;
+    packageButton.disabled =
+      replayMode || !simulation.canIssue("approach") || !ownsFlight;
+    options.append(packageButton);
   }
   editor.append(summary, guidance, options);
   return editor;
@@ -6494,6 +6558,8 @@ function handleFlightAction(
   action: string,
   runwayValue?: string,
   routeFixValue?: string,
+  altitudeValue?: string,
+  speedValue?: string,
 ): void {
   if (replayMode) {
     setStatus(
@@ -6593,6 +6659,17 @@ function handleFlightAction(
       action: "previewRoute",
       flightId,
       fixIds: routeFixValue.split(">").filter(Boolean),
+    });
+  }
+  if (action === "compound-preview-selection" && routeFixValue) {
+    const altitudeFt = Number(altitudeValue);
+    const speedKts = Number(speedValue);
+    executeAirportRequest({
+      action: "previewCompoundClearance",
+      flightId,
+      fixIds: routeFixValue.split(">").filter(Boolean),
+      altitudeFt,
+      speedKts,
     });
   }
   if (action === "route-issue")
@@ -9716,7 +9793,10 @@ function finalizeAirportRequest(
   eventCursor: number,
   accepted: boolean,
   reason: string,
-  data?: GroupInstructionPreview | GroupInstructionIssueResult,
+  data?:
+    | GroupInstructionPreview
+    | GroupInstructionIssueResult
+    | FlightRouteClearanceState,
 ): AirportControlResult {
   if (simulation === originatingSimulation)
     simulation.tagEventsSince(eventCursor, context.commandId);
@@ -9891,7 +9971,11 @@ function executeAirportRequest(
   activeControlCommandId = context.commandId;
   let accepted = true;
   let reason = "accepted";
-  let data: GroupInstructionPreview | GroupInstructionIssueResult | undefined;
+  let data:
+    | GroupInstructionPreview
+    | GroupInstructionIssueResult
+    | FlightRouteClearanceState
+    | undefined;
   if (command.action === "pause") {
     accepted = simulation.setPaused(true);
     reason = simulation.lastCommandReason();
@@ -10251,7 +10335,46 @@ function executeAirportRequest(
       valid && simulation.issueFlightRoute(command.flightId, command.fixIds);
     reason = valid
       ? simulation.lastCommandReason()
-      : "route issue requires an optional array of fix IDs";
+        : "route issue requires an optional array of fix IDs";
+  }
+  if (
+    command.action === "previewCompoundClearance" ||
+    command.action === "issueCompoundClearance"
+  ) {
+    const validRoute =
+      Array.isArray(command.fixIds) &&
+      command.fixIds.length > 0 &&
+      command.fixIds.every((fixId) => typeof fixId === "string");
+    const validAltitude =
+      command.altitudeFt === undefined || Number.isFinite(command.altitudeFt);
+    const validSpeed =
+      command.speedKts === undefined || Number.isFinite(command.speedKts);
+    const hasSupplement =
+      command.altitudeFt !== undefined || command.speedKts !== undefined;
+    if (!validRoute || !validAltitude || !validSpeed || !hasSupplement) {
+      accepted = false;
+      reason = !hasSupplement
+        ? "compound clearance requires altitude or speed in addition to the route"
+        : "compound clearance requires valid fix IDs and finite altitude/speed values";
+    } else if (command.action === "previewCompoundClearance") {
+      const preview = simulation.previewCompoundFlightRoute(
+        command.flightId,
+        command.fixIds,
+        command.altitudeFt,
+        command.speedKts,
+      );
+      data = preview ?? undefined;
+      accepted = Boolean(preview?.safeToIssue);
+      reason = simulation.lastCommandReason();
+    } else {
+      accepted = simulation.issueCompoundFlightRoute(
+        command.flightId,
+        command.fixIds,
+        command.altitudeFt,
+        command.speedKts,
+      );
+      reason = simulation.lastCommandReason();
+    }
   }
   if (command.action === "acceptRouteReadback") {
     accepted = simulation.acceptRouteReadback(command.flightId);
