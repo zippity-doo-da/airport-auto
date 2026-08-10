@@ -11,6 +11,7 @@ import { SurfaceSafetyAcknowledgements } from "./src/simulation/surfaceSafetyAck
 import { SurfaceSafetyAnnouncementTracker } from "./src/presentation/surfaceSafetyAnnouncements.ts";
 import { aircraftCollisionEnvelope, findFlightConflicts } from "./src/simulation/collisionDetection.ts";
 import { syncFlightMotion } from "./src/simulation/flightMotion.ts";
+import { aircraftProfile } from "./src/simulation/aircraftProfiles.ts";
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -306,6 +307,96 @@ assert(
       window: seededCrossing,
       hold: liveCrossingFlight.automaticHoldReason,
     }),
+);
+
+// A later pushback/departure reservation must never stop an aircraft after
+// Ground has committed it to a runway crossing. That ordering fault can leave
+// the cleared aircraft owning the runway indefinitely and starve every older
+// aircraft at the opposite hold-short point.
+const committedCrossingSimulation = new AirportSimulation(seededConfig);
+const committedCrossingFlight = structuredClone(seededCrossingFlight);
+committedCrossingSimulation.state.flights = [committedCrossingFlight];
+committedCrossingSimulation.state.serviceVehicles = [];
+committedCrossingSimulation.setMode("auto");
+committedCrossingSimulation.setPaused(false);
+committedCrossingFlight.progress = Math.max(
+  seededCrossing.holdProgress,
+  seededCrossing.entryProgress - 0.0015,
+);
+committedCrossingFlight.controlHold = false;
+committedCrossingFlight.automaticHold = false;
+committedCrossingFlight.automaticHoldReason = undefined;
+committedCrossingFlight.safetyHold = false;
+committedCrossingFlight.safetyHoldReason = undefined;
+committedCrossingFlight.crossingClearanceIds = [seededCrossing.id];
+committedCrossingFlight.crossingClearances = [seededCrossing.runwayId];
+committedCrossingFlight.kinematics.groundSpeedKts = 6;
+syncFlightMotion(seededConfig, committedCrossingFlight);
+const syntheticLaterReservation = {
+  ...structuredClone(seededRunwayOwner),
+  id: 99001,
+  callsign: "Synthetic later reservation",
+};
+committedCrossingSimulation.activePushbackCorridorBlocker = () =>
+  syntheticLaterReservation;
+committedCrossingSimulation.committedDepartureCorridorBlocker = () =>
+  syntheticLaterReservation;
+const committedStart = committedCrossingFlight.progress;
+for (let step = 0; step < 20; step += 1)
+  committedCrossingSimulation.update(0.05);
+assert(
+  committedCrossingFlight.progress > committedStart &&
+    !committedCrossingFlight.automaticHoldReason?.includes("corridor"),
+  "a later surface reservation stopped an already-cleared runway crossing: " +
+    JSON.stringify({
+      start: committedStart,
+      progress: committedCrossingFlight.progress,
+      hold: committedCrossingFlight.automaticHoldReason,
+    }),
+);
+
+// Crossing windows already end at the far edge of the sourced runway-access
+// pavement. A fixed route-progress grace after that boundary scales with the
+// entire taxi route and can keep a runway reserved far into the next taxiway.
+// Release the commitment as soon as the authoritative crossing is vacated.
+const postExitCrossingFlight = structuredClone(seededCrossingFlight);
+postExitCrossingFlight.crossingClearanceIds = [seededCrossing.id];
+postExitCrossingFlight.crossingClearances = [seededCrossing.runwayId];
+postExitCrossingFlight.progress =
+  seededCrossing.exitProgress +
+  (aircraftProfile(postExitCrossingFlight.aircraft).lengthM / 2 + 5) /
+    seededIncursion.surfaceCrossingPlan(postExitCrossingFlight).routeDistanceM +
+  0.0001;
+syncFlightMotion(seededConfig, postExitCrossingFlight);
+committedCrossingSimulation.state.flights = [postExitCrossingFlight];
+assert(
+  !committedCrossingSimulation
+    .activeClearedCrossingRunways(postExitCrossingFlight)
+    .includes(seededCrossing.runwayId),
+  "a vacated crossing retained runway ownership into the next taxiway",
+);
+
+// Ramp recovery may begin inside a conservative vehicle envelope, but it may
+// only escape from it. A path that approaches the vehicle or re-enters the
+// envelope must remain blocked.
+const recoveryEnvelope = (x) => ({ x, y: 0, bodyRadius: 2 });
+assert(
+  committedCrossingSimulation.surfaceRecoverySweepEscapesVehicle(
+    { envelopes: [recoveryEnvelope(2), recoveryEnvelope(3), recoveryEnvelope(5)] },
+    0,
+    0,
+    1,
+  ),
+  "a strictly separating tug recovery could not escape an existing service-vehicle envelope",
+);
+assert(
+  !committedCrossingSimulation.surfaceRecoverySweepEscapesVehicle(
+    { envelopes: [recoveryEnvelope(2), recoveryEnvelope(1.5), recoveryEnvelope(4)] },
+    0,
+    0,
+    1,
+  ),
+  "a tug recovery was allowed to move closer to a service vehicle",
 );
 
 const safeParallelRunways = seededConfig.runways.flatMap((runway, index) =>

@@ -17,6 +17,7 @@ const traceFlightIds = (
   .map((value) => Number(value))
   .filter((value) => Number.isFinite(value));
 const compactReport = process.argv.includes("--compact");
+const stopOnCollision = process.argv.includes("--stop-on-collision");
 const requestedAirport = (
   process.argv
     .find((argument) => argument.startsWith("--airport="))
@@ -48,6 +49,7 @@ import { WORLD_METERS_PER_UNIT } from './src/simulation/runwayPerformance.ts';
 const requestedHours = ${JSON.stringify(hours)};
 const traceFlightIds = new Set(${JSON.stringify(traceFlightIds)});
 const compactReport = ${JSON.stringify(compactReport)};
+const stopOnCollision = ${JSON.stringify(stopOnCollision)};
 const requestedAirport = ${JSON.stringify(requestedAirport)};
 const requestedMode = ${JSON.stringify(requestedMode)};
 // Match the production fixed-step loop exactly; a 100 ms diagnostic step
@@ -134,6 +136,22 @@ while (simulation.state.elapsed < targetModeledSeconds) {
           callsign: flight.callsign,
           phase: flight.phase,
           progress: Number(flight.progress.toFixed(6)),
+          duration: Number(flight.duration.toFixed(2)),
+          phaseElapsed: Number(flight.phaseElapsed.toFixed(2)),
+          runway: flight.runway,
+          operatingEnd: flight.operatingEnd,
+          aircraft: flight.aircraft,
+          wakeClass: flight.wakeClass,
+          goAround: Boolean(flight.goAround),
+          holdPattern: flight.navigation.hold?.patternId ?? null,
+          vector: flight.navigation.vector
+            ? {
+                startProgress: flight.navigation.vector.startProgress,
+                endProgress: flight.navigation.vector.endProgress,
+              }
+            : null,
+          assignedSpeedKts: flight.navigation.assignedSpeedKts ?? null,
+          groundSpeedKts: Number(flight.kinematics.groundSpeedKts.toFixed(2)),
           x: Number(flight.motion.x.toFixed(4)),
           y: Number(flight.motion.y.toFixed(4)),
           z: Number(flight.motion.z.toFixed(4)),
@@ -146,6 +164,7 @@ while (simulation.state.elapsed < targetModeledSeconds) {
     });
   }
   observedCollisionAlerts = collisionAlertCount;
+  if (stopOnCollision && collisionAlertCount > 0) break;
   const unexplainedPauseCount = simulation['metrics'].unexplainedPauses;
   if (unexplainedPauseCount > observedUnexplainedPauses && unexplainedPauseContacts.length < 20) {
     unexplainedPauseContacts.push({
@@ -316,6 +335,16 @@ while (simulation.state.elapsed < targetModeledSeconds) {
         progress: Number(flight.progress.toFixed(6)),
         surfaceNode: flight.surfaceNode ?? null,
         surfaceEdge: flight.surfaceEdge ?? null,
+        frequencyOwner: flight.navigation.frequencyOwner,
+        handoff: flight.navigation.handoff
+          ? {
+              from: flight.navigation.handoff.from,
+              to: flight.navigation.handoff.to,
+              status: flight.navigation.handoff.status,
+              offeredAtSeconds: Number(flight.navigation.handoff.offeredAtSeconds.toFixed(1)),
+              responseDueSeconds: Number(flight.navigation.handoff.responseDueSeconds.toFixed(1)),
+            }
+          : null,
         surfaceYield: flight.surfaceYield
           ? {
               status: flight.surfaceYield.status,
@@ -331,6 +360,29 @@ while (simulation.state.elapsed < targetModeledSeconds) {
             }
           : null,
         reason: flight.safetyHoldReason ?? flight.automaticHoldReason ?? (flight.controlHold ? 'controller hold' : null),
+        crossing: (() => {
+          const crossing = simulation['nextUnclearedCrossing'](flight);
+          return crossing
+            ? {
+                id: crossing.id,
+                runwayId: crossing.runwayId,
+                holdProgress: Number(crossing.holdProgress.toFixed(6)),
+                entryProgress: Number(crossing.entryProgress.toFixed(6)),
+                exitProgress: Number(crossing.exitProgress.toFixed(6)),
+                distanceToHoldM: Number((crossing.distanceToHold * WORLD_METERS_PER_UNIT).toFixed(2)),
+              }
+            : null;
+        })(),
+        recentControllerDecisions: simulation.state.scriptedControllers.decisions
+          .filter((decision) => decision.flightId === flight.id)
+          .slice(-8)
+          .map((decision) => ({
+            station: decision.station,
+            action: decision.action,
+            disposition: decision.disposition,
+            result: decision.result,
+            atSeconds: Number(decision.resolvedAtSeconds.toFixed(1)),
+          })),
         blocker: (() => {
           const blockerId = Number(
             (flight.safetyHoldReason ?? '').match(/flight (\\d+)/)?.[1],
@@ -796,6 +848,8 @@ const compact = {
   longestSurfaceWaitQueue: report.longestSurfaceWaitQueue,
   longHeldFlights: report.activeFlights
     .filter((flight) => flight.stationarySeconds >= 300)
+    .sort((first, second) => second.stationarySeconds - first.stationarySeconds)
+    .slice(0, 12)
     .map((flight) => ({
       id: flight.id,
       callsign: flight.callsign,
@@ -808,7 +862,7 @@ const compact = {
       hold: flight.hold,
       surfaceYield: flight.surfaceYield,
     })),
-  pushbackAdmissionDiagnostics: report.pushbackAdmissionDiagnostics,
+  pushbackAdmissionCount: report.pushbackAdmissionDiagnostics.length,
   simulationTickP95Ms: report.performance.simulationTickMs.p95,
   safety: report.safety,
 };

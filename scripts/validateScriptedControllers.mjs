@@ -141,6 +141,40 @@ assert(
     JSON.stringify(fairRampActions),
 );
 
+const correctiveHandoff = new AirportSimulation(config, 'quiet');
+correctiveHandoff.setMode('auto');
+const amendedArrival = structuredClone(correctiveHandoff.state.flights[0]);
+amendedArrival.id = 9201;
+amendedArrival.callsign = 'AMENDED ARRIVAL';
+amendedArrival.phase = 'taxi-in';
+amendedArrival.flightPlan.direction = 'arrival';
+amendedArrival.operationPlan.direction = 'arrival';
+amendedArrival.progress = 0.86;
+amendedArrival.navigation.frequencyOwner = 'ramp';
+amendedArrival.navigation.handoff = undefined;
+amendedArrival.navigation.handoffStatus = 'owned';
+amendedArrival.pendingCrossingCount = 1;
+amendedArrival.motion.protectedRunwayIds = [];
+correctiveHandoff.state.flights = [amendedArrival];
+const correctiveActions = planScriptedControllerActions(
+  config,
+  correctiveHandoff.state,
+  'ramp',
+  correctiveHandoff.state.scriptedControllers,
+);
+assert(
+  correctiveActions.some(
+    (action) =>
+      action.flightId === amendedArrival.id &&
+      action.action === 'offer-handoff' &&
+      action.targetStation === 'ground' &&
+      action.priority === 'urgent' &&
+      action.ruleId === 'ramp.handoff.correct-authority',
+  ),
+  'Ramp did not return a route-amended arrival with a pending crossing to Ground: ' +
+    JSON.stringify(correctiveActions),
+);
+
 const takeover = new AirportSimulation(config, 'quiet');
 takeover.setMode('manual');
 takeover.setStation('tower');

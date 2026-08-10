@@ -2,6 +2,7 @@ import type { AirportConfig } from "./airportConfig";
 import {
   CONTROLLER_STATIONS,
   nextControllerStation,
+  requiredControllerStation,
   suggestedHandoffStation,
 } from "./controllerOperations";
 import { WORLD_METERS_PER_UNIT } from "./runwayPerformance";
@@ -314,16 +315,23 @@ function handoffCandidates(
     }
     const suggested = suggestedHandoffStation(flight);
     const next = nextControllerStation(flight, station);
-    if (suggested && next === suggested) {
+    const required = requiredControllerStation(flight);
+    const correctiveAuthorityHandoff =
+      suggested === required && required !== station;
+    if (suggested && (next === suggested || correctiveAuthorityHandoff)) {
       candidates.push({
         station,
         action: "offer-handoff",
         flightId: flight.id,
         targetStation: suggested,
-        ruleId: `${station}.handoff.offer`,
-        priority: "sequence",
-        rationale: `${flight.callsign} entered the ${station} coordination window for ${suggested}`,
-        order: 18,
+        ruleId: correctiveAuthorityHandoff
+          ? `${station}.handoff.correct-authority`
+          : `${station}.handoff.offer`,
+        priority: correctiveAuthorityHandoff ? "urgent" : "sequence",
+        rationale: correctiveAuthorityHandoff
+          ? `${flight.callsign} requires ${suggested} authority before its next protected movement`
+          : `${flight.callsign} entered the ${station} coordination window for ${suggested}`,
+        order: correctiveAuthorityHandoff ? 2 : 18,
       });
     }
   }
