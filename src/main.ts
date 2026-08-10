@@ -3346,6 +3346,23 @@ function frame(now: number): void {
         `${event.flight.callsign} hold position`,
         event.detail ?? "decelerating normally",
       );
+    if (event.type === "ground-stop")
+      setStatus(
+        `STOP IMMEDIATELY · ${event.flight.callsign}`,
+        event.detail ?? "maximum safe surface braking applied",
+        "warning",
+      );
+    if (event.type === "ground-stop-complete")
+      setStatus(
+        `${event.flight.callsign} stopped`,
+        event.detail ?? "hold position and await further clearance",
+        "warning",
+      );
+    if (event.type === "ground-stop-released")
+      setStatus(
+        `${event.flight.callsign} resume taxi`,
+        event.detail ?? "urgent ground stop released",
+      );
     if (event.type === "taxi-resume")
       setStatus(
         `${event.flight.callsign} resume taxi`,
@@ -3889,6 +3906,12 @@ function cloneAirportState(
         : undefined,
       rejectedTakeoff: flight.rejectedTakeoff
         ? { ...flight.rejectedTakeoff }
+        : undefined,
+      groundStop: flight.groundStop
+        ? {
+            ...flight.groundStop,
+            causalEventIds: [...flight.groundStop.causalEventIds],
+          }
         : undefined,
       diversion: flight.diversion
         ? { ...flight.diversion, start: { ...flight.diversion.start } }
@@ -6080,11 +6103,25 @@ function renderFlightActions(): void {
   const surfaceAuthority =
     requiredControllerStation(flight) === "ramp" ? "ramp" : "ground";
   if (ground && flight.emergency !== "disabled") {
-    add(
-      "hold-toggle",
-      flight.controlHold ? "Resume taxi" : "Hold position",
-      !simulation.canIssue(surfaceAuthority) || !ownsFlight,
-    );
+    if (flight.controlHold)
+      add(
+        "hold-toggle",
+        "Resume taxi",
+        !simulation.canIssue(surfaceAuthority) || !ownsFlight,
+      );
+    else {
+      add(
+        "hold-toggle",
+        "Hold position",
+        !simulation.canIssue(surfaceAuthority) || !ownsFlight,
+      );
+      if (flight.kinematics.groundSpeedKts > 2)
+        add(
+          "stop-taxi",
+          "STOP IMMEDIATELY",
+          !simulation.canIssue(surfaceAuthority) || !ownsFlight,
+        );
+    }
     add(
       "taxi-route",
       "Refresh taxi route",
@@ -6800,6 +6837,12 @@ function handleFlightAction(
     executeAirportRequest({
       action: flight.controlHold ? "resumeTaxi" : "holdPosition",
       flightId,
+    });
+  if (action === "stop-taxi")
+    executeAirportRequest({
+      action: "stopTaxi",
+      flightId,
+      reason: "controller traffic conflict",
     });
   if (action === "taxi-route")
     executeAirportRequest({ action: "assignTaxiRoute", flightId });
@@ -9733,6 +9776,29 @@ function airportSnapshot() {
                 : Number(flight.rejectedTakeoff.stopProgress.toFixed(4)),
           }
         : null,
+      groundStop: flight.groundStop
+        ? {
+            ...flight.groundStop,
+            issuedAtSeconds: Number(
+              flight.groundStop.issuedAtSeconds.toFixed(2),
+            ),
+            initialSpeedKts: Number(
+              flight.groundStop.initialSpeedKts.toFixed(1),
+            ),
+            targetDecelerationMps2: Number(
+              flight.groundStop.targetDecelerationMps2.toFixed(2),
+            ),
+            stoppedAtSeconds:
+              flight.groundStop.stoppedAtSeconds === undefined
+                ? null
+                : Number(flight.groundStop.stoppedAtSeconds.toFixed(2)),
+            releasedAtSeconds:
+              flight.groundStop.releasedAtSeconds === undefined
+                ? null
+                : Number(flight.groundStop.releasedAtSeconds.toFixed(2)),
+            causalEventIds: [...flight.groundStop.causalEventIds],
+          }
+        : null,
       diversion: flight.diversion
         ? {
             airportCode: flight.diversion.airportCode,
@@ -10825,6 +10891,15 @@ function executeAirportRequest(
     accepted = simulation.holdPosition(command.flightId);
     reason = simulation.lastCommandReason();
   }
+  if (command.action === "stopTaxi") {
+    const validReason =
+      command.reason === undefined || typeof command.reason === "string";
+    accepted =
+      validReason && simulation.stopTaxi(command.flightId, command.reason);
+    reason = validReason
+      ? simulation.lastCommandReason()
+      : "urgent ground stop reason must be a string";
+  }
   if (command.action === "resumeTaxi") {
     accepted = simulation.resumeTaxi(command.flightId);
     reason = simulation.lastCommandReason();
@@ -11485,6 +11560,8 @@ window.airportControl = {
         "airportControl.request({ action: 'assignTaxiRoute', flightId: 3, viaNodeIds: ['OSM-N26630147'] }) // inspect snapshot().surfaceGraph.nodes",
       surfaceHold:
         "airportControl.request({ action: 'holdPosition', flightId: 3 })",
+      emergencySurfaceStop:
+        "airportControl.request({ action: 'stopTaxi', flightId: 3, reason: 'crossing traffic' })",
       resumeTaxi:
         "airportControl.request({ action: 'resumeTaxi', flightId: 3 })",
       divert:

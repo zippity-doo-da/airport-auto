@@ -4,6 +4,7 @@ const validationSource = `
 import { generateHubConfig } from './src/simulation/airportConfig.ts';
 import { AirportSimulation } from './src/simulation/airportSimulation.ts';
 import { aircraftProfile } from './src/simulation/aircraftProfiles.ts';
+import { digitalClearanceSnapshot } from './src/simulation/digitalClearances.ts';
 import { sampleFlightTrajectory } from './src/simulation/flightTrajectory.ts';
 import { syncFlightMotion } from './src/simulation/flightMotion.ts';
 import { surfaceRouteForFlight } from './src/simulation/surfaceGraph.ts';
@@ -196,6 +197,32 @@ assert(surfaceFlight.controlHold && surfaceFlight.kinematics.groundSpeedKts < sp
 assert(surfaceFixture.simulation.resumeTaxi(surfaceFlight.id), 'explicit resume-taxi command was rejected');
 assert(!surfaceFlight.controlHold, 'resume taxi did not release the controller hold');
 
+surfaceFlight.kinematics.groundSpeedKts = 12;
+surfaceFlight.kinematics.airspeedKts = 12;
+const urgentStopStartProgress = surfaceFlight.progress;
+let eventCursor = surfaceFixture.simulation.eventCursor();
+assert(surfaceFixture.simulation.stopTaxi(surfaceFlight.id, 'crossing traffic'), 'urgent ground-stop command was rejected: ' + surfaceFixture.simulation.lastCommandReason());
+surfaceFixture.simulation.tagEventsSince(eventCursor, 'cmd-validator-ground-stop');
+assert(surfaceFlight.controlHold && surfaceFlight.groundStop?.phraseology.startsWith('STOP IMMEDIATELY'), 'urgent stop did not create explicit voice phraseology');
+assert(surfaceFlight.groundStop.targetDecelerationMps2 > profile.taxiBrakingMps2, 'urgent stop did not request stronger-than-normal taxi braking');
+assert(surfaceFlight.groundStop.commandId === 'cmd-validator-ground-stop' && surfaceFlight.groundStop.causalEventIds.length === 1, 'urgent stop omitted command/event causality');
+surfaceFixture.simulation.update(0.1);
+assert(surfaceFlight.kinematics.groundSpeedKts < 12 && surfaceFlight.kinematics.groundSpeedKts > 0, 'urgent ground stop was not continuous physical braking');
+for (let tick = 0; tick < 500 && surfaceFlight.groundStop?.stoppedAtSeconds === undefined; tick += 1) surfaceFixture.simulation.update(0.1);
+assert(surfaceFlight.groundStop?.stoppedAtSeconds !== undefined && surfaceFlight.kinematics.groundSpeedKts <= 0.05, 'urgent ground stop did not reach a stopped state');
+assert(surfaceFlight.progress > urgentStopStartProgress, 'urgent ground stop stopped instantaneously without forward braking distance');
+let stopMessage = digitalClearanceSnapshot(surfaceFixture.simulation.state).messages.find((message) => message.kind === 'ground-stop');
+assert(stopMessage?.status === 'standby' && stopMessage.capability.channel === 'voice' && stopMessage.capability.responseMode === 'voice-action', 'urgent stop was not projected as an active voice/action record');
+assert(stopMessage.commandId === 'cmd-validator-ground-stop' && stopMessage.causalEventIds.length >= 2 && stopMessage.parameters.stopped === 'yes', 'urgent stop projection omitted its lifecycle evidence');
+eventCursor = surfaceFixture.simulation.eventCursor();
+assert(surfaceFixture.simulation.resumeTaxi(surfaceFlight.id), 'urgent ground stop could not be released');
+surfaceFixture.simulation.tagEventsSince(eventCursor, 'cmd-validator-ground-resume');
+stopMessage = digitalClearanceSnapshot(surfaceFixture.simulation.state).messages.find((message) => message.kind === 'ground-stop');
+assert(stopMessage?.status === 'wilco' && stopMessage.response.commandId === 'cmd-validator-ground-resume', 'ground-stop release omitted its command response');
+assert(stopMessage.causalEventIds.length >= 3 && surfaceFlight.groundStop?.releasedAtSeconds !== undefined, 'ground-stop release omitted its causal event');
+const groundStopEvents = surfaceFixture.simulation.drainEvents().filter((event) => event.type.startsWith('ground-stop'));
+assert(groundStopEvents.map((event) => event.type).join(',') === 'ground-stop,ground-stop-complete,ground-stop-released', 'ground-stop lifecycle events were not ordered');
+
 const contactFixture = isolatedSimulation();
 contactFixture.flight.navigation.frequencyOwner = 'approach';
 assert(!contactFixture.simulation.contactFlight(contactFixture.flight.id, 'tower'), 'contact-station bypassed controller coordination');
@@ -250,6 +277,7 @@ console.log(JSON.stringify({
   blockingPreview: conflictFlight.navigation.routeClearance.warnings[0].conflictingCallsign,
   taxiSegments: surfaceFlight.surfaceRouteEdges.length,
   holdUsesContinuousBraking: true,
+  urgentGroundStopEvents: groundStopEvents.length,
   contactTransfer: contactFixture.flight.navigation.frequencyOwner,
   departureVector: Math.round(amendedHeading),
   diversionComplete: true,

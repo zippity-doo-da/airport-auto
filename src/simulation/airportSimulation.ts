@@ -727,6 +727,7 @@ export class AirportSimulation {
   private spawnIn: number;
   private events: AirportEvent[] = [];
   private nextRouteDomainEventId = 1;
+  private nextGroundStopDomainEventId = 1;
   private speed = 1;
   private runwayReservations = new Map<number, number>();
   private runwayOperationHistory: RunwayOperationRecord[] = [];
@@ -993,6 +994,7 @@ export class AirportSimulation {
       flight.runwayEntryCleared = false;
       flight.takeoffCleared = false;
       flight.controlHold = false;
+      flight.groundStop = undefined;
       flight.automaticHold = false;
       flight.automaticHoldReason = undefined;
       flight.safetyHold = false;
@@ -1664,6 +1666,19 @@ export class AirportSimulation {
     this.state.mode = mode;
     if (this.isAutomaticMode()) {
       for (const flight of this.state.flights) {
+        if (
+          flight.groundStop &&
+          flight.groundStop.releasedAtSeconds === undefined
+        ) {
+          flight.groundStop.releasedAtSeconds = this.state.elapsed;
+          flight.groundStop.releaseReason = "automatic controller takeover";
+          this.pushGroundStopEvent({
+            type: "ground-stop-released",
+            flight,
+            taxiway: flight.taxiway,
+            detail: `${flight.callsign}, resume taxi · automatic controller takeover`,
+          });
+        }
         if (flight.emergency !== "disabled") flight.controlHold = false;
         flight.controlPace = 1;
         flight.controlPattern = undefined;
@@ -4873,6 +4888,64 @@ export class AirportSimulation {
     return true;
   }
 
+  stopTaxi(id: number, reason = "traffic conflict"): boolean {
+    const flight = this.state.flights.find(
+      (item) =>
+        item.id === id &&
+        (item.phase === "taxi-in" || item.phase === "taxi-out"),
+    );
+    if (!flight)
+      return this.rejectDecision("flight is not taxiing on the surface");
+    const authority: OperationalControllerStation =
+      requiredControllerStation(flight) === "ramp" ? "ramp" : "ground";
+    if (!this.canIssue(authority))
+      return this.rejectDecision(
+        `${this.state.station} station has no ${authority} urgent-stop authority`,
+        flight,
+      );
+    if (!this.ownsFlight(flight))
+      return this.rejectDecision(
+        `${this.state.station} does not own ${flight.callsign}; handoff required`,
+        flight,
+      );
+    if (flight.groundStop && flight.groundStop.releasedAtSeconds === undefined)
+      return this.rejectDecision(
+        `${flight.callsign} already has an active urgent ground stop`,
+        flight,
+      );
+    if (flight.kinematics.groundSpeedKts <= 0.5)
+      return this.rejectDecision(
+        `${flight.callsign} is already stopped; use hold position if needed`,
+        flight,
+      );
+    const normalizedReason = reason.trim().slice(0, 96) || "traffic conflict";
+    const issuedBy =
+      this.state.station === "supervisor" ? authority : this.state.station;
+    const targetDecelerationMps2 = this.groundStopDeceleration(flight);
+    const phraseology = `STOP IMMEDIATELY, ${flight.callsign}. ${normalizedReason}.`;
+    flight.controlHold = true;
+    flight.groundStop = {
+      schemaVersion: 1,
+      issuedAtSeconds: this.state.elapsed,
+      issuedBy,
+      reason: normalizedReason,
+      phraseology,
+      initialSpeedKts: flight.kinematics.groundSpeedKts,
+      targetDecelerationMps2,
+      causalEventIds: [],
+    };
+    this.metrics.holdsIssued += 1;
+    this.metrics.manualCommands += 1;
+    this.decisionReason = `${phraseology} Maximum safe surface braking applied.`;
+    this.pushGroundStopEvent({
+      type: "ground-stop",
+      flight,
+      taxiway: flight.taxiway,
+      detail: this.decisionReason,
+    });
+    return true;
+  }
+
   resumeTaxi(id: number): boolean {
     const flight = this.state.flights.find(
       (item) =>
@@ -4900,13 +4973,27 @@ export class AirportSimulation {
       );
     flight.controlHold = false;
     this.metrics.manualCommands += 1;
-    this.decisionReason = `${flight.callsign} resume taxi accepted${flight.automaticHold || flight.safetyHold ? " · another safety hold remains active" : ""}`;
-    this.events.push({
-      type: "taxi-resume",
-      flight,
-      taxiway: flight.taxiway,
-      detail: this.decisionReason,
-    });
+    const activeGroundStop =
+      flight.groundStop?.releasedAtSeconds === undefined
+        ? flight.groundStop
+        : undefined;
+    this.decisionReason = `${flight.callsign}, resume taxi${flight.automaticHold || flight.safetyHold ? " · another safety hold remains active" : ""}`;
+    if (activeGroundStop) {
+      activeGroundStop.releasedAtSeconds = this.state.elapsed;
+      activeGroundStop.releaseReason = "controller released urgent ground stop";
+      this.pushGroundStopEvent({
+        type: "ground-stop-released",
+        flight,
+        taxiway: flight.taxiway,
+        detail: this.decisionReason,
+      });
+    } else
+      this.events.push({
+        type: "taxi-resume",
+        flight,
+        taxiway: flight.taxiway,
+        detail: this.decisionReason,
+      });
     return true;
   }
 
@@ -6273,6 +6360,22 @@ export class AirportSimulation {
           });
         }
         if (
+          onSurface &&
+          flight.groundStop &&
+          flight.groundStop.releasedAtSeconds === undefined &&
+          flight.groundStop.stoppedAtSeconds === undefined &&
+          (requestedSpeedById.get(flight.id) ?? 0) <= 0.05
+        ) {
+          flight.groundStop.stoppedAtSeconds = this.state.elapsed;
+          flight.controlHold = true;
+          this.pushGroundStopEvent({
+            type: "ground-stop-complete",
+            flight,
+            taxiway: flight.taxiway,
+            detail: `${flight.callsign}, stopped. Hold position.`,
+          });
+        }
+        if (
           flight.surfaceYield?.status === "moving" &&
           (flight.surfaceYield.direction === "reverse"
             ? flight.progress <= flight.surfaceYield.targetProgress + 1e-6
@@ -6466,6 +6569,15 @@ export class AirportSimulation {
       clearance.causalEventIds.push(event.domainEventId);
   }
 
+  private pushGroundStopEvent(event: AirportEvent): void {
+    event.domainEventId ??= `sim:${this.config.seed}:ground-stop:${this.nextGroundStopDomainEventId++}`;
+    this.events.push(event);
+    const groundStop = event.flight.groundStop;
+    if (!groundStop) return;
+    if (!groundStop.causalEventIds.includes(event.domainEventId))
+      groundStop.causalEventIds.push(event.domainEventId);
+  }
+
   drainEvents(): AirportEvent[] {
     const result = this.events;
     this.events = [];
@@ -6481,6 +6593,15 @@ export class AirportSimulation {
     for (let index = start; index < this.events.length; index += 1) {
       const event = this.events[index];
       event.causedByCommandId ??= commandId;
+      if (event.type.startsWith("ground-stop")) {
+        const groundStop = event.flight.groundStop;
+        if (groundStop) {
+          if (event.type === "ground-stop" || !groundStop.commandId)
+            groundStop.commandId = commandId;
+          else groundStop.responseCommandId = commandId;
+        }
+        continue;
+      }
       if (!event.type.startsWith("route-")) continue;
       const clearance = event.flight.navigation.routeClearance;
       if (!clearance) continue;
@@ -8753,6 +8874,7 @@ export class AirportSimulation {
     flight.phaseElapsed = 0;
     flight.controlPace = 1;
     flight.controlHold = false;
+    flight.groundStop = undefined;
     flight.automaticHold = false;
     flight.automaticHoldReason = undefined;
     flight.surfaceYield = undefined;
@@ -11976,17 +12098,33 @@ export class AirportSimulation {
       : flight.rejectedTakeoff
         ? 1 / Math.max(1, flight.takeoffPerformance?.performanceMultiplier ?? 1)
         : 1;
+    const urgentGroundStop =
+      onTaxiway &&
+      flight.groundStop &&
+      flight.groundStop.releasedAtSeconds === undefined &&
+      flight.groundStop.stoppedAtSeconds === undefined;
     const acceleration =
       targetSpeedKts >= current
         ? onTaxiway
           ? profile.taxiAccelerationMps2
           : profile.accelerationMps2
-        : (onTaxiway ? profile.taxiBrakingMps2 : profile.brakingMps2) *
-          brakingWeather;
+        : urgentGroundStop
+          ? flight.groundStop!.targetDecelerationMps2
+          : (onTaxiway ? profile.taxiBrakingMps2 : profile.brakingMps2) *
+            brakingWeather;
     const changeKts = (acceleration * delta) / KNOT_TO_MPS;
     if (targetSpeedKts > current)
       return Math.min(targetSpeedKts, current + changeKts);
     return Math.max(targetSpeedKts, current - changeKts);
+  }
+
+  private groundStopDeceleration(flight: Flight): number {
+    const profile = aircraftProfile(flight.aircraft);
+    const dryMaximum = Math.min(
+      profile.brakingMps2,
+      Math.max(1.2, profile.taxiBrakingMps2 * 2.5),
+    );
+    return dryMaximum * taxiBrakingFactor(this.state.weather);
   }
 
   private updateMotionHealth(

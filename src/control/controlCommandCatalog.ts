@@ -148,6 +148,7 @@ export interface AirportControlCommandParameters {
   contactStation: { flightId: number; station: ControllerStation };
   assignTaxiRoute: { flightId: number; viaNodeIds?: string[] };
   holdPosition: { flightId: number };
+  stopTaxi: { flightId: number; reason?: string };
   resumeTaxi: { flightId: number };
   divertFlight: {
     flightId: number;
@@ -1254,6 +1255,17 @@ const COMMAND_SPECS = {
     AUTHORITY.surface,
     { flightId: flightIdSchema },
     { flightId: 1 },
+  ),
+  stopTaxi: command(
+    "surface",
+    "Issue the urgent voice instruction STOP IMMEDIATELY and apply maximum safe surface braking.",
+    AUTHORITY.surface,
+    {
+      flightId: flightIdSchema,
+      reason: stringSchema("Optional concise reason for the urgent stop."),
+    },
+    { flightId: 1, reason: "traffic conflict" },
+    { optionalParameters: ["reason"] },
   ),
   resumeTaxi: command(
     "surface",

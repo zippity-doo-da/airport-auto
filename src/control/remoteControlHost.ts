@@ -69,6 +69,7 @@ function compactFlight(value: unknown): JsonRecord | null {
   const navigation = isRecord(value.navigation) ? value.navigation : {};
   const handoff = isRecord(navigation.handoff) ? navigation.handoff : null;
   const gate = isRecord(value.gate) ? value.gate : null;
+  const groundStop = isRecord(value.groundStop) ? value.groundStop : null;
   const poseAlignment = isRecord(value.poseAlignment)
     ? value.poseAlignment
     : null;
@@ -188,6 +189,23 @@ function compactFlight(value: unknown): JsonRecord | null {
           to: handoff.to ?? null,
           status: handoff.status ?? null,
           deadline: handoff.deadline ?? null,
+        }
+      : null,
+    groundStop: groundStop
+      ? {
+          schemaVersion: groundStop.schemaVersion ?? null,
+          active: groundStop.releasedAtSeconds == null,
+          issuedAtSeconds: number(groundStop.issuedAtSeconds) ?? 0,
+          stoppedAtSeconds: number(groundStop.stoppedAtSeconds),
+          releasedAtSeconds: number(groundStop.releasedAtSeconds),
+          initialSpeedKts: number(groundStop.initialSpeedKts) ?? 0,
+          targetDecelerationMps2:
+            number(groundStop.targetDecelerationMps2) ?? 0,
+          commandId: text(groundStop.commandId, 180),
+          responseCommandId: text(groundStop.responseCommandId, 180),
+          causalEventIds: Array.isArray(groundStop.causalEventIds)
+            ? groundStop.causalEventIds.slice(0, 8)
+            : [],
         }
       : null,
     clearances: {

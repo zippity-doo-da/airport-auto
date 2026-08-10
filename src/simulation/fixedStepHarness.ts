@@ -126,6 +126,7 @@ export interface FixedStepFlightSnapshot {
   takeoffCleared: boolean;
   takeoffPerformance?: Flight['takeoffPerformance'];
   rejectedTakeoff?: Flight['rejectedTakeoff'];
+  groundStop?: Flight['groundStop'];
   weatherEscape?: Flight['weatherEscape'];
   goAroundWeatherEscape?: NonNullable<Flight['goAround']>['weatherEscape'];
   crossingClearances: number[];
@@ -152,7 +153,7 @@ export interface FixedStepFlightSnapshot {
 }
 
 export interface FixedStepSimulationSnapshot {
-  schemaVersion: 14;
+  schemaVersion: 15;
   seed: number;
   airportCode: string;
   stepSeconds: number;
@@ -343,7 +344,7 @@ export class FixedStepSimulationHarness {
   snapshot(): FixedStepSimulationSnapshot {
     const diagnostics = this.simulation.diagnostics();
     return {
-      schemaVersion: 14,
+      schemaVersion: 15,
       seed: this.config.seed,
       airportCode: this.config.code,
       stepSeconds: round(this.stepSeconds),
@@ -595,6 +596,12 @@ function snapshotFlight(config: AirportConfig, flight: Flight): FixedStepFlightS
     takeoffCleared: Boolean(flight.takeoffCleared),
     takeoffPerformance: flight.takeoffPerformance ? { ...flight.takeoffPerformance } : undefined,
     rejectedTakeoff: flight.rejectedTakeoff ? { ...flight.rejectedTakeoff } : undefined,
+    groundStop: flight.groundStop
+      ? {
+          ...flight.groundStop,
+          causalEventIds: [...flight.groundStop.causalEventIds],
+        }
+      : undefined,
     weatherEscape: flight.weatherEscape ? { ...flight.weatherEscape } : undefined,
     goAroundWeatherEscape: flight.goAround?.weatherEscape ? { ...flight.goAround.weatherEscape } : undefined,
     crossingClearances: [...(flight.crossingClearances ?? [])].sort((first, second) => first - second),

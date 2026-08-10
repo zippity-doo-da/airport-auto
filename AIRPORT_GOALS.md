@@ -849,11 +849,15 @@ the controller to the existing direct-to or vector voice workflow instead.
   begins, the separate rejected-takeoff action is available below modeled V1;
   it applies condition-adjusted physical braking, stops before rotation, protects
   the occupied runway, and is refused when continuing takeoff is the safe modeled
-  decision. An
-  urgent go-around is now explicitly tested to cancel a pending Data Comm route
+  decision. Ground and Ramp now also have a dedicated STOP IMMEDIATELY action
+  for a moving taxi aircraft. It applies weather-adjusted maximum safe surface
+  braking without teleporting the aircraft to zero speed, records the issued,
+  stopped, and released lifecycle as deterministic causal events, and presents
+  the instruction as an urgent voice/action record rather than routine Data Comm.
+  An urgent go-around is now explicitly tested to cancel a pending Data Comm route
   before executing, emit an ordered immediate-action event chain, and prevent
-  stale later application. Dedicated ground-stop presentation,
-  conflict-resolution phraseology, and broader spoken-action work remain open.
+  stale later application. Broader conflict-resolution phraseology and spoken-
+  action work remain open.
 - [x] Show aircraft capability and station/data-authority limitations without
   turning the interface into avionics configuration management. The selected
   flight panel now shows aircraft/wake class, required takeoff and landing
@@ -885,8 +889,10 @@ the controller to the existing direct-to or vector voice workflow instead.
   deterministic simulation-domain event ID at creation, retains the complete
   causal chain across issue, delivery, and response, and records the issuing and
   responding command IDs separately. Telemetry, replay, analytics, and remote
-  projections preserve that chain; non-route message kinds still use stable
-  compatibility references rather than full domain-event histories.
+  projections preserve that chain. The urgent ground-stop issue/brake/release
+  lifecycle is the first non-route message with the same full command/event
+  chain; other non-route message kinds still use stable compatibility references
+  rather than complete domain-event histories.
 - [x] Reuse staged pilot-response and route-readback behavior rather than adding
       a parallel command executor. Compound previews are route-clearance schema
       2 records and use the existing Sent, delivery, pending-readback,

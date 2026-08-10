@@ -30,7 +30,7 @@ assert(CONTROL_SNAPSHOT_SCHEMA_VERSION === 44, 'snapshot schema version changed 
 assert(CONTROL_REPLAY_SCHEMA_VERSION === 4, 'replay schema version changed unexpectedly');
 
 const definitions = Object.values(AIRPORT_CONTROL_COMMAND_DEFINITIONS);
-assert(definitions.length === 110, 'formal command catalog count changed unexpectedly');
+assert(definitions.length === 111, 'formal command catalog count changed unexpectedly');
 assert(validateAirportControlCommand({ action: 'ignoreTrafficFlowAdvisory', recommendationId: 'arrival:1:review' }).valid, 'flow-advisory ignore command was rejected');
 assert(validateAirportControlCommand({ action: 'recoverTrafficFlowAdvisory', recommendationId: 'arrival:1:review' }).valid, 'flow-advisory recovery command was rejected');
 assert(validateAirportControlCommand({ action: 'setTrafficFlowForecastHorizon', seconds: 600 }).valid, 'traffic-flow forecast horizon command was rejected');

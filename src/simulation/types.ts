@@ -1421,6 +1421,7 @@ export interface Flight {
   crossingHoldPointId?: string;
   controlPace?: number;
   controlHold?: boolean;
+  groundStop?: FlightGroundStopState;
   automaticHold?: boolean;
   automaticHoldReason?: string;
   safetyHold?: boolean;
@@ -1454,6 +1455,22 @@ export interface Flight {
   diversion?: FlightDiversionState;
   kinematics: FlightKinematics;
   motion: FlightMotionState;
+}
+
+export interface FlightGroundStopState {
+  schemaVersion: 1;
+  issuedAtSeconds: number;
+  issuedBy: ControllerStation;
+  reason: string;
+  phraseology: string;
+  initialSpeedKts: number;
+  targetDecelerationMps2: number;
+  stoppedAtSeconds?: number;
+  releasedAtSeconds?: number;
+  releaseReason?: string;
+  commandId?: string;
+  responseCommandId?: string;
+  causalEventIds: string[];
 }
 
 export interface ConflictPrediction {

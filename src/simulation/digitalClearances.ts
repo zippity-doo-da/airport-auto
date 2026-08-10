@@ -41,6 +41,7 @@ interface DigitalClearanceDraft {
     | "speed"
     | "altitude"
     | "departure"
+    | "ground-stop"
     | "taxi"
     | "crossing"
     | "direct-to"
@@ -120,6 +121,40 @@ function flightDigitalClearanceMessages(
   const messages: DigitalClearanceDraft[] = [];
   const route = flight.navigation.routeClearance;
   if (route) messages.push(routeClearanceMessage(flight, route));
+
+  const groundStop = flight.groundStop;
+  if (groundStop) {
+    const released = groundStop.releasedAtSeconds !== undefined;
+    const stopped = groundStop.stoppedAtSeconds !== undefined;
+    messages.push({
+      id: `ground-stop:${flight.id}:${groundStop.issuedAtSeconds}`,
+      flightId: flight.id,
+      callsign: flight.callsign,
+      kind: "ground-stop",
+      status: released ? "wilco" : "standby",
+      authority: groundStop.issuedBy,
+      revision: 1,
+      createdAtSeconds: groundStop.issuedAtSeconds,
+      issuedAtSeconds: groundStop.issuedAtSeconds,
+      respondedAtSeconds: groundStop.releasedAtSeconds,
+      route: [],
+      parameters: {
+        initialSpeedKts: groundStop.initialSpeedKts,
+        targetDecelerationMps2: groundStop.targetDecelerationMps2,
+        stopped: stopped ? "yes" : "no",
+        released: released ? "yes" : "no",
+      },
+      detail: released
+        ? `${flight.callsign}, resume taxi.`
+        : stopped
+          ? `${flight.callsign}, stopped. Hold position.`
+          : `${groundStop.phraseology} Maximum safe surface braking.`,
+      warningCount: released ? 0 : 1,
+      commandId: groundStop.commandId,
+      responseCommandId: groundStop.responseCommandId,
+      causalEventIds: [...groundStop.causalEventIds],
+    });
+  }
 
   for (const amendment of flight.flightPlan.amendments) {
     messages.push({

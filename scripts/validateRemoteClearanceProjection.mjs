@@ -22,6 +22,17 @@ const snapshot = projectRemoteOperationsSnapshot({
       renderer: { position: { x: 0.998, y: 2.001 }, visible: true },
       errors: { collisionHorizontalWorld: 0, rendererSourceHorizontalWorld: 0, rendererAuthoritativeHorizontalWorld: 0.00224 },
     },
+    groundStop: {
+      schemaVersion: 1,
+      issuedAtSeconds: 12,
+      issuedBy: 'ground',
+      reason: 'private controller note',
+      phraseology: 'STOP IMMEDIATELY, TEST 7.',
+      initialSpeedKts: 14,
+      targetDecelerationMps2: 1.8,
+      commandId: 'cmd:stop:7',
+      causalEventIds: ['sim:7:ground-stop:1'],
+    },
   }],
   digitalClearances: {
     schemaVersion: 4,
@@ -108,6 +119,8 @@ assert(snapshot.surfaceSafety.advisories[0].geometry.points.length === 2 && snap
 assert(snapshot.flights[0].poseAlignment.collision.surfaceEdge === 'edge-a' && snapshot.flights[0].poseAlignment.renderer.visible, 'remote projection omitted render/collision pose alignment');
 assert(snapshot.flights[0].poseAlignment.errors.collisionHorizontalWorld === 0 && snapshot.flights[0].poseAlignment.errors.rendererAuthoritativeHorizontalWorld > 0, 'remote projection changed pose-alignment diagnostics');
 assert(snapshot.flights[0].aircraft.dataCommSupport === 'voice-only', 'remote flight projection omitted pre-command Data Comm capability');
+assert(snapshot.flights[0].groundStop.active && snapshot.flights[0].groundStop.commandId === 'cmd:stop:7' && snapshot.flights[0].groundStop.causalEventIds.length === 1, 'remote projection omitted bounded urgent-stop state');
+assert(!Object.hasOwn(snapshot.flights[0].groundStop, 'reason') && !Object.hasOwn(snapshot.flights[0].groundStop, 'phraseology'), 'remote projection leaked free-form urgent-stop text');
 console.log(JSON.stringify({ schemaVersion: snapshot.digitalClearances.schemaVersion, messages: snapshot.digitalClearances.messages.length }));
 `;
 
