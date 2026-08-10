@@ -471,6 +471,16 @@ seconds. Sourced surfaces retain stricter directional throughput expectations,
 while HND's lower floor reflects its deliberately converging schematic taxi
 graph and real-time taxi speed.
 
+A later August 10 four-hour ORD Extreme regression exposed a separate one-way
+surface dependency: an aircraft could remain safely held behind traffic that
+never formed a detectable wait cycle. Surface routes now treat every stand as
+an endpoint rather than through pavement, and a named non-runway dependency
+that survives ten minutes receives the existing swept-envelope, pavement-only
+forward/tug recovery. The identical acceptance soak then passed with 54
+arrivals, 44 departures, a 893.7-second longest individual stop, 37 peak queue
+records, 0.894 ms simulation-tick p95, and zero collisions, incursions,
+unexplained pauses, stale traffic streams, or airport-wide motion stops.
+
 The August 9 four-hour ORD Extreme Auto audit also closed a meter-accounting
 defect: an eligible departure slot is now released only after the same tick
 successfully reserves the runway, and a strategic arrival opening cannot

@@ -490,6 +490,7 @@ const SURFACE_YIELD_HOLD_SECONDS = 15;
 const SURFACE_YIELD_INBOUND_DRAIN_TIMEOUT_SECONDS = 900;
 const SURFACE_YIELD_BLOCKED_ABORT_SECONDS = 30;
 const SURFACE_YIELD_RETRY_COOLDOWN_SECONDS = 60;
+const LONG_SURFACE_HOLD_RECOVERY_SECONDS = 600;
 const SERVICE_VEHICLE_PREPOSITION_PROGRESS = 0.72;
 const SERVICE_VEHICLE_PREPOSITION_LEAD_SECONDS = 90;
 const ARRIVAL_ADMISSION_RETRY_SECONDS = 5;
@@ -5902,6 +5903,7 @@ export class AirportSimulation {
       this.resolvePhaseTransitionSurfaceBlockers();
       this.resolvePushbackTransitionBlockers();
       this.resolveSurfaceWaitCycles();
+      this.resolveLongSurfaceHolds();
       this.metrics.maxConcurrent = Math.max(
         this.metrics.maxConcurrent,
         this.state.flights.length,
@@ -14523,6 +14525,39 @@ export class AirportSimulation {
           undefined,
           members.every((member) => member.phase === members[0]?.phase),
         );
+    }
+  }
+
+  /**
+   * Last-resort fairness for a one-way surface dependency that is not part of
+   * a detectable cycle. Ten minutes is far beyond ordinary ramp sequencing;
+   * at that point, try the existing swept, pavement-only forward/tug recovery
+   * instead of allowing a safe-but-permanent hold. Runway commitments and
+   * protected-pavement occupants are deliberately excluded.
+   */
+  private resolveLongSurfaceHolds(): void {
+    for (const flight of this.state.flights) {
+      if (
+        (flight.phase !== "taxi-in" && flight.phase !== "taxi-out") ||
+        flight.surfaceYield ||
+        flight.runwayEntryCleared ||
+        flight.motion.protectedRunwayIds.length > 0 ||
+        (this.stationarySeconds.get(flight.id) ?? 0) <
+          LONG_SURFACE_HOLD_RECOVERY_SECONDS
+      )
+        continue;
+      const reason =
+        flight.safetyHoldReason ?? flight.automaticHoldReason ?? "";
+      if (
+        !/(?:projected path conflict|protected taxi corridor|pushback corridor|reserved \(flight \d+\)|surface flow|flow (?:window|section))/.test(
+          reason,
+        )
+      )
+        continue;
+      this.startSurfaceYieldRecovery(
+        [flight as Flight & { phase: "taxi-in" | "taxi-out" }],
+        `long-hold-${flight.id}-${flight.surfaceEdge ?? "route"}`,
+      );
     }
   }
 

@@ -35,6 +35,17 @@ for (const config of configs) {
           if (!route || route.nodeIds.length < 2 || route.edgeIds.length !== route.nodeIds.length - 1) {
             throw new Error(config.code + ': missing ' + phase + ' route for runway ' + runway.id + ', end ' + end + ', stand ' + stand.id);
           }
+          const nodeById = new Map(config.surfaceGraph.nodes.map((node) => [node.id, node]));
+          const transitStand = route.nodeIds
+            .slice(1, -1)
+            .map((nodeId) => nodeById.get(nodeId))
+            .find((node) => node?.kind === 'stand');
+          if (transitStand) {
+            throw new Error(
+              config.code + ': ' + phase + ' route to stand ' + stand.id
+                + ' illegally transits parking position ' + transitStand.id,
+            );
+          }
           const crossingWindows = surfaceRouteCrossingWindows(
             config.surfaceGraph,
             route.nodeIds,

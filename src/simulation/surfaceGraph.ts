@@ -802,6 +802,17 @@ export function findSurfaceRoute(
     for (const next of index.indexedAdjacency[current]) {
       if (planning?.blockedEdgeIds?.has(next.edge.id)) continue;
       if (requirements && !surfaceEdgeSupportsAircraft(next.edge, requirements)) continue;
+      // A stand is a route endpoint, never a shortcut through the apron.
+      // Imported parking positions can have more than one connected edge;
+      // allowing Dijkstra to pass through one puts a taxiing aircraft through
+      // the physical envelope of an aircraft parked there. The requested
+      // destination stand remains reachable, and an origin stand can still
+      // be exited normally.
+      if (
+        next.nodeIndex !== toNodeIndex &&
+        nodeById.get(index.nodeIds[next.nodeIndex])?.kind === 'stand'
+      )
+        continue;
       const trafficPenalty = Math.max(0, planning?.edgePenaltyById?.get(next.edge.id) ?? 0);
       const nextDistance = currentDistance + next.cost + trafficPenalty;
       const knownDistance =
@@ -950,6 +961,7 @@ const surfaceRouteTreeCaches = new WeakMap<AirportSurfaceGraph, SurfaceRouteTree
 const MAX_STATIC_SURFACE_ROUTE_TREES = 12;
 
 function buildSurfaceRouteTree(
+  nodeById: ReadonlyMap<string, SurfaceNode>,
   adjacency: ReadonlyMap<string, Array<{ nodeId: string; edge: SurfaceEdge; cost: number }>>,
   fromNodeId: string,
   targetNodeIds: readonly string[],
@@ -969,6 +981,10 @@ function buildSurfaceRouteTree(
     const currentDistance = candidate.distance;
     if (currentDistance !== distanceByNode.get(current)) continue;
     remainingTargets.delete(current);
+    // Multi-target trees may reach every stand so callers can request a route
+    // to one, but must not expand through a stand to reach another resource.
+    if (current !== fromNodeId && nodeById.get(current)?.kind === 'stand')
+      continue;
     for (const next of adjacency.get(current) ?? []) {
       if (planning?.blockedEdgeIds?.has(next.edge.id)) continue;
       if (requirements && !surfaceEdgeSupportsAircraft(next.edge, requirements)) continue;
@@ -1020,7 +1036,14 @@ function cachedSurfaceRouteTree(
   // gate reassignment asks about several candidate stands. It is therefore
   // both faster and more deterministic to derive every candidate route from
   // one authoritative snapshot tree.
-  const tree = buildSurfaceRouteTree(adjacency, hubNodeId, [], requirements, planning);
+  const tree = buildSurfaceRouteTree(
+    surfaceGraphIndex(graph).nodeById,
+    adjacency,
+    hubNodeId,
+    [],
+    requirements,
+    planning,
+  );
   trees.set(key, tree);
   if (!planning && trees.size > MAX_STATIC_SURFACE_ROUTE_TREES) {
     const oldestKey = trees.keys().next().value;
