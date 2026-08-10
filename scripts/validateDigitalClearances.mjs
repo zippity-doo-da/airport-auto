@@ -26,10 +26,10 @@ flight.navigation.vector = {
 };
 flight.progress = 0.2;
 flight.flightPlan.amendments.push({ revision: 1, kind: 'route-change', atSeconds: 9, detail: 'direct LAKE' });
-flight.navigation.handoff = { schemaVersion: 1, revision: 1, from: 'approach', to: 'tower', status: 'offered', offeredAtSeconds: 10, responseDueSeconds: 20, offeredBy: 'approach', reason: 'final handoff' };
+flight.navigation.handoff = { schemaVersion: 1, revision: 1, from: 'approach', to: 'tower', status: 'offered', offeredAtSeconds: 10, responseDueSeconds: 20, offeredBy: 'approach', reason: 'final handoff', causalEventIds: [] };
 snapshot = digitalClearanceSnapshot(simulation.state);
 assert(snapshot.messages.some((item) => item.kind === 'direct-to'), 'direct-to vector did not project as a structured message');
-assert(snapshot.messages.some((item) => item.kind === 'frequency' && item.status === 'delivered'), 'controller handoff did not project as a frequency message');
+assert(snapshot.messages.some((item) => item.kind === 'frequency' && item.status === 'standby'), 'controller handoff did not project as an actionable frequency message');
 assert(snapshot.messages.some((item) => item.kind === 'revision' && item.parameters.amendmentRevision === 1), 'flight-plan amendment did not project as a revision message');
 flight.flightPlan.amendments.push({ revision: 2, kind: 'gate-swap', atSeconds: 11, detail: 'gate reassigned to C18' });
 snapshot = digitalClearanceSnapshot(simulation.state);

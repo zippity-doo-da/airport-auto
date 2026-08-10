@@ -127,6 +127,7 @@ export interface FixedStepFlightSnapshot {
   takeoffPerformance?: Flight['takeoffPerformance'];
   rejectedTakeoff?: Flight['rejectedTakeoff'];
   groundStop?: Flight['groundStop'];
+  handoff?: Flight['navigation']['handoff'];
   weatherEscape?: Flight['weatherEscape'];
   goAroundWeatherEscape?: NonNullable<Flight['goAround']>['weatherEscape'];
   crossingClearances: number[];
@@ -153,7 +154,7 @@ export interface FixedStepFlightSnapshot {
 }
 
 export interface FixedStepSimulationSnapshot {
-  schemaVersion: 15;
+  schemaVersion: 16;
   seed: number;
   airportCode: string;
   stepSeconds: number;
@@ -344,7 +345,7 @@ export class FixedStepSimulationHarness {
   snapshot(): FixedStepSimulationSnapshot {
     const diagnostics = this.simulation.diagnostics();
     return {
-      schemaVersion: 15,
+      schemaVersion: 16,
       seed: this.config.seed,
       airportCode: this.config.code,
       stepSeconds: round(this.stepSeconds),
@@ -600,6 +601,12 @@ function snapshotFlight(config: AirportConfig, flight: Flight): FixedStepFlightS
       ? {
           ...flight.groundStop,
           causalEventIds: [...flight.groundStop.causalEventIds],
+        }
+      : undefined,
+    handoff: flight.navigation.handoff
+      ? {
+          ...flight.navigation.handoff,
+          causalEventIds: [...(flight.navigation.handoff.causalEventIds ?? [])],
         }
       : undefined,
     weatherEscape: flight.weatherEscape ? { ...flight.weatherEscape } : undefined,

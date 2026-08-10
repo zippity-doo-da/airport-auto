@@ -4,6 +4,7 @@ const validationSource = `
 import { generateHubConfig } from './src/simulation/airportConfig.ts';
 import { AirportSimulation } from './src/simulation/airportSimulation.ts';
 import { OPERATIONAL_CONTROLLER_STATIONS, requiredControllerStation } from './src/simulation/controllerOperations.ts';
+import { digitalClearanceSnapshot } from './src/simulation/digitalClearances.ts';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -34,23 +35,51 @@ function manualFixture() {
 }
 
 const manual = manualFixture();
+let eventCursor = manual.simulation.eventCursor();
 assert(manual.simulation.offerHandoff(manual.flight.id, 'tower'), 'Approach could not offer Tower a handoff');
+manual.simulation.tagEventsSince(eventCursor, 'cmd-handoff-offer');
 assert(manual.flight.navigation.frequencyOwner === 'approach', 'handoff offer transferred frequency ownership');
 assert(manual.flight.navigation.handoff?.status === 'offered', 'handoff offer did not persist typed coordination');
+let frequencyMessage = digitalClearanceSnapshot(manual.simulation.state).messages.find((message) => message.kind === 'frequency');
+const frequencyMessageId = frequencyMessage?.id;
+assert(frequencyMessage?.status === 'standby' && frequencyMessage.commandId === 'cmd-handoff-offer' && frequencyMessage.causalEventIds.length === 1 && frequencyMessage.capability.responseMode === 'voice-action', 'handoff offer omitted structured actionable message causality');
 assert(!manual.simulation.contactFlight(manual.flight.id, 'tower'), 'contact bypassed receiving-controller acceptance');
 
 manual.simulation.setStation('ground');
 assert(!manual.simulation.acceptHandoff(manual.flight.id), 'wrong controller accepted an incoming handoff');
 manual.simulation.setStation('supervisor');
 for (const station of OPERATIONAL_CONTROLLER_STATIONS) manual.simulation.setStationAutomation(station, false);
+eventCursor = manual.simulation.eventCursor();
 assert(manual.simulation.acceptHandoff(manual.flight.id), 'Tower handoff acceptance was rejected');
+manual.simulation.tagEventsSince(eventCursor, 'cmd-handoff-accept');
 assert(manual.flight.navigation.frequencyOwner === 'approach' && manual.flight.navigation.handoff?.status === 'accepted', 'acceptance changed ownership before contact');
+frequencyMessage = digitalClearanceSnapshot(manual.simulation.state).messages.find((message) => message.kind === 'frequency');
+assert(frequencyMessage?.id === frequencyMessageId && frequencyMessage.status === 'delivered' && frequencyMessage.response.commandId === 'cmd-handoff-accept', 'handoff acceptance lost stable identity or response causality');
+eventCursor = manual.simulation.eventCursor();
 assert(manual.simulation.contactFlight(manual.flight.id, 'tower'), 'accepted contact instruction was rejected');
+manual.simulation.tagEventsSince(eventCursor, 'cmd-handoff-contact');
 assert(manual.flight.navigation.frequencyOwner === 'tower' && manual.flight.navigation.handoff?.status === 'completed', 'contact did not complete frequency transfer');
+assert(manual.flight.navigation.handoff.commandId === 'cmd-handoff-offer' && manual.flight.navigation.handoff.responseCommandId === 'cmd-handoff-accept' && manual.flight.navigation.handoff.completionCommandId === 'cmd-handoff-contact', 'handoff state omitted offer, response, or completion command identity');
+frequencyMessage = digitalClearanceSnapshot(manual.simulation.state).messages.find((message) => message.kind === 'frequency');
+assert(frequencyMessage?.id === frequencyMessageId && frequencyMessage.status === 'wilco' && frequencyMessage.response.commandId === 'cmd-handoff-contact' && frequencyMessage.causalEventIds.length === 4 && frequencyMessage.capability.responseMode === 'none', 'completed handoff omitted stable closed full-lifecycle evidence');
 
+eventCursor = manual.simulation.eventCursor();
 assert(manual.simulation.offerHandoff(manual.flight.id, 'ground'), 'Tower could not offer Ground a handoff');
+manual.simulation.tagEventsSince(eventCursor, 'cmd-handoff-offer-cancelled');
+eventCursor = manual.simulation.eventCursor();
+assert(manual.simulation.cancelHandoff(manual.flight.id), 'Tower could not cancel its active handoff');
+manual.simulation.tagEventsSince(eventCursor, 'cmd-handoff-cancel');
+frequencyMessage = digitalClearanceSnapshot(manual.simulation.state).messages.find((message) => message.kind === 'frequency');
+assert(frequencyMessage?.status === 'cancelled' && frequencyMessage.response.commandId === 'cmd-handoff-cancel' && frequencyMessage.causalEventIds.length === 2, 'cancelled handoff omitted its structured terminal outcome');
+eventCursor = manual.simulation.eventCursor();
+assert(manual.simulation.offerHandoff(manual.flight.id, 'ground'), 'a cancelled handoff could not be re-coordinated');
+manual.simulation.tagEventsSince(eventCursor, 'cmd-handoff-offer-rejected');
+eventCursor = manual.simulation.eventCursor();
 assert(manual.simulation.rejectHandoff(manual.flight.id), 'Ground handoff rejection was rejected');
+manual.simulation.tagEventsSince(eventCursor, 'cmd-handoff-reject');
 assert(manual.flight.navigation.frequencyOwner === 'tower' && manual.flight.navigation.handoff?.status === 'rejected', 'rejected handoff changed ownership');
+frequencyMessage = digitalClearanceSnapshot(manual.simulation.state).messages.find((message) => message.kind === 'frequency');
+assert(frequencyMessage?.status === 'unable' && frequencyMessage.response.commandId === 'cmd-handoff-reject' && frequencyMessage.causalEventIds.length === 2, 'rejected handoff omitted its structured terminal outcome');
 assert(manual.simulation.offerHandoff(manual.flight.id, 'ground'), 'a rejected handoff could not be re-coordinated');
 manual.flight.navigation.handoff.responseDueSeconds = manual.simulation.state.elapsed;
 manual.simulation.update(0.05);
@@ -107,7 +136,7 @@ for (let tick = 0; tick < 25 && autoFlight.navigation.frequencyOwner !== 'tower'
 assert(autoFlight.navigation.frequencyOwner === 'tower' && autoFlight.navigation.handoff?.status === 'completed', 'Auto failed to finish the contact stage');
 
 const eventTypes = new Set([...manual.simulation.drainEvents(), ...automatic.drainEvents()].map((event) => event.type));
-for (const eventType of ['handoff-offer', 'handoff-accept', 'handoff-reject', 'handoff-overdue', 'handoff-complete', 'contact']) {
+for (const eventType of ['handoff-offer', 'handoff-accept', 'handoff-reject', 'handoff-overdue', 'handoff-cancel', 'handoff-complete', 'contact']) {
   assert(eventTypes.has(eventType), 'typed handoff event missing: ' + eventType);
 }
 
@@ -115,7 +144,7 @@ const metrics = manual.simulation.shiftMetrics();
 assert(metrics.handoffOffers >= 4 && metrics.handoffAcceptances >= 2 && metrics.handoffRejections === 1 && metrics.missedHandoffs >= 2, 'handoff shift metrics are incomplete');
 
 console.log(JSON.stringify({
-  manualStages: 6,
+  manualStages: 8,
   automaticStages: 3,
   typedEvents: eventTypes.size,
   handoffMetrics: {

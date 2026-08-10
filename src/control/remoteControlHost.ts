@@ -185,10 +185,21 @@ function compactFlight(value: unknown): JsonRecord | null {
       null,
     handoff: handoff
       ? {
+          schemaVersion: handoff.schemaVersion ?? null,
+          revision: handoff.revision ?? null,
           from: handoff.from ?? null,
           to: handoff.to ?? null,
           status: handoff.status ?? null,
-          deadline: handoff.deadline ?? null,
+          offeredAtSeconds: number(handoff.offeredAtSeconds),
+          responseDueSeconds: number(handoff.responseDueSeconds),
+          respondedAtSeconds: number(handoff.respondedAtSeconds),
+          completedAtSeconds: number(handoff.completedAtSeconds),
+          commandId: text(handoff.commandId, 180),
+          responseCommandId: text(handoff.responseCommandId, 180),
+          completionCommandId: text(handoff.completionCommandId, 180),
+          causalEventIds: Array.isArray(handoff.causalEventIds)
+            ? handoff.causalEventIds.slice(0, 12)
+            : [],
         }
       : null,
     groundStop: groundStop

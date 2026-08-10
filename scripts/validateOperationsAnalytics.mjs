@@ -67,6 +67,10 @@ second.navigation.routeClearance = {
   schemaVersion: 2, revision: 3, status: 'timed-out', routeFixIds: ['FIX-B'], routeFixNames: ['SOUTH'], previousRouteFixIds: [], supplements: [], safeguards: [],
   previewedAtSeconds: 0, issuedAtSeconds: 0, deliveryDueSeconds: 1, readbackDueSeconds: 2, readbackExpiresSeconds: 3, respondedAtSeconds: 3, issuedBy: 'ground', distanceNm: 8, estimatedSeconds: 180, initialTurnDegrees: 4, safeToIssue: true, warnings: [], reason: 'PRIVATE TIMEOUT DETAIL',
 };
+second.navigation.handoff = {
+  schemaVersion: 1, revision: 2, from: 'ramp', to: 'ground', status: 'completed', offeredAtSeconds: 0, responseDueSeconds: 10, respondedAtSeconds: 1, completedAtSeconds: 2, offeredBy: 'ramp', responseBy: 'ground', reason: 'PRIVATE HANDOFF DETAIL',
+  commandId: 'cmd:analytics:handoff-offer', responseCommandId: 'cmd:analytics:handoff-accept', completionCommandId: 'cmd:analytics:handoff-contact', causalEventIds: ['sim:analytics:handoff:1', 'sim:analytics:handoff:2', 'sim:analytics:handoff:3', 'sim:analytics:handoff:4'],
+};
 simulation.state.trafficFlow.arrivalQueue = [{
   id: 'ARR-ANALYTICS', direction: 'arrival', status: 'metered',
   createdAtSeconds: 0, scheduledAtSeconds: 0, releaseSlotSeconds: 60,
@@ -129,8 +133,10 @@ assert(snapshot.trafficFlowRevisions.find((entry) => entry.reason === 'weather r
 const acceptedClearance = snapshot.digitalClearances.find((entry) => entry.commandId === 'cmd:analytics:issue');
 assert(acceptedClearance?.status === 'wilco' && acceptedClearance.responseCommandId === 'cmd:analytics:readback' && acceptedClearance.deliveredAtSeconds === 1 && acceptedClearance.respondedAtSeconds === 2 && acceptedClearance.responseSeconds === 1 && acceptedClearance.causalEventIds.length === 2, 'digital-clearance analytics lost the delivered/readback causal lifecycle');
 assert(acceptedClearance?.schemaVersion === 4 && acceptedClearance.channel === 'data' && acceptedClearance.aircraftSupport === 'data-comm-supported', 'digital-clearance analytics omitted capability metadata');
+const completedHandoff = snapshot.digitalClearances.find((entry) => entry.commandId === 'cmd:analytics:handoff-offer');
+assert(completedHandoff?.kind === 'frequency' && completedHandoff.status === 'wilco' && completedHandoff.responseCommandId === 'cmd:analytics:handoff-contact' && completedHandoff.causalEventIds.length === 4, 'handoff analytics lost its completed command/event lifecycle');
 assert(snapshot.digitalClearanceSummary.total === snapshot.summary.digitalClearancesObserved && snapshot.digitalClearanceSummary.responded >= 2 && snapshot.digitalClearanceSummary.timedOut >= 1, 'digital-clearance analytics summary is incomplete');
-assert(!('detail' in acceptedClearance) && !JSON.stringify(snapshot.digitalClearances).includes('PRIVATE'), 'digital-clearance analytics retained free-form message detail');
+assert(!('detail' in acceptedClearance) && !JSON.stringify(snapshot.digitalClearances).includes('PRIVATE'), 'digital-clearance analytics retained free-form message or handoff detail');
 assert(snapshot.disclosure.localOnly && !snapshot.disclosure.cloudUpload && !snapshot.disclosure.shareableByDefault, 'local/privacy disclosure drifted');
 
 const commands = [{ action: 'holdPosition', flightId: second.id, actorId: 'fixture-controller' }];

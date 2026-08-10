@@ -3848,7 +3848,12 @@ function cloneAirportState(
         ...flight.navigation,
         routeFixIds: [...flight.navigation.routeFixIds],
         handoff: flight.navigation.handoff
-          ? { ...flight.navigation.handoff }
+          ? {
+              ...flight.navigation.handoff,
+              causalEventIds: [
+                ...(flight.navigation.handoff.causalEventIds ?? []),
+              ],
+            }
           : undefined,
         routeClearance: flight.navigation.routeClearance
           ? cloneFlightRouteClearance(flight.navigation.routeClearance)
@@ -9654,7 +9659,12 @@ function airportSnapshot() {
         ...flight.navigation,
         routeFixIds: [...flight.navigation.routeFixIds],
         handoff: flight.navigation.handoff
-          ? { ...flight.navigation.handoff }
+          ? {
+              ...flight.navigation.handoff,
+              causalEventIds: [
+                ...(flight.navigation.handoff.causalEventIds ?? []),
+              ],
+            }
           : null,
         routeClearance: flight.navigation.routeClearance
           ? cloneFlightRouteClearance(flight.navigation.routeClearance)

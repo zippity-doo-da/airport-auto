@@ -817,6 +817,13 @@ scheduled transports are Data Comm-capable while the C172 validation profile is
 voice-only. Voice-only flights remain visible in the composer but cannot preview,
 send, or accept a digital route package; the shared simulation arbiter directs
 the controller to the existing direct-to or vector voice workflow instead.
+Controller handoffs now carry the same deterministic evidence standard. A stable
+coordination message survives offer, overdue, acceptance, rejection,
+cancellation, contact, and completed ownership transfer without changing row
+identity. The handoff state retains separate offer, response, and contact command
+IDs plus the ordered domain-event chain; fixed-step replay, local analytics, and
+the bounded remote projection preserve those fields while excluding the free-form
+coordination reason.
 
 ### Gameplay and UX
 
@@ -836,6 +843,9 @@ the controller to the existing direct-to or vector voice workflow instead.
       with typed altitude/speed parameters; Action, History, and All views expose
       the complete projection without mixing routine acknowledgements into the
       default attention queue.
+      Frequency coordination now retains one stable envelope through every
+      handoff outcome and exposes the correct receiving or sending desk as the
+      next authority.
 - [x] Permit multi-part clearances only when the atomic preview says the complete
       instruction is safe and authorized. Route + altitude + speed packages use
       a pure candidate flight, the common terminal forecast, current Approach
@@ -890,9 +900,9 @@ the controller to the existing direct-to or vector voice workflow instead.
   causal chain across issue, delivery, and response, and records the issuing and
   responding command IDs separately. Telemetry, replay, analytics, and remote
   projections preserve that chain. The urgent ground-stop issue/brake/release
-  lifecycle is the first non-route message with the same full command/event
-  chain; other non-route message kinds still use stable compatibility references
-  rather than complete domain-event histories.
+  lifecycle and staged controller handoffs now use the same full command/event
+  chain; remaining stateless instruction records still use stable compatibility
+  references rather than complete domain-event histories.
 - [x] Reuse staged pilot-response and route-readback behavior rather than adding
       a parallel command executor. Compound previews are route-clearance schema
       2 records and use the existing Sent, delivery, pending-readback,
@@ -925,13 +935,15 @@ the controller to the existing direct-to or vector voice workflow instead.
       controls without opening developer telemetry. The deterministic ORD
       arrival validator also completes one coherent mixed digital/immediate
       sequence from route transmission through touchdown.
-- [~] Supersession, timeout, handoff, and rejection never apply stale commands.
+- [x] Supersession, timeout, handoff, and rejection never apply stale commands.
   Sent transmissions and pending route readbacks are tested to cancel on a
   station transfer; route-only and atomic packages are tested to time out
   without partial application and to reject premature and late direct
   acceptance. Their lifecycle assertions now join issued and responding commands
-  to the exact preview, issue, delivery, and response domain events. Non-route
-  staged-message coverage remains open.
+  to the exact preview, issue, delivery, and response domain events. Staged
+  handoff tests now also prove stable identity and ordered causality across offer,
+  accept, contact, completion, cancellation, rejection, and overdue recovery;
+  ownership transfers only after the accepted contact instruction.
 - [x] Screen-reader and keyboard users can compose, inspect, send, and dismiss a
       clearance without losing focus. Data Comm exposes its expanded state,
       moves focus into the panel, restores the invoking control on close or

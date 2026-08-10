@@ -15,6 +15,7 @@ const snapshot = projectRemoteOperationsSnapshot({
     callsign: 'TEST 7',
     phase: 'taxi-out',
     aircraft: { model: 'C172', name: '172S Skyhawk', category: 'regional', wakeClass: 'light', dataCommSupport: 'voice-only' },
+    navigation: { handoff: { schemaVersion: 1, revision: 2, from: 'approach', to: 'tower', status: 'accepted', offeredAtSeconds: 10, responseDueSeconds: 22, respondedAtSeconds: 15, offeredBy: 'approach', responseBy: 'tower', reason: 'private coordination note', commandId: 'cmd:handoff:offer', responseCommandId: 'cmd:handoff:accept', causalEventIds: ['sim:7:handoff:1', 'sim:7:handoff:2'] } },
     poseAlignment: {
       schemaVersion: 1,
       authoritative: { x: 1, y: 2, onGround: true },
@@ -121,6 +122,8 @@ assert(snapshot.flights[0].poseAlignment.errors.collisionHorizontalWorld === 0 &
 assert(snapshot.flights[0].aircraft.dataCommSupport === 'voice-only', 'remote flight projection omitted pre-command Data Comm capability');
 assert(snapshot.flights[0].groundStop.active && snapshot.flights[0].groundStop.commandId === 'cmd:stop:7' && snapshot.flights[0].groundStop.causalEventIds.length === 1, 'remote projection omitted bounded urgent-stop state');
 assert(!Object.hasOwn(snapshot.flights[0].groundStop, 'reason') && !Object.hasOwn(snapshot.flights[0].groundStop, 'phraseology'), 'remote projection leaked free-form urgent-stop text');
+assert(snapshot.flights[0].handoff.status === 'accepted' && snapshot.flights[0].handoff.responseCommandId === 'cmd:handoff:accept' && snapshot.flights[0].handoff.causalEventIds.length === 2, 'remote projection omitted bounded handoff lifecycle state');
+assert(!Object.hasOwn(snapshot.flights[0].handoff, 'reason'), 'remote projection leaked free-form handoff text');
 console.log(JSON.stringify({ schemaVersion: snapshot.digitalClearances.schemaVersion, messages: snapshot.digitalClearances.messages.length }));
 `;
 

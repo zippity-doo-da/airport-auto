@@ -330,31 +330,67 @@ function flightDigitalClearanceMessages(
   }
 
   const handoff = flight.navigation.handoff;
-  if (handoff && ["offered", "accepted", "overdue"].includes(handoff.status)) {
+  if (handoff) {
+    const status: DigitalClearanceStatus =
+      handoff.status === "completed"
+        ? "wilco"
+        : handoff.status === "rejected"
+          ? "unable"
+          : handoff.status === "cancelled"
+            ? "cancelled"
+            : handoff.status === "overdue"
+              ? "standby"
+              : handoff.status === "accepted"
+                ? "delivered"
+                : "standby";
+    const authority =
+      handoff.status === "offered" || handoff.status === "overdue"
+        ? handoff.to
+        : handoff.status === "accepted"
+          ? handoff.from
+          : handoff.offeredBy;
     messages.push({
-      id: `frequency:${flight.id}:${handoff.revision}:${handoff.status}`,
+      id: `frequency:${flight.id}:${handoff.revision}`,
       flightId: flight.id,
       callsign: flight.callsign,
       kind: "frequency",
-      status: handoff.status === "overdue" ? "standby" : "delivered",
-      authority: handoff.offeredBy,
+      status,
+      authority,
       revision: handoff.revision,
       createdAtSeconds: handoff.offeredAtSeconds,
       issuedAtSeconds: handoff.offeredAtSeconds,
-      responseDueSeconds: handoff.responseDueSeconds,
-      respondedAtSeconds: handoff.respondedAtSeconds,
+      responseDueSeconds:
+        handoff.status === "offered" || handoff.status === "overdue"
+          ? handoff.responseDueSeconds
+          : undefined,
+      respondedAtSeconds:
+        handoff.completedAtSeconds ?? handoff.respondedAtSeconds,
       route: handoff.to ? [handoff.to] : [],
       parameters: {
         from: handoff.from,
         to: handoff.to,
         status: handoff.status,
         responseDueSeconds: handoff.responseDueSeconds,
+        coordinated: handoff.respondedAtSeconds === undefined ? "no" : "yes",
+        contacted: handoff.completedAtSeconds === undefined ? "no" : "yes",
       },
       detail:
         handoff.status === "overdue"
           ? `Contact handoff ${handoff.from} → ${handoff.to} is overdue.`
-          : `Handoff offered ${handoff.from} → ${handoff.to}; contact after coordination.`,
+          : handoff.status === "accepted"
+            ? `${handoff.to} accepted ${flight.callsign}; ${handoff.from} must issue contact.`
+            : handoff.status === "completed"
+              ? `${flight.callsign} contacted ${handoff.to}; frequency ownership transferred.`
+              : handoff.status === "rejected"
+                ? `${handoff.to} rejected the handoff; ${handoff.from} retains ownership.`
+                : handoff.status === "cancelled"
+                  ? `${handoff.from} cancelled the handoff and retains ownership.`
+                  : `Handoff offered ${handoff.from} → ${handoff.to}; receiving controller response required.`,
       warningCount: handoff.status === "overdue" ? 1 : 0,
+      commandId: handoff.commandId,
+      responseCommandId:
+        handoff.completionCommandId ?? handoff.responseCommandId,
+      causalEventIds: [...(handoff.causalEventIds ?? [])],
     });
   }
 
@@ -545,14 +581,21 @@ function messageCapability(
       : "handoff-required";
   const activeDataMessage =
     channel === "data" && ["draft", "sent", "delivered"].includes(draft.status);
+  const activeCoordinationMessage =
+    channel === "coordination" &&
+    ["standby", "delivered"].includes(draft.status);
   const responseMode: DigitalClearanceResponseMode = activeDataMessage
     ? state.mode === "manual" || state.mode === "assisted"
       ? deskAccess === "authorized"
         ? "panel"
         : "none"
       : "none"
-    : channel === "voice" || channel === "coordination"
+    : channel === "voice"
       ? "voice-action"
+      : activeCoordinationMessage &&
+          (state.mode === "manual" || state.mode === "assisted") &&
+          deskAccess === "authorized"
+        ? "voice-action"
       : "none";
   const limitations: string[] = [];
   const flight = state.flights.find((item) => item.id === draft.flightId);
@@ -566,6 +609,8 @@ function messageCapability(
     limitations.push(
       channel === "state-record"
         ? "Read-only operational record; no clearance was transmitted from this row."
+        : channel === "coordination" && !activeCoordinationMessage
+          ? "Coordination is closed; no further response is available from this row."
         : "Immediate instruction or coordination record; use the flight action controls.",
     );
   if (deskAccess === "handoff-required")
@@ -575,6 +620,13 @@ function messageCapability(
   if (activeDataMessage && !["manual", "assisted"].includes(state.mode))
     limitations.push(
       `${state.mode === "watch" ? "Watch" : "Auto"} mode provides monitor-only Data Comm access.`,
+    );
+  if (
+    activeCoordinationMessage &&
+    !["manual", "assisted"].includes(state.mode)
+  )
+    limitations.push(
+      `${state.mode === "watch" ? "Watch" : "Auto"} mode provides monitor-only coordination access.`,
     );
   if (channel === "data" && !activeDataMessage)
     limitations.push(

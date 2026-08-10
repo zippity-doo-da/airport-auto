@@ -728,6 +728,7 @@ export class AirportSimulation {
   private events: AirportEvent[] = [];
   private nextRouteDomainEventId = 1;
   private nextGroundStopDomainEventId = 1;
+  private nextHandoffDomainEventId = 1;
   private speed = 1;
   private runwayReservations = new Map<number, number>();
   private runwayOperationHistory: RunwayOperationRecord[] = [];
@@ -5366,7 +5367,7 @@ export class AirportSimulation {
     this.metrics.handoffRejections += 1;
     this.metrics.manualCommands += 1;
     this.decisionReason = `${flight.callsign} handoff to ${handoff.to} rejected`;
-    this.events.push({
+    this.pushHandoffEvent({
       type: "handoff-reject",
       flight,
       detail: this.decisionReason,
@@ -5399,7 +5400,7 @@ export class AirportSimulation {
     flight.navigation.handoffStatus = "owned";
     this.metrics.manualCommands += 1;
     this.decisionReason = `${flight.callsign} handoff to ${handoff.to} cancelled`;
-    this.events.push({
+    this.pushHandoffEvent({
       type: "handoff-cancel",
       flight,
       detail: this.decisionReason,
@@ -5469,6 +5470,7 @@ export class AirportSimulation {
         : this.state.elapsed + HANDOFF_RESPONSE_SECONDS,
       offeredBy,
       reason,
+      causalEventIds: [],
     };
     flight.navigation.handoffStatus = overdue ? "overdue" : "offered";
     this.metrics.handoffOffers += 1;
@@ -5476,7 +5478,7 @@ export class AirportSimulation {
     this.decisionReason = overdue
       ? `${flight.callsign} missed ${owner} → ${target} handoff · coordination overdue`
       : `${flight.callsign} handoff offered ${owner} → ${target}`;
-    this.events.push({
+    this.pushHandoffEvent({
       type: overdue ? "handoff-overdue" : "handoff-offer",
       flight,
       runway: flight.runway,
@@ -5493,7 +5495,7 @@ export class AirportSimulation {
     flight.navigation.handoffStatus = "overdue";
     this.metrics.missedHandoffs += 1;
     this.decisionReason = `${flight.callsign} ${handoff.from} → ${handoff.to} handoff overdue`;
-    this.events.push({
+    this.pushHandoffEvent({
       type: "handoff-overdue",
       flight,
       runway: flight.runway,
@@ -5520,7 +5522,7 @@ export class AirportSimulation {
     flight.navigation.handoffStatus = "accepted";
     this.metrics.handoffAcceptances += 1;
     this.decisionReason = `${flight.callsign} handoff accepted by ${handoff.to} · contact pending`;
-    this.events.push({
+    this.pushHandoffEvent({
       type: "handoff-accept",
       flight,
       runway: flight.runway,
@@ -5544,14 +5546,14 @@ export class AirportSimulation {
       `contact ${handoff.to}`,
     );
     this.decisionReason = `${flight.callsign} contact ${handoff.to} · frequency ownership transferred`;
-    this.events.push({
+    this.pushHandoffEvent({
       type: "handoff-complete",
       flight,
       runway: flight.runway,
       taxiway: flight.taxiway,
       detail: `${this.decisionReason} · ${reason}`,
     });
-    this.events.push({
+    this.pushHandoffEvent({
       type: "contact",
       flight,
       runway: flight.runway,
@@ -6578,6 +6580,16 @@ export class AirportSimulation {
       groundStop.causalEventIds.push(event.domainEventId);
   }
 
+  private pushHandoffEvent(event: AirportEvent): void {
+    event.domainEventId ??= `sim:${this.config.seed}:handoff:${this.nextHandoffDomainEventId++}`;
+    this.events.push(event);
+    const handoff = event.flight.navigation.handoff;
+    if (!handoff) return;
+    handoff.causalEventIds ??= [];
+    if (!handoff.causalEventIds.includes(event.domainEventId))
+      handoff.causalEventIds.push(event.domainEventId);
+  }
+
   drainEvents(): AirportEvent[] {
     const result = this.events;
     this.events = [];
@@ -6599,6 +6611,20 @@ export class AirportSimulation {
           if (event.type === "ground-stop" || !groundStop.commandId)
             groundStop.commandId = commandId;
           else groundStop.responseCommandId = commandId;
+        }
+        continue;
+      }
+      if (event.type.startsWith("handoff-") || event.type === "contact") {
+        const handoff = event.flight.navigation.handoff;
+        if (handoff) {
+          if (event.type === "handoff-offer" || !handoff.commandId)
+            handoff.commandId = commandId;
+          else if (
+            event.type === "handoff-complete" ||
+            event.type === "contact"
+          )
+            handoff.completionCommandId = commandId;
+          else handoff.responseCommandId = commandId;
         }
         continue;
       }

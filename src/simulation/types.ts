@@ -1088,6 +1088,14 @@ export interface FlightHandoffState {
   offeredBy: ControllerStation;
   responseBy?: ControllerStation;
   reason: string;
+  /** Command that offered the current coordination revision. */
+  commandId?: string;
+  /** Command that accepted, rejected, or cancelled the offer. */
+  responseCommandId?: string;
+  /** Contact command that completed the ownership transfer. */
+  completionCommandId?: string;
+  /** Ordered simulation-domain events for the complete coordination lifecycle. */
+  causalEventIds?: string[];
 }
 
 export interface ControllerWorkloadSnapshot {

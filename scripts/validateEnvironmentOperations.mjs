@@ -135,7 +135,7 @@ assert(Math.abs(ambientWindDegrees - quietOvernight.windDirectionDegrees) < 1e-6
 const fixedStepHarness = new FixedStepSimulationHarness(ord, { stepSeconds: 0.1 });
 assert(fixedStepHarness.simulation.setOperationTimeOffsetMinutes(180), 'fixed-step operation offset was rejected');
 const fixedStepSnapshot = fixedStepHarness.snapshot();
-assert(fixedStepSnapshot.schemaVersion === 15 && fixedStepSnapshot.state.operationTimeOffsetMinutes === 180, 'fixed-step snapshot omitted the operation clock offset');
+assert(fixedStepSnapshot.schemaVersion === 16 && fixedStepSnapshot.state.operationTimeOffsetMinutes === 180, 'fixed-step snapshot omitted the operation clock offset');
 
 console.log(JSON.stringify({
   lightingModes: ENVIRONMENT_LIGHTING_MODES.length,

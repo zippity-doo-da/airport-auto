@@ -109,6 +109,7 @@ offered.navigation.handoff = {
   responseDueSeconds: 12,
   offeredBy: 'tower',
   reason: 'policy validation capacity offer',
+  causalEventIds: [],
 };
 capacity.state.flights.push(offered);
 capacity.state.elapsed = 2;
@@ -144,6 +145,7 @@ continuityFlight.navigation.handoff = {
   responseDueSeconds: takeover.state.elapsed + 12,
   offeredBy: 'approach',
   reason: 'takeover continuity fixture',
+  causalEventIds: [],
 };
 takeover.setStation('supervisor');
 assert(takeover.setStationAutomation('tower', true), 'Supervisor could not return Tower to automation');
