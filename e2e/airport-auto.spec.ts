@@ -3666,9 +3666,10 @@ test("Operations data lab records authoritative traces and exports local analysi
       csv,
     };
   });
-  expect(api.overview.schemaVersion).toBe(2);
-  expect(api.overview.exportDatasets).toHaveLength(11);
+  expect(api.overview.schemaVersion).toBe(3);
+  expect(api.overview.exportDatasets).toHaveLength(12);
   expect(api.overview.exportDatasets).toContain("surface-advisories");
+  expect(api.overview.exportDatasets).toContain("flow-revisions");
   expect(api.analytics.flights.length).toBeGreaterThan(0);
   expect(api.analytics.selectedFlightSamples.length).toBeGreaterThan(0);
   expect(api.analytics.disclosure).toMatchObject({
@@ -3677,7 +3678,7 @@ test("Operations data lab records authoritative traces and exports local analysi
     shareableByDefault: false,
   });
   expect(api.json).toMatchObject({
-    schemaVersion: 2,
+    schemaVersion: 3,
     localOnly: true,
     cloudUpload: false,
   });
@@ -3695,6 +3696,10 @@ test("Operations data lab records authoritative traces and exports local analysi
   await expect(lab.locator("[data-operations-summary]")).toContainText(
     "Safety picture",
   );
+  await expect(lab.locator("[data-operations-summary]")).toContainText(
+    "Slot revisions",
+  );
+  await expect(lab.locator("[data-operations-flow-causes]")).not.toBeEmpty();
   await expect(lab.locator("[data-operations-flight-state]")).not.toContainText(
     "Select an observed",
   );

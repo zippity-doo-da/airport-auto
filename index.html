@@ -870,7 +870,10 @@
             >
             <label
               ><span>Alert policy</span
-              ><select id="status-message-policy-select" aria-label="Alert severity policy">
+              ><select
+                id="status-message-policy-select"
+                aria-label="Alert severity policy"
+              >
                 <option value="off">Off · critical safety only</option>
                 <option value="advisory">Advisory only</option>
                 <option value="operational" selected>Operational</option>
@@ -1316,14 +1319,50 @@
 
       <nav class="touch-camera-controls" aria-label="Touch camera controls">
         <div class="touch-camera-controls__pad" aria-label="Pan camera">
-          <button type="button" data-touch-camera="pan-up" aria-label="Pan north">↑</button>
-          <button type="button" data-touch-camera="pan-left" aria-label="Pan west">←</button>
-          <button type="button" data-touch-camera="pan-down" aria-label="Pan south">↓</button>
-          <button type="button" data-touch-camera="pan-right" aria-label="Pan east">→</button>
+          <button
+            type="button"
+            data-touch-camera="pan-up"
+            aria-label="Pan north"
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            data-touch-camera="pan-left"
+            aria-label="Pan west"
+          >
+            ←
+          </button>
+          <button
+            type="button"
+            data-touch-camera="pan-down"
+            aria-label="Pan south"
+          >
+            ↓
+          </button>
+          <button
+            type="button"
+            data-touch-camera="pan-right"
+            aria-label="Pan east"
+          >
+            →
+          </button>
         </div>
         <div class="touch-camera-controls__orbit" aria-label="Rotate camera">
-          <button type="button" data-touch-camera="rotate-left" aria-label="Rotate camera left">↺</button>
-          <button type="button" data-touch-camera="rotate-right" aria-label="Rotate camera right">↻</button>
+          <button
+            type="button"
+            data-touch-camera="rotate-left"
+            aria-label="Rotate camera left"
+          >
+            ↺
+          </button>
+          <button
+            type="button"
+            data-touch-camera="rotate-right"
+            aria-label="Rotate camera right"
+          >
+            ↻
+          </button>
         </div>
       </nav>
 
@@ -1767,6 +1806,21 @@
               </div>
             </section>
           </div>
+          <section
+            class="operations-lab__flow"
+            aria-labelledby="operations-flow-title"
+          >
+            <header>
+              <b id="operations-flow-title">Flow revision causes</b
+              ><span>Meter slots · exact replay retained</span>
+            </header>
+            <div data-operations-flow-causes>
+              <p>
+                Meter-slot revisions will appear when demand, weather, gates, or
+                runway conditions move a planned release.
+              </p>
+            </div>
+          </section>
           <section
             class="operations-lab__heatmap"
             aria-labelledby="operations-heatmap-title"

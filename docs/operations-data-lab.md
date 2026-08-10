@@ -13,7 +13,7 @@ For every observed aircraft it retains:
 - altitude, indicated airspeed, ground speed, vertical speed, acceleration, and fuel percentage;
 - observed airborne, surface, and held time.
 
-The recorder also aggregates runway occupied time and movements, named taxiway occupied time and visits, queue-category depth and wait, shift metrics, and spatial cells for conflict forecasts. A conflict heat cell describes a forecast that the safety system handled; it is not evidence of a collision.
+The recorder also aggregates runway occupied time and movements, named taxiway occupied time and visits, queue-category depth and wait, shift metrics, spatial cells for conflict forecasts, surface-advisory lifecycles, and authoritative traffic-flow slot revisions. Each flow revision retains its direction, signed schedule shift, classified cause, explanation, flight/runway context, and whether it was the initial assignment or a later change. Cause rollups distinguish delay added from delay recovered. A conflict heat cell describes a forecast that the safety system handled; it is not evidence of a collision.
 
 ## Bounded retention
 
@@ -23,6 +23,7 @@ The recorder is intentionally bounded:
 - at most 7,200 samples per observed aircraft;
 - at most 512 observed aircraft per analysis window;
 - at most 256 conflict heat cells;
+- at most 512 surface-safety advisory records and 2,048 traffic-flow revision records;
 - no IndexedDB, local-storage archive, service-worker upload, or background network transmission.
 
 Starting a new airport, sandbox board, training lesson, or challenge resets the analysis window. Closing or reloading the page discards the in-memory recorder unless the player explicitly downloads an export.
@@ -34,6 +35,7 @@ Open **Controls → Data lab**. The responsive drawer contains:
 - a live shift pulse for traffic, flow, queues, safety invariants, and fuel;
 - a single-aircraft flight-data-recorder chart for altitude, speed, and fuel, plus the latest exact values;
 - runway and taxiway utilization views;
+- a traffic-flow cause view showing revision count, largest shift, delay added, delay recovered, and the latest explanation;
 - a runway-context conflict forecast heatmap;
 - local JSON and CSV export controls.
 
@@ -41,34 +43,37 @@ The drawer starts closed, closes other large overlays, blocks camera input while
 
 ## Export formats
 
-The JSON bundle contains analytics schema 1, all retained flight-recorder samples, commands, telemetry events, the current queue snapshot, and the disclosure record.
+The JSON bundle contains analytics schema 3, all retained flight-recorder samples, commands, telemetry events, the current queue snapshot, traffic-flow revision/cause analytics, and the disclosure record.
 
-CSV can export one of ten flat datasets:
+CSV can export one of twelve flat datasets:
 
-| Dataset | Contents |
-| --- | --- |
-| `flights` | Observed aircraft identities, routes, timing, and aggregate movement data |
-| `commands` | Typed command requests and acceptance results |
-| `events` | Domain and control telemetry events |
-| `queues` | Current explainable operation-queue entries |
-| `delays` | Per-aircraft observed held, surface, and airborne time |
-| `runways` | Runway occupied time, movements, visits, and share |
-| `taxiways` | Named taxiway occupied time, visits, and share |
-| `shift-metrics` | Shift summary and safety/flow metrics |
-| `flight-recorder` | One-second authoritative aircraft samples; optionally filtered by flight ID |
-| `conflicts` | Aggregated spatial forecast cells by severity and conflict type |
+| Dataset              | Contents                                                                                            |
+| -------------------- | --------------------------------------------------------------------------------------------------- |
+| `flights`            | Observed aircraft identities, routes, timing, and aggregate movement data                           |
+| `commands`           | Typed command requests and acceptance results                                                       |
+| `events`             | Domain and control telemetry events                                                                 |
+| `queues`             | Current explainable operation-queue entries                                                         |
+| `delays`             | Per-aircraft observed held, surface, and airborne time                                              |
+| `runways`            | Runway occupied time, movements, visits, and share                                                  |
+| `taxiways`           | Named taxiway occupied time, visits, and share                                                      |
+| `shift-metrics`      | Shift summary and safety/flow metrics                                                               |
+| `flight-recorder`    | One-second authoritative aircraft samples; optionally filtered by flight ID                         |
+| `conflicts`          | Aggregated spatial forecast cells by severity and conflict type                                     |
+| `surface-advisories` | Bounded surface-safety lifecycle, severity, activation, and resolution records                      |
+| `flow-revisions`     | Initial meter assignments and later signed slot changes with stable cause and flight/runway context |
 
 Nested values are JSON-encoded inside CSV cells instead of becoming `[object Object]`.
 
 ## Local API
 
 ```js
-airportControl.analytics()
-airportControl.analytics(12)
+airportControl.analytics();
+airportControl.analytics(12);
 
-airportControl.exportData('json')
-airportControl.exportData('csv', 'runways')
-airportControl.exportData('csv', 'flight-recorder', 12)
+airportControl.exportData("json");
+airportControl.exportData("csv", "runways");
+airportControl.exportData("csv", "flight-recorder", 12);
+airportControl.exportData("csv", "flow-revisions");
 ```
 
 `snapshot().analytics` is a deliberately compact overview. `analytics()` returns the complete read-only dashboard snapshot. `exportData()` returns text and does not start a download or network request; the visible buttons create local browser downloads.
@@ -112,4 +117,4 @@ npx playwright test e2e/airport-auto.spec.ts -g "Operations data lab" --project=
 npm run build
 ```
 
-The deterministic validator covers sample cadence, duplicate-second rejection, authoritative kinematics, runway/taxiway/queue/delay aggregation, heat cells, all ten CSV datasets, JSON completeness, disclosure, and reset isolation. The browser test covers the API, local download, charts, runway context, overlay behavior, and 1024×600 plus 390×844 containment.
+The deterministic validator covers sample cadence, duplicate-second rejection, authoritative kinematics, runway/taxiway/queue/delay aggregation, heat cells, surface-advisory lifecycle, signed traffic-flow revisions and cause rollups, all twelve CSV datasets, JSON completeness, disclosure, and reset isolation. The replay validator proves the same slot revision and explanation are fingerprinted in exact frames and that tampering is rejected. The browser test covers the API, local download, charts, runway context, flow-cause presentation, overlay behavior, and 1024×600 plus 390×844 containment.

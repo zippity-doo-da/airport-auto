@@ -5477,7 +5477,7 @@ button.queue-entry:focus-visible,
 }
 .operations-lab__summary > div {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
   gap: 5px;
   margin-top: 9px;
 }
@@ -5676,6 +5676,51 @@ button.queue-entry:focus-visible,
   color: rgba(244, 232, 206, 0.46);
   font-size: 8px;
   line-height: 1.4;
+}
+.operations-lab__flow > div {
+  display: grid;
+  gap: 7px;
+  margin-top: 9px;
+}
+.operations-lab__flow-row {
+  display: grid;
+  gap: 3px;
+}
+.operations-lab__flow-row > span {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.operations-lab__flow-row b {
+  color: rgba(244, 232, 206, 0.82);
+  font-size: 8px;
+  text-transform: capitalize;
+}
+.operations-lab__flow-row small {
+  color: rgba(244, 232, 206, 0.46);
+  font-size: 7px;
+  white-space: nowrap;
+}
+.operations-lab__flow-row i {
+  display: block;
+  width: 100%;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    var(--amber) var(--utilization),
+    rgba(239, 199, 117, 0.09) var(--utilization)
+  );
+}
+.operations-lab__flow p {
+  margin: 0;
+  overflow: hidden;
+  color: rgba(244, 232, 206, 0.46);
+  font-size: 7px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .operations-lab__heatmap > div {
   position: relative;

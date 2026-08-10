@@ -224,29 +224,29 @@ surface-aircraft lag from the current fixed step stays bounded.
 ### Gameplay and UX
 
 - [x] Add a resizable surface-safety panel separate from the existing general
-  radar inset. It is desktop-resizable and bounded on compact screens, and now
-  includes a compact authoritative surface diagram with station, horizon, and
-  independent diagram-layer controls.
+      radar inset. It is desktop-resizable and bounded on compact screens, and now
+      includes a compact authoritative surface diagram with station, horizon, and
+      independent diagram-layer controls.
 - [x] Render aircraft, tugs, authorized vehicles, runway occupancy, hold-short
-  state, crossing authority, and approach/departure protection zones.
-  The optional **Runway protection** map layer now shades each authoritative
-  protected runway and its hold-short points: red for occupied pavement, blue
-  for a currently authorized crossing, and amber for a waiting hold. The
-  dedicated compact diagram now shows those authoritative runway states with
-  aircraft, service-vehicle, assigned-route, and crossing-clearance symbols.
-  It also projects bounded, versioned arrival, departure, and go-around
-  corridors directly from authoritative flight motion; Ground and Ramp filters
-  suppress that airborne context while Tower, Supervisor, and Watch retain it.
+      state, crossing authority, and approach/departure protection zones.
+      The optional **Runway protection** map layer now shades each authoritative
+      protected runway and its hold-short points: red for occupied pavement, blue
+      for a currently authorized crossing, and amber for a waiting hold. The
+      dedicated compact diagram now shows those authoritative runway states with
+      aircraft, service-vehicle, assigned-route, and crossing-clearance symbols.
+      It also projects bounded, versioned arrival, departure, and go-around
+      corridors directly from authoritative flight motion; Ground and Ramp filters
+      suppress that airborne context while Tower, Supervisor, and Watch retain it.
 - [x] Show track identity, movement state, route intent, last clearance, and
       surveillance freshness without exposing hidden future simulation state.
 - [x] Add configurable look-ahead conflict arcs with a quiet advisory tier and a
-  visually distinct immediate warning tier. The compact diagram now offers
-  15-, 30-, and 60-second horizons and draws only active forecast-backed
-  track arcs: dashed blue for advisory, solid amber for warning, and red
-  for critical. Assigned curved taxi routes, individual crossing points, and
-  approach/departure protection corridors now share the same diagram. Routes,
-  flight-path corridors, forecasts, and service-vehicle symbols can each be
-  decluttered without changing the underlying safety state.
+      visually distinct immediate warning tier. The compact diagram now offers
+      15-, 30-, and 60-second horizons and draws only active forecast-backed
+      track arcs: dashed blue for advisory, solid amber for warning, and red
+      for critical. Assigned curved taxi routes, individual crossing points, and
+      approach/departure protection corridors now share the same diagram. Routes,
+      flight-path corridors, forecasts, and service-vehicle symbols can each be
+      decluttered without changing the underlying safety state.
 - [x] Add modeled runway entrance lights and takeoff-hold lights driven by the
       authoritative protection state, not decorative animation.
 - [x] Add a toggleable, speed-scaled surface movement-vector layer for aircraft
@@ -501,11 +501,11 @@ factor, not an unexplained confidence reduction.
 ### Gameplay and UX
 
 - [x] Add a timeline showing demand, runway capacity, target crossing times,
-  tolerance windows, expected delay, and confidence. The Queue inspector
-  now shows active arrival/departure slots, delay, a configurable planned-slot
-  outlook, bounded confidence, and route-aware meter targets with explicit
-  tolerance windows, plus active runway/spacing/constraint attribution and
-  direction-specific downstream uncertainty.
+      tolerance windows, expected delay, and confidence. The Queue inspector
+      now shows active arrival/departure slots, delay, a configurable planned-slot
+      outlook, bounded confidence, and route-aware meter targets with explicit
+      tolerance windows, plus active runway/spacing/constraint attribution and
+      direction-specific downstream uncertainty.
 - [~] Let Supervisor choose Balanced, Minimum Holding, Minimum Taxi Delay,
   Weather Recovery, or Watch/Calm scheduling objectives. The Queue
   inspector and typed control API now select authoritative pacing profiles;
@@ -546,27 +546,29 @@ factor, not an unexplained confidence reduction.
   versioned target points, while the outlook projects release cadence beyond
   queued entries. Airport-specific capacity constraints remain open.
 - [x] Replace one-interval demand pressure with rolling predicted demand and
-  configurable capacity windows. The Queue outlook forecasts both sides of a
-  Supervisor-selected 5-, 10-, or 15-minute horizon instead of counting only
-  known queue entries; the selected window is retained in replay-safe flow state.
+      configurable capacity windows. The Queue outlook forecasts both sides of a
+      Supervisor-selected 5-, 10-, or 15-minute horizon instead of counting only
+      known queue entries; the selected window is retained in replay-safe flow state.
 - [x] Model uncertainty from wind, procedure, runway condition, pilot response,
-  taxi congestion, and gate readiness. Forecast confidence now carries bounded,
-  direction-specific procedure, taxi, and gate factors alongside weather,
-  wind, runway condition, pilot response, and downstream saturation without
-  changing separation, reservations, meter slots, or movement commands.
+      taxi congestion, and gate readiness. Forecast confidence now carries bounded,
+      direction-specific procedure, taxi, and gate factors alongside weather,
+      wind, runway condition, pilot response, and downstream saturation without
+      changing separation, reservations, meter slots, or movement commands.
 - [x] Ensure schedule recommendations never move an aircraft directly; accepted
-  actions must pass through the existing command and safety layers. Version 6
-  flow snapshots expose advisory-only recommendations plus explicit Ignore and
-  Recover responses. Recovery changes only the scheduler objective; aircraft
-  remain behind the command and safety arbiters. Action-specific proposals are
-  pure reads, carry `commandArbiterRequired`, and invoke the same typed speed,
-  hold, vector, direct-to, line-up, or takeoff command used by a controller.
-  Deterministic tests compare full state before and after proposal generation,
-  then prove an authorized proposal can pass the ordinary command arbiter.
-- [~] Record schedule revisions and causes in exact replay and local analytics.
-  Meter entries now retain bounded revision causes in replay-safe state and
-  expose the latest cause in Queue inspector; dedicated analytics rollups
-  remain open.
+      actions must pass through the existing command and safety layers. Version 6
+      flow snapshots expose advisory-only recommendations plus explicit Ignore and
+      Recover responses. Recovery changes only the scheduler objective; aircraft
+      remain behind the command and safety arbiters. Action-specific proposals are
+      pure reads, carry `commandArbiterRequired`, and invoke the same typed speed,
+      hold, vector, direct-to, line-up, or takeoff command used by a controller.
+      Deterministic tests compare full state before and after proposal generation,
+      then prove an authorized proposal can pass the ordinary command arbiter.
+- [x] Record schedule revisions and causes in exact replay and local analytics.
+      Meter entries retain bounded revision causes in replay-safe state, and exact
+      frame fingerprints reject a changed slot value. Local analytics schema 3
+      deduplicates active/archive history into bounded signed revision records,
+      rolls up delay added and recovered by stable cause, displays those causes in
+      the Data Lab, and exports a dedicated `flow-revisions` CSV dataset.
 
 ### Acceptance gate
 

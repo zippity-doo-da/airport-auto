@@ -59,9 +59,27 @@ second.motion.onGround = true;
 second.taxiway = 'Alpha';
 second.controlHold = true;
 second.kinematics.groundSpeedKts = 0;
+simulation.state.trafficFlow.arrivalQueue = [{
+  id: 'ARR-ANALYTICS', direction: 'arrival', status: 'metered',
+  createdAtSeconds: 0, scheduledAtSeconds: 0, releaseSlotSeconds: 60,
+  updatedAtSeconds: 0, delaySeconds: 0, attempts: 1,
+  reason: 'scheduled arrival bank', constraintCategory: 'schedule',
+  slotRevisions: [{ atSeconds: 0, releaseSlotSeconds: 60, reason: 'scheduled arrival bank', category: 'schedule' }],
+  meterTargets: [], flightId: first.id, callsign: first.callsign, runwayId: first.runway,
+}];
+simulation.state.trafficFlow.departureQueue = [];
+simulation.state.trafficFlow.history = [];
 
 for (let elapsed = 0; elapsed < 4; elapsed += 1) {
   simulation.state.elapsed = elapsed;
+  if (elapsed === 2) {
+    simulation.state.trafficFlow.arrivalQueue[0].releaseSlotSeconds = 90;
+    simulation.state.trafficFlow.arrivalQueue[0].slotRevisions.push({ atSeconds: 2, releaseSlotSeconds: 90, reason: 'weather recovery arrival metering', category: 'weather' });
+  }
+  if (elapsed === 3) {
+    simulation.state.trafficFlow.arrivalQueue[0].releaseSlotSeconds = 80;
+    simulation.state.trafficFlow.arrivalQueue[0].slotRevisions.push({ atSeconds: 3, releaseSlotSeconds: 80, reason: 'runway capacity recovered', category: 'runway' });
+  }
   first.motion.x = elapsed * 2;
   second.motion.x = elapsed * 2 + 1;
   const queues = simulation.queueSnapshot(simulation.state);
@@ -83,7 +101,7 @@ surfaceSafety = advisoryTracker.update(surfaceSafetySnapshot(config, simulation.
 assert(recorder.record({ state: simulation.state, predictions: [surfacePrediction], queues, metrics: simulation.shiftMetrics(), surfaceSafety }), 'reactivated advisory sample was rejected');
 
 const snapshot = recorder.snapshot(simulation.state, queues, first.id);
-assert(snapshot.schemaVersion === 2 && snapshot.sessionId === 'analytics-session', 'analytics schema/session drifted');
+assert(snapshot.schemaVersion === 3 && snapshot.sessionId === 'analytics-session', 'analytics schema/session drifted');
 assert(snapshot.flights.length >= 2 && snapshot.selectedFlightSamples.length === 6, 'flight recorder samples are incomplete');
 assert(snapshot.selectedFlightSamples[0].altitudeFt === 720 && snapshot.selectedFlightSamples[0].fuelPercent === 14.5, 'authoritative kinematics were not retained');
 assert(snapshot.runwayUtilization.some((entry) => entry.occupiedSeconds >= 4 && entry.movements >= 1), 'runway utilization was not accumulated');
@@ -94,21 +112,25 @@ assert(snapshot.surfaceSafetyAdvisories.length === 1, 'surface advisory analytic
 assert(snapshot.surfaceSafetyAdvisories[0].activations === 2 && snapshot.surfaceSafetyAdvisories[0].activeSeconds === 4, 'surface advisory analytics lost reactivation or duration');
 assert(snapshot.surfaceSafetyAdvisories[0].resolvedAtSeconds === null, 'reactivated advisory retained a stale resolution time');
 assert(snapshot.summary.activeSurfaceAdvisories === 1 && snapshot.summary.surfaceAdvisoryEpisodes === 2, 'surface advisory summary drifted');
+assert(snapshot.summary.flowEntriesObserved === 1 && snapshot.summary.flowSlotRevisions === 2 && snapshot.summary.largestFlowSlotShiftSeconds === 30, 'flow revision summary omitted a slot change');
+assert(snapshot.trafficFlowRevisions.length === 3 && snapshot.trafficFlowRevisions.filter((entry) => entry.kind === 'revision').map((entry) => entry.shiftSeconds).sort((a, b) => a - b).join(',') === '-10,30', 'flow revisions lost their signed schedule changes');
+assert(snapshot.trafficFlowCauses.find((entry) => entry.category === 'weather')?.delayAddedSeconds === 30 && snapshot.trafficFlowCauses.find((entry) => entry.category === 'runway')?.delayRecoveredSeconds === 10, 'flow cause rollup lost added or recovered delay');
 assert(snapshot.disclosure.localOnly && !snapshot.disclosure.cloudUpload && !snapshot.disclosure.shareableByDefault, 'local/privacy disclosure drifted');
 
 const commands = [{ action: 'holdPosition', flightId: second.id, actorId: 'fixture-controller' }];
 const events = [{ type: 'command:holdPosition', flightId: second.id, accepted: true }];
 const bundle = buildOperationsExportBundle(snapshot, recorder.allFlightSamples(), commands, events, queues);
-assert(bundle.flightRecorder.length >= 8 && bundle.commands.length === 1 && bundle.events.length === 1, 'JSON bundle omitted a dataset');
+assert(bundle.schemaVersion === 3 && bundle.flightRecorder.length >= 8 && bundle.commands.length === 1 && bundle.events.length === 1, 'JSON bundle omitted a dataset');
 for (const dataset of OPERATIONS_EXPORT_DATASETS) {
   const csv = serializeOperationsCsv(bundle, dataset, dataset === 'flight-recorder' ? first.id : undefined);
   assert(csv.includes('\\r\\n'), dataset + ' CSV did not contain a header terminator');
   assert(!csv.includes('[object Object]'), dataset + ' CSV did not serialize nested data');
+  if (dataset === 'flow-revisions') assert(csv.includes('weather recovery arrival metering') && csv.includes('shiftSeconds'), 'flow-revision CSV omitted signed cause data');
 }
 
 recorder.reset('next-session', descriptor(config), simulation.shiftMetrics(), 20);
 const reset = recorder.snapshot(simulation.state, queues, null);
-assert(reset.sessionId === 'next-session' && reset.flights.length === 0 && reset.window.retainedSamples === 0, 'analytics reset retained prior-session data');
+assert(reset.sessionId === 'next-session' && reset.flights.length === 0 && reset.window.retainedSamples === 0 && reset.trafficFlowRevisions.length === 0, 'analytics reset retained prior-session data');
 
 console.log(JSON.stringify({
   datasets: OPERATIONS_EXPORT_DATASETS.length,

@@ -9,10 +9,12 @@ import type {
   Flight,
   FlightPhase,
   ShiftMetrics,
+  TrafficFlowConstraintCategory,
+  TrafficFlowEntry,
 } from "../simulation/types";
 
-export const OPERATIONS_ANALYTICS_SCHEMA_VERSION = 2 as const;
-export const OPERATIONS_EXPORT_SCHEMA_VERSION = 2 as const;
+export const OPERATIONS_ANALYTICS_SCHEMA_VERSION = 3 as const;
+export const OPERATIONS_EXPORT_SCHEMA_VERSION = 3 as const;
 
 export const OPERATIONS_EXPORT_DATASETS = [
   "flights",
@@ -26,6 +28,7 @@ export const OPERATIONS_EXPORT_DATASETS = [
   "flight-recorder",
   "conflicts",
   "surface-advisories",
+  "flow-revisions",
 ] as const;
 
 export type OperationsExportDataset =
@@ -140,6 +143,36 @@ export interface SurfaceSafetyAnalyticsRecord {
   latestDetail: string;
 }
 
+export interface TrafficFlowRevisionAnalyticsRecord {
+  schemaVersion: 1;
+  id: string;
+  entryId: string;
+  kind: "initial" | "revision";
+  direction: TrafficFlowEntry["direction"];
+  status: TrafficFlowEntry["status"];
+  atSeconds: number;
+  previousReleaseSlotSeconds: number;
+  releaseSlotSeconds: number;
+  shiftSeconds: number;
+  category: TrafficFlowConstraintCategory;
+  reason: string;
+  flightId: number | null;
+  callsign: string | null;
+  runwayId: number | null;
+}
+
+export interface TrafficFlowCauseAnalyticsRecord {
+  category: TrafficFlowConstraintCategory;
+  initialAssignments: number;
+  revisions: number;
+  totalShiftSeconds: number;
+  delayAddedSeconds: number;
+  delayRecoveredSeconds: number;
+  largestAbsoluteShiftSeconds: number;
+  latestAtSeconds: number;
+  latestReason: string;
+}
+
 export interface OperationsAnalyticsSnapshot {
   schemaVersion: typeof OPERATIONS_ANALYTICS_SCHEMA_VERSION;
   sessionId: string;
@@ -165,6 +198,9 @@ export interface OperationsAnalyticsSnapshot {
     safetyEvents: number;
     fuelBurnKg: number;
     holdingFuelBurnKg: number;
+    flowEntriesObserved: number;
+    flowSlotRevisions: number;
+    largestFlowSlotShiftSeconds: number;
   };
   flights: FlightAnalyticsRecord[];
   selectedFlightId: number | null;
@@ -174,6 +210,8 @@ export interface OperationsAnalyticsSnapshot {
   queueUtilization: QueueAnalyticsRecord[];
   conflictHeatmap: ConflictHeatCell[];
   surfaceSafetyAdvisories: SurfaceSafetyAnalyticsRecord[];
+  trafficFlowRevisions: TrafficFlowRevisionAnalyticsRecord[];
+  trafficFlowCauses: TrafficFlowCauseAnalyticsRecord[];
   metrics: ShiftMetrics;
   disclosure: {
     navigationUse: false;
@@ -233,6 +271,7 @@ const MAXIMUM_SAMPLES_PER_FLIGHT = 7_200;
 const MAXIMUM_RETAINED_FLIGHTS = 512;
 const MAXIMUM_CONFLICT_CELLS = 256;
 const MAXIMUM_SURFACE_SAFETY_RECORDS = 512;
+const MAXIMUM_TRAFFIC_FLOW_REVISIONS = 2_048;
 const CONFLICT_CELL_SIZE = 12;
 
 const GROUND_PHASES = new Set<FlightPhase>([
@@ -320,6 +359,11 @@ export class OperationsAnalyticsRecorder {
   private queueUtilization = new Map<string, MutableQueueRecord>();
   private conflictCells = new Map<string, ConflictHeatCell>();
   private surfaceSafetyRecords = new Map<string, MutableSurfaceSafetyRecord>();
+  private trafficFlowRevisionRecords = new Map<
+    string,
+    TrafficFlowRevisionAnalyticsRecord
+  >();
+  private lastFlowReleaseSlotByEntry = new Map<string, number>();
   private previousPhase = new Map<number, FlightPhase>();
   private previousTaxiway = new Map<number, string | null>();
   private latestMetrics: ShiftMetrics;
@@ -353,6 +397,8 @@ export class OperationsAnalyticsRecorder {
     this.queueUtilization.clear();
     this.conflictCells.clear();
     this.surfaceSafetyRecords.clear();
+    this.trafficFlowRevisionRecords.clear();
+    this.lastFlowReleaseSlotByEntry.clear();
     this.previousPhase.clear();
     this.previousTaxiway.clear();
     this.latestMetrics = cloneMetrics(initialMetrics);
@@ -381,6 +427,7 @@ export class OperationsAnalyticsRecorder {
     this.recordQueues(inputs.queues, sampleDelta);
     this.recordConflicts(inputs.predictions, flightById, elapsedSeconds);
     this.recordSurfaceSafety(inputs.surfaceSafety, sampleDelta);
+    this.recordTrafficFlow(inputs.state);
     this.pruneCompletedFlights(inputs.state.flights);
     return true;
   }
@@ -403,6 +450,17 @@ export class OperationsAnalyticsRecorder {
       selectedFlightId !== null && this.flightSamples.has(selectedFlightId)
         ? selectedFlightId
         : (state.flights[0]?.id ?? flights[0]?.flightId ?? null);
+    const trafficFlowRevisions = [...this.trafficFlowRevisionRecords.values()]
+      .map((entry) => ({ ...entry }))
+      .sort(
+        (first, second) =>
+          second.atSeconds - first.atSeconds ||
+          first.id.localeCompare(second.id),
+      );
+    const trafficFlowCauses = trafficFlowCauseRows(trafficFlowRevisions);
+    const changedFlowSlots = trafficFlowRevisions.filter(
+      (entry) => entry.kind === "revision",
+    );
     return {
       schemaVersion: OPERATIONS_ANALYTICS_SCHEMA_VERSION,
       sessionId: this.sessionId,
@@ -441,6 +499,17 @@ export class OperationsAnalyticsRecorder {
           this.latestMetrics.unexplainedPauses,
         fuelBurnKg: rounded(this.latestMetrics.fuelBurnKg, 1),
         holdingFuelBurnKg: rounded(this.latestMetrics.holdingFuelBurnKg, 1),
+        flowEntriesObserved: new Set(
+          trafficFlowRevisions.map((entry) => entry.entryId),
+        ).size,
+        flowSlotRevisions: changedFlowSlots.length,
+        largestFlowSlotShiftSeconds: rounded(
+          Math.max(
+            0,
+            ...changedFlowSlots.map((entry) => Math.abs(entry.shiftSeconds)),
+          ),
+          1,
+        ),
       },
       flights,
       selectedFlightId: resolvedFlightId,
@@ -492,6 +561,8 @@ export class OperationsAnalyticsRecorder {
             second.lastSeenSeconds - first.lastSeenSeconds ||
             first.id.localeCompare(second.id),
         ),
+      trafficFlowRevisions,
+      trafficFlowCauses,
       metrics: cloneMetrics(this.latestMetrics),
       disclosure: {
         navigationUse: false,
@@ -786,6 +857,75 @@ export class OperationsAnalyticsRecorder {
     }
   }
 
+  private recordTrafficFlow(state: AirportState): void {
+    const entries = [
+      ...state.trafficFlow.arrivalQueue,
+      ...state.trafficFlow.departureQueue,
+      ...state.trafficFlow.history,
+    ];
+    for (const entry of entries) {
+      let previousReleaseSlotSeconds = this.lastFlowReleaseSlotByEntry.get(
+        entry.id,
+      );
+      for (const revision of entry.slotRevisions) {
+        const id = flowRevisionId(entry, revision);
+        const initial =
+          revision.atSeconds === entry.createdAtSeconds &&
+          previousReleaseSlotSeconds === undefined;
+        const previous =
+          previousReleaseSlotSeconds ?? revision.releaseSlotSeconds;
+        const existing = this.trafficFlowRevisionRecords.get(id);
+        if (existing) {
+          existing.status = entry.status;
+          existing.flightId = entry.flightId ?? existing.flightId;
+          existing.callsign = entry.callsign ?? existing.callsign;
+          existing.runwayId = entry.runwayId ?? existing.runwayId;
+        } else {
+          this.trafficFlowRevisionRecords.set(id, {
+            schemaVersion: 1,
+            id,
+            entryId: entry.id,
+            kind: initial ? "initial" : "revision",
+            direction: entry.direction,
+            status: entry.status,
+            atSeconds: rounded(revision.atSeconds, 3),
+            previousReleaseSlotSeconds: rounded(previous, 3),
+            releaseSlotSeconds: rounded(revision.releaseSlotSeconds, 3),
+            shiftSeconds: rounded(revision.releaseSlotSeconds - previous, 3),
+            category:
+              revision.category ?? entry.constraintCategory ?? "schedule",
+            reason: revision.reason,
+            flightId: entry.flightId ?? null,
+            callsign: entry.callsign ?? null,
+            runwayId: entry.runwayId ?? null,
+          });
+        }
+        previousReleaseSlotSeconds = revision.releaseSlotSeconds;
+      }
+      if (previousReleaseSlotSeconds !== undefined)
+        this.lastFlowReleaseSlotByEntry.set(
+          entry.id,
+          previousReleaseSlotSeconds,
+        );
+    }
+    if (this.trafficFlowRevisionRecords.size > MAXIMUM_TRAFFIC_FLOW_REVISIONS) {
+      const retained = [...this.trafficFlowRevisionRecords.values()]
+        .sort(
+          (first, second) =>
+            second.atSeconds - first.atSeconds ||
+            first.id.localeCompare(second.id),
+        )
+        .slice(0, MAXIMUM_TRAFFIC_FLOW_REVISIONS);
+      this.trafficFlowRevisionRecords = new Map(
+        retained.map((entry) => [entry.id, entry]),
+      );
+      const retainedEntryIds = new Set(retained.map((entry) => entry.entryId));
+      for (const entryId of this.lastFlowReleaseSlotByEntry.keys())
+        if (!retainedEntryIds.has(entryId))
+          this.lastFlowReleaseSlotByEntry.delete(entryId);
+    }
+  }
+
   private pruneCompletedFlights(activeFlights: readonly Flight[]): void {
     if (this.flights.size <= MAXIMUM_RETAINED_FLIGHTS) return;
     const activeIds = new Set(activeFlights.map((flight) => flight.id));
@@ -931,7 +1071,68 @@ function csvRows(
       return bundle.analytics.surfaceSafetyAdvisories.map((entry) =>
         flattenRecord(entry as unknown as Record<string, unknown>),
       );
+    case "flow-revisions":
+      return bundle.analytics.trafficFlowRevisions.map((entry) => ({
+        ...entry,
+      }));
   }
+}
+
+function flowRevisionId(
+  entry: TrafficFlowEntry,
+  revision: TrafficFlowEntry["slotRevisions"][number],
+): string {
+  return `${entry.id}:${revision.atSeconds}:${revision.releaseSlotSeconds}:${revision.reason}`;
+}
+
+function trafficFlowCauseRows(
+  revisions: readonly TrafficFlowRevisionAnalyticsRecord[],
+): TrafficFlowCauseAnalyticsRecord[] {
+  const rows = new Map<
+    TrafficFlowConstraintCategory,
+    TrafficFlowCauseAnalyticsRecord
+  >();
+  for (const revision of revisions) {
+    const row = rows.get(revision.category) ?? {
+      category: revision.category,
+      initialAssignments: 0,
+      revisions: 0,
+      totalShiftSeconds: 0,
+      delayAddedSeconds: 0,
+      delayRecoveredSeconds: 0,
+      largestAbsoluteShiftSeconds: 0,
+      latestAtSeconds: revision.atSeconds,
+      latestReason: revision.reason,
+    };
+    row.initialAssignments += revision.kind === "initial" ? 1 : 0;
+    row.revisions += revision.kind === "revision" ? 1 : 0;
+    row.totalShiftSeconds += revision.shiftSeconds;
+    row.delayAddedSeconds += Math.max(0, revision.shiftSeconds);
+    row.delayRecoveredSeconds += Math.max(0, -revision.shiftSeconds);
+    row.largestAbsoluteShiftSeconds = Math.max(
+      row.largestAbsoluteShiftSeconds,
+      Math.abs(revision.shiftSeconds),
+    );
+    if (revision.atSeconds >= row.latestAtSeconds) {
+      row.latestAtSeconds = revision.atSeconds;
+      row.latestReason = revision.reason;
+    }
+    rows.set(revision.category, row);
+  }
+  return [...rows.values()]
+    .map((row) => ({
+      ...row,
+      totalShiftSeconds: rounded(row.totalShiftSeconds, 1),
+      delayAddedSeconds: rounded(row.delayAddedSeconds, 1),
+      delayRecoveredSeconds: rounded(row.delayRecoveredSeconds, 1),
+      largestAbsoluteShiftSeconds: rounded(row.largestAbsoluteShiftSeconds, 1),
+    }))
+    .sort(
+      (first, second) =>
+        second.revisions - first.revisions ||
+        second.initialAssignments - first.initialAssignments ||
+        first.category.localeCompare(second.category),
+    );
 }
 
 function higherSurfaceSeverity(
