@@ -1222,9 +1222,13 @@ open.
   beacon distinguishes it from the amber gate-service fleet even while it is
   stopped on scene. Rejected takeoff now has an immediate pre-V1 command,
   condition-adjusted continuous braking, typed lifecycle events, and a protected
-  stopped-on-runway state; dispatch, inspection, evacuation, and runway-reopen
-  recovery after the stop remain part of this milestone. The remaining named
-  programs are still open.
+  stopped-on-runway state. Its recovery is now complete: the stop creates a
+  runway-wide protected disruption, reroutes incompatible traffic, gives
+  Ground or Supervisor an ordinary dispatch action, and runs a deterministic
+  tow plus brake/fire and runway inspection before removing the aircraft and
+  reopening every affected graph edge. Auto dispatches the same recovery
+  through its scripted Ground controller. The remaining named programs are
+  still open.
 - [~] Add airport emergency and inspection vehicles with explicit dispatch,
   route authority, staging areas, runway entry, task time, and release.
   The named inspection response vehicle now covers this path; emergency
@@ -1252,7 +1256,14 @@ open.
   route legality, and zero service/aircraft conflicts; broader emergency
   fleet coverage remains open.
 - [ ] The airport returns to sustainable flow after each seeded event without a
-      reset or teleport.
+      reset or teleport. The rejected-takeoff slice now proves this invariant:
+      an ORD deterministic fixture continuously brakes from 71 kt for 23.55 s,
+      protects the complete runway graph, completes recovery in 69.05 s, emits
+      issue/stop/recovery-start/recovery-complete evidence, and reopens the
+      runway without a reset. An opt-in real-time browser gate also passed the
+      full ATL taxi, takeoff, rejection, Manual/Supervisor dispatch, recovery,
+      and zero-conflict lifecycle in 3.8 minutes on August 10, 2026. Equivalent
+      sustainable-flow proof remains open for every other seeded event.
 
 ## A6 — Deeper airport life
 

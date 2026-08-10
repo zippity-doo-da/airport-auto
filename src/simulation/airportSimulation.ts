@@ -2368,7 +2368,7 @@ export class AirportSimulation {
       (candidate) => candidate.id === flightId,
     );
     if (!disruption || !flight)
-      return this.rejectDecision("disabled aircraft is not awaiting recovery");
+      return this.rejectDecision("aircraft is not awaiting surface recovery");
     if (disruption.status === "recovering")
       return this.rejectDecision(
         `${flight.callsign} recovery is already in progress`,
@@ -6495,6 +6495,7 @@ export class AirportSimulation {
           flight.rejectedTakeoff.stopProgress = flight.progress;
           flight.automaticHold = true;
           flight.automaticHoldReason = `rejected takeoff stopped on ${this.activeRunwayDesignation(flight.runway)} · runway recovery required`;
+          this.createDisabledAircraftDisruption(flight, "rejected-takeoff");
           this.pushInstructionEvent(
             {
               type: "rejected-takeoff-stopped",
@@ -12869,7 +12870,18 @@ export class AirportSimulation {
     return true;
   }
 
-  private createDisabledAircraftDisruption(flight: Flight): void {
+  private createDisabledAircraftDisruption(
+    flight: Flight,
+    cause: "disabled-aircraft" | "rejected-takeoff" = "disabled-aircraft",
+  ): void {
+    if (
+      this.state.surfaceDisruptions.some(
+        (candidate) =>
+          candidate.kind === "disabled-aircraft" &&
+          candidate.flightId === flight.id,
+      )
+    )
+      return;
     const edgeId =
       flight.surfaceEdge ??
       sampleSurfaceRouteWithEdges(
@@ -12878,23 +12890,36 @@ export class AirportSimulation {
         flight.surfaceRouteEdges,
         flight.progress,
       )?.edge?.id;
+    const runwayEdgeIds = this.config.surfaceGraph.edges
+      .filter(
+        (edge) =>
+          edge.runwayId === flight.runway &&
+          (edge.kind === "runway" || edge.kind === "runway-access"),
+      )
+      .map((edge) => edge.id);
+    const rejectedTakeoff = cause === "rejected-takeoff";
     const disruption: SurfaceDisruptionState = {
       id: `SD-${this.nextDisruptionId++}`,
       kind: "disabled-aircraft",
       status: "active",
       source: "incident",
       targetId: String(flight.id),
-      label: `${flight.callsign} disabled on ${flight.taxiway ?? "movement surface"}`,
-      edgeIds: edgeId ? [edgeId] : [],
-      runwayId: flight.motion.protectedRunwayIds[0],
+      label: rejectedTakeoff
+        ? `${flight.callsign} stopped after rejected takeoff on ${this.activeRunwayDesignation(flight.runway)}`
+        : `${flight.callsign} disabled on ${flight.taxiway ?? "movement surface"}`,
+      edgeIds: rejectedTakeoff ? runwayEdgeIds : edgeId ? [edgeId] : [],
+      runwayId: rejectedTakeoff
+        ? flight.runway
+        : flight.motion.protectedRunwayIds[0],
       taxiwayId: flight.taxiway,
       flightId: flight.id,
       createdAtSeconds: this.state.elapsed,
       activatedAtSeconds: this.state.elapsed,
       recoveryProgress: 0,
       reroutedFlightIds: [],
-      reason:
-        "disabled aircraft reserves its occupied pavement pending recovery",
+      reason: rejectedTakeoff
+        ? "rejected takeoff protects the full runway pending tow and brake/fire inspection"
+        : "disabled aircraft reserves its occupied pavement pending recovery",
     };
     this.state.surfaceDisruptions.push(disruption);
     disruption.reroutedFlightIds = this.replanSurfaceTrafficAroundDisruptions(
@@ -12916,7 +12941,7 @@ export class AirportSimulation {
     disruption.recoveryStartedAtSeconds = this.state.elapsed;
     disruption.recoveryDurationSeconds = duration;
     disruption.expectedClearAtSeconds = this.state.elapsed + duration;
-    disruption.reason = `${reason} · tow and inspection in progress`;
+    disruption.reason = `${reason} · ${flight.rejectedTakeoff ? "tow and brake/fire inspection" : "tow and inspection"} in progress`;
     this.events.push({
       type: "recovery-start",
       flight,
@@ -13202,7 +13227,9 @@ export class AirportSimulation {
       flight,
       runway: disruption.runwayId,
       taxiway: flight.taxiway,
-      detail: `${flight.callsign} towed clear · pavement inspection complete`,
+      detail: flight.rejectedTakeoff
+        ? `${flight.callsign} towed clear · brake/fire and runway inspection complete`
+        : `${flight.callsign} towed clear · pavement inspection complete`,
     });
     this.state.serviceVehicles = this.state.serviceVehicles.filter(
       (vehicle) => vehicle.flightId !== flight.id,

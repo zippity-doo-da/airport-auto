@@ -470,7 +470,9 @@ function groundCandidates(
       runway: disruption.runwayId,
       ruleId: "ground.disabled.recovery",
       priority: "safety",
-      rationale: `${flight.callsign} is disabled on protected movement pavement`,
+      rationale: flight.rejectedTakeoff
+        ? `${flight.callsign} is stopped after a rejected takeoff and protects the full runway`
+        : `${flight.callsign} is disabled on protected movement pavement`,
       order: 0,
     });
   }

@@ -5229,10 +5229,16 @@ function formatPhase(phase: FlightPhase): string {
 }
 
 function flightOperationLabel(flight: Flight): string {
-  if (flight.rejectedTakeoff)
+  if (flight.rejectedTakeoff) {
+    const recovery = displayState().surfaceDisruptions.find(
+      (disruption) => disruption.flightId === flight.id,
+    );
     return flight.rejectedTakeoff.stoppedAtSeconds === undefined
       ? "Rejected takeoff · braking"
-      : "Rejected takeoff · runway blocked";
+      : recovery?.status === "recovering"
+        ? `Rejected takeoff · recovery ${Math.round(recovery.recoveryProgress * 100)}%`
+        : "Rejected takeoff · runway blocked";
+  }
   if (flight.emergency === "disabled") {
     const recovery = displayState().surfaceDisruptions.find(
       (disruption) => disruption.flightId === flight.id,
@@ -5916,7 +5922,11 @@ function renderFlightActions(): void {
   ) {
     flightActions.append(createRunwayExitPanel(flight));
   }
-  if (flight.surfaceReroute || flight.emergency === "disabled")
+  if (
+    flight.surfaceReroute ||
+    flight.emergency === "disabled" ||
+    flight.rejectedTakeoff?.stoppedAtSeconds !== undefined
+  )
     flightActions.append(createSurfaceReroutePanel(flight));
   if (flight.phase === "resting")
     flightActions.append(createTurnaroundPanel(flight));
@@ -6160,11 +6170,14 @@ function renderFlightActions(): void {
         !ownsFlight ||
         flight.deicing.status === "unavailable",
     );
-  if (flight.emergency === "disabled" && recovery?.status !== "recovering")
+  if (
+    recovery?.kind === "disabled-aircraft" &&
+    recovery.status !== "recovering"
+  )
     add(
       "recover",
-      "Dispatch recovery",
-      !simulation.canIssue("ground") || !ownsFlight,
+      flight.rejectedTakeoff ? "Dispatch runway recovery" : "Dispatch recovery",
+      !simulation.canIssue("ground"),
     );
   const surfaceAuthority =
     requiredControllerStation(flight) === "ramp" ? "ramp" : "ground";
@@ -6539,7 +6552,9 @@ function createSurfaceReroutePanel(flight: Flight): HTMLElement {
   const title = document.createElement("b");
   const badge = document.createElement("span");
   if (disruption?.kind === "disabled-aircraft") {
-    title.textContent = "Disabled aircraft recovery";
+    title.textContent = flight.rejectedTakeoff
+      ? "Rejected takeoff recovery"
+      : "Disabled aircraft recovery";
     badge.textContent =
       disruption.status === "recovering"
         ? `${Math.round(disruption.recoveryProgress * 100)}%`
@@ -6553,10 +6568,15 @@ function createSurfaceReroutePanel(flight: Flight): HTMLElement {
   }
   heading.append(title, badge);
   const metrics = document.createElement("p");
-  metrics.textContent =
-    disruption?.kind === "disabled-aircraft"
-      ? `${disruption.label.toUpperCase()} · ${Math.max(0, Math.ceil((disruption.expectedClearAtSeconds ?? displayState().elapsed) - displayState().elapsed))} SEC`
-      : `${(reroute?.addedDistanceM ?? 0) >= 0 ? "+" : ""}${Math.round(reroute?.addedDistanceM ?? 0)} M · ${reroute?.routeEdgeIds.length ?? 0} SEGMENTS`;
+  if (disruption?.kind === "disabled-aircraft") {
+    const recoveryTiming =
+      disruption.expectedClearAtSeconds === undefined
+        ? "DISPATCH REQUIRED"
+        : `${Math.max(0, Math.ceil(disruption.expectedClearAtSeconds - displayState().elapsed))} SEC`;
+    metrics.textContent = `${disruption.label.toUpperCase()} · ${recoveryTiming}`;
+  } else {
+    metrics.textContent = `${(reroute?.addedDistanceM ?? 0) >= 0 ? "+" : ""}${Math.round(reroute?.addedDistanceM ?? 0)} M · ${reroute?.routeEdgeIds.length ?? 0} SEGMENTS`;
+  }
   const reason = document.createElement("small");
   reason.textContent =
     disruption?.reason ?? reroute?.reason ?? "Pavement routing available";
