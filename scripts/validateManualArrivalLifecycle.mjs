@@ -3,6 +3,7 @@ import { build } from "esbuild";
 const validationSource = `
 import { generateHubConfig, HUB_AIRPORTS } from './src/simulation/airportConfig.ts';
 import { AirportSimulation } from './src/simulation/airportSimulation.ts';
+import { digitalClearanceSnapshot } from './src/simulation/digitalClearances.ts';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -34,7 +35,8 @@ function completePendingHandoff(simulation, flight) {
 
 const ordIndex = HUB_AIRPORTS.findIndex((airport) => airport.code === 'ORD');
 assert(ordIndex >= 0, 'ORD is required for manual arrival validation');
-const simulation = new AirportSimulation(generateHubConfig(ordIndex), 'quiet');
+const config = generateHubConfig(ordIndex);
+const simulation = new AirportSimulation(config, 'quiet');
 assert(simulation.startSandbox(false), 'clean sandbox could not start');
 simulation.setMode('manual');
 simulation.setStation('supervisor');
@@ -50,6 +52,29 @@ advanceUntil(simulation, () => simulation.state.flights.length === 1, 'arrival w
 const flight = simulation.state.flights[0];
 assert(flight.phase === 'approach', 'sandbox arrival did not enter the approach phase');
 assert(flight.navigation.frequencyOwner === 'approach', 'arrival was not initially owned by Approach');
+
+const procedure = config.airspaceProgram.procedures.find((candidate) => candidate.id === flight.navigation.procedureId);
+assert(procedure?.kind === 'STAR', 'manual arrival lost its published STAR');
+const amendedFixIds = Array.from({ length: Math.max(1, procedure.commonFixIds.length - 2) }, (_, index) => procedure.commonFixIds.slice(index))
+  .filter((fixIds) => fixIds.length >= 3)
+  .sort((first, second) => {
+    const turn = (fixIds) => {
+      const fix = config.airspaceProgram.fixes.find((candidate) => candidate.id === fixIds[0]);
+      const heading = Math.atan2(fix.position[1] - flight.motion.y, fix.position[0] - flight.motion.x);
+      return Math.abs(Math.atan2(Math.sin(heading - flight.motion.heading), Math.cos(heading - flight.motion.heading)));
+    };
+    return turn(first) - turn(second);
+  })[0];
+assert(amendedFixIds, 'manual arrival has no safe published route amendment');
+assert(simulation.previewFlightRoute(flight.id, amendedFixIds), 'Data Comm route preview was rejected: ' + simulation.lastCommandReason());
+assert(simulation.issueFlightRoute(flight.id), 'Data Comm route issue was rejected: ' + simulation.lastCommandReason());
+assert(flight.navigation.routeClearance?.status === 'sent', 'mixed arrival skipped the Data Comm Sent state');
+advanceUntil(simulation, () => flight.navigation.routeClearance?.status === 'pending-readback', 'Data Comm route was not delivered', 10);
+assert(digitalClearanceSnapshot(simulation.state).messages.some((message) => message.flightId === flight.id && message.kind === 'route-amendment' && message.status === 'delivered'), 'delivered route was absent from the Data Comm projection');
+simulation.setStation('approach');
+assert(simulation.acceptRouteReadback(flight.id), 'Data Comm route readback was rejected: ' + simulation.lastCommandReason());
+assert(flight.navigation.routeClearance?.status === 'accepted' && flight.navigation.routeFixIds.join('>') === amendedFixIds.join('>'), 'accepted Data Comm route did not become authoritative');
+simulation.setStation('supervisor');
 
 assert(simulation.clearApproach(flight.id), 'Manual UI equivalent approach clearance was rejected: ' + simulation.lastCommandReason());
 assert(flight.navigation.approachCleared, 'approach clearance was not stored on the flight');
@@ -80,6 +105,7 @@ assert(flight.navigation.frequencyOwner === 'tower' || flight.navigation.frequen
 console.log(JSON.stringify({
   airport: 'ORD',
   mode: simulation.state.mode,
+  dataCommRoute: flight.navigation.routeClearance?.status,
   approach: flight.navigation.approachCleared,
   landing: landingCleared,
   touchdown: flight.motion.onGround,

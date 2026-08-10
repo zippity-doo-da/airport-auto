@@ -755,6 +755,13 @@ operational record. Action retains Draft, Sent, Delivered, Standby, Unable, and 
 messages; History retains acknowledged instructions, every revision, and all
 terminal outcomes. Routine taxi/departure acknowledgements no longer bury the
 default queue, while All exposes the complete projection.
+The deterministic Manual-arrival lifecycle now exercises a genuinely mixed
+clearance sequence: published-route preview, Sent, Delivered, and Approach
+readback occur through Data Comm before immediate approach, handoff, landing,
+and touchdown actions complete the same flight. A pending route transmission is
+also proven to yield synchronously to an urgent go-around: cancellation is
+recorded first, the go-around and emergency events follow in order, no route
+component applies, and later pilot-response processing cannot revive it.
 Operations analytics schema 5 now retains a bounded, typed Data Comm lifecycle
 record across Sent, Delivered, Wilco, Unable, Timed Out, cancellation, and
 supersession. The Operations Lab shows total, active, responded, and timed-out
@@ -792,9 +799,11 @@ authoritative flight state.
   Go-around and hold actions already bypass the message queue; Tower can now
   cancel an active takeoff clearance while the aircraft is still lined up,
   through both the standard Manual controls and typed control API. Late
-  cancellation after takeoff-roll begins remains deliberately rejected.
-  The broader stop, rejected-takeoff, conflict, and spoken-action work remains
-  open.
+  cancellation after takeoff-roll begins remains deliberately rejected. An
+  urgent go-around is now explicitly tested to cancel a pending Data Comm route
+  before executing, emit an ordered immediate-action event chain, and prevent
+  stale later application. The broader stop, rejected-takeoff, conflict, and
+  spoken-action work remains open.
 - [~] Show aircraft capability and station/data-authority limitations without
   turning the interface into avionics configuration management. The selected
   flight panel now shows aircraft/wake class, required takeoff and landing
@@ -843,11 +852,13 @@ authoritative flight state.
       any required crossing, line-up, and takeoff through the standard action
       workflow, without developer telemetry. Deterministic ORD sandbox validators
       now exercise that sequence and the complete arrival sequence (approach
-      clearance, Approach→Tower coordination, landing clearance, and touchdown);
-      the mixed digital-clearance path remains open.
-- [~] A normal Manual departure and arrival can be completed through immediate
-  controls without opening developer telemetry. A coherent mixed
-  digital/immediate clearance sequence remains open.
+      clearance, Approach→Tower coordination, landing clearance, and touchdown),
+      including a published-route Data Comm delivery and readback before the
+      immediate arrival actions.
+- [x] A normal Manual departure and arrival can be completed through immediate
+      controls without opening developer telemetry. The deterministic ORD
+      arrival validator also completes one coherent mixed digital/immediate
+      sequence from route transmission through touchdown.
 - [~] Supersession, timeout, handoff, and rejection never apply stale commands.
   Sent transmissions and pending route readbacks are tested to cancel on a
   station transfer; route-only and atomic packages are tested to time out

@@ -117,6 +117,31 @@ for (let tick = 0; tick < 100 && ['sent', 'pending-readback'].includes(routeFlig
 assert(routeFlight.navigation.routeClearance?.status === 'timed-out' && routeFlight.navigation.readbackStatus === 'timed-out', 'route-only readback did not time out at its hard deadline');
 assert(routeFlight.flightPlan.revision === timeoutRevision && routeFlight.navigation.routeFixIds.join(',') === timeoutRoute, 'timed-out route-only instruction changed authoritative navigation');
 
+const urgentFixture = isolatedSimulation();
+const urgentFlight = urgentFixture.flight;
+urgentFlight.progress = 0.22;
+urgentFlight.phaseElapsed = urgentFlight.duration * urgentFlight.progress;
+urgentFlight.goAround = undefined;
+urgentFlight.diversion = undefined;
+urgentFlight.navigation.hold = undefined;
+urgentFlight.navigation.frequencyOwner = 'approach';
+syncFlightMotion(urgentFixture.config, urgentFlight);
+const urgentRoute = urgentFlight.navigation.routeFixIds.join(',');
+const urgentRevision = urgentFlight.flightPlan.revision;
+assert(urgentFixture.simulation.previewFlightRoute(urgentFlight.id, amendedFixIds), 'urgent-action fixture could not preview its route');
+assert(urgentFixture.simulation.issueFlightRoute(urgentFlight.id), 'urgent-action fixture could not transmit its route: ' + urgentFixture.simulation.lastCommandReason());
+assert(urgentFlight.navigation.routeClearance?.status === 'sent', 'urgent-action fixture skipped the Sent state');
+assert(urgentFixture.simulation.triggerEmergency(urgentFlight.id, 'go-around'), 'go-around did not bypass the pending Data Comm transmission: ' + urgentFixture.simulation.lastCommandReason());
+assert(urgentFlight.goAround && urgentFlight.navigation.routeClearance?.status === 'cancelled' && urgentFlight.navigation.readbackStatus === 'not-required', 'go-around did not synchronously supersede the pending Data Comm route');
+assert(urgentFlight.navigation.routeFixIds.join(',') === urgentRoute && urgentFlight.flightPlan.revision === urgentRevision, 'urgent go-around partially applied the superseded route');
+const urgentEvents = urgentFixture.simulation.drainEvents();
+const cancelledIndex = urgentEvents.findIndex((event) => event.type === 'route-clearance-cancelled');
+const goAroundIndex = urgentEvents.findIndex((event) => event.type === 'go-around');
+const emergencyIndex = urgentEvents.findIndex((event) => event.type === 'emergency');
+assert(cancelledIndex >= 0 && goAroundIndex > cancelledIndex && emergencyIndex > goAroundIndex, 'urgent action did not emit an ordered cancellation, go-around, and emergency event chain');
+for (let tick = 0; tick < 40; tick += 1) urgentFixture.simulation.update(0.1);
+assert(urgentFlight.navigation.routeClearance?.status === 'cancelled' && urgentFlight.flightPlan.revision === urgentRevision, 'superseded Data Comm route applied after the immediate go-around');
+
 const conflictFixture = isolatedSimulation();
 const conflictFlight = conflictFixture.flight;
 conflictFlight.progress = 0.18;
@@ -221,6 +246,7 @@ console.log(JSON.stringify({
   deliveryState: 'delivered',
   supersededReadback,
   timedOutReadback: routeFlight.navigation.routeClearance.status,
+  urgentGoAround: urgentFlight.navigation.routeClearance.status,
   blockingPreview: conflictFlight.navigation.routeClearance.warnings[0].conflictingCallsign,
   taxiSegments: surfaceFlight.surfaceRouteEdges.length,
   holdUsesContinuousBraking: true,
