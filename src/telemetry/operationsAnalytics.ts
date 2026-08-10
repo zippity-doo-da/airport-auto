@@ -187,7 +187,7 @@ export interface TrafficFlowCauseAnalyticsRecord {
 }
 
 export interface DigitalClearanceAnalyticsRecord {
-  schemaVersion: 3;
+  schemaVersion: 4;
   id: string;
   commandId: string;
   responseCommandId: string | null;
@@ -1029,7 +1029,7 @@ export class OperationsAnalyticsRecorder {
         message.respondedAtSeconds ?? message.response.respondedAtSeconds;
       const responseOrigin = deliveredAtSeconds ?? message.issuedAtSeconds;
       const record: DigitalClearanceAnalyticsRecord = {
-        schemaVersion: 3,
+        schemaVersion: 4,
         id: message.id,
         commandId: message.commandId,
         responseCommandId: message.response.commandId ?? null,

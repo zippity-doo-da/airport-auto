@@ -65,8 +65,8 @@ assert(message?.status === 'sent' && message.expiresAtSeconds === 12, 'route tra
 flight.navigation.routeClearance = { ...flight.navigation.routeClearance, status: 'pending-readback', deliveredAtSeconds: 5, reason: 'awaiting pilot readback' };
 snapshot = digitalClearanceSnapshot(simulation.state);
 message = snapshot.messages[0];
-assert(snapshot.schemaVersion === 3 && message?.status === 'delivered' && message.route.join('>') === 'NORTH>LAKE', 'pending readback did not project as a delivered route message');
-assert(message.capability.channel === 'data' && message.capability.deskAccess === 'authorized' && message.capability.responseMode === 'panel' && message.capability.aircraftSupport === 'simulated-data-comm', 'active Data Comm capability or authority was not explicit');
+assert(snapshot.schemaVersion === 4 && message?.status === 'delivered' && message.route.join('>') === 'NORTH>LAKE', 'pending readback did not project as a delivered route message');
+assert(message.capability.channel === 'data' && message.capability.deskAccess === 'authorized' && message.capability.responseMode === 'panel' && message.capability.aircraftSupport === 'data-comm-supported', 'active Data Comm capability or authority was not explicit');
 simulation.setStation('tower');
 snapshot = digitalClearanceSnapshot(simulation.state);
 message = snapshot.messages[0];
@@ -104,6 +104,11 @@ const historyMessages = messagesForView(snapshot, 'history');
 assert(actionMessages.some((item) => item.status === 'unable') && actionMessages.every((item) => item.kind !== 'revision'), 'Action view did not isolate controller attention messages');
 assert(historyMessages.filter((item) => item.kind === 'revision' && item.flightId === flight.id).length === 2 && historyMessages.some((item) => item.status === 'unable'), 'History view omitted recorded revisions or terminal responses');
 assert(messagesForView(snapshot, 'all').length === snapshot.messages.length, 'All view did not preserve the complete projection');
+flight.navigation.routeClearance = undefined;
+flight.aircraft = 'C172';
+simulation.setStation('approach');
+assert(!simulation.previewFlightRoute(flight.id, ['FIX-A']), 'voice-only aircraft accepted a Data Comm route preview');
+assert(simulation.lastCommandReason().includes('modeled voice-only') && simulation.lastCommandReason().includes('direct-to or vector'), 'voice-only route rejection did not explain the valid alternative');
 console.log(JSON.stringify({ messages: snapshot.messages.length, status: snapshot.messages[0]?.status }));
 `;
 

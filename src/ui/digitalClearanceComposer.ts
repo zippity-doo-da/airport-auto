@@ -10,6 +10,7 @@ export interface DigitalClearanceComposerFlight {
   id: number;
   callsign: string;
   owner: string;
+  dataCommSupport: "supported" | "voice-only";
   canIssue: boolean;
   unavailableReason?: string;
   clearanceStatus?: FlightRouteClearanceStatus;
@@ -57,6 +58,7 @@ export function digitalClearanceComposerKey(
       [
         flight.id,
         flight.canIssue,
+        flight.dataCommSupport,
         flight.clearanceStatus ?? "none",
         flight.clearanceSafeToIssue ?? "none",
         flight.clearanceReason ?? "",
@@ -86,7 +88,7 @@ export function renderDigitalClearanceComposer(
     ...model.flights.map((flight) => {
       const option = document.createElement("option");
       option.value = String(flight.id);
-      option.textContent = `${flight.callsign} · ${flight.owner.toUpperCase()}`;
+      option.textContent = `${flight.callsign} · ${flight.owner.toUpperCase()} · ${flight.dataCommSupport === "supported" ? "DATA" : "VOICE"}`;
       option.selected = flight.id === selectedFlight?.id;
       return option;
     }),

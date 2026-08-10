@@ -21,6 +21,7 @@ assert(new Set(AIRCRAFT_ROSTER).size === AIRCRAFT_ROSTER.length, 'aircraft roste
 const roles = new Set();
 const families = new Set();
 const engines = new Set();
+const dataCommCapabilities = new Set();
 const numericFields = [
   'lengthM', 'wingspanM', 'heightM', 'operatingEmptyWeightT', 'maxTakeoffWeightT',
   'maxLandingWeightT', 'usableFuelKg', 'nominalCruiseFuelBurnKgPerHour', 'maximumRangeNm',
@@ -37,6 +38,7 @@ for (const model of AIRCRAFT_ROSTER) {
   roles.add(profile.fleetRole);
   families.add(profile.visual.family);
   engines.add(profile.engineType);
+  dataCommCapabilities.add(profile.dataCommSupport);
   for (const field of numericFields) {
     const value = profile[field];
     assert(Number.isFinite(value) && value > 0, model + ' has invalid ' + field);
@@ -65,6 +67,8 @@ for (const requiredRole of ['general-aviation', 'utility', 'business', 'regional
 }
 for (const requiredEngine of ['piston', 'turboprop', 'turbofan']) assert(engines.has(requiredEngine), 'roster lacks ' + requiredEngine + ' powerplants');
 assert(families.size >= 10, 'aircraft still collapse into too few visual families');
+assert(dataCommCapabilities.has('supported') && dataCommCapabilities.has('voice-only'), 'aircraft catalog does not model both Data Comm and voice-only equipage');
+assert(AIRCRAFT_PROFILES.C172.dataCommSupport === 'voice-only', 'general-aviation voice-only validation fixture drifted');
 
 const airportCodes = ['ORD', 'ATL', 'DXB', 'HND', 'DFW', 'LHR', 'IST', 'DEN', 'LAX', 'JFK', 'LOCAL'];
 const assignedModels = new Set();
@@ -91,6 +95,7 @@ console.log(JSON.stringify({
   roles: [...roles].sort(),
   visualFamilies: families.size,
   engineTypes: [...engines].sort(),
+  dataCommCapabilities: [...dataCommCapabilities].sort(),
   sourceReferences: Object.keys(AIRCRAFT_DATA_REFERENCES).length,
   assignedModels: assignedModels.size,
   liveryStyles: [...liveryStyles].sort(),

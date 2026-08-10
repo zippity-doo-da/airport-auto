@@ -5811,7 +5811,11 @@ function renderFlightActions(): void {
     : !ownsFrequency
       ? "authority transfer required"
       : "desk authority available";
-  capability.textContent = `${aircraft.name} · ${aircraft.wakeClass.toUpperCase()} wake · runway ${Math.round(aircraft.takeoffRunwayRequiredM)} m takeoff / ${Math.round(aircraft.landingRunwayRequiredM)} m landing · data ${authorityOwner} · ${deskAuthority}`;
+  const dataComm =
+    aircraft.dataCommSupport === "supported"
+      ? "Data Comm equipped"
+      : "voice-only";
+  capability.textContent = `${aircraft.name} · ${aircraft.wakeClass.toUpperCase()} wake · runway ${Math.round(aircraft.takeoffRunwayRequiredM)} m takeoff / ${Math.round(aircraft.landingRunwayRequiredM)} m landing · ${dataComm} · data ${authorityOwner} · ${deskAuthority}`;
   flightActions.append(capability);
   if (flight.phase !== "resting")
     flightActions.append(createNavigationPanel(flight));
@@ -8049,22 +8053,28 @@ function createDigitalClearanceComposerModel(): DigitalClearanceComposerModel {
       );
     })
     .map((flight) => {
+      const dataCommSupport = aircraftProfile(flight.aircraft).dataCommSupport;
       const ownsFlight =
         state.station === "supervisor" ||
         flight.navigation.frequencyOwner === state.station;
       const approachAuthority = simulation.canIssue("approach");
-      const canIssue = ownsFlight && approachAuthority;
+      const canIssue =
+        ownsFlight && approachAuthority && dataCommSupport === "supported";
       return {
         id: flight.id,
         callsign: flight.callsign,
         owner: flight.navigation.frequencyOwner,
+        dataCommSupport,
         canIssue,
         ...(canIssue
           ? {}
           : {
-              unavailableReason: !ownsFlight
-                ? `Owned by ${flight.navigation.frequencyOwner.toUpperCase()}`
-                : "Approach authority required",
+              unavailableReason:
+                dataCommSupport === "voice-only"
+                  ? `${flight.aircraft} modeled voice-only · use direct-to or vector`
+                  : !ownsFlight
+                    ? `Owned by ${flight.navigation.frequencyOwner.toUpperCase()}`
+                    : "Approach authority required",
             }),
         clearanceStatus: flight.navigation.routeClearance?.status,
         clearanceSafeToIssue: flight.navigation.routeClearance?.safeToIssue,
@@ -9626,6 +9636,7 @@ function airportSnapshot() {
         category: flight.category,
         fleetRole: aircraftProfile(flight.aircraft).fleetRole,
         wakeClass: flight.wakeClass,
+        dataCommSupport: aircraftProfile(flight.aircraft).dataCommSupport,
         lengthM: aircraftProfile(flight.aircraft).lengthM,
         wingspanM: aircraftProfile(flight.aircraft).wingspanM,
         heightM: aircraftProfile(flight.aircraft).heightM,

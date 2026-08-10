@@ -4368,6 +4368,13 @@ export class AirportSimulation {
       );
       return null;
     }
+    if (aircraftProfile(flight.aircraft).dataCommSupport === "voice-only") {
+      this.rejectDecision(
+        `${flight.callsign} is modeled voice-only; use direct-to or vector controls`,
+        flight,
+      );
+      return null;
+    }
     if (flight.navigation.hold) {
       this.rejectDecision(
         "release the aircraft from its hold before amending the route",

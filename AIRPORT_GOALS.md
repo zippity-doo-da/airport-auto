@@ -804,14 +804,19 @@ domain events that produced it. Shareable replay strips those correlation keys
 alongside controller identity and free text. Reset and retention limits are
 deterministic, while the local replay and live panel continue deriving their
 richer presentation from authoritative flight state.
-Digital-clearance envelope schema 3 now distinguishes actual staged Data Comm
+Digital-clearance envelope schema 4 now distinguishes actual staged Data Comm
 packages from immediate voice/action instructions, inter-position coordination,
 and passive operational records. Every message carries typed channel, selected-
-desk access, response surface, and generic-equipage status. The panel states
+desk access, response surface, and profile-level equipage status. The panel states
 whether its current desk is authorized, must receive a handoff, can respond in
 the composer, must use flight controls, or can only monitor the record. The same
 bounded capability metadata survives analytics and the redacted remote-agent
 projection; no alternate executor or hidden authority was added.
+The aircraft catalog now makes its fictional equipage assumption explicit:
+scheduled transports are Data Comm-capable while the C172 validation profile is
+voice-only. Voice-only flights remain visible in the composer but cannot preview,
+send, or accept a digital route package; the shared simulation arbiter directs
+the controller to the existing direct-to or vector voice workflow instead.
 
 ### Gameplay and UX
 
@@ -824,7 +829,7 @@ projection; no alternate executor or hidden authority was added.
       Active vector, hold, speed, altitude, and route state now project as
       structured messages, as do departure, taxi, and crossing state; direct-to,
       and frequency state now use dedicated envelopes, and every active-flight plan
-      amendment is exposed as a stable, timestamped Revision message. Version 3
+      amendment is exposed as a stable, timestamped Revision message. Version 4
       envelopes carry deterministic command IDs, causal references, expiry, and
       structured response timing plus typed channel, desk-access, response-mode,
       and aircraft-support limitations. Atomic route packages use one compound envelope
@@ -849,15 +854,17 @@ projection; no alternate executor or hidden authority was added.
   before executing, emit an ordered immediate-action event chain, and prevent
   stale later application. Dedicated ground-stop presentation,
   conflict-resolution phraseology, and broader spoken-action work remain open.
-- [~] Show aircraft capability and station/data-authority limitations without
+- [x] Show aircraft capability and station/data-authority limitations without
   turning the interface into avionics configuration management. The selected
   flight panel now shows aircraft/wake class, required takeoff and landing
   runway length, current data authority, and whether the selected desk can
   issue a clearance or must obtain a transfer. Each message now also identifies
   Data Comm, voice/action, coordination, or record-only channel; current-desk
-  authority; the valid response surface; and the fact that aircraft Data Comm
-  equipage is still modeled generically. Aircraft-specific equipage and broader
-  performance capability limits remain open.
+  authority; and the valid response surface. The aircraft catalog now records a
+  visible profile-level Data Comm or voice-only assumption, the composer blocks
+  voice-only route packages, and the shared arbiter rejects direct/API attempts
+  with a usable vector/direct-to alternative. These are fictional game-level
+  assumptions, not claims about an operator's installed avionics.
 - [x] Provide concise keyboard flows and an Assisted composer that explains why
       a message is valid, delayed, or rejected. Clearance rows are keyboard
       focusable and move to the existing flight workflow; the advisor now offers a
@@ -871,7 +878,7 @@ projection; no alternate executor or hidden authority was added.
 
 - [~] Define one versioned message envelope containing authority, command IDs,
   causal event IDs, content fields, delivery timing, response, and expiry.
-  Version 3 projections now include these fields plus typed channel, desk-access,
+  Version 4 projections now include these fields plus typed channel, desk-access,
   response-mode, and aircraft-support limitations for every projected message;
   route messages distinguish delivery, expected response, hard expiry, and
   terminal response timing. Every route lifecycle transition now receives a

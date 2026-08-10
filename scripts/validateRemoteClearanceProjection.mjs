@@ -14,6 +14,7 @@ const snapshot = projectRemoteOperationsSnapshot({
     id: 7,
     callsign: 'TEST 7',
     phase: 'taxi-out',
+    aircraft: { model: 'C172', name: '172S Skyhawk', category: 'regional', wakeClass: 'light', dataCommSupport: 'voice-only' },
     poseAlignment: {
       schemaVersion: 1,
       authoritative: { x: 1, y: 2, onGround: true },
@@ -23,7 +24,7 @@ const snapshot = projectRemoteOperationsSnapshot({
     },
   }],
   digitalClearances: {
-    schemaVersion: 3,
+    schemaVersion: 4,
     generatedAtSeconds: 18,
     counts: { delivered: 1 },
     messages: [{
@@ -44,7 +45,7 @@ const snapshot = projectRemoteOperationsSnapshot({
       route: ['FIX-A', 'FIX-B'],
       parameters: { distanceNm: 14 },
       response: { status: 'delivered', commandId: 'cmd:route-response:7:2', deliveredAtSeconds: 14, dueSeconds: 20 },
-      capability: { channel: 'data', deskAccess: 'authorized', responseMode: 'panel', aircraftSupport: 'simulated-data-comm', limitations: ['generic equipage'] },
+      capability: { channel: 'data', deskAccess: 'authorized', responseMode: 'panel', aircraftSupport: 'data-comm-supported', limitations: [] },
       detail: 'free-form local detail must stay page-local',
       warningCount: 0,
     }],
@@ -96,7 +97,7 @@ const message = snapshot.digitalClearances.messages[0];
 assert(message?.commandId === 'cmd:route:7:2', 'remote projection dropped command identity');
 assert(message.causalEventIds.length === 2 && message.expiresAtSeconds === 20, 'remote projection dropped causal or expiry fields');
 assert(message.response?.status === 'delivered' && message.response.commandId === 'cmd:route-response:7:2' && message.response.deliveredAtSeconds === 14 && message.parameters.distanceNm === 14, 'remote projection dropped typed response content');
-assert(message.capability?.channel === 'data' && message.capability.deskAccess === 'authorized' && message.capability.responseMode === 'panel' && message.capability.limitations.length === 1, 'remote projection dropped typed capability limits');
+assert(message.capability?.channel === 'data' && message.capability.deskAccess === 'authorized' && message.capability.responseMode === 'panel' && message.capability.aircraftSupport === 'data-comm-supported' && message.capability.limitations.length === 0, 'remote projection dropped typed capability limits');
 assert(!Object.hasOwn(message, 'detail'), 'remote projection leaked free-form clearance detail');
 assert(snapshot.surfaceSafety.schemaVersion === 3 && snapshot.surfaceSafety.tracks[0].routeIntent === 'RWY 09', 'remote projection omitted authoritative surface tracks');
 assert(snapshot.surfaceSafety.visible && snapshot.surfaceSafety.filter === 'tower' && snapshot.surfaceSafety.display.lookaheadSeconds === 60, 'remote projection omitted surface display configuration');
@@ -106,6 +107,7 @@ assert(snapshot.surfaceSafety.protectionCorridors[0].operation === 'departure' &
 assert(snapshot.surfaceSafety.advisories[0].geometry.points.length === 2 && snapshot.surfaceSafety.advisories[0].detail === 'runway forecast', 'remote projection omitted bounded surface advisory geometry');
 assert(snapshot.flights[0].poseAlignment.collision.surfaceEdge === 'edge-a' && snapshot.flights[0].poseAlignment.renderer.visible, 'remote projection omitted render/collision pose alignment');
 assert(snapshot.flights[0].poseAlignment.errors.collisionHorizontalWorld === 0 && snapshot.flights[0].poseAlignment.errors.rendererAuthoritativeHorizontalWorld > 0, 'remote projection changed pose-alignment diagnostics');
+assert(snapshot.flights[0].aircraft.dataCommSupport === 'voice-only', 'remote flight projection omitted pre-command Data Comm capability');
 console.log(JSON.stringify({ schemaVersion: snapshot.digitalClearances.schemaVersion, messages: snapshot.digitalClearances.messages.length }));
 `;
 

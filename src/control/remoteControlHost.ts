@@ -114,6 +114,7 @@ function compactFlight(value: unknown): JsonRecord | null {
       name: aircraft.name ?? null,
       category: aircraft.category ?? value.category ?? null,
       wakeClass: aircraft.wakeClass ?? value.wakeClass ?? null,
+      dataCommSupport: aircraft.dataCommSupport ?? null,
     },
     altitudeFt: number(kinematics.altitudeFt) ?? 0,
     airspeedKts: number(kinematics.airspeedKts) ?? 0,

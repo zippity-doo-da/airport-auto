@@ -1,4 +1,5 @@
 import type { AirportState, Flight, FlightRouteClearanceState } from "./types";
+import { aircraftProfile } from "./aircraftProfiles";
 
 export type DigitalClearanceChannel =
   "data" | "voice" | "coordination" | "state-record";
@@ -12,8 +13,8 @@ export interface DigitalClearanceCapability {
   deskAccess: DigitalClearanceDeskAccess;
   /** Where a controller can respond; the inbox never invents an executor. */
   responseMode: DigitalClearanceResponseMode;
-  /** Aircraft equipage is deliberately generic until profile data is sourced. */
-  aircraftSupport: "simulated-data-comm" | "not-applicable";
+  /** Fictional profile-level equipage assumption, never an operator claim. */
+  aircraftSupport: "data-comm-supported" | "voice-only" | "not-applicable";
   limitations: string[];
 }
 
@@ -81,7 +82,7 @@ export interface DigitalClearanceMessage extends DigitalClearanceDraft {
 }
 
 export interface DigitalClearanceSnapshot {
-  schemaVersion: 3;
+  schemaVersion: 4;
   generatedAtSeconds: number;
   messages: DigitalClearanceMessage[];
   counts: Record<DigitalClearanceStatus, number>;
@@ -106,7 +107,7 @@ export function digitalClearanceSnapshot(
   const counts = emptyCounts();
   for (const message of messages) counts[message.status] += 1;
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     generatedAtSeconds: state.elapsed,
     messages,
     counts,
@@ -519,11 +520,14 @@ function messageCapability(
       ? "voice-action"
       : "none";
   const limitations: string[] = [];
-  if (channel === "data")
+  const flight = state.flights.find((item) => item.id === draft.flightId);
+  const profile = flight ? aircraftProfile(flight.aircraft) : null;
+  const dataCommSupport = profile?.dataCommSupport ?? "voice-only";
+  if (channel === "data" && dataCommSupport === "voice-only")
     limitations.push(
-      "Aircraft Data Comm equipage is simulated generically, not aircraft-specific.",
+      `${profile?.model ?? "Aircraft"} is modeled voice-only; use direct-to or vector flight controls.`,
     );
-  else
+  else if (channel !== "data")
     limitations.push(
       channel === "state-record"
         ? "Read-only operational record; no clearance was transmitted from this row."
@@ -546,7 +550,11 @@ function messageCapability(
     deskAccess,
     responseMode,
     aircraftSupport:
-      channel === "data" ? "simulated-data-comm" : "not-applicable",
+      channel === "data"
+        ? dataCommSupport === "supported"
+          ? "data-comm-supported"
+          : "voice-only"
+        : "not-applicable",
     limitations,
   };
 }
