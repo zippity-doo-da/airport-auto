@@ -40,10 +40,10 @@ const snapshot = projectRemoteOperationsSnapshot({
       deliveredAtSeconds: 14,
       responseDueSeconds: 20,
       expiresAtSeconds: 20,
-      causalEventIds: ['flight:7', 'clearance:route-amendment:2'],
+      causalEventIds: ['sim:7:route:1', 'sim:7:route:2'],
       route: ['FIX-A', 'FIX-B'],
       parameters: { distanceNm: 14 },
-      response: { status: 'delivered', deliveredAtSeconds: 14, dueSeconds: 20 },
+      response: { status: 'delivered', commandId: 'cmd:route-response:7:2', deliveredAtSeconds: 14, dueSeconds: 20 },
       detail: 'free-form local detail must stay page-local',
       warningCount: 0,
     }],
@@ -94,7 +94,7 @@ const snapshot = projectRemoteOperationsSnapshot({
 const message = snapshot.digitalClearances.messages[0];
 assert(message?.commandId === 'cmd:route:7:2', 'remote projection dropped command identity');
 assert(message.causalEventIds.length === 2 && message.expiresAtSeconds === 20, 'remote projection dropped causal or expiry fields');
-assert(message.response?.status === 'delivered' && message.response.deliveredAtSeconds === 14 && message.parameters.distanceNm === 14, 'remote projection dropped typed response content');
+assert(message.response?.status === 'delivered' && message.response.commandId === 'cmd:route-response:7:2' && message.response.deliveredAtSeconds === 14 && message.parameters.distanceNm === 14, 'remote projection dropped typed response content');
 assert(!Object.hasOwn(message, 'detail'), 'remote projection leaked free-form clearance detail');
 assert(snapshot.surfaceSafety.schemaVersion === 3 && snapshot.surfaceSafety.tracks[0].routeIntent === 'RWY 09', 'remote projection omitted authoritative surface tracks');
 assert(snapshot.surfaceSafety.visible && snapshot.surfaceSafety.filter === 'tower' && snapshot.surfaceSafety.display.lookaheadSeconds === 60, 'remote projection omitted surface display configuration');

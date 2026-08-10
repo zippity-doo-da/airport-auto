@@ -723,6 +723,7 @@ export class AirportSimulation {
   private lastSurfaceReplanSecond = -1;
   private spawnIn: number;
   private events: AirportEvent[] = [];
+  private nextRouteDomainEventId = 1;
   private speed = 1;
   private runwayReservations = new Map<number, number>();
   private runwayOperationHistory: RunwayOperationRecord[] = [];
@@ -3809,7 +3810,7 @@ export class AirportSimulation {
       (warning) => warning.severity === "blocking",
     ).length;
     this.decisionReason = `${flight.callsign} atomic route package preview · ${blocking ? `${blocking} blocking` : "safe to issue"}`;
-    this.events.push({
+    this.pushRouteClearanceEvent({
       type: "route-preview",
       flight,
       detail: this.decisionReason,
@@ -3826,15 +3827,15 @@ export class AirportSimulation {
     const flight = this.routeAmendmentFlight(id);
     if (!flight) return false;
     const existing = flight.navigation.routeClearance;
+    const reusesPreview =
+      existing?.status === "preview" &&
+      existing.routeFixIds.join(">") === fixIds.join(">");
     const result = this.compoundRouteCandidate(
       flight,
       fixIds,
       altitudeFt,
       speedKts,
-      existing?.status === "preview" &&
-        existing.routeFixIds.join(">") === fixIds.join(">")
-        ? existing.revision
-        : undefined,
+      reusesPreview ? existing.revision : undefined,
     );
     if (!result.accepted) return this.rejectDecision(result.reason, flight);
     const blocking = result.candidate.clearance.warnings.find(
@@ -3858,6 +3859,8 @@ export class AirportSimulation {
     const readbackDelay = deliveryDelay + 0.9 + (flight.id % 5) * 0.18;
     flight.navigation.routeClearance = {
       ...result.candidate.clearance,
+      commandId: reusesPreview ? existing.commandId : undefined,
+      causalEventIds: reusesPreview ? [...(existing.causalEventIds ?? [])] : [],
       status: "sent",
       issuedAtSeconds: this.state.elapsed,
       deliveryDueSeconds: this.state.elapsed + deliveryDelay,
@@ -3870,7 +3873,7 @@ export class AirportSimulation {
     flight.navigation.readbackStatus = "sent";
     this.metrics.manualCommands += 1;
     this.decisionReason = `${flight.callsign} atomic route package sent · delivery pending`;
-    this.events.push({
+    this.pushRouteClearanceEvent({
       type: "route-clearance-issued",
       flight,
       detail: this.decisionReason,
@@ -4024,7 +4027,7 @@ export class AirportSimulation {
     ).length;
     const cautions = candidate.clearance.warnings.length - blocking;
     this.decisionReason = `${flight.callsign} route preview ready · ${blocking ? `${blocking} blocking` : "safe to issue"}${cautions ? ` · ${cautions} caution${cautions === 1 ? "" : "s"}` : ""}`;
-    this.events.push({
+    this.pushRouteClearanceEvent({
       type: "route-preview",
       flight,
       detail: this.decisionReason,
@@ -4078,7 +4081,7 @@ export class AirportSimulation {
       };
       flight.navigation.readbackStatus = "rejected";
       this.decisionReason = `${flight.callsign} route not issued · ${blocking.detail}`;
-      this.events.push({
+      this.pushRouteClearanceEvent({
         type: "route-readback-rejected",
         flight,
         detail: this.decisionReason,
@@ -4097,6 +4100,8 @@ export class AirportSimulation {
     const readbackDelay = deliveryDelay + 0.9 + (flight.id % 5) * 0.18;
     flight.navigation.routeClearance = {
       ...candidate.clearance,
+      commandId: reusesPreview ? existing.commandId : undefined,
+      causalEventIds: reusesPreview ? [...(existing.causalEventIds ?? [])] : [],
       status: "sent",
       issuedAtSeconds: this.state.elapsed,
       deliveryDueSeconds: this.state.elapsed + deliveryDelay,
@@ -4109,7 +4114,7 @@ export class AirportSimulation {
     flight.navigation.readbackStatus = "sent";
     this.metrics.manualCommands += 1;
     this.decisionReason = `${flight.callsign} route sent · delivery pending`;
-    this.events.push({
+    this.pushRouteClearanceEvent({
       type: "route-clearance-issued",
       flight,
       detail: this.decisionReason,
@@ -4224,7 +4229,7 @@ export class AirportSimulation {
       reason,
     };
     flight.navigation.readbackStatus = "not-required";
-    this.events.push({
+    this.pushRouteClearanceEvent({
       type: "route-clearance-cancelled",
       flight,
       detail: `${flight.callsign} route proposal cancelled · ${reason}`,
@@ -4371,6 +4376,9 @@ export class AirportSimulation {
       );
     const clearance: FlightRouteClearanceState = {
       ...routeResult.value.clearance,
+      commandId: pending.commandId,
+      responseCommandId: pending.responseCommandId,
+      causalEventIds: [...(pending.causalEventIds ?? [])],
       status: "accepted",
       previousRouteFixIds: [...pending.previousRouteFixIds],
       previewedAtSeconds: pending.previewedAtSeconds,
@@ -4386,7 +4394,7 @@ export class AirportSimulation {
     flight.navigation.routeClearance = clearance;
     flight.navigation.readbackStatus = "accepted";
     this.decisionReason = `${flight.callsign} ${pendingSupplements.length ? "atomic package " : ""}readback correct`;
-    this.events.push({
+    this.pushRouteClearanceEvent({
       type: "route-readback-accepted",
       flight,
       detail: this.decisionReason,
@@ -4437,7 +4445,7 @@ export class AirportSimulation {
     };
     flight.navigation.readbackStatus = "rejected";
     this.decisionReason = `${flight.callsign} route readback rejected · ${reason}`;
-    this.events.push({
+    this.pushRouteClearanceEvent({
       type: "route-readback-rejected",
       flight,
       detail: this.decisionReason,
@@ -4459,7 +4467,7 @@ export class AirportSimulation {
     };
     flight.navigation.readbackStatus = "timed-out";
     this.decisionReason = `${flight.callsign} route readback timed out · ${reason}`;
-    this.events.push({
+    this.pushRouteClearanceEvent({
       type: "route-readback-timed-out",
       flight,
       detail: this.decisionReason,
@@ -4524,7 +4532,7 @@ export class AirportSimulation {
     this.state.trafficFlow.totals.routeAmendments += 1;
     if (countManualCommand) this.metrics.manualCommands += 1;
     this.decisionReason = `${flight.callsign} route amendment accepted · ${routeFixIds.length} fixes`;
-    this.events.push({
+    this.pushRouteClearanceEvent({
       type: "route-amendment",
       flight,
       detail: this.decisionReason,
@@ -5736,7 +5744,7 @@ export class AirportSimulation {
           };
           flight.navigation.readbackStatus = "pending";
           this.decisionReason = `${flight.callsign} route delivered · readback pending`;
-          this.events.push({
+          this.pushRouteClearanceEvent({
             type: "route-clearance-delivered",
             flight,
             detail: this.decisionReason,
@@ -6317,6 +6325,16 @@ export class AirportSimulation {
     flight.motion = sampleFlightMotion(this.config, flight);
   }
 
+  private pushRouteClearanceEvent(event: AirportEvent): void {
+    event.domainEventId ??= `sim:${this.config.seed}:route:${this.nextRouteDomainEventId++}`;
+    this.events.push(event);
+    const clearance = event.flight.navigation.routeClearance;
+    if (!clearance) return;
+    clearance.causalEventIds ??= [];
+    if (!clearance.causalEventIds.includes(event.domainEventId))
+      clearance.causalEventIds.push(event.domainEventId);
+  }
+
   drainEvents(): AirportEvent[] {
     const result = this.events;
     this.events = [];
@@ -6330,7 +6348,18 @@ export class AirportSimulation {
   tagEventsSince(cursor: number, commandId: string): void {
     const start = Math.max(0, Math.min(this.events.length, Math.trunc(cursor)));
     for (let index = start; index < this.events.length; index += 1) {
-      this.events[index].causedByCommandId ??= commandId;
+      const event = this.events[index];
+      event.causedByCommandId ??= commandId;
+      if (!event.type.startsWith("route-")) continue;
+      const clearance = event.flight.navigation.routeClearance;
+      if (!clearance) continue;
+      if (
+        event.type === "route-preview" ||
+        event.type === "route-clearance-issued" ||
+        !clearance.commandId
+      )
+        clearance.commandId = commandId;
+      else clearance.responseCommandId = commandId;
     }
   }
 
@@ -16395,6 +16424,9 @@ function cloneRouteClearance(
       ...supplement,
     })),
     safeguards: [...(clearance.safeguards ?? [])],
+    causalEventIds: clearance.causalEventIds
+      ? [...clearance.causalEventIds]
+      : undefined,
   };
 }
 

@@ -1002,6 +1002,12 @@ export interface FlightRouteClearanceState {
   /** Hard validity boundary; a response at or after this time cannot apply. */
   readbackExpiresSeconds?: number;
   respondedAtSeconds?: number;
+  /** Stable control command that created the current preview/transmission. */
+  commandId?: string;
+  /** Stable control command that accepted, rejected, cancelled, or superseded it. */
+  responseCommandId?: string;
+  /** Ordered simulation-domain events that formed this clearance lifecycle. */
+  causalEventIds?: string[];
   issuedBy: ControllerStation;
   distanceNm: number;
   estimatedSeconds: number;
@@ -1495,6 +1501,8 @@ export interface ReplayFrame {
 
 export interface AirportEvent {
   type: AirportDomainEventType;
+  /** Stable simulation-domain identity used before telemetry serialization. */
+  domainEventId?: string;
   flight: Flight;
   runway?: number;
   taxiway?: string;

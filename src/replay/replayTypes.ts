@@ -41,6 +41,7 @@ export interface ReplayTelemetryEvent {
   causedByCommandId?: string;
   causedByControllerDecisionId?: string;
   causedByEventId?: number;
+  domainEventId?: string;
 }
 
 export interface ReplayRecordedCommand {

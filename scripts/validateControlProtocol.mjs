@@ -17,6 +17,8 @@ import {
 } from './src/control/controlProtocol.ts';
 import { AirportSimulation } from './src/simulation/airportSimulation.ts';
 import { generateHubConfig, HUB_AIRPORTS } from './src/simulation/airportConfig.ts';
+import { digitalClearanceSnapshot } from './src/simulation/digitalClearances.ts';
+import { syncFlightMotion } from './src/simulation/flightMotion.ts';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -114,6 +116,7 @@ const sampleEvent = {
   type: 'vector',
   causedByCommandId: 'cmd-validator-1',
   causedByControllerDecisionId: 'controller-validator-1',
+  domainEventId: 'sim:validator:1',
 };
 assert(validateProtocolValue(sampleEvent, protocol.schemas.event).length === 0, 'valid telemetry event failed its schema');
 
@@ -167,11 +170,58 @@ simulation.tagEventsSince(cursor, 'cmd-validator-go-around');
 const tagged = simulation.drainEvents().filter((event) => event.causedByCommandId === 'cmd-validator-go-around');
 assert(tagged.some((event) => event.type === 'go-around'), 'simulation event did not retain its causal command ID');
 
+const routeConfig = generateHubConfig(ordIndex);
+const routeSimulation = new AirportSimulation(routeConfig, 'quiet');
+routeSimulation.setMode('manual');
+routeSimulation.setStation('supervisor');
+const routeFlight = routeSimulation.state.flights.find((flight) => flight.phase === 'approach');
+assert(routeFlight, 'route-causality validation needs an initial arrival');
+routeSimulation.state.flights = [routeFlight];
+routeFlight.progress = 0.18;
+routeFlight.phaseElapsed = routeFlight.duration * routeFlight.progress;
+routeFlight.navigation.frequencyOwner = 'approach';
+syncFlightMotion(routeConfig, routeFlight);
+const routeProcedure = routeConfig.airspaceProgram.procedures.find((candidate) => candidate.id === routeFlight.navigation.procedureId);
+assert(routeProcedure?.kind === 'STAR', 'route-causality flight lost its STAR');
+const routeFixIds = Array.from({ length: Math.max(1, routeProcedure.commonFixIds.length - 2) }, (_, index) => routeProcedure.commonFixIds.slice(index))
+  .filter((fixIds) => fixIds.length >= 3)
+  .sort((first, second) => {
+    const turn = (fixIds) => {
+      const fix = routeConfig.airspaceProgram.fixes.find((candidate) => candidate.id === fixIds[0]);
+      const heading = Math.atan2(fix.position[1] - routeFlight.motion.y, fix.position[0] - routeFlight.motion.x);
+      return Math.abs(Math.atan2(Math.sin(heading - routeFlight.motion.heading), Math.cos(heading - routeFlight.motion.heading)));
+    };
+    return turn(first) - turn(second);
+  })[0];
+assert(routeFixIds, 'route-causality flight has no published amendment');
+let routeCursor = routeSimulation.eventCursor();
+assert(routeSimulation.previewFlightRoute(routeFlight.id, routeFixIds), 'causal route preview was rejected');
+routeSimulation.tagEventsSince(routeCursor, 'cmd-validator-preview');
+routeCursor = routeSimulation.eventCursor();
+assert(routeSimulation.issueFlightRoute(routeFlight.id), 'causal route transmission was rejected');
+routeSimulation.tagEventsSince(routeCursor, 'cmd-validator-issue');
+let routeMessage = digitalClearanceSnapshot(routeSimulation.state).messages.find((message) => message.flightId === routeFlight.id && message.kind === 'route-amendment');
+assert(routeMessage?.commandId === 'cmd-validator-issue', 'digital envelope did not retain the authoritative issue command ID');
+assert(routeMessage.causalEventIds.length === 2 && routeMessage.causalEventIds.every((id) => id.startsWith('sim:')), 'digital envelope retained synthetic rather than domain-event causality');
+const routeEvents = routeSimulation.drainEvents().filter((event) => event.type.startsWith('route-'));
+assert(routeEvents.every((event) => event.domainEventId && routeMessage.causalEventIds.includes(event.domainEventId)), 'domain events cannot be joined back to the digital envelope');
+while (routeFlight.navigation.routeClearance?.status === 'sent') routeSimulation.update(0.1);
+const deliveryEvent = routeSimulation.drainEvents().find((event) => event.type === 'route-clearance-delivered');
+assert(deliveryEvent?.domainEventId, 'asynchronous delivery omitted its domain event ID');
+routeSimulation.setStation('approach');
+routeCursor = routeSimulation.eventCursor();
+assert(routeSimulation.acceptRouteReadback(routeFlight.id), 'causal route readback was rejected');
+routeSimulation.tagEventsSince(routeCursor, 'cmd-validator-readback');
+routeMessage = digitalClearanceSnapshot(routeSimulation.state).messages.find((message) => message.flightId === routeFlight.id && message.kind === 'route-amendment');
+assert(routeMessage?.status === 'wilco' && routeMessage.response.commandId === 'cmd-validator-readback', 'digital response did not retain its authoritative response command ID');
+assert(routeMessage.causalEventIds.includes(deliveryEvent.domainEventId) && routeMessage.causalEventIds.length >= 4, 'digital lifecycle omitted delivered or accepted domain events');
+
 console.log(JSON.stringify({
   commands: definitions.length,
   eventTypes: AIRPORT_DOMAIN_EVENT_TYPES.length,
   schemas: Object.keys(protocol.schemas).length,
   taggedEvents: tagged.length,
+  routeCausalEvents: routeMessage.causalEventIds.length,
 }));
 `;
 

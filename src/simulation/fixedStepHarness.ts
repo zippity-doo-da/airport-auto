@@ -45,6 +45,8 @@ export interface FixedStepHarnessEvent {
   serviceVehicleId?: AirportEvent['serviceVehicleId'];
   serviceVehicleType?: AirportEvent['serviceVehicleType'];
   serviceVehicleStatus?: AirportEvent['serviceVehicleStatus'];
+  domainEventId?: string;
+  causedByCommandId?: string;
   causedByControllerDecisionId?: string;
 }
 
@@ -481,6 +483,8 @@ export class FixedStepSimulationHarness {
         serviceVehicleId: event.serviceVehicleId,
         serviceVehicleType: event.serviceVehicleType,
         serviceVehicleStatus: event.serviceVehicleStatus,
+        domainEventId: event.domainEventId,
+        causedByCommandId: event.causedByCommandId,
         causedByControllerDecisionId: event.causedByControllerDecisionId,
       });
     }

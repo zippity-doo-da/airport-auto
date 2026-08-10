@@ -110,6 +110,7 @@ const telemetryEventSchema: ProtocolJsonSchema = {
     causedByCommandId: { type: "string", minLength: 1 },
     causedByControllerDecisionId: { type: "string", minLength: 1 },
     causedByEventId: { type: "integer", minimum: 1 },
+    domainEventId: { type: "string", minLength: 1 },
     flightId: { type: "integer", minimum: 1 },
     callsign: { type: "string", minLength: 1 },
     runway: { type: "integer", minimum: 0 },

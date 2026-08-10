@@ -3036,6 +3036,7 @@ function frame(now: number): void {
       causedByCommandId: event.causedByCommandId,
       causedByControllerDecisionId: event.causedByControllerDecisionId,
       causedByEventId: event.causedByEventId,
+      domainEventId: event.domainEventId,
       payload: controllerDecision
         ? structuredClone(controllerDecision)
         : routeClearanceEvent && event.flight.navigation.routeClearance
@@ -8798,6 +8799,7 @@ function recordTelemetry(
     causedByCommandId?: string;
     causedByControllerDecisionId?: string;
     causedByEventId?: number;
+    domainEventId?: string;
   },
 ): TelemetryEvent {
   const sequence = ++telemetrySequence;
@@ -8821,6 +8823,7 @@ function recordTelemetry(
       details?.causedByCommandId ?? activeControlCommandId ?? undefined,
     causedByControllerDecisionId: details?.causedByControllerDecisionId,
     causedByEventId: details?.causedByEventId,
+    domainEventId: details?.domainEventId,
   };
   telemetryEvents.push(event);
   if (telemetryEvents.length > 500)
@@ -11586,6 +11589,9 @@ function cloneFlightRouteClearance(
       ...supplement,
     })),
     safeguards: clearance.safeguards ? [...clearance.safeguards] : undefined,
+    causalEventIds: clearance.causalEventIds
+      ? [...clearance.causalEventIds]
+      : undefined,
   };
 }
 

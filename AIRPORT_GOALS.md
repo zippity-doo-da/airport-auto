@@ -769,15 +769,18 @@ invoking toolbar control on close or Escape. A deterministic desktop browser
 flow uses keyboard activation for view navigation, flight/route selection,
 constraints, preview, send, live message inspection, and dismissal; screenshot
 review confirms the retained focus remains visibly identifiable.
-Operations analytics schema 5 now retains a bounded, typed Data Comm lifecycle
+Operations analytics schema 6 now retains a bounded, typed Data Comm lifecycle
 record across Sent, Delivered, Wilco, Unable, Timed Out, cancellation, and
 supersession. The Operations Lab shows total, active, responded, and timed-out
-message counts, and the dedicated `digital-clearances` CSV exposes command and
-causal IDs, authority, route, typed parameters, delivery/response/expiry timing,
-and response latency. Free-form message detail is deliberately excluded from
-that shareable dataset. Reset and retention limits are deterministic, while the
-local replay and live panel continue deriving their richer presentation from
-authoritative flight state.
+message counts, and the dedicated `digital-clearances` CSV exposes separate
+issue and response command IDs plus the authoritative simulation-domain event
+chain, authority, route, typed parameters, delivery/response/expiry timing, and
+response latency. Telemetry, exact replay, and the bounded remote projection
+retain those identifiers so an operator can join a message to the command and
+domain events that produced it. Shareable replay strips those correlation keys
+alongside controller identity and free text. Reset and retention limits are
+deterministic, while the local replay and live panel continue deriving their
+richer presentation from authoritative flight state.
 
 ### Gameplay and UX
 
@@ -832,9 +835,12 @@ authoritative flight state.
   causal event IDs, content fields, delivery timing, response, and expiry.
   Version 2 projections now include these fields for every projected message;
   route messages distinguish delivery, expected response, hard expiry, and
-  terminal response timing. Causal
-  references are deterministic flight/clearance identifiers until the full
-  event-history export is added.
+  terminal response timing. Every route lifecycle transition now receives a
+  deterministic simulation-domain event ID at creation, retains the complete
+  causal chain across issue, delivery, and response, and records the issuing and
+  responding command IDs separately. Telemetry, replay, analytics, and remote
+  projections preserve that chain; non-route message kinds still use stable
+  compatibility references rather than full domain-event histories.
 - [x] Reuse staged pilot-response and route-readback behavior rather than adding
       a parallel command executor. Compound previews are route-clearance schema
       2 records and use the existing Sent, delivery, pending-readback,
@@ -850,8 +856,9 @@ authoritative flight state.
       projections with free text excluded from shared exports. Replay and live
       views derive versioned messages from authoritative state; the remote
       projection carries bounded typed envelope fields without free-form detail,
-      controller evaluation includes status/kind counts, and analytics schema 5
-      retains bounded lifecycle records plus a dedicated redacted CSV dataset.
+      controller evaluation includes status/kind counts, and analytics schema 6
+      retains bounded lifecycle records, separate issue/response commands, and
+      authoritative domain-event causality plus a dedicated redacted CSV dataset.
 
 ### Acceptance gate
 
@@ -870,7 +877,9 @@ authoritative flight state.
   Sent transmissions and pending route readbacks are tested to cancel on a
   station transfer; route-only and atomic packages are tested to time out
   without partial application and to reject premature and late direct
-  acceptance. Non-route staged-message coverage remains open.
+  acceptance. Their lifecycle assertions now join issued and responding commands
+  to the exact preview, issue, delivery, and response domain events. Non-route
+  staged-message coverage remains open.
 - [x] Screen-reader and keyboard users can compose, inspect, send, and dismiss a
       clearance without losing focus. Data Comm exposes its expanded state,
       moves focus into the panel, restores the invoking control on close or

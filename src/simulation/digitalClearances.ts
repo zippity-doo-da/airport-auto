@@ -41,6 +41,9 @@ interface DigitalClearanceDraft {
   parameters: Record<string, string | number>;
   detail: string;
   warningCount: number;
+  commandId?: string;
+  responseCommandId?: string;
+  causalEventIds?: string[];
 }
 
 export interface DigitalClearanceMessage extends DigitalClearanceDraft {
@@ -52,6 +55,7 @@ export interface DigitalClearanceMessage extends DigitalClearanceDraft {
   expiresAtSeconds: number | null;
   response: {
     status: DigitalClearanceStatus;
+    commandId?: string;
     deliveredAtSeconds?: number;
     dueSeconds?: number;
     respondedAtSeconds?: number;
@@ -390,6 +394,11 @@ function routeClearanceMessage(
             .join(" · ")}.`
         : "Route proposal awaiting controller action."),
     warningCount: clearance.warnings.length,
+    commandId: clearance.commandId,
+    responseCommandId: clearance.responseCommandId,
+    causalEventIds: clearance.causalEventIds
+      ? [...clearance.causalEventIds]
+      : undefined,
   };
 }
 
@@ -419,6 +428,7 @@ function routeStatus(
 }
 
 function toEnvelope(draft: DigitalClearanceDraft): DigitalClearanceMessage {
+  const { responseCommandId, ...envelopeDraft } = draft;
   const terminal = [
     "wilco",
     "unable",
@@ -432,15 +442,18 @@ function toEnvelope(draft: DigitalClearanceDraft): DigitalClearanceMessage {
       draft.responseDueSeconds ??
       draft.createdAtSeconds + 90);
   return {
-    ...draft,
-    commandId: `cmd:${draft.id}`,
-    causalEventIds: [
-      `flight:${draft.flightId}`,
-      `clearance:${draft.kind}:${draft.revision}`,
-    ],
+    ...envelopeDraft,
+    commandId: draft.commandId ?? `cmd:${draft.id}`,
+    causalEventIds: draft.causalEventIds?.length
+      ? [...draft.causalEventIds]
+      : [
+          `flight:${draft.flightId}`,
+          `clearance:${draft.kind}:${draft.revision}`,
+        ],
     expiresAtSeconds,
     response: {
       status: draft.status,
+      ...(responseCommandId ? { commandId: responseCommandId } : {}),
       ...(draft.deliveredAtSeconds === undefined
         ? {}
         : { deliveredAtSeconds: draft.deliveredAtSeconds }),

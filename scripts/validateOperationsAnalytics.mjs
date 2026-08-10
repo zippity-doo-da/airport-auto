@@ -60,7 +60,7 @@ second.taxiway = 'Alpha';
 second.controlHold = true;
 second.kinematics.groundSpeedKts = 0;
 first.navigation.routeClearance = {
-  schemaVersion: 2, revision: 7, status: 'sent', routeFixIds: ['FIX-A'], routeFixNames: ['NORTH'], previousRouteFixIds: [], supplements: [], safeguards: [],
+  schemaVersion: 2, revision: 7, status: 'sent', routeFixIds: ['FIX-A'], routeFixNames: ['NORTH'], previousRouteFixIds: [], supplements: [], safeguards: [], commandId: 'cmd:analytics:issue', causalEventIds: ['sim:analytics:route:1'],
   previewedAtSeconds: 0, issuedAtSeconds: 0, deliveryDueSeconds: 1, readbackDueSeconds: 2, readbackExpiresSeconds: 8, issuedBy: 'approach', distanceNm: 10, estimatedSeconds: 240, initialTurnDegrees: 8, safeToIssue: true, warnings: [], reason: 'PRIVATE SENT DETAIL',
 };
 second.navigation.routeClearance = {
@@ -81,7 +81,7 @@ simulation.state.trafficFlow.history = [];
 for (let elapsed = 0; elapsed < 4; elapsed += 1) {
   simulation.state.elapsed = elapsed;
   if (elapsed === 2) {
-    first.navigation.routeClearance = { ...first.navigation.routeClearance, status: 'accepted', deliveredAtSeconds: 1, respondedAtSeconds: 2, reason: 'PRIVATE WILCO DETAIL' };
+    first.navigation.routeClearance = { ...first.navigation.routeClearance, status: 'accepted', deliveredAtSeconds: 1, respondedAtSeconds: 2, responseCommandId: 'cmd:analytics:readback', causalEventIds: [...first.navigation.routeClearance.causalEventIds, 'sim:analytics:route:2'], reason: 'PRIVATE WILCO DETAIL' };
     simulation.state.trafficFlow.arrivalQueue[0].releaseSlotSeconds = 90;
     simulation.state.trafficFlow.arrivalQueue[0].slotRevisions.push({ atSeconds: 2, releaseSlotSeconds: 90, reason: 'weather recovery arrival metering', category: 'weather' });
   }
@@ -111,7 +111,7 @@ surfaceSafety = advisoryTracker.update(surfaceSafetySnapshot(config, simulation.
 assert(recorder.record({ state: simulation.state, predictions: [surfacePrediction], queues, metrics: simulation.shiftMetrics(), surfaceSafety }), 'reactivated advisory sample was rejected');
 
 const snapshot = recorder.snapshot(simulation.state, queues, first.id);
-assert(snapshot.schemaVersion === 5 && snapshot.sessionId === 'analytics-session', 'analytics schema/session drifted');
+assert(snapshot.schemaVersion === 6 && snapshot.sessionId === 'analytics-session', 'analytics schema/session drifted');
 assert(snapshot.flights.length >= 2 && snapshot.selectedFlightSamples.length === 6, 'flight recorder samples are incomplete');
 assert(snapshot.selectedFlightSamples[0].altitudeFt === 720 && snapshot.selectedFlightSamples[0].fuelPercent === 14.5, 'authoritative kinematics were not retained');
 assert(snapshot.runwayUtilization.some((entry) => entry.occupiedSeconds >= 4 && entry.movements >= 1), 'runway utilization was not accumulated');
@@ -126,8 +126,8 @@ assert(snapshot.summary.flowEntriesObserved === 1 && snapshot.summary.flowSlotRe
 assert(snapshot.trafficFlowRevisions.length === 3 && snapshot.trafficFlowRevisions.filter((entry) => entry.kind === 'revision').map((entry) => entry.shiftSeconds).sort((a, b) => a - b).join(',') === '-10,30', 'flow revisions lost their signed schedule changes');
 assert(snapshot.trafficFlowCauses.find((entry) => entry.category === 'weather')?.delayAddedSeconds === 30 && snapshot.trafficFlowCauses.find((entry) => entry.category === 'runway')?.delayRecoveredSeconds === 10, 'flow cause rollup lost added or recovered delay');
 assert(snapshot.trafficFlowRevisions.find((entry) => entry.reason === 'weather recovery arrival metering')?.causeCode === 'weather-capacity' && snapshot.trafficFlowRevisions.find((entry) => entry.reason === 'weather recovery arrival metering')?.source === 'weather', 'flow revision analytics omitted structured cause/source attribution');
-const acceptedClearance = snapshot.digitalClearances.find((entry) => entry.commandId === 'cmd:route:' + first.id + ':7');
-assert(acceptedClearance?.status === 'wilco' && acceptedClearance.deliveredAtSeconds === 1 && acceptedClearance.respondedAtSeconds === 2 && acceptedClearance.responseSeconds === 1, 'digital-clearance analytics lost the delivered/readback lifecycle');
+const acceptedClearance = snapshot.digitalClearances.find((entry) => entry.commandId === 'cmd:analytics:issue');
+assert(acceptedClearance?.status === 'wilco' && acceptedClearance.responseCommandId === 'cmd:analytics:readback' && acceptedClearance.deliveredAtSeconds === 1 && acceptedClearance.respondedAtSeconds === 2 && acceptedClearance.responseSeconds === 1 && acceptedClearance.causalEventIds.length === 2, 'digital-clearance analytics lost the delivered/readback causal lifecycle');
 assert(snapshot.digitalClearanceSummary.total === snapshot.summary.digitalClearancesObserved && snapshot.digitalClearanceSummary.responded >= 2 && snapshot.digitalClearanceSummary.timedOut >= 1, 'digital-clearance analytics summary is incomplete');
 assert(!('detail' in acceptedClearance) && !JSON.stringify(snapshot.digitalClearances).includes('PRIVATE'), 'digital-clearance analytics retained free-form message detail');
 assert(snapshot.disclosure.localOnly && !snapshot.disclosure.cloudUpload && !snapshot.disclosure.shareableByDefault, 'local/privacy disclosure drifted');
@@ -135,7 +135,7 @@ assert(snapshot.disclosure.localOnly && !snapshot.disclosure.cloudUpload && !sna
 const commands = [{ action: 'holdPosition', flightId: second.id, actorId: 'fixture-controller' }];
 const events = [{ type: 'command:holdPosition', flightId: second.id, accepted: true }];
 const bundle = buildOperationsExportBundle(snapshot, recorder.allFlightSamples(), commands, events, queues);
-assert(bundle.schemaVersion === 5 && bundle.flightRecorder.length >= 8 && bundle.commands.length === 1 && bundle.events.length === 1, 'JSON bundle omitted a dataset');
+assert(bundle.schemaVersion === 6 && bundle.flightRecorder.length >= 8 && bundle.commands.length === 1 && bundle.events.length === 1, 'JSON bundle omitted a dataset');
 for (const dataset of OPERATIONS_EXPORT_DATASETS) {
   const csv = serializeOperationsCsv(bundle, dataset, dataset === 'flight-recorder' ? first.id : undefined);
   assert(csv.includes('\\r\\n'), dataset + ' CSV did not contain a header terminator');

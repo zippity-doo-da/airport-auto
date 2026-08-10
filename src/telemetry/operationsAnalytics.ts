@@ -21,8 +21,8 @@ import type {
 } from "../simulation/types";
 import { trafficFlowRevisionAttribution } from "../simulation/trafficFlowManagement";
 
-export const OPERATIONS_ANALYTICS_SCHEMA_VERSION = 5 as const;
-export const OPERATIONS_EXPORT_SCHEMA_VERSION = 5 as const;
+export const OPERATIONS_ANALYTICS_SCHEMA_VERSION = 6 as const;
+export const OPERATIONS_EXPORT_SCHEMA_VERSION = 6 as const;
 
 export const OPERATIONS_EXPORT_DATASETS = [
   "flights",
@@ -187,9 +187,10 @@ export interface TrafficFlowCauseAnalyticsRecord {
 }
 
 export interface DigitalClearanceAnalyticsRecord {
-  schemaVersion: 1;
+  schemaVersion: 2;
   id: string;
   commandId: string;
+  responseCommandId: string | null;
   flightId: number;
   callsign: string;
   kind: DigitalClearanceMessage["kind"];
@@ -1024,9 +1025,10 @@ export class OperationsAnalyticsRecorder {
         message.respondedAtSeconds ?? message.response.respondedAtSeconds;
       const responseOrigin = deliveredAtSeconds ?? message.issuedAtSeconds;
       const record: DigitalClearanceAnalyticsRecord = {
-        schemaVersion: 1,
+        schemaVersion: 2,
         id: message.id,
         commandId: message.commandId,
+        responseCommandId: message.response.commandId ?? null,
         flightId: message.flightId,
         callsign: message.callsign,
         kind: message.kind,
