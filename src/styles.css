@@ -2445,6 +2445,7 @@ summary:focus-visible {
   color: var(--amber);
 }
 .route-clearance[data-status="rejected"] .route-clearance__heading span,
+.route-clearance[data-status="timed-out"] .route-clearance__heading span,
 .route-clearance[data-status="cancelled"] .route-clearance__heading span {
   color: #ef937f;
 }
@@ -5341,6 +5342,13 @@ button.queue-entry:focus-visible,
 }
 .digital-clearance__message[data-status="unable"] {
   border-left-color: var(--rose);
+}
+.digital-clearance__message[data-status="timed-out"] {
+  border-left-color: #ef937f;
+  background: rgba(239, 147, 127, 0.08);
+}
+.digital-clearance__message[data-status="timed-out"] > div span {
+  color: #ef937f;
 }
 .digital-clearance__message > div {
   display: flex;

@@ -98,6 +98,15 @@ assert(routeFixture.simulation.directFlightTo(routeFlight.id, directFixId), 'dir
 assert(routeFlight.navigation.routeClearance?.status === 'cancelled', 'direct-to did not cancel the superseded route readback');
 for (let tick = 0; tick < 40; tick += 1) routeFixture.simulation.update(0.1);
 assert(routeFlight.navigation.routeClearance?.status === 'cancelled', 'cancelled route readback was later auto-accepted');
+const supersededReadback = routeFlight.navigation.routeClearance.status;
+const timeoutRevision = routeFlight.flightPlan.revision;
+const timeoutRoute = routeFlight.navigation.routeFixIds.join(',');
+assert(routeFixture.simulation.previewFlightRoute(routeFlight.id, routeFlight.navigation.routeFixIds), 'timeout fixture could not preview its current route');
+assert(routeFixture.simulation.issueFlightRoute(routeFlight.id), 'timeout fixture could not issue its route');
+routeFlight.navigation.routeClearance.readbackDueSeconds = routeFlight.navigation.routeClearance.readbackExpiresSeconds + 1;
+for (let tick = 0; tick < 100 && routeFlight.navigation.routeClearance?.status === 'pending-readback'; tick += 1) routeFixture.simulation.update(0.1);
+assert(routeFlight.navigation.routeClearance?.status === 'timed-out' && routeFlight.navigation.readbackStatus === 'timed-out', 'route-only readback did not time out at its hard deadline');
+assert(routeFlight.flightPlan.revision === timeoutRevision && routeFlight.navigation.routeFixIds.join(',') === timeoutRoute, 'timed-out route-only instruction changed authoritative navigation');
 
 const conflictFixture = isolatedSimulation();
 const conflictFlight = conflictFixture.flight;
@@ -200,7 +209,8 @@ assert(diversionEvents.some((event) => event.type === 'diversion') && diversionE
 console.log(JSON.stringify({
   routeFixes: amendedFixIds.length,
   routeReadback: 'accepted',
-  supersededReadback: routeFlight.navigation.routeClearance.status,
+  supersededReadback,
+  timedOutReadback: routeFlight.navigation.routeClearance.status,
   blockingPreview: conflictFlight.navigation.routeClearance.warnings[0].conflictingCallsign,
   taxiSegments: surfaceFlight.surfaceRouteEdges.length,
   holdUsesContinuousBraking: true,

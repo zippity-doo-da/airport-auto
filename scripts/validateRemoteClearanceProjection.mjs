@@ -8,7 +8,7 @@ function assert(condition, message) {
 }
 
 const snapshot = projectRemoteOperationsSnapshot({
-  schemaVersion: 42,
+  schemaVersion: 43,
   airport: { code: 'ORD', name: 'Chicago O’Hare' },
   flights: [{
     id: 7,

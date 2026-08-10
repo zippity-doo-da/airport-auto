@@ -342,6 +342,7 @@ const PHASE_DURATION: Record<FlightPhase, number> = {
 
 const HANDOFF_RESPONSE_SECONDS = 12;
 const HANDOFF_RETRY_SECONDS = 4;
+const ROUTE_READBACK_VALIDITY_SECONDS = 8;
 
 function incidentResponsePhaseLabel(
   phase: SurfaceDisruptionState["responsePhase"],
@@ -3803,6 +3804,8 @@ export class AirportSimulation {
       status: "pending-readback",
       issuedAtSeconds: this.state.elapsed,
       readbackDueSeconds: this.state.elapsed + readbackDelay,
+      readbackExpiresSeconds:
+        this.state.elapsed + ROUTE_READBACK_VALIDITY_SECONDS,
       issuedBy: issuingStation,
       reason: "atomic route package awaiting pilot readback",
     };
@@ -4026,6 +4029,8 @@ export class AirportSimulation {
       status: "pending-readback",
       issuedAtSeconds: this.state.elapsed,
       readbackDueSeconds: this.state.elapsed + readbackDelay,
+      readbackExpiresSeconds:
+        this.state.elapsed + ROUTE_READBACK_VALIDITY_SECONDS,
       issuedBy: issuingStation,
       reason: "awaiting pilot readback",
     };
@@ -4059,6 +4064,15 @@ export class AirportSimulation {
         flight,
       );
     }
+    if (
+      pending.readbackExpiresSeconds !== undefined &&
+      this.state.elapsed + 1e-6 >= pending.readbackExpiresSeconds
+    )
+      return this.timeoutRouteReadback(
+        flight,
+        pending,
+        "route readback arrived after the response deadline",
+      );
     // A supervisor may issue a route on behalf of the current frequency, but
     // cannot consume its pilot readback. Keeping the acknowledgement with the
     // actual issuing desk prevents an accepted handoff from silently applying
@@ -4205,6 +4219,15 @@ export class AirportSimulation {
   private resolveRouteReadback(flight: Flight): boolean {
     const pending = flight.navigation.routeClearance;
     if (!pending || pending.status !== "pending-readback") return false;
+    if (
+      pending.readbackExpiresSeconds !== undefined &&
+      this.state.elapsed + 1e-6 >= pending.readbackExpiresSeconds
+    )
+      return this.timeoutRouteReadback(
+        flight,
+        pending,
+        "route readback response window expired",
+      );
     if (flight.navigation.frequencyOwner !== pending.issuedBy) {
       this.supersedeActiveRouteClearance(
         flight,
@@ -4261,6 +4284,7 @@ export class AirportSimulation {
       previewedAtSeconds: pending.previewedAtSeconds,
       issuedAtSeconds: pending.issuedAtSeconds,
       readbackDueSeconds: pending.readbackDueSeconds,
+      readbackExpiresSeconds: pending.readbackExpiresSeconds,
       respondedAtSeconds: this.state.elapsed,
       issuedBy: pending.issuedBy,
       reason: pendingSupplements.length
@@ -4323,6 +4347,28 @@ export class AirportSimulation {
     this.decisionReason = `${flight.callsign} route readback rejected · ${reason}`;
     this.events.push({
       type: "route-readback-rejected",
+      flight,
+      detail: this.decisionReason,
+    });
+    return false;
+  }
+
+  private timeoutRouteReadback(
+    flight: Flight,
+    pending: FlightRouteClearanceState,
+    reason: string,
+  ): false {
+    flight.navigation.routeClearance = {
+      ...pending,
+      status: "timed-out",
+      respondedAtSeconds: this.state.elapsed,
+      safeToIssue: false,
+      reason,
+    };
+    flight.navigation.readbackStatus = "timed-out";
+    this.decisionReason = `${flight.callsign} route readback timed out · ${reason}`;
+    this.events.push({
+      type: "route-readback-timed-out",
       flight,
       detail: this.decisionReason,
     });
@@ -5507,10 +5553,21 @@ export class AirportSimulation {
         );
         continue;
       }
-      if (
-        this.state.elapsed + 1e-6 >=
-        (clearance.readbackDueSeconds ?? Infinity)
-      )
+      const due = clearance.readbackDueSeconds ?? Infinity;
+      const expires = clearance.readbackExpiresSeconds ?? Infinity;
+      if (this.state.elapsed + 1e-6 >= due && due < expires) {
+        this.resolveRouteReadback(flight);
+        continue;
+      }
+      if (this.state.elapsed + 1e-6 >= expires) {
+        this.timeoutRouteReadback(
+          flight,
+          clearance,
+          "route readback response window expired",
+        );
+        continue;
+      }
+      if (this.state.elapsed + 1e-6 >= due)
         this.resolveRouteReadback(flight);
     }
   }

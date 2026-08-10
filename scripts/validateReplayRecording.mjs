@@ -138,7 +138,7 @@ const events = [
 
 const recording = createReplayRecording({
   protocolVersion: '1.2.0',
-  snapshotSchemaVersion: 42,
+  snapshotSchemaVersion: 43,
   simulationVersion: '2.40.0',
   fixedStepSeconds: 0.05,
   sessionId: 'session-test',

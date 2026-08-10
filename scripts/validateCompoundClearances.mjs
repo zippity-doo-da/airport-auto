@@ -93,6 +93,29 @@ assert(!simulation.acceptRouteReadback(flight.id), 'package with a new blocking 
 assert(flight.navigation.routeClearance?.status === 'rejected', 'failed final package check did not retain Unable state');
 assert(flight.navigation.routeFixIds.join('>') === acceptedRoute && flight.navigation.assignedAltitudeFt === acceptedAltitude && flight.navigation.assignedSpeedKts === acceptedSpeed, 'failed final check partially applied the compound package');
 
+simulation.state.flights = [flight];
+assert(simulation.previewCompoundFlightRoute(flight.id, fixIds, 4_500, 200), 'timeout package could not be previewed');
+assert(simulation.issueFlightRoute(flight.id), 'timeout package could not be issued');
+const timeoutClearance = flight.navigation.routeClearance;
+assert(timeoutClearance?.status === 'pending-readback' && timeoutClearance.readbackExpiresSeconds > timeoutClearance.readbackDueSeconds, 'issued package omitted its hard response deadline');
+timeoutClearance.readbackDueSeconds = timeoutClearance.readbackExpiresSeconds + 10;
+while (flight.navigation.routeClearance?.status === 'pending-readback') simulation.update(0.1);
+assert(flight.navigation.routeClearance?.status === 'timed-out' && flight.navigation.readbackStatus === 'timed-out', 'expired package did not enter authoritative Timed Out state');
+assert(flight.navigation.routeFixIds.join('>') === acceptedRoute && flight.navigation.assignedAltitudeFt === acceptedAltitude && flight.navigation.assignedSpeedKts === acceptedSpeed, 'timed-out package partially changed an instruction');
+snapshot = digitalClearanceSnapshot(simulation.state);
+const timedOut = snapshot.messages.find((message) => message.kind === 'compound-clearance');
+assert(timedOut?.status === 'timed-out' && timedOut.expiresAtSeconds === null && timedOut.response.respondedAtSeconds === flight.navigation.routeClearance.respondedAtSeconds, 'timed-out package did not project as a terminal digital envelope');
+assert(!simulation.acceptRouteReadback(flight.id), 'late readback applied after package timeout');
+assert(simulation.lastCommandReason().includes('no pending route readback'), 'late readback rejection was not explicit');
+assert(simulation.drainEvents().some((event) => event.type === 'route-readback-timed-out'), 'timeout did not emit a typed lifecycle event');
+assert(simulation.previewCompoundFlightRoute(flight.id, fixIds, 4_500, 200), 'controller could not create a fresh revision after timeout');
+assert(simulation.issueFlightRoute(flight.id), 'fresh post-timeout package could not be issued');
+const lateReadback = flight.navigation.routeClearance;
+simulation.state.elapsed = lateReadback.readbackExpiresSeconds;
+assert(!simulation.acceptRouteReadback(flight.id), 'readback accepted at its hard expiry boundary');
+assert(flight.navigation.routeClearance?.status === 'timed-out', 'late direct acceptance did not retain Timed Out state');
+assert(flight.navigation.routeFixIds.join('>') === acceptedRoute && flight.navigation.assignedAltitudeFt === acceptedAltitude && flight.navigation.assignedSpeedKts === acceptedSpeed, 'late direct acceptance partially applied the package');
+
 assert(!simulation.previewCompoundFlightRoute(flight.id, fixIds), 'route-only request was accepted by the compound endpoint');
 assert(simulation.lastCommandReason().includes('requires altitude or speed'), 'route-only package rejection was not explainable');
 
@@ -102,6 +125,7 @@ console.log(JSON.stringify({
   accepted: 1,
   cancelled: 1,
   rejectedAtReadback: 1,
+  timedOut: 2,
   messages: snapshot.messages.length,
 }));
 `;

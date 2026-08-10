@@ -201,7 +201,7 @@ test("Assisted ORD shift exposes proposals, station workload, and structured con
       requestId: "e2e-authority-rejection",
       source: "test",
       authority: { station: "tower", actorId: "tower-test-agent" },
-      expects: { apiVersion: "2.40.0", snapshotSchemaVersion: 42 },
+      expects: { apiVersion: "2.40.0", snapshotSchemaVersion: 43 },
       command: { action: "pause" },
     });
     const paused = window.airportControl.dispatch({
@@ -210,7 +210,7 @@ test("Assisted ORD shift exposes proposals, station workload, and structured con
       clientId: "playwright",
       source: "test",
       authority: { station: "supervisor", actorId: "supervisor-test-agent" },
-      expects: { apiVersion: "2.40.0", snapshotSchemaVersion: 42 },
+      expects: { apiVersion: "2.40.0", snapshotSchemaVersion: 43 },
       command: { action: "pause" },
     });
     const resumed = window.airportControl.dispatch({
@@ -320,7 +320,7 @@ test("Assisted ORD shift exposes proposals, station workload, and structured con
               clientId: "playwright-channel",
               source: "test",
               authority: { station: "supervisor" },
-              expects: { apiVersion: "2.40.0", snapshotSchemaVersion: 42 },
+              expects: { apiVersion: "2.40.0", snapshotSchemaVersion: 43 },
               command: { action: "setRadarVisible", enabled: false },
             },
           });
@@ -1330,7 +1330,7 @@ test("Assisted ORD shift exposes proposals, station workload, and structured con
     schemaVersion: 4,
     protocolVersion: "1.2.0",
     simulationVersion: "2.40.0",
-    snapshotSchemaVersion: 42,
+    snapshotSchemaVersion: 43,
     sessionId: expect.stringMatching(/^session-/),
   });
   expect(recording.seed).toBe(10_004);
@@ -3843,7 +3843,7 @@ test("Replay inspector verifies, migrates, compares, imports, and shares exact s
   });
   expect(api.recording).toMatchObject({
     schemaVersion: 4,
-    snapshotSchemaVersion: 42,
+    snapshotSchemaVersion: 43,
     fixedStepSeconds: 0.05,
     frames: expect.any(Number),
     markers: expect.any(Number),
@@ -4045,7 +4045,7 @@ test("Controller policies expose capacity, preserve safety authority, and surviv
       requestId: "policy-supervisor-change",
       source: "test",
       authority: { station: "supervisor", actorId: "supervisor-policy-test" },
-      expects: { apiVersion: "2.40.0", snapshotSchemaVersion: 42 },
+      expects: { apiVersion: "2.40.0", snapshotSchemaVersion: 43 },
       command: { action: "setControllerPolicyPreset", preset: "efficient" },
     });
   });

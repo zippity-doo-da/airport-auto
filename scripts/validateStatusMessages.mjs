@@ -45,6 +45,7 @@ assert(boundedSnapshot.queued.some((message) => message.priority === 'warning'),
 
 assert(inferStatusMessagePriority('Flight selected', 'Following aircraft') === 'operational', 'ordinary interaction priority changed');
 assert(inferStatusMessagePriority('Aircraft emergency', 'Priority handling active') === 'critical', 'emergency priority changed');
+assert(inferStatusMessagePriority('Route readback timed out', 'Issue a fresh revision') === 'warning', 'clearance timeout was not retained as a readable warning');
 
 const calmPresented = [];
 const calm = new StatusMessageCoordinator((message) => calmPresented.push(message));

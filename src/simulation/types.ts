@@ -955,7 +955,12 @@ export interface FlightHoldingClearance {
 }
 
 export type FlightRouteClearanceStatus =
-  "preview" | "pending-readback" | "accepted" | "rejected" | "cancelled";
+  | "preview"
+  | "pending-readback"
+  | "accepted"
+  | "rejected"
+  | "timed-out"
+  | "cancelled";
 export type FlightRouteWarningSeverity = "advisory" | "warning" | "blocking";
 
 export interface FlightRouteConflictWarning {
@@ -987,7 +992,10 @@ export interface FlightRouteClearanceState {
   previousRouteFixIds: string[];
   previewedAtSeconds: number;
   issuedAtSeconds?: number;
+  /** Expected automatic pilot response time. */
   readbackDueSeconds?: number;
+  /** Hard validity boundary; a response at or after this time cannot apply. */
+  readbackExpiresSeconds?: number;
   respondedAtSeconds?: number;
   issuedBy: ControllerStation;
   distanceNm: number;
@@ -1020,7 +1028,12 @@ export interface FlightNavigationState {
   /** Compact compatibility state; `handoff` carries the complete coordination record. */
   handoffStatus: "owned" | "offered" | "accepted" | "rejected" | "overdue";
   handoff?: FlightHandoffState;
-  readbackStatus: "not-required" | "pending" | "accepted" | "rejected";
+  readbackStatus:
+    | "not-required"
+    | "pending"
+    | "accepted"
+    | "rejected"
+    | "timed-out";
   routeClearance?: FlightRouteClearanceState;
   vector?: FlightVectorClearance;
   hold?: FlightHoldingClearance;

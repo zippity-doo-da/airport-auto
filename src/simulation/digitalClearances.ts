@@ -34,6 +34,7 @@ interface DigitalClearanceDraft {
   createdAtSeconds: number;
   issuedAtSeconds?: number;
   responseDueSeconds?: number;
+  expiresAtSeconds?: number | null;
   respondedAtSeconds?: number;
   route: string[];
   parameters: Record<string, string | number>;
@@ -352,6 +353,7 @@ function routeClearanceMessage(
     createdAtSeconds: clearance.previewedAtSeconds,
     issuedAtSeconds: clearance.issuedAtSeconds,
     responseDueSeconds: clearance.readbackDueSeconds,
+    expiresAtSeconds: clearance.readbackExpiresSeconds,
     respondedAtSeconds: clearance.respondedAtSeconds,
     route: [...clearance.routeFixNames],
     parameters: {
@@ -394,6 +396,7 @@ function routeStatus(
   if (clearance.status === "pending-readback") return "delivered";
   if (clearance.status === "accepted") return "wilco";
   if (clearance.status === "rejected") return "unable";
+  if (clearance.status === "timed-out") return "timed-out";
   return /superseded/i.test(clearance.reason ?? "")
     ? "superseded"
     : "cancelled";
@@ -405,7 +408,9 @@ function toEnvelope(draft: DigitalClearanceDraft): DigitalClearanceMessage {
   );
   const expiresAtSeconds = terminal
     ? null
-    : draft.responseDueSeconds ?? draft.createdAtSeconds + 90;
+    : draft.expiresAtSeconds ??
+      draft.responseDueSeconds ??
+      draft.createdAtSeconds + 90;
   return {
     ...draft,
     commandId: `cmd:${draft.id}`,

@@ -53,6 +53,7 @@ export const AIRPORT_DOMAIN_EVENT_TYPES = [
   "route-clearance-issued",
   "route-readback-accepted",
   "route-readback-rejected",
+  "route-readback-timed-out",
   "route-clearance-cancelled",
   "route-amendment",
   "airborne-hold",

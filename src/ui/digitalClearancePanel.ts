@@ -47,7 +47,7 @@ export function renderDigitalClearancePanel(
       row.dataset.clearanceFlightId = String(message.flightId);
       row.setAttribute(
         "aria-label",
-        `Focus ${message.callsign} ${message.status} route message. ${message.detail}`,
+        `Focus ${message.callsign} ${message.status} ${message.kind.replace("-", " ")} message. ${message.detail}`,
       );
       const heading = document.createElement("div");
       const title = document.createElement("b");

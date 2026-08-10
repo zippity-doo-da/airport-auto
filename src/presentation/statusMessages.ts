@@ -93,7 +93,7 @@ export function inferStatusMessagePriority(
   )
     return "critical";
   if (
-    /conflict|held for separation|safety hold|overdue|rejected|not accepted|withheld|unsafe|holdover expired|failure|failed|unavailable/.test(
+    /conflict|held for separation|safety hold|overdue|timed out|rejected|not accepted|withheld|unsafe|holdover expired|failure|failed|unavailable/.test(
       copy,
     )
   ) {

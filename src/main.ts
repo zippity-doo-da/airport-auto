@@ -2880,6 +2880,7 @@ function frame(now: number): void {
       event.type === "route-clearance-issued" ||
       event.type === "route-readback-accepted" ||
       event.type === "route-readback-rejected" ||
+      event.type === "route-readback-timed-out" ||
       event.type === "route-clearance-cancelled" ||
       event.type === "route-amendment";
     const controllerDecision =
@@ -2900,21 +2901,7 @@ function frame(now: number): void {
       payload: controllerDecision
         ? structuredClone(controllerDecision)
         : routeClearanceEvent && event.flight.navigation.routeClearance
-          ? {
-              ...event.flight.navigation.routeClearance,
-              routeFixIds: [
-                ...event.flight.navigation.routeClearance.routeFixIds,
-              ],
-              routeFixNames: [
-                ...event.flight.navigation.routeClearance.routeFixNames,
-              ],
-              previousRouteFixIds: [
-                ...event.flight.navigation.routeClearance.previousRouteFixIds,
-              ],
-              warnings: event.flight.navigation.routeClearance.warnings.map(
-                (warning) => ({ ...warning }),
-              ),
-            }
+          ? cloneFlightRouteClearance(event.flight.navigation.routeClearance)
           : surfaceEvent
             ? {
                 reroute: event.flight.surfaceReroute
@@ -3175,6 +3162,12 @@ function frame(now: number): void {
       setStatus(
         `${event.flight.callsign} route withheld`,
         event.detail ?? "conflict changed before readback",
+      );
+    if (event.type === "route-readback-timed-out")
+      setStatus(
+        `${event.flight.callsign} readback timed out`,
+        event.detail ?? "original route retained; issue a fresh revision",
+        "warning",
       );
     if (event.type === "route-clearance-cancelled")
       setStatus(
@@ -3684,19 +3677,7 @@ function cloneAirportState(
           ? { ...flight.navigation.handoff }
           : undefined,
         routeClearance: flight.navigation.routeClearance
-          ? {
-              ...flight.navigation.routeClearance,
-              routeFixIds: [...flight.navigation.routeClearance.routeFixIds],
-              routeFixNames: [
-                ...flight.navigation.routeClearance.routeFixNames,
-              ],
-              previousRouteFixIds: [
-                ...flight.navigation.routeClearance.previousRouteFixIds,
-              ],
-              warnings: flight.navigation.routeClearance.warnings.map(
-                (warning) => ({ ...warning }),
-              ),
-            }
+          ? cloneFlightRouteClearance(flight.navigation.routeClearance)
           : undefined,
         vector: flight.navigation.vector
           ? {
@@ -6107,7 +6088,18 @@ function createNavigationPanel(flight: Flight): HTMLElement {
         : clearance.status.replace("-", " ").toUpperCase();
     routeHeading.append(routeTitle, routeStatus);
     const routeMetrics = document.createElement("p");
-    routeMetrics.textContent = `${clearance.distanceNm.toFixed(1)} NM · ${Math.max(1, Math.ceil(clearance.estimatedSeconds / 60))} MIN · TURN ${Math.round(clearance.initialTurnDegrees)}°`;
+    const responseWindowSeconds =
+      clearance.status === "pending-readback" &&
+      clearance.issuedAtSeconds !== undefined &&
+      clearance.readbackExpiresSeconds !== undefined
+        ? Math.max(
+            0,
+            Math.round(
+              clearance.readbackExpiresSeconds - clearance.issuedAtSeconds,
+            ),
+          )
+        : null;
+    routeMetrics.textContent = `${clearance.distanceNm.toFixed(1)} NM · ${Math.max(1, Math.ceil(clearance.estimatedSeconds / 60))} MIN · TURN ${Math.round(clearance.initialTurnDegrees)}°${responseWindowSeconds === null ? "" : ` · RESP ${responseWindowSeconds} SEC`}`;
     const routeFixes = document.createElement("small");
     routeFixes.textContent = clearance.routeFixNames.join(" › ");
     const routeSupplements = document.createElement("small");
@@ -9265,19 +9257,7 @@ function airportSnapshot() {
           ? { ...flight.navigation.handoff }
           : null,
         routeClearance: flight.navigation.routeClearance
-          ? {
-              ...flight.navigation.routeClearance,
-              routeFixIds: [...flight.navigation.routeClearance.routeFixIds],
-              routeFixNames: [
-                ...flight.navigation.routeClearance.routeFixNames,
-              ],
-              previousRouteFixIds: [
-                ...flight.navigation.routeClearance.previousRouteFixIds,
-              ],
-              warnings: flight.navigation.routeClearance.warnings.map(
-                (warning) => ({ ...warning }),
-              ),
-            }
+          ? cloneFlightRouteClearance(flight.navigation.routeClearance)
           : null,
         vector: flight.navigation.vector
           ? {
@@ -11013,7 +10993,7 @@ window.airportControl = {
       validate:
         "airportControl.validate({ action: 'pause' }) // structural validation without execution",
       formalDispatch:
-        "airportControl.dispatch({ protocolVersion: '1.2.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.41.0', snapshotSchemaVersion: 42 }, command: { action: 'pause' } })",
+        "airportControl.dispatch({ protocolVersion: '1.2.0', requestId: 'agent-1', source: 'agent', authority: { station: 'tower', actorId: 'tower-agent' }, expects: { apiVersion: '2.41.0', snapshotSchemaVersion: 43 }, command: { action: 'pause' } })",
       liveData:
         "airportControl.liveData.snapshot() // redacted opt-in/cache/review state; credentials and raw feeds are never exposed",
       capture:
@@ -11294,6 +11274,20 @@ function flightTrajectorySnapshot(flight: Flight) {
     protectedRunwayIds: [...trajectory.protectedRunwayIds],
     distanceAlongMeters: Number(trajectory.distanceAlongM.toFixed(2)),
     totalDistanceMeters: Number(trajectory.totalDistanceM.toFixed(2)),
+  };
+}
+
+function cloneFlightRouteClearance(
+  clearance: FlightRouteClearanceState,
+): FlightRouteClearanceState {
+  return {
+    ...clearance,
+    routeFixIds: [...clearance.routeFixIds],
+    routeFixNames: [...clearance.routeFixNames],
+    previousRouteFixIds: [...clearance.previousRouteFixIds],
+    warnings: clearance.warnings.map((warning) => ({ ...warning })),
+    supplements: clearance.supplements?.map((supplement) => ({ ...supplement })),
+    safeguards: clearance.safeguards ? [...clearance.safeguards] : undefined,
   };
 }
 

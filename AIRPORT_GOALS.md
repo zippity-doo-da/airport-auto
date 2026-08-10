@@ -702,13 +702,21 @@ whole package without leaving a partial route, altitude, or speed assignment.
 The page-local control protocol exposes the same bounded preview and issue
 commands, and the Digital Clearances panel projects one compound envelope rather
 than misleading duplicate component messages.
+Every newly issued route clearance now carries separate expected-response and
+hard-expiry times. The fixed-step lifecycle accepts a valid response before the
+boundary, but converts an unanswered package to authoritative **Timed Out**
+state at expiry, emits a typed timeout event, and rejects every late response.
+The route, altitude, and speed remain unchanged, and the controller may start a
+fresh revision. Snapshot schema 43, exact replay frames, remote projections,
+the selected-flight card, and the Data Comm panel preserve that distinction.
 
 ### Gameplay and UX
 
 - [~] Add a clearance inbox/outbox with Draft, Sent, Delivered, Wilco, Unable,
   Standby, Superseded, Timed Out, and Cancelled states. A compact panel
   now exposes route-clearance Draft, Delivered, Wilco, Unable, Superseded,
-  and Cancelled states; additional message categories and unmodeled states
+  Timed Out, and Cancelled states; structured surface messages supply Standby.
+  A distinct Sent transport stage and additional writable message categories
   remain open.
 - [~] Build structured departure, route, altitude, speed, direct-to, hold,
   frequency, taxi, crossing, and revision messages from existing typed commands.
@@ -751,8 +759,10 @@ than misleading duplicate component messages.
 - [~] Define one versioned message envelope containing authority, command IDs,
   causal event IDs, content fields, delivery timing, response, and expiry.
   Version 2 projections now include these fields for every projected message;
-  causal references are deterministic flight/clearance identifiers until the
-  full event-history export is added.
+  route messages distinguish expected response from hard expiry and terminal
+  timeouts clear the live expiry while retaining response time. Causal
+  references are deterministic flight/clearance identifiers until the full
+  event-history export is added.
 - [x] Reuse staged pilot-response and route-readback behavior rather than adding
       a parallel command executor. Compound previews are route-clearance schema
       2 records and use the existing issue, pending-readback, cancellation,
@@ -760,8 +770,10 @@ than misleading duplicate component messages.
 - [~] Enforce one current data authority and deterministic handoff behavior.
   A pending route readback now cancels with an explicit reason when the
   aircraft's frequency ownership transfers, and the receiving desk cannot
-  accept a route issued by the prior authority. Other clearance kinds and
-  full timeout/coordination coverage remain open.
+  accept a route issued by the prior authority. Route-only and atomic packages
+  now also expire at a hard fixed-step deadline and reject stale direct or
+  automatic responses. Other clearance kinds and full coordination coverage
+  remain open.
 - [~] Include messages in replay, analytics, controller evaluation, and remote
   projections with free text excluded from shared exports. Replay frames
   and remote snapshots derive versioned messages from authoritative state;
@@ -782,8 +794,9 @@ than misleading duplicate component messages.
   controls without opening developer telemetry. A coherent mixed
   digital/immediate clearance sequence remains open.
 - [~] Supersession, timeout, handoff, and rejection never apply stale commands.
-  Pending route readbacks are now tested to cancel on a station transfer;
-  timeout and non-route message coverage remain open.
+  Pending route readbacks are tested to cancel on a station transfer; route-only
+  and atomic packages are tested to time out without partial application and to
+  reject late direct acceptance. Non-route staged-message coverage remains open.
 - [~] Screen-reader and keyboard users can compose, inspect, send, and dismiss a
   clearance without losing flight-strip focus. Data Comm now restores the
   invoking control on close or Escape and exposes every message as a named,
