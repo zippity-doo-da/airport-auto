@@ -253,6 +253,11 @@ export function createOperationsLab(
         String(snapshot.summary.flowSlotRevisions),
         `${snapshot.summary.flowEntriesObserved} plans · max ${formatDuration(snapshot.summary.largestFlowSlotShiftSeconds)}`,
       ),
+      metric(
+        "Data Comm",
+        String(snapshot.digitalClearanceSummary.total),
+        `${snapshot.digitalClearanceSummary.active} active · ${snapshot.digitalClearanceSummary.responded} responses · ${snapshot.digitalClearanceSummary.timedOut} timed out`,
+      ),
     );
 
     const nextOptionKey = snapshot.flights

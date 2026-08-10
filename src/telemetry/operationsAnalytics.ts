@@ -1,4 +1,9 @@
 import type { OperationQueueSnapshot } from "../simulation/operationQueues";
+import {
+  digitalClearanceSnapshot,
+  type DigitalClearanceMessage,
+  type DigitalClearanceStatus,
+} from "../simulation/digitalClearances";
 import type {
   SurfaceSafetyAdvisory,
   SurfaceSafetySnapshot,
@@ -16,8 +21,8 @@ import type {
 } from "../simulation/types";
 import { trafficFlowRevisionAttribution } from "../simulation/trafficFlowManagement";
 
-export const OPERATIONS_ANALYTICS_SCHEMA_VERSION = 4 as const;
-export const OPERATIONS_EXPORT_SCHEMA_VERSION = 4 as const;
+export const OPERATIONS_ANALYTICS_SCHEMA_VERSION = 5 as const;
+export const OPERATIONS_EXPORT_SCHEMA_VERSION = 5 as const;
 
 export const OPERATIONS_EXPORT_DATASETS = [
   "flights",
@@ -32,6 +37,7 @@ export const OPERATIONS_EXPORT_DATASETS = [
   "conflicts",
   "surface-advisories",
   "flow-revisions",
+  "digital-clearances",
 ] as const;
 
 export type OperationsExportDataset =
@@ -180,6 +186,42 @@ export interface TrafficFlowCauseAnalyticsRecord {
   latestReason: string;
 }
 
+export interface DigitalClearanceAnalyticsRecord {
+  schemaVersion: 1;
+  id: string;
+  commandId: string;
+  flightId: number;
+  callsign: string;
+  kind: DigitalClearanceMessage["kind"];
+  status: DigitalClearanceStatus;
+  authority: string;
+  revision: number;
+  createdAtSeconds: number;
+  issuedAtSeconds: number | null;
+  deliveredAtSeconds: number | null;
+  responseDueSeconds: number | null;
+  respondedAtSeconds: number | null;
+  expiresAtSeconds: number | null;
+  responseSeconds: number | null;
+  warningCount: number;
+  route: string[];
+  parameters: Record<string, string | number>;
+  causalEventIds: string[];
+}
+
+export interface DigitalClearanceAnalyticsSummary {
+  total: number;
+  active: number;
+  delivered: number;
+  responded: number;
+  unable: number;
+  timedOut: number;
+  cancelled: number;
+  averageResponseSeconds: number | null;
+  byStatus: Record<DigitalClearanceStatus, number>;
+  byKind: Partial<Record<DigitalClearanceMessage["kind"], number>>;
+}
+
 export interface OperationsAnalyticsSnapshot {
   schemaVersion: typeof OPERATIONS_ANALYTICS_SCHEMA_VERSION;
   sessionId: string;
@@ -208,6 +250,8 @@ export interface OperationsAnalyticsSnapshot {
     flowEntriesObserved: number;
     flowSlotRevisions: number;
     largestFlowSlotShiftSeconds: number;
+    digitalClearancesObserved: number;
+    digitalClearanceTimeouts: number;
   };
   flights: FlightAnalyticsRecord[];
   selectedFlightId: number | null;
@@ -219,6 +263,8 @@ export interface OperationsAnalyticsSnapshot {
   surfaceSafetyAdvisories: SurfaceSafetyAnalyticsRecord[];
   trafficFlowRevisions: TrafficFlowRevisionAnalyticsRecord[];
   trafficFlowCauses: TrafficFlowCauseAnalyticsRecord[];
+  digitalClearances: DigitalClearanceAnalyticsRecord[];
+  digitalClearanceSummary: DigitalClearanceAnalyticsSummary;
   metrics: ShiftMetrics;
   disclosure: {
     navigationUse: false;
@@ -278,6 +324,7 @@ const MAXIMUM_SAMPLES_PER_FLIGHT = 7_200;
 const MAXIMUM_RETAINED_FLIGHTS = 512;
 const MAXIMUM_CONFLICT_CELLS = 256;
 const MAXIMUM_SURFACE_SAFETY_RECORDS = 512;
+const MAXIMUM_DIGITAL_CLEARANCE_RECORDS = 2_048;
 const MAXIMUM_TRAFFIC_FLOW_REVISIONS = 2_048;
 const CONFLICT_CELL_SIZE = 12;
 
@@ -370,6 +417,10 @@ export class OperationsAnalyticsRecorder {
     string,
     TrafficFlowRevisionAnalyticsRecord
   >();
+  private digitalClearanceRecords = new Map<
+    string,
+    DigitalClearanceAnalyticsRecord
+  >();
   private lastFlowReleaseSlotByEntry = new Map<string, number>();
   private previousPhase = new Map<number, FlightPhase>();
   private previousTaxiway = new Map<number, string | null>();
@@ -405,6 +456,7 @@ export class OperationsAnalyticsRecorder {
     this.conflictCells.clear();
     this.surfaceSafetyRecords.clear();
     this.trafficFlowRevisionRecords.clear();
+    this.digitalClearanceRecords.clear();
     this.lastFlowReleaseSlotByEntry.clear();
     this.previousPhase.clear();
     this.previousTaxiway.clear();
@@ -435,6 +487,7 @@ export class OperationsAnalyticsRecorder {
     this.recordConflicts(inputs.predictions, flightById, elapsedSeconds);
     this.recordSurfaceSafety(inputs.surfaceSafety, sampleDelta);
     this.recordTrafficFlow(inputs.state);
+    this.recordDigitalClearances(inputs.state);
     this.pruneCompletedFlights(inputs.state.flights);
     return true;
   }
@@ -468,6 +521,19 @@ export class OperationsAnalyticsRecorder {
     const changedFlowSlots = trafficFlowRevisions.filter(
       (entry) => entry.kind === "revision",
     );
+    const digitalClearances = [...this.digitalClearanceRecords.values()]
+      .map((entry) => ({
+        ...entry,
+        route: [...entry.route],
+        parameters: { ...entry.parameters },
+        causalEventIds: [...entry.causalEventIds],
+      }))
+      .sort(
+        (first, second) =>
+          second.createdAtSeconds - first.createdAtSeconds ||
+          first.id.localeCompare(second.id),
+      );
+    const digitalSummary = digitalClearanceAnalyticsSummary(digitalClearances);
     return {
       schemaVersion: OPERATIONS_ANALYTICS_SCHEMA_VERSION,
       sessionId: this.sessionId,
@@ -517,6 +583,8 @@ export class OperationsAnalyticsRecorder {
           ),
           1,
         ),
+        digitalClearancesObserved: digitalSummary.total,
+        digitalClearanceTimeouts: digitalSummary.timedOut,
       },
       flights,
       selectedFlightId: resolvedFlightId,
@@ -570,6 +638,8 @@ export class OperationsAnalyticsRecorder {
         ),
       trafficFlowRevisions,
       trafficFlowCauses,
+      digitalClearances,
+      digitalClearanceSummary: digitalSummary,
       metrics: cloneMetrics(this.latestMetrics),
       disclosure: {
         navigationUse: false,
@@ -941,6 +1011,76 @@ export class OperationsAnalyticsRecorder {
     }
   }
 
+  /**
+   * Retain the typed Data Comm lifecycle without copying presentation detail or
+   * free-form controller text into a shareable analytics export.
+   */
+  private recordDigitalClearances(state: AirportState): void {
+    const snapshot = digitalClearanceSnapshot(state);
+    for (const message of snapshot.messages) {
+      const deliveredAtSeconds =
+        message.deliveredAtSeconds ?? message.response.deliveredAtSeconds;
+      const respondedAtSeconds =
+        message.respondedAtSeconds ?? message.response.respondedAtSeconds;
+      const responseOrigin = deliveredAtSeconds ?? message.issuedAtSeconds;
+      const record: DigitalClearanceAnalyticsRecord = {
+        schemaVersion: 1,
+        id: message.id,
+        commandId: message.commandId,
+        flightId: message.flightId,
+        callsign: message.callsign,
+        kind: message.kind,
+        status: message.status,
+        authority: message.authority,
+        revision: message.revision,
+        createdAtSeconds: rounded(message.createdAtSeconds, 3),
+        issuedAtSeconds:
+          message.issuedAtSeconds === undefined
+            ? null
+            : rounded(message.issuedAtSeconds, 3),
+        deliveredAtSeconds:
+          deliveredAtSeconds === undefined
+            ? null
+            : rounded(deliveredAtSeconds, 3),
+        responseDueSeconds:
+          message.responseDueSeconds === undefined
+            ? null
+            : rounded(message.responseDueSeconds, 3),
+        respondedAtSeconds:
+          respondedAtSeconds === undefined
+            ? null
+            : rounded(respondedAtSeconds, 3),
+        expiresAtSeconds:
+          message.expiresAtSeconds === null
+            ? null
+            : rounded(message.expiresAtSeconds, 3),
+        responseSeconds:
+          respondedAtSeconds === undefined || responseOrigin === undefined
+            ? null
+            : rounded(Math.max(0, respondedAtSeconds - responseOrigin), 3),
+        warningCount: message.warningCount,
+        route: [...message.route],
+        parameters: { ...message.parameters },
+        causalEventIds: [...message.causalEventIds],
+      };
+      this.digitalClearanceRecords.set(message.id, record);
+    }
+    if (this.digitalClearanceRecords.size <= MAXIMUM_DIGITAL_CLEARANCE_RECORDS)
+      return;
+    const retained = [...this.digitalClearanceRecords.values()]
+      .sort(
+        (first, second) =>
+          Number(digitalClearanceStatusIsActive(second.status)) -
+            Number(digitalClearanceStatusIsActive(first.status)) ||
+          second.createdAtSeconds - first.createdAtSeconds ||
+          first.id.localeCompare(second.id),
+      )
+      .slice(0, MAXIMUM_DIGITAL_CLEARANCE_RECORDS);
+    this.digitalClearanceRecords = new Map(
+      retained.map((entry) => [entry.id, entry]),
+    );
+  }
+
   private pruneCompletedFlights(activeFlights: readonly Flight[]): void {
     if (this.flights.size <= MAXIMUM_RETAINED_FLIGHTS) return;
     const activeIds = new Set(activeFlights.map((flight) => flight.id));
@@ -1090,7 +1230,72 @@ function csvRows(
       return bundle.analytics.trafficFlowRevisions.map((entry) => ({
         ...entry,
       }));
+    case "digital-clearances":
+      return bundle.analytics.digitalClearances.map((entry) =>
+        flattenRecord(entry as unknown as Record<string, unknown>),
+      );
   }
+}
+
+const DIGITAL_CLEARANCE_STATUSES: readonly DigitalClearanceStatus[] = [
+  "draft",
+  "sent",
+  "delivered",
+  "wilco",
+  "unable",
+  "standby",
+  "superseded",
+  "timed-out",
+  "cancelled",
+];
+
+function digitalClearanceStatusIsActive(
+  status: DigitalClearanceStatus,
+): boolean {
+  return (
+    status === "draft" ||
+    status === "sent" ||
+    status === "delivered" ||
+    status === "standby"
+  );
+}
+
+function digitalClearanceAnalyticsSummary(
+  records: readonly DigitalClearanceAnalyticsRecord[],
+): DigitalClearanceAnalyticsSummary {
+  const byStatus = Object.fromEntries(
+    DIGITAL_CLEARANCE_STATUSES.map((status) => [status, 0]),
+  ) as Record<DigitalClearanceStatus, number>;
+  const byKind: DigitalClearanceAnalyticsSummary["byKind"] = {};
+  const responseSeconds: number[] = [];
+  for (const record of records) {
+    byStatus[record.status] += 1;
+    byKind[record.kind] = (byKind[record.kind] ?? 0) + 1;
+    if (record.responseSeconds !== null)
+      responseSeconds.push(record.responseSeconds);
+  }
+  return {
+    total: records.length,
+    active: records.filter((record) =>
+      digitalClearanceStatusIsActive(record.status),
+    ).length,
+    delivered: records.filter((record) => record.deliveredAtSeconds !== null)
+      .length,
+    responded: records.filter((record) => record.respondedAtSeconds !== null)
+      .length,
+    unable: byStatus.unable,
+    timedOut: byStatus["timed-out"],
+    cancelled: byStatus.cancelled,
+    averageResponseSeconds: responseSeconds.length
+      ? rounded(
+          responseSeconds.reduce((sum, value) => sum + value, 0) /
+            responseSeconds.length,
+          2,
+        )
+      : null,
+    byStatus,
+    byKind,
+  };
 }
 
 function flowRevisionId(

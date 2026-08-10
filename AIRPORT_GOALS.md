@@ -688,7 +688,7 @@ controllers and flight crews to exchange digital ATC information and load
 reviewed instructions into flight systems; the game will use a simplified,
 fictional, not-for-navigation message set. Reference: [FAA Data Comm](https://www.faa.gov/air_traffic/technology/DataComm).
 
-### Current progress — August 9, 2026
+### Current progress — August 10, 2026
 
 The existing route-preview, issue, simulated readback, accept/reject, and
 supersession workflow now has a compact, optional **Digital clearances** panel.
@@ -755,6 +755,15 @@ operational record. Action retains Draft, Sent, Delivered, Standby, Unable, and 
 messages; History retains acknowledged instructions, every revision, and all
 terminal outcomes. Routine taxi/departure acknowledgements no longer bury the
 default queue, while All exposes the complete projection.
+Operations analytics schema 5 now retains a bounded, typed Data Comm lifecycle
+record across Sent, Delivered, Wilco, Unable, Timed Out, cancellation, and
+supersession. The Operations Lab shows total, active, responded, and timed-out
+message counts, and the dedicated `digital-clearances` CSV exposes command and
+causal IDs, authority, route, typed parameters, delivery/response/expiry timing,
+and response latency. Free-form message detail is deliberately excluded from
+that shareable dataset. Reset and retention limits are deterministic, while the
+local replay and live panel continue deriving their richer presentation from
+authoritative flight state.
 
 ### Gameplay and UX
 
@@ -821,13 +830,12 @@ default queue, while All exposes the complete projection.
   atomic packages now also expire at a hard fixed-step deadline and reject
   stale direct or automatic responses. Other clearance kinds and full
   coordination coverage remain open.
-- [~] Include messages in replay, analytics, controller evaluation, and remote
-  projections with free text excluded from shared exports. Replay frames
-  and remote snapshots derive versioned messages from authoritative state;
-  the remote projection now carries bounded typed envelope fields without
-  free-form detail, and controller evaluation includes status/kind counts.
-  Dedicated analytics rollups and full redacted replay envelopes remain
-  open.
+- [x] Include messages in replay, analytics, controller evaluation, and remote
+      projections with free text excluded from shared exports. Replay and live
+      views derive versioned messages from authoritative state; the remote
+      projection carries bounded typed envelope fields without free-form detail,
+      controller evaluation includes status/kind counts, and analytics schema 5
+      retains bounded lifecycle records plus a dedicated redacted CSV dataset.
 
 ### Acceptance gate
 
