@@ -90,6 +90,7 @@
     "remote:gateway": "node server/remoteGatewayCli.mjs",
     "profile:runtime": "node scripts/profileRuntime.mjs",
     "soak:runtime": "node --expose-gc scripts/soakRuntime.mjs --hours=4",
+    "soak:flow-matrix": "node scripts/soakFlowMatrix.mjs --hours=2",
     "test:simulation": "node scripts/validateFixedStep.mjs",
     "test:trajectories": "node scripts/validateFlightTrajectories.mjs",
     "test:collisions": "node scripts/validateCollisionEnvelopes.mjs"

@@ -20,12 +20,14 @@ for (const config of configs) {
   assert(JSON.stringify(first) === JSON.stringify(second), config.code + ': capacity profile is not deterministic');
   assert(first.schemaVersion === 1 && first.nonNavigational, config.code + ': profile contract is invalid');
   assert(first.id === config.code.toLowerCase() + '-flow-capacity-v1', config.code + ': profile ID is unstable');
-  assert(first.dataVersion.includes('flow-1'), config.code + ': data version is missing');
+  assert(first.dataVersion.includes('flow-2'), config.code + ': data version is missing');
   assert(first.sources.length > 0 && first.disclosure.includes('not an FAA rate'), config.code + ': provenance/disclosure is missing');
   assert(first.structural.runwayCount === config.runways.length, config.code + ': runway count mismatch');
   assert(first.structural.standCount === config.surfaceGraph.stands.length, config.code + ': stand count mismatch');
   assert(first.structural.surfaceEdgeCount === config.surfaceGraph.edges.length, config.code + ': surface edge count mismatch');
-  assert(first.modeledLimits.surfaceArrivalPositions >= 6 && first.modeledLimits.surfaceArrivalPositions <= 18, config.code + ': arrival surface buffer is outside its contract');
+  const expectedSurfaceMinimum = first.fidelity === 'schematic' ? 1 : 6;
+  const expectedSurfaceMaximum = first.fidelity === 'schematic' ? 2 : 18;
+  assert(first.modeledLimits.surfaceArrivalPositions >= expectedSurfaceMinimum && first.modeledLimits.surfaceArrivalPositions <= expectedSurfaceMaximum, config.code + ': arrival surface buffer is outside its fidelity contract');
   assert(first.modeledLimits.standPositions === config.surfaceGraph.stands.length, config.code + ': stand capacity mismatch');
   assert(first.modeledLimits.maximumIndependentArrivalRunways >= 1 && first.modeledLimits.maximumIndependentArrivalRunways <= config.runways.length, config.code + ': arrival runway concurrency is invalid');
   assert(first.modeledLimits.maximumIndependentDepartureRunways >= 1 && first.modeledLimits.maximumIndependentDepartureRunways <= config.runways.length, config.code + ': departure runway concurrency is invalid');

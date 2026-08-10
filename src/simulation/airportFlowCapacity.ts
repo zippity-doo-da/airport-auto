@@ -88,13 +88,16 @@ export function buildAirportFlowCapacityProfile(
   const activeRunwayCount = config.runways.filter(
     (runway) => runway.role !== "inactive",
   ).length;
-  const surfaceArrivalPositions = Math.max(
-    6,
-    Math.min(
-      18,
-      Math.max(Math.floor(standPositions * 0.35), activeRunwayCount * 2),
-    ),
-  );
+  const hasSourcedSurface = config.surfaceGraph.source?.kind === "imported";
+  const surfaceArrivalPositions = hasSourcedSurface
+    ? Math.max(
+        6,
+        Math.min(
+          18,
+          Math.max(Math.floor(standPositions * 0.35), activeRunwayCount * 2),
+        ),
+      )
+    : Math.max(1, Math.min(2, standPositions));
   const arrivals = config.airspaceProgram.procedures.filter(
     (procedure) => procedure.kind === "STAR",
   );
@@ -147,7 +150,7 @@ export function buildAirportFlowCapacityProfile(
     schemaVersion: 1,
     id: `${config.code.toLowerCase()}-flow-capacity-v1`,
     airportCode: config.code,
-    dataVersion: `${config.airspaceProgram.dataVersion}:surface-${config.surfaceGraph.schemaVersion}:flow-1`,
+    dataVersion: `${config.airspaceProgram.dataVersion}:surface-${config.surfaceGraph.schemaVersion}:flow-2`,
     fidelity:
       config.surfaceGraph.source?.kind === "imported"
         ? "sourced-surface-hybrid"
@@ -190,7 +193,9 @@ export function buildAirportFlowCapacityProfile(
         direction: "arrival",
         modeledCapacity: surfaceArrivalPositions,
         unit: "positions",
-        rationale: "Bounded admission buffer derived from stands and active runway access.",
+        rationale: hasSourcedSurface
+          ? "Bounded admission buffer derived from stands and active runway access on the sourced surface graph."
+          : "Conservative admission buffer for a schematic surface whose apron connectors converge on shared routes.",
       },
       {
         id: "stand-system",

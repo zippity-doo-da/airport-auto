@@ -129,7 +129,7 @@ FAA system fuses surface surveillance and flight-plan information to improve
 movement-area awareness; Airport Auto will model the concept, not replicate an
 operational display. Reference: [FAA ASDE-X](https://www.faa.gov/air_traffic/technology/asde-x).
 
-### Current progress — August 9, 2026
+### Current progress — August 10, 2026
 
 The first implementation slice is in place: a versioned, renderer-independent
 `SurfaceTrack`/`SurfaceVehicleTrack`/`SurfaceSafetyAdvisory` projection reads
@@ -461,8 +461,15 @@ On August 10, the strengthened surface scheduler passed an eight-hour ORD
 Extreme Auto soak with 74 arrivals and 68 departures, zero collisions, runway
 incursions, or unexplained pauses, and a 544.3-second longest continuously
 stationary movement. This closes the immediate ORD sustained-flow regression;
-the universal Auto goal remains open for equivalent weather and multi-airport
-coverage.
+the repeatable `npm run soak:flow-matrix` gate now supplies the corresponding
+weather and multi-airport coverage. Its two-hour-per-case Auto run completed
+23 arrivals / 11 departures at ATL in a summer storm, 26 / 16 at DFW in snow
+recovery, and 4 / 3 at schematic HND in an international-evening bank. All
+three cases reported zero collisions, incursions, unexplained pauses, or
+airport-wide motion stops; the longest individual movement hold was 531.3
+seconds. Sourced surfaces retain stricter directional throughput expectations,
+while HND's lower floor reflects its deliberately converging schematic taxi
+graph and real-time taxi speed.
 
 The August 9 four-hour ORD Extreme Auto audit also closed a meter-accounting
 defect: an eligible departure slot is now released only after the same tick
@@ -480,8 +487,8 @@ arrival-demand accounting, and cancellation churn.
 The 2.40 comparison is now executable rather than anecdotal. A fixed 30-minute
 ORD Rush/Auto bank at 3x uses the same seed, fixed step, stop/restart thresholds,
 and safety diagnostics against the frozen `92a269c` release result. Current
-Balanced flow reduced stopped-ground holding fuel from 432.997 kg to 378.819 kg
-and taxi stop/restart cycles from 43 to 35, with zero collision or runway-
+Balanced flow reduced stopped-ground holding fuel from 432.997 kg to 351.456 kg
+and taxi stop/restart cycles from 43 to 20, with zero collision or runway-
 incursion diagnostics. Reduced-engine/APU fuel flow is modeled during a stopped
 ground hold; moving taxi fuel flow is unchanged. A separate one-hour ORD Extreme
 Auto run completed 23 arrivals and eight departures with zero collisions,
@@ -594,10 +601,11 @@ reason, while local analytics/export schema 4 preserves the same fields.
       flight/runway. Queue, exact replay state, analytics, and CSV retain the
       same attribution; legacy entries derive it deterministically from their
       exact reason.
-- [~] Keep Auto capable of guaranteed flow without requiring a human to manage
-  the timeline. Seeded ORD Extreme Auto and Watch now pass the enforceable
-  three-hour sustained-flow gate; additional airports, weather programs,
-  and longer runs remain before this can be called universal.
+- [x] Keep Auto capable of guaranteed flow without requiring a human to manage
+  the timeline. Seeded ORD Extreme Auto and Watch pass the enforceable
+  sustained-flow gate; the eight-hour ORD audit plus the ATL storm, DFW snow,
+  and HND evening matrix cover prolonged demand, adverse weather, sourced
+  surfaces, and a schematic surface without a stopped-traffic state.
 
 ### Simulation and API
 
@@ -641,8 +649,8 @@ reason, while local analytics/export schema 4 preserves the same fields.
 
 - [x] A seeded ORD rush bank produces less holding fuel burn and fewer stop-start
       taxi holds than the 2.40 baseline without reducing separation. The
-      executable 30-minute comparison records 378.819 kg versus 432.997 kg and
-      35 versus 43 stop/restart cycles; both release and current runs report zero
+      executable 30-minute comparison records 351.456 kg versus 432.997 kg and
+      20 versus 43 stop/restart cycles; both release and current runs report zero
       collision and runway-incursion diagnostics. The frozen baseline is tied to
       release commit `92a269c`, and `npm run test:traffic-flow` enforces it.
 - [x] Three-hour Auto and Watch runs sustain arrivals and departures with bounded
@@ -650,6 +658,11 @@ reason, while local analytics/export schema 4 preserves the same fields.
       58 arrivals, 38 departures, 43 peak queue records, 684.7 seconds maximum
       individual stop, 40 seconds maximum without traffic motion, and zero
       collision, incursion, or unexplained-pause diagnostics in each mode.
+- [x] Multi-airport adverse-weather Auto flow remains live without intervention.
+      `npm run soak:flow-matrix` runs two modeled hours each at ATL, DFW, and
+      HND, requires geometry-appropriate bidirectional throughput, rejects stale
+      empty pipelines and stopped traffic, and produced 34, 42, and 7 completed
+      operations respectively with no safety diagnostics.
 - [x] Manual can ignore an advisory, recover the schedule, and understand the
       consequences without hidden score manipulation. The Queue inspector shows
       elapsed time, added queue delay, holding-fuel burn, and queue delta; the

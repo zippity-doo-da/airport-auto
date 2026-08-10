@@ -130,6 +130,8 @@ assert(simulation.state.trafficFlow.density === quietOvernight.density, 'ambient
 assert(simulation.state.trafficFlow.objective === quietOvernight.flowObjective, 'ambient program did not set flow objective');
 assert(simulation.state.environment.lightingMode === quietOvernight.lightingMode && simulation.state.environment.seasonMode === quietOvernight.seasonMode, 'ambient program did not set environment presentation');
 assert(simulation.state.weather.condition === quietOvernight.weather && simulation.state.weather.hazardsEnabled === false, 'ambient program did not set safe weather posture');
+const ambientWindDegrees = (90 - simulation.state.weather.windDirection * 180 / Math.PI + 360) % 360;
+assert(Math.abs(ambientWindDegrees - quietOvernight.windDirectionDegrees) < 1e-6, 'ambient program treated aviation wind degrees as a mathematical angle');
 const fixedStepHarness = new FixedStepSimulationHarness(ord, { stepSeconds: 0.1 });
 assert(fixedStepHarness.simulation.setOperationTimeOffsetMinutes(180), 'fixed-step operation offset was rejected');
 const fixedStepSnapshot = fixedStepHarness.snapshot();
@@ -166,7 +168,8 @@ const result = await build({
 });
 
 const bundled = result.outputFiles[0]?.text;
-if (!bundled) throw new Error("Environment operations validation bundle was empty.");
+if (!bundled)
+  throw new Error("Environment operations validation bundle was empty.");
 await import(
   `data:text/javascript;base64,${Buffer.from(bundled).toString("base64")}`
 );

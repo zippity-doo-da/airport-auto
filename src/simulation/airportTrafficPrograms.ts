@@ -100,6 +100,20 @@ const GENERAL_AVIATION_FLEET: WeightedAircraft[] = [
   { model: "PC12", weight: 0.38 },
   { model: "C680", weight: 0.28 },
 ];
+const OPERATIONAL_FALLBACK_FLEETS: Record<
+  OperationTrafficClass,
+  WeightedAircraft[]
+> = {
+  passenger: DOMESTIC_FLEET,
+  regional: REGIONAL_FLEET,
+  cargo: [
+    ...CARGO_FLEET,
+    { model: "A21N", weight: 0.35 },
+    { model: "B738", weight: 0.3 },
+    { model: "A320", weight: 0.25 },
+  ],
+  "general-aviation": GENERAL_AVIATION_FLEET,
+};
 
 const HUB_BANKS = {
   primary: {
@@ -1394,6 +1408,8 @@ export function selectTrafficProgram(
   const airline = selected?.airline ?? fallbackAirline;
   const fleet =
     airline.fleets[input.trafficClass] ?? defaultFleet(input.trafficClass);
+  const operationalFallbackFleet =
+    OPERATIONAL_FALLBACK_FLEETS[input.trafficClass];
   const markets =
     airline.markets?.[input.trafficClass] ??
     program.markets[input.trafficClass];
@@ -1408,7 +1424,7 @@ export function selectTrafficProgram(
     ),
   }));
   const viableRoutes = routeOptions.filter(({ route }) =>
-    fleet.some(
+    [...fleet, ...operationalFallbackFleet].some(
       (candidate) =>
         aircraftProfile(candidate.model).maximumRangeNm >=
           route.distanceNm * 1.08 + 180 &&
@@ -1439,14 +1455,28 @@ export function selectTrafficProgram(
       aircraftProfile(candidate.model).maximumRangeNm >= requiredRangeNm &&
       (!input.supportsAircraft || input.supportsAircraft(candidate.model)),
   );
+  const routeCapableOperationalFallback = operationalFallbackFleet.filter(
+    (candidate) =>
+      aircraftProfile(candidate.model).maximumRangeNm >= requiredRangeNm &&
+      (!input.supportsAircraft || input.supportsAircraft(candidate.model)),
+  );
+  const compatibleOperationalFallback = operationalFallbackFleet.filter(
+    (candidate) =>
+      !input.supportsAircraft || input.supportsAircraft(candidate.model),
+  );
   const aircraftPool = compatibleFleet.length
     ? compatibleFleet
     : routeCapableDefault.length
       ? routeCapableDefault
-      : fleet.filter(
-          (candidate) =>
-            !input.supportsAircraft || input.supportsAircraft(candidate.model),
-        );
+      : routeCapableOperationalFallback.length
+        ? routeCapableOperationalFallback
+        : compatibleOperationalFallback.length
+          ? compatibleOperationalFallback
+          : fleet.filter(
+              (candidate) =>
+                !input.supportsAircraft ||
+                input.supportsAircraft(candidate.model),
+            );
   const aircraft =
     weightedChoice(aircraftPool, input.flightId, input.airportSeed, 0xa17c9e)
       ?.model ??

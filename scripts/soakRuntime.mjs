@@ -34,12 +34,19 @@ const requestedMode = (
   .toLowerCase();
 if (requestedMode !== "auto" && requestedMode !== "watch")
   throw new Error("--mode must be auto or watch");
+const requestedProgram =
+  process.argv
+    .find((argument) => argument.startsWith("--program="))
+    ?.split("=")[1]
+    ?.trim()
+    .toLowerCase() ?? null;
 
 const source = `
 import { performance } from 'node:perf_hooks';
 import { RuntimePerformanceMonitor } from './src/telemetry/runtimePerformance.ts';
 import { generateHubConfig, HUB_AIRPORTS } from './src/simulation/airportConfig.ts';
 import { AirportSimulation } from './src/simulation/airportSimulation.ts';
+import { ambientProgram } from './src/simulation/ambientPrograms.ts';
 import { aircraftProfile } from './src/simulation/aircraftProfiles.ts';
 import { sampleSurfaceRouteWithEdges } from './src/simulation/surfaceGraph.ts';
 import { sampleAircraftSurfaceMotion } from './src/simulation/surfaceMotion.ts';
@@ -52,6 +59,7 @@ const compactReport = ${JSON.stringify(compactReport)};
 const stopOnCollision = ${JSON.stringify(stopOnCollision)};
 const requestedAirport = ${JSON.stringify(requestedAirport)};
 const requestedMode = ${JSON.stringify(requestedMode)};
+const requestedProgram = ${JSON.stringify(requestedProgram)};
 // Match the production fixed-step loop exactly; a 100 ms diagnostic step
 // measures twice the work of any tick the browser is allowed to execute.
 const stepSeconds = 0.05;
@@ -65,6 +73,11 @@ if (hubIndex < 0)
 const configuration = generateHubConfig(hubIndex);
 const simulation = new AirportSimulation(configuration, 'extreme');
 simulation.setMode(requestedMode);
+const program = requestedProgram ? ambientProgram(requestedProgram) : null;
+if (requestedProgram && !program)
+  throw new Error('Unknown ambient program ' + requestedProgram + '.');
+if (program && !simulation.applyAmbientProgram(program.id))
+  throw new Error('Ambient program rejected: ' + simulation.lastCommandReason());
 simulation.setPace(pace);
 simulation.setPaused(false);
 const openingFlights = simulation.state.flights.map((flight) => ({
@@ -299,8 +312,10 @@ while (simulation.state.elapsed < targetModeledSeconds) {
   for (const flight of simulation.state.flights) createdFlights.add(flight.id);
   if (simulation.state.elapsed >= nextSample) {
     const queues = simulation.queueSnapshot();
-    const activeMotion = simulation.state.flights.some((flight) => {
-      if (flight.phase === 'resting') return false;
+    const movingTraffic = simulation.state.flights.filter(
+      (flight) => flight.phase !== 'resting',
+    );
+    const activeMotion = movingTraffic.some((flight) => {
       const previous = sampledFlightMotion.get(flight.id);
       if (!previous) return true;
       return (
@@ -310,7 +325,11 @@ while (simulation.state.elapsed < targetModeledSeconds) {
         Math.abs(previous.z - flight.motion.z) > 0.01
       );
     });
-    if (activeMotion) lastTrafficMotionAtSeconds = simulation.state.elapsed;
+    // A calm bank with every aircraft legitimately at a stand is not an
+    // all-moving-traffic freeze. Start the clock only while a non-resting
+    // aircraft exists and fails to change authoritative pose.
+    if (activeMotion || movingTraffic.length === 0)
+      lastTrafficMotionAtSeconds = simulation.state.elapsed;
     maximumSecondsWithoutTrafficMotion = Math.max(
       maximumSecondsWithoutTrafficMotion,
       simulation.state.elapsed - lastTrafficMotionAtSeconds,
@@ -486,7 +505,7 @@ if (maximumAircraft > snapshot.budgets.aircraft) failures.push('aircraft entity 
 if (maximumVehicles > snapshot.budgets.serviceVehicles) failures.push('service-vehicle entity budget');
 if (maximumQueues > snapshot.budgets.queues) failures.push('queue budget');
 if (secondsSinceCompletedOperation > 1_800 && finalQueues.total > 0) failures.push('traffic flow stalled');
-if (requestedAirport === 'ORD' && requestedHours >= 1) {
+if (requestedAirport === 'ORD' && requestedProgram === null && requestedHours >= 1) {
   if (simulation.state.arrivals < Math.floor(requestedHours * 4))
     failures.push('ORD arrival throughput floor');
   if (simulation.state.departures < Math.floor(requestedHours * 4))
@@ -529,8 +548,9 @@ const report = {
   accepted: failures.length === 0,
   failures,
   airport: configuration.code,
-  density: 'extreme',
+  density: simulation.state.trafficFlow.density,
   mode: requestedMode,
+  ambientProgram: program?.id ?? null,
   heapMeasurement,
   requestedHours,
   modeledHours: Number((simulation.state.elapsed / 3_600).toFixed(3)),
@@ -553,6 +573,10 @@ const report = {
   maximumStationarySeconds: Number(maximumStationarySeconds.toFixed(1)),
   maximumStationaryFlight,
   trafficFlow: simulation.trafficFlowSnapshot(),
+  runwayConfiguration: {
+    id: simulation.state.runwayConfigurationId,
+    transition: simulation.state.runwayConfigurationTransition,
+  },
   lastArrivalAdmissionReason: simulation['lastArrivalAdmissionReason'],
   phaseCounts,
   serviceVehicleStatusCounts,
@@ -563,6 +587,19 @@ const report = {
       callsign: flight.callsign,
       runway: flight.runway,
       runwayEntryCleared: Boolean(flight.runwayEntryCleared),
+      phaseTransitionConflict: simulation['transitionConflict'](flight, 'takeoff'),
+      deicing: {
+        status: flight.deicing.status,
+        reason: flight.deicing.reason,
+      },
+      takeoffPerformance: (() => {
+        const performance = simulation['assessTakeoffPerformance'](flight);
+        return {
+          safe: performance.safe,
+          marginM: Number(performance.marginM.toFixed(1)),
+          runwayConditionCode: performance.runwayConditionCode,
+        };
+      })(),
       wakeReleaseReason: simulation.runwayReleaseBlocker(flight, 'departure'),
       pathBlocker: (() => {
         const blocker = simulation.departurePathBlocker(flight);
@@ -664,6 +701,8 @@ const report = {
       direction: flight.surfaceYield.direction,
       targetProgress: Number(flight.surfaceYield.targetProgress.toFixed(6)),
       startedAtSeconds: Number(flight.surfaceYield.startedAtSeconds.toFixed(1)),
+      reason: flight.surfaceYield.reason,
+      blockerFlightIds: flight.surfaceYield.blockerFlightIds,
       releaseAtSeconds: flight.surfaceYield.releaseAtSeconds === undefined
         ? null
         : Number(flight.surfaceYield.releaseAtSeconds.toFixed(1)),
@@ -824,7 +863,9 @@ const compact = {
   accepted: report.accepted,
   failures: report.failures,
   airport: report.airport,
+  density: report.density,
   mode: report.mode,
+  ambientProgram: report.ambientProgram,
   modeledHours: report.modeledHours,
   arrivals: report.arrivals,
   departures: report.departures,
@@ -840,6 +881,7 @@ const compact = {
   phaseCounts: report.phaseCounts,
   trafficFlowTotals: report.trafficFlow.totals,
   trafficBackPressure: report.trafficFlow.backPressure,
+  runwayConfiguration: report.runwayConfiguration,
   lastArrivalAdmissionReason: report.lastArrivalAdmissionReason,
   longestQueueWaitSeconds: report.longestWaitQueue?.waitSeconds ?? 0,
   longestQueue: report.longestQueues[0] ?? null,

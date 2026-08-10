@@ -30,6 +30,7 @@ import {
 import { amendFlightPlan, createFlightPlan } from './src/simulation/flightPlanning.ts';
 import { createHubSimulationHarness } from './src/simulation/fixedStepHarness.ts';
 import { AirportSimulation } from './src/simulation/airportSimulation.ts';
+import { syncFlightMotion } from './src/simulation/flightMotion.ts';
 import { selectTerminalProcedure } from './src/simulation/airspaceProcedures.ts';
 import { trafficFlowMeterRows } from './src/ui/queueInspector.ts';
 import { deriveTrafficFlowOperationalUncertainty } from './src/simulation/trafficFlowUncertainty.ts';
@@ -62,6 +63,15 @@ assert(trafficFlowConstraint('protected arrival sweep occupied').category === 'r
 assert(trafficFlowConstraint('active-aircraft budget occupied').category === 'downstream', 'downstream slot reason lacks a stable category');
 assert(trafficFlowConstraint('3/2 approach positions occupied').category === 'procedure', 'procedure slot reason lacks a stable category');
 assert(trafficFlowConstraint('missed approach by TEST 11').category === 'missed-approach', 'missed-approach slot reason lacks a stable category');
+const constrainedCargoSelection = selectTrafficProgram(airportTrafficProgram('HND'), {
+  trafficClass: 'cargo',
+  direction: 'arrival',
+  periodId: 'late-international',
+  flightId: 77,
+  airportSeed: 10_002,
+  supportsAircraft: (model) => model === 'A21N',
+});
+assert(constrainedCargoSelection.aircraft === 'A21N', 'traffic selection ignored the only runway-compatible operational fallback');
 let previousDemand = 0;
 for (const density of TRAFFIC_DENSITIES) {
   const profile = TRAFFIC_DENSITY_PROFILES[density];
@@ -414,6 +424,47 @@ assert(
   !dependentFlight.safetyHold &&
     releasedBlocker['stationarySeconds'].get(dependentFlight.id) === 0,
   'end-of-tick cleanup retained a projected-path hold for a departed blocker',
+);
+
+const hndConfig = generateHubConfig(
+  HUB_AIRPORTS.findIndex((airport) => airport.code === 'HND'),
+);
+const committedRelease = new AirportSimulation(hndConfig, 'quiet');
+committedRelease.setMode('auto');
+const committedDeparture = committedRelease.state.flights.find(
+  (flight) => flight.phase === 'taxi-out',
+);
+const conflictingArrival = committedRelease.state.flights.find(
+  (flight) => flight.phase === 'approach',
+);
+assert(committedDeparture && conflictingArrival, 'HND opening bank lacks committed-release fixtures');
+committedDeparture.phase = 'taxi-out';
+committedDeparture.runway = 1;
+committedDeparture.departureRunway = 1;
+committedDeparture.progress = 1;
+committedDeparture.runwayEntryCleared = true;
+conflictingArrival.phase = 'approach';
+conflictingArrival.runway = 3;
+conflictingArrival.progress = 0.3;
+syncFlightMotion(hndConfig, committedDeparture);
+syncFlightMotion(hndConfig, conflictingArrival);
+committedRelease.state.flights = [committedDeparture, conflictingArrival];
+committedRelease['runwayReservations'].clear();
+committedRelease['runwayOperationHistory'] = [];
+assert(
+  committedRelease['runwaysConflict'](1, 3),
+  'HND release fixture does not use conflicting runways',
+);
+assert(
+  committedRelease['reserveDeparture'](committedDeparture),
+  'a distant conflicting arrival stranded a runway-entry-cleared departure',
+);
+committedRelease['runwayReservations'].clear();
+conflictingArrival.progress = 0.85;
+syncFlightMotion(hndConfig, conflictingArrival);
+assert(
+  !committedRelease['reserveDeparture'](committedDeparture),
+  'a committed departure ignored a conflicting close-final arrival',
 );
 
 const hub = createHubSimulationHarness('ORD', { stepSeconds: 0.1, pace: 3, mode: 'auto', density: 'extreme' });
