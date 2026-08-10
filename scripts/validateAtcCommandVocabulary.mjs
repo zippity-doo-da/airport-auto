@@ -1,4 +1,4 @@
-import { build } from 'esbuild';
+import { build } from "esbuild";
 
 const validationSource = `
 import { generateHubConfig } from './src/simulation/airportConfig.ts';
@@ -77,6 +77,8 @@ assert(routeFlight.navigation.routeFixIds.join(',') === originalRoute, 'route pr
 assert(routeFixture.simulation.issueFlightRoute(routeFlight.id), 'safe route preview could not be issued: ' + routeFixture.simulation.lastCommandReason());
 assert(routeFlight.navigation.routeClearance?.status === 'pending-readback' && routeFlight.navigation.readbackStatus === 'pending', 'issued route did not enter pending-readback state');
 assert(routeFlight.navigation.routeFixIds.join(',') === originalRoute, 'pending readback mutated the authoritative route');
+assert(!routeFixture.simulation.acceptRouteReadback(routeFlight.id), 'Supervisor consumed a pilot readback owned by Approach');
+routeFixture.simulation.setStation('approach');
 assert(routeFixture.simulation.acceptRouteReadback(routeFlight.id), 'valid route readback was rejected: ' + routeFixture.simulation.lastCommandReason());
 assert(routeFlight.navigation.routeFixIds.join(',') === amendedFixIds.join(','), 'accepted route amendment did not become authoritative navigation state');
 assert(routeFlight.navigation.routeClearance?.status === 'accepted' && routeFlight.navigation.readbackStatus === 'accepted', 'accepted route did not preserve explicit readback state');
@@ -212,22 +214,25 @@ const result = await build({
   absWorkingDir: process.cwd(),
   stdin: {
     contents: validationSource,
-    loader: 'ts',
+    loader: "ts",
     resolveDir: process.cwd(),
-    sourcefile: 'atc-command-vocabulary-validation.ts',
+    sourcefile: "atc-command-vocabulary-validation.ts",
   },
   bundle: true,
-  format: 'esm',
-  platform: 'node',
-  target: 'node22',
+  format: "esm",
+  platform: "node",
+  target: "node22",
   write: false,
-  logLevel: 'silent',
+  logLevel: "silent",
 });
 
 const bundled = result.outputFiles[0]?.text;
-if (!bundled) throw new Error('ATC command vocabulary validation bundle was empty.');
+if (!bundled)
+  throw new Error("ATC command vocabulary validation bundle was empty.");
 try {
-  await import(`data:text/javascript;base64,${Buffer.from(bundled).toString('base64')}`);
+  await import(
+    `data:text/javascript;base64,${Buffer.from(bundled).toString("base64")}`
+  );
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;

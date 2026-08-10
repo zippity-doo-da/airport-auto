@@ -3601,6 +3601,20 @@ body.capture-clean #capture-clean-exit {
   line-height: 1.45;
 }
 
+.clearance-advisor small.clearance-advisor__flow {
+  display: block;
+  overflow: visible;
+  margin-top: 0.38rem;
+  color: var(--ink-soft);
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.35;
+  text-overflow: clip;
+  text-transform: uppercase;
+  white-space: normal;
+}
+
 .input-settings {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

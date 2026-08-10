@@ -1231,10 +1231,26 @@ export type ClearanceProposalAction =
   | "line-up"
   | "takeoff"
   | "slow"
+  | "speed"
   | "hold"
   | "direct-to"
   | "vector"
   | "resume";
+
+export interface ClearanceProposalFlowContext {
+  schemaVersion: 1;
+  entryId: string;
+  recommendationId: string;
+  targetId: string;
+  targetKind: TrafficFlowMeterTarget["kind"];
+  targetSeconds: number;
+  estimatedSeconds: number;
+  slotErrorSeconds: number;
+  toleranceBeforeSeconds: number;
+  toleranceAfterSeconds: number;
+  status: "early" | "on-time" | "late";
+  commandArbiterRequired: true;
+}
 
 export interface ClearanceProposal {
   id: string;
@@ -1254,6 +1270,7 @@ export interface ClearanceProposal {
   label: string;
   reason: string;
   priority: "routine" | "attention" | "urgent";
+  flow?: ClearanceProposalFlowContext;
 }
 
 export interface Flight {

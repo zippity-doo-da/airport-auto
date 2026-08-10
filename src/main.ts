@@ -764,12 +764,15 @@ const clearanceAdvisorTitle = document.createElement("b");
 const clearanceAdvisorStation = document.createElement("small");
 const clearanceAdvisorButton = document.createElement("button");
 const clearanceAdvisorReason = document.createElement("p");
+const clearanceAdvisorFlow = document.createElement("small");
+clearanceAdvisorFlow.className = "clearance-advisor__flow";
 clearanceAdvisorButton.type = "button";
 clearanceAdvisorIdentity.append(clearanceAdvisorTitle, clearanceAdvisorStation);
 clearanceAdvisorHeader.append(clearanceAdvisorIdentity, clearanceAdvisorButton);
 clearanceAdvisor.replaceChildren(
   clearanceAdvisorHeader,
   clearanceAdvisorReason,
+  clearanceAdvisorFlow,
 );
 const zoomInButton = $<HTMLButtonElement>("#zoom-in");
 const zoomOutButton = $<HTMLButtonElement>("#zoom-out");
@@ -1522,8 +1525,7 @@ accessibilityPaletteSelect.addEventListener("change", () => {
 });
 statusMessagePolicySelect.addEventListener("change", () => {
   const policy = statusMessagePolicySelect.value as StatusMessagePolicy;
-  if (!["off", "advisory", "operational", "rare-high"].includes(policy))
-    return;
+  if (!["off", "advisory", "operational", "rare-high"].includes(policy)) return;
   setStatusMessagePolicy(policy);
   setStatus(
     "Alert policy updated",
@@ -3531,7 +3533,8 @@ function presentationState(): typeof simulation.state {
     presentation.flights.push(rendered);
   }
   for (const id of presentationFlightCache.keys())
-    if (!activePresentationFlightIds.has(id)) presentationFlightCache.delete(id);
+    if (!activePresentationFlightIds.has(id))
+      presentationFlightCache.delete(id);
   return presentation;
 }
 
@@ -6285,6 +6288,7 @@ function renderClearanceAdvisor(): void {
     delete clearanceAdvisorButton.dataset.proposalId;
     clearanceAdvisorReason.textContent =
       "Advisor monitoring · no clearance needs approval";
+    clearanceAdvisorFlow.hidden = true;
     clearanceAdvisorReason.style.marginTop = "0";
     clearanceAdvisor.dataset.priority = "quiet";
     return;
@@ -6298,6 +6302,14 @@ function renderClearanceAdvisor(): void {
   clearanceAdvisorButton.dataset.proposalId = proposal.id;
   clearanceAdvisorButton.textContent = proposal.label;
   clearanceAdvisorReason.textContent = proposal.reason;
+  if (proposal.flow) {
+    const error = Math.abs(Math.round(proposal.flow.slotErrorSeconds));
+    const target = proposal.flow.targetKind.replaceAll("-", " ");
+    clearanceAdvisorFlow.textContent = `${target.toUpperCase()} · ${error}s ${proposal.flow.status} · window −${proposal.flow.toleranceBeforeSeconds}/+${proposal.flow.toleranceAfterSeconds}s`;
+    clearanceAdvisorFlow.hidden = false;
+  } else {
+    clearanceAdvisorFlow.hidden = true;
+  }
   clearanceAdvisorReason.style.removeProperty("margin-top");
   clearanceAdvisor.dataset.priority = proposal.priority;
 }
@@ -6338,7 +6350,7 @@ function applyClearanceProposal(proposal: ClearanceProposal): void {
       action: "clearTakeoff",
       flightId: proposal.flightId,
     });
-  else if (proposal.action === "slow")
+  else if (proposal.action === "slow" || proposal.action === "speed")
     result = executeAirportRequest({
       action: "assignAirspeed",
       flightId: proposal.flightId,
@@ -7434,7 +7446,11 @@ function updateCameraDirector(nowSeconds: number): void {
   const decision = cameraDirector.update(simulation.state, nowSeconds);
   if (!decision) return;
   cameraDirectorApplying = true;
-  const result = focusObserverTarget(decision.target, true, decision.focusScale);
+  const result = focusObserverTarget(
+    decision.target,
+    true,
+    decision.focusScale,
+  );
   cameraDirectorApplying = false;
   if (!result.accepted) cameraDirector.reset(nowSeconds + 1);
   updateCameraDirectorUi();
@@ -7932,15 +7948,15 @@ function updateAirportUi(): void {
         ? config.surfaceGraph.hotspots.length > 0
         : layer === "operational-zones"
           ? config.surfaceGraph.zones.length > 0
-        : layer === "airport-boundary"
-          ? Boolean(config.contextData)
-          : layer === "protection-zones"
-            ? config.runways.length > 0
-            : layer === "movement-projections"
-              ? true
-          : config.surfaceGraph.taxiways.some((taxiway) =>
-                Boolean(taxiway.reference),
-              );
+          : layer === "airport-boundary"
+            ? Boolean(config.contextData)
+            : layer === "protection-zones"
+              ? config.runways.length > 0
+              : layer === "movement-projections"
+                ? true
+                : config.surfaceGraph.taxiways.some((taxiway) =>
+                    Boolean(taxiway.reference),
+                  );
     control.disabled = !available;
     control.checked = available && surfaceLayerVisibility[layer];
     world.setSurfaceLayerVisible(
@@ -8478,8 +8494,7 @@ function flightPoseAlignment(flight: Flight) {
     renderer: rendered,
     errors: {
       collisionHorizontalWorld: collisionHorizontalError,
-      rendererSourceHorizontalWorld:
-        rendered?.horizontalSourceError ?? null,
+      rendererSourceHorizontalWorld: rendered?.horizontalSourceError ?? null,
       rendererAuthoritativeHorizontalWorld: rendererAuthoritativeError,
     },
   };
@@ -9894,7 +9909,9 @@ function executeAirportRequest(
     updateNightControl();
   }
   if (command.action === "setOperationTimeOffset") {
-    accepted = Number.isFinite(command.minutes) && simulation.setOperationTimeOffsetMinutes(command.minutes);
+    accepted =
+      Number.isFinite(command.minutes) &&
+      simulation.setOperationTimeOffsetMinutes(command.minutes);
     reason = accepted
       ? simulation.lastCommandReason()
       : "operation time offset must be a finite number";
@@ -9959,12 +9976,12 @@ function executeAirportRequest(
   if (command.action === "setSurfaceLayerVisible") {
     accepted = [
       "taxiway-labels",
-        "operational-zones",
-        "hotspots",
-        "airport-boundary",
-        "protection-zones",
-        "movement-projections",
-      ].includes(command.layer);
+      "operational-zones",
+      "hotspots",
+      "airport-boundary",
+      "protection-zones",
+      "movement-projections",
+    ].includes(command.layer);
     if (accepted) setSurfaceLayerVisible(command.layer, command.enabled);
     else
       reason =
@@ -10364,15 +10381,11 @@ function executeAirportRequest(
       : "traffic-flow forecast horizon must be 300, 600, or 900 seconds";
   }
   if (command.action === "ignoreTrafficFlowAdvisory") {
-    accepted = simulation.ignoreTrafficFlowAdvisory(
-      command.recommendationId,
-    );
+    accepted = simulation.ignoreTrafficFlowAdvisory(command.recommendationId);
     reason = simulation.lastCommandReason();
   }
   if (command.action === "recoverTrafficFlowAdvisory") {
-    accepted = simulation.recoverTrafficFlowAdvisory(
-      command.recommendationId,
-    );
+    accepted = simulation.recoverTrafficFlowAdvisory(command.recommendationId);
     reason = simulation.lastCommandReason();
   }
   if (command.action === "setSeparationRuleset") {

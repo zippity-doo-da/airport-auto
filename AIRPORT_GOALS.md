@@ -509,13 +509,15 @@ factor, not an unexplained confidence reduction.
 - [~] Let Supervisor choose Balanced, Minimum Holding, Minimum Taxi Delay,
   Weather Recovery, or Watch/Calm scheduling objectives. The Queue
   inspector and typed control API now select authoritative pacing profiles;
-  bounded forecast-based slot reviews are now exposed without mutating
-  aircraft; action-specific release policy remains open.
+  bounded forecast-based slot reviews now feed action-specific Assisted
+  proposals without mutating aircraft. Broader bank-level optimization remains
+  open.
 - [~] Give Approach advisories for speed, vector, hold, direct-to, and sequence
   changes that satisfy target times through existing legal commands. Assisted
-  mode now proposes legal speed, vector, hold, and direct-to guidance; the
-  flow layer also exposes read-only slot reviews with explicit command-arbiter
-  boundaries.
+  mode now maps authoritative runway-threshold error into bounded slow, speed,
+  timed-hold, vector, and direct-to proposals. Each proposal carries its target,
+  estimate, tolerance, and early/on-time/late state; sequence amendment remains
+  open.
 - [~] Give Tower a runway-ready sequence that respects wake, runway occupancy,
   crossing queues, configuration transitions, and departure-release windows.
   Assisted Tower now offers only the next physically releasable line-up or
@@ -523,8 +525,9 @@ factor, not an unexplained confidence reduction.
   crossing priority, weather, performance, wake release, and the departure
   envelope. Each proposal now also reports the authoritative planned departure
   release window and queue position, so a controller can distinguish “safe now”
-  from “safe but metered.” Forecast-based release reviews are now visible as
-  advisory-only flow records; action-specific release policy remains open.
+  from “safe but metered.” Releasable line-up and takeoff proposals now carry
+  their authoritative departure-release target and timing state; more explicit
+  departure resequencing remains open.
 - [~] Explain every slot movement: weather, missed approach, gate pressure,
   runway closure, aircraft performance, wake, or downstream saturation.
   The queue meter now labels the latest authoritative reason with a stable
@@ -551,12 +554,15 @@ factor, not an unexplained confidence reduction.
   direction-specific procedure, taxi, and gate factors alongside weather,
   wind, runway condition, pilot response, and downstream saturation without
   changing separation, reservations, meter slots, or movement commands.
-- [~] Ensure schedule recommendations never move an aircraft directly; accepted
+- [x] Ensure schedule recommendations never move an aircraft directly; accepted
   actions must pass through the existing command and safety layers. Version 6
   flow snapshots expose advisory-only recommendations plus explicit Ignore and
   Recover responses. Recovery changes only the scheduler objective; aircraft
-  remain behind the command and safety arbiters. Action-specific release policy
-  remains open.
+  remain behind the command and safety arbiters. Action-specific proposals are
+  pure reads, carry `commandArbiterRequired`, and invoke the same typed speed,
+  hold, vector, direct-to, line-up, or takeoff command used by a controller.
+  Deterministic tests compare full state before and after proposal generation,
+  then prove an authorized proposal can pass the ordinary command arbiter.
 - [~] Record schedule revisions and causes in exact replay and local analytics.
   Meter entries now retain bounded revision causes in replay-safe state and
   expose the latest cause in Queue inspector; dedicated analytics rollups

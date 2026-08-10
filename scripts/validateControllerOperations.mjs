@@ -1,4 +1,4 @@
-import { build } from 'esbuild';
+import { build } from "esbuild";
 
 const validationSource = `
 import { generateHubConfig } from './src/simulation/airportConfig.ts';
@@ -200,6 +200,55 @@ if (vectorFlight) {
   assert(simulation.assignHeading(vectorFlight.id, vectorProposal.headingDegrees), 'Approach could not apply the proposed vector');
 }
 
+// Strategic meter targets may explain and prioritize a legal tactical action,
+// but reading proposals must not mutate the flight, slot, or navigation state.
+const flowFlights = simulation.state.flights;
+const flowState = simulation.state.trafficFlow;
+simulation.state.flights = [trailing];
+trailing.phase = 'approach';
+trailing.progress = 0.35;
+trailing.phaseElapsed = trailing.duration * trailing.progress;
+trailing.goAround = undefined;
+trailing.diversion = undefined;
+trailing.navigation.hold = undefined;
+trailing.navigation.vector = undefined;
+trailing.navigation.frequencyOwner = 'approach';
+trailing.navigation.assignedSpeedKts = undefined;
+trailing.kinematics.airspeedKts = 180;
+const estimatedThresholdSeconds = simulation.state.elapsed + trailing.duration - trailing.phaseElapsed;
+const flowEntry = {
+  id: 'arrival-flow-advisory-test', direction: 'arrival', status: 'released',
+  createdAtSeconds: simulation.state.elapsed, scheduledAtSeconds: simulation.state.elapsed,
+  releaseSlotSeconds: simulation.state.elapsed, updatedAtSeconds: simulation.state.elapsed,
+  delaySeconds: 0, attempts: 1, reason: 'controller advisory validation',
+  constraintCategory: 'schedule', slotRevisions: [], flightId: trailing.id,
+  callsign: trailing.callsign, runwayId: trailing.runway,
+  meterTargets: [{
+    schemaVersion: 1, id: 'arrival-flow-threshold-test', kind: 'runway-threshold',
+    label: 'Runway threshold', targetSeconds: estimatedThresholdSeconds + 90,
+    toleranceBeforeSeconds: 8, toleranceAfterSeconds: 15, runwayId: trailing.runway,
+  }],
+};
+simulation.state.trafficFlow = { ...flowState, arrivalQueue: [], departureQueue: [], history: [flowEntry] };
+const stateBeforeFlowAdvice = JSON.stringify(simulation.state);
+const earlyFlowProposals = simulation.clearanceProposals();
+assert(JSON.stringify(simulation.state) === stateBeforeFlowAdvice, 'reading flow-linked proposals directly mutated authoritative simulation state');
+const earlyFlowProposal = earlyFlowProposals.find((proposal) => proposal.flightId === trailing.id && proposal.action === 'slow');
+assert(earlyFlowProposal?.flow?.status === 'early' && earlyFlowProposal.flow.commandArbiterRequired && earlyFlowProposal.flow.targetId === 'arrival-flow-threshold-test', 'early arrival target did not produce an explicit legal speed-reduction proposal: ' + JSON.stringify(earlyFlowProposals));
+assert(simulation.assignAirspeed(trailing.id, earlyFlowProposal.speedKts), 'Approach command arbiter rejected the proposed early-slot speed reduction: ' + simulation.lastCommandReason());
+
+trailing.navigation.assignedSpeedKts = undefined;
+trailing.kinematics.airspeedKts = 180;
+flowEntry.meterTargets[0].targetSeconds = estimatedThresholdSeconds - 40;
+const stateBeforeLateAdvice = JSON.stringify(simulation.state);
+const lateFlowProposals = simulation.clearanceProposals();
+assert(JSON.stringify(simulation.state) === stateBeforeLateAdvice, 'reading late-slot proposals directly mutated authoritative simulation state');
+const lateFlowProposal = lateFlowProposals.find((proposal) => proposal.flightId === trailing.id && proposal.action === 'speed');
+assert(lateFlowProposal?.flow?.status === 'late' && lateFlowProposal.speedKts > trailing.kinematics.airspeedKts, 'late arrival target did not produce a bounded speed-recovery proposal: ' + JSON.stringify(lateFlowProposals));
+assert(simulation.assignAirspeed(trailing.id, lateFlowProposal.speedKts), 'Approach command arbiter rejected the proposed late-slot speed increase: ' + simulation.lastCommandReason());
+simulation.state.flights = flowFlights;
+simulation.state.trafficFlow = flowState;
+
 // Tower's assisted card must not offer multiple mutually conflicting runway
 // movements. A lined-up departure wins over a second aircraft still waiting
 // at the same runway's hold-short point.
@@ -241,6 +290,19 @@ towerFollower.motion.z = 0;
 // its old route across the lead's departure envelope.
 towerFollower.surfaceRoute = undefined;
 towerFollower.surfaceRouteEdges = undefined;
+simulation.state.trafficFlow.history.push({
+  id: 'departure-flow-advisory-test', direction: 'departure', status: 'released',
+  createdAtSeconds: simulation.state.elapsed, scheduledAtSeconds: simulation.state.elapsed,
+  releaseSlotSeconds: simulation.state.elapsed, updatedAtSeconds: simulation.state.elapsed,
+  delaySeconds: 0, attempts: 1, reason: 'controller advisory validation',
+  constraintCategory: 'schedule', slotRevisions: [], flightId: towerLead.id,
+  callsign: towerLead.callsign, runwayId: towerLead.runway,
+  meterTargets: [{
+    schemaVersion: 1, id: 'departure-release-advisory-test', kind: 'departure-release',
+    label: 'Departure release', targetSeconds: simulation.state.elapsed,
+    toleranceBeforeSeconds: 5, toleranceAfterSeconds: 10, runwayId: towerLead.runway,
+  }],
+});
 simulation.setStation('tower');
 const towerProposals = simulation.clearanceProposals();
 if (!towerProposals.some((proposal) => proposal.flightId === towerLead.id && proposal.action === 'takeoff')) {
@@ -249,6 +311,7 @@ if (!towerProposals.some((proposal) => proposal.flightId === towerLead.id && pro
 }
 const towerTakeoffProposal = towerProposals.find((proposal) => proposal.flightId === towerLead.id && proposal.action === 'takeoff');
 assert(/departure release|release window|queue position/i.test(towerTakeoffProposal?.reason ?? ''), 'Tower departure proposal omitted its release-window explanation: ' + JSON.stringify(towerTakeoffProposal));
+assert(towerTakeoffProposal?.flow?.targetId === 'departure-release-advisory-test' && towerTakeoffProposal.flow.commandArbiterRequired, 'Tower departure proposal omitted its authoritative release target: ' + JSON.stringify(towerTakeoffProposal));
 assert(!towerProposals.some((proposal) => proposal.flightId === towerFollower.id && proposal.action === 'line-up'), 'Tower advisor offered a conflicting second runway movement');
 
 const syntheticWorkloads = controllerWorkloadSnapshots([sample], createStationAutomation(true));
@@ -268,22 +331,25 @@ const result = await build({
   absWorkingDir: process.cwd(),
   stdin: {
     contents: validationSource,
-    loader: 'ts',
+    loader: "ts",
     resolveDir: process.cwd(),
-    sourcefile: 'controller-operations-validation.ts',
+    sourcefile: "controller-operations-validation.ts",
   },
   bundle: true,
-  format: 'esm',
-  platform: 'node',
-  target: 'node22',
+  format: "esm",
+  platform: "node",
+  target: "node22",
   write: false,
-  logLevel: 'silent',
+  logLevel: "silent",
 });
 
 const bundled = result.outputFiles[0]?.text;
-if (!bundled) throw new Error('Controller operations validation bundle was empty.');
+if (!bundled)
+  throw new Error("Controller operations validation bundle was empty.");
 try {
-  await import(`data:text/javascript;base64,${Buffer.from(bundled).toString('base64')}`);
+  await import(
+    `data:text/javascript;base64,${Buffer.from(bundled).toString("base64")}`
+  );
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;

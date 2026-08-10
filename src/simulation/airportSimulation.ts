@@ -220,6 +220,10 @@ import {
 import { deriveTrafficFlowOperationalUncertainty } from "./trafficFlowUncertainty";
 import { deriveTrafficFlowCapacityAttribution } from "./trafficFlowCapacityAttribution";
 import {
+  flowTimingReason,
+  trafficFlowGuidanceForFlight,
+} from "./trafficFlowAdvisories";
+import {
   amendFlightPlan,
   cloneFlightPlan,
   createFlightPlan,
@@ -2288,6 +2292,7 @@ export class AirportSimulation {
     // line-up or takeoff beside the actual next release.
     const towerReadyDepartures = this.towerReadyDepartureIds();
     for (const flight of this.state.flights) {
+      const flowContext = trafficFlowGuidanceForFlight(this.state, flight);
       if (
         flight.phase === "approach" &&
         !flight.cleared &&
@@ -2312,6 +2317,7 @@ export class AirportSimulation {
               : flight.progress > 0.62
                 ? "attention"
                 : "routine",
+          ...(flowContext ? { flow: flowContext } : {}),
         });
       }
       if (
@@ -2339,7 +2345,12 @@ export class AirportSimulation {
           Math.round((currentSpeed - 15) / 5) * 5,
         );
         const progressGap = leader ? leader.progress - flight.progress : 1;
-        if (leader && progressGap < 0.16 && targetSpeed <= currentSpeed - 5) {
+        const earlyForSlot =
+          flowContext?.status === "early" && flowContext.slotErrorSeconds < -10;
+        if (
+          ((leader && progressGap < 0.16) || earlyForSlot) &&
+          targetSpeed <= currentSpeed - 5
+        ) {
           proposals.push({
             id: `${flight.id}:slow:${targetSpeed}`,
             flightId: flight.id,
@@ -2347,16 +2358,49 @@ export class AirportSimulation {
             speedKts: targetSpeed,
             station: "approach",
             label: `Reduce to ${targetSpeed} kt`,
-            reason: `${leader.callsign} is ahead on the same runway sequence; a small speed reduction creates spacing before final without inserting a holding pattern.`,
-            priority: progressGap < 0.08 ? "urgent" : "attention",
+            reason: leader
+              ? `${leader.callsign} is ahead on the same runway sequence; a small speed reduction creates spacing before final without inserting a holding pattern. ${flowTimingReason(flowContext)}`
+              : `${flowTimingReason(flowContext)} A small speed reduction absorbs delay before final without inserting a holding pattern.`,
+            priority:
+              (leader && progressGap < 0.08) ||
+              (flowContext?.slotErrorSeconds ?? 0) < -45
+                ? "urgent"
+                : "attention",
+            ...(flowContext ? { flow: flowContext } : {}),
+          });
+        }
+
+        if (
+          flowContext?.status === "late" &&
+          flowContext.slotErrorSeconds > 15 &&
+          currentSpeed < 245
+        ) {
+          const recoverySpeed = Math.min(
+            250,
+            Math.round((currentSpeed + 15) / 5) * 5,
+          );
+          proposals.push({
+            id: `${flight.id}:speed:${recoverySpeed}:${flowContext.targetId}`,
+            flightId: flight.id,
+            action: "speed",
+            speedKts: recoverySpeed,
+            station: "approach",
+            label: `Increase to ${recoverySpeed} kt`,
+            reason: `${flowTimingReason(flowContext)} This bounded speed increase reduces projected slot error while remaining inside the existing approach-speed command limit.`,
+            priority:
+              flowContext.slotErrorSeconds > 45 ? "urgent" : "attention",
+            flow: flowContext,
           });
         }
 
         // If speed control alone cannot create enough room, offer Approach a
         // published terminal hold. Only the trailing aircraft may receive it,
         // and only before the final segment where holdFlight() accepts it.
-        const holdPressure = leader && progressGap < 0.1;
-        if (holdPressure && progressGap < 0.1 && flight.progress >= 0.2) {
+        const holdPressure =
+          (leader && progressGap < 0.1) ||
+          (flowContext?.status === "early" &&
+            flowContext.slotErrorSeconds < -45);
+        if (holdPressure && flight.progress >= 0.2) {
           const routeFixes = new Set(flight.navigation.routeFixIds);
           const pattern =
             this.config.airspaceProgram.holds.find((hold) =>
@@ -2366,16 +2410,32 @@ export class AirportSimulation {
               flight.id % this.config.airspaceProgram.holds.length
             ];
           if (pattern) {
+            const flowHoldMinutes = flowContext
+              ? Math.max(
+                  1,
+                  Math.min(
+                    3,
+                    Math.ceil(Math.abs(flowContext.slotErrorSeconds) / 60),
+                  ),
+                )
+              : 3;
             proposals.push({
               id: `${flight.id}:hold:${pattern.id}`,
               flightId: flight.id,
               action: "hold",
               patternId: pattern.id,
-              efcMinutes: 3,
+              efcMinutes: flowHoldMinutes,
               station: "approach",
-              label: `Hold at ${pattern.name} · EFC 3 min`,
-              reason: `${leader.callsign} is less than 0.10 sequence-progress ahead on the same runway; a published hold meters the arrival without forcing a sharp vector or a late go-around.`,
-              priority: progressGap < 0.06 ? "urgent" : "attention",
+              label: `Hold at ${pattern.name} · EFC ${flowHoldMinutes} min`,
+              reason: leader
+                ? `${leader.callsign} is less than 0.10 sequence-progress ahead on the same runway; a published hold meters the arrival without forcing a sharp vector or a late go-around. ${flowTimingReason(flowContext)}`
+                : `${flowTimingReason(flowContext)} A published hold absorbs the larger early-arrival error without forcing a sharp vector or late go-around.`,
+              priority:
+                (leader && progressGap < 0.06) ||
+                (flowContext?.slotErrorSeconds ?? 0) < -90
+                  ? "urgent"
+                  : "attention",
+              ...(flowContext ? { flow: flowContext } : {}),
             });
           }
         }
@@ -2422,8 +2482,10 @@ export class AirportSimulation {
               fixId: directFix.id,
               station: "approach",
               label: `Direct ${directFix.name}`,
-              reason: `Early in the published arrival, ${directFix.name} is the next safe route shortcut (${Math.round(turn)}° turn); no conflicting sequence leader is ahead.`,
-              priority: "routine",
+              reason: `${flowTimingReason(flowContext)} Early in the published arrival, ${directFix.name} is the next safe route shortcut (${Math.round(turn)}° turn); no conflicting sequence leader is ahead.`,
+              priority:
+                flowContext?.status === "late" ? "attention" : "routine",
+              ...(flowContext ? { flow: flowContext } : {}),
             });
           }
         }
@@ -2471,8 +2533,10 @@ export class AirportSimulation {
               headingDegrees: Math.round(heading),
               station: "approach",
               label: `Fly heading ${String(Math.round(heading)).padStart(3, "0")}`,
-              reason: `Rejoin ${vectorFix.name} with a ${Math.round(turn)}° correction; the vector stays outside final and returns the aircraft to its published arrival.`,
-              priority: "routine",
+              reason: `${flowTimingReason(flowContext)} Rejoin ${vectorFix.name} with a ${Math.round(turn)}° correction; the vector stays outside final and returns the aircraft to its published arrival.`,
+              priority:
+                flowContext?.status === "late" ? "attention" : "routine",
+              ...(flowContext ? { flow: flowContext } : {}),
             });
           }
         }
@@ -2551,6 +2615,7 @@ export class AirportSimulation {
           label: `Line up ${this.activeRunwayDesignation(flight.runway)}`,
           reason: `Aircraft is stopped at the hold-short point and all required route crossings are clear. ${this.towerDepartureReleaseDetail(flight)}`,
           priority: "attention",
+          ...(flowContext ? { flow: flowContext } : {}),
         });
       }
       if (
@@ -2567,6 +2632,7 @@ export class AirportSimulation {
           label: `Clear takeoff ${this.activeRunwayDesignation(flight.runway)}`,
           reason: `Aircraft is lined up; runway protection and arrival spacing will be validated on approval. ${this.towerDepartureReleaseDetail(flight)}`,
           priority: "attention",
+          ...(flowContext ? { flow: flowContext } : {}),
         });
       }
       if (flight.controlHold && !flight.safetyHold) {
