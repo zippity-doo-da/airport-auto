@@ -3654,6 +3654,7 @@ test("Operations data lab records authoritative traces and exports local analysi
     const analytics = window.airportControl.analytics();
     const json = JSON.parse(window.airportControl.exportData("json"));
     const csv = window.airportControl.exportData("csv", "runways");
+    const flowCsv = window.airportControl.exportData("csv", "flow-revisions");
     return {
       overview,
       analytics,
@@ -3664,9 +3665,10 @@ test("Operations data lab records authoritative traces and exports local analysi
         cloudUpload: json.disclosure.cloudUpload,
       },
       csv,
+      flowCsv,
     };
   });
-  expect(api.overview.schemaVersion).toBe(3);
+  expect(api.overview.schemaVersion).toBe(4);
   expect(api.overview.exportDatasets).toHaveLength(12);
   expect(api.overview.exportDatasets).toContain("surface-advisories");
   expect(api.overview.exportDatasets).toContain("flow-revisions");
@@ -3678,12 +3680,14 @@ test("Operations data lab records authoritative traces and exports local analysi
     shareableByDefault: false,
   });
   expect(api.json).toMatchObject({
-    schemaVersion: 3,
+    schemaVersion: 4,
     localOnly: true,
     cloudUpload: false,
   });
   expect(api.json.flightRecorderSamples).toBeGreaterThan(0);
   expect(api.csv).toContain("occupiedSeconds");
+  expect(api.flowCsv).toContain("causeCode");
+  expect(api.flowCsv).toContain("source");
 
   await page.locator("#menu-toggle").click();
   await page.locator("#operations-lab-toggle").click();

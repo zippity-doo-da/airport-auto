@@ -101,7 +101,7 @@ surfaceSafety = advisoryTracker.update(surfaceSafetySnapshot(config, simulation.
 assert(recorder.record({ state: simulation.state, predictions: [surfacePrediction], queues, metrics: simulation.shiftMetrics(), surfaceSafety }), 'reactivated advisory sample was rejected');
 
 const snapshot = recorder.snapshot(simulation.state, queues, first.id);
-assert(snapshot.schemaVersion === 3 && snapshot.sessionId === 'analytics-session', 'analytics schema/session drifted');
+assert(snapshot.schemaVersion === 4 && snapshot.sessionId === 'analytics-session', 'analytics schema/session drifted');
 assert(snapshot.flights.length >= 2 && snapshot.selectedFlightSamples.length === 6, 'flight recorder samples are incomplete');
 assert(snapshot.selectedFlightSamples[0].altitudeFt === 720 && snapshot.selectedFlightSamples[0].fuelPercent === 14.5, 'authoritative kinematics were not retained');
 assert(snapshot.runwayUtilization.some((entry) => entry.occupiedSeconds >= 4 && entry.movements >= 1), 'runway utilization was not accumulated');
@@ -115,17 +115,18 @@ assert(snapshot.summary.activeSurfaceAdvisories === 1 && snapshot.summary.surfac
 assert(snapshot.summary.flowEntriesObserved === 1 && snapshot.summary.flowSlotRevisions === 2 && snapshot.summary.largestFlowSlotShiftSeconds === 30, 'flow revision summary omitted a slot change');
 assert(snapshot.trafficFlowRevisions.length === 3 && snapshot.trafficFlowRevisions.filter((entry) => entry.kind === 'revision').map((entry) => entry.shiftSeconds).sort((a, b) => a - b).join(',') === '-10,30', 'flow revisions lost their signed schedule changes');
 assert(snapshot.trafficFlowCauses.find((entry) => entry.category === 'weather')?.delayAddedSeconds === 30 && snapshot.trafficFlowCauses.find((entry) => entry.category === 'runway')?.delayRecoveredSeconds === 10, 'flow cause rollup lost added or recovered delay');
+assert(snapshot.trafficFlowRevisions.find((entry) => entry.reason === 'weather recovery arrival metering')?.causeCode === 'weather-capacity' && snapshot.trafficFlowRevisions.find((entry) => entry.reason === 'weather recovery arrival metering')?.source === 'weather', 'flow revision analytics omitted structured cause/source attribution');
 assert(snapshot.disclosure.localOnly && !snapshot.disclosure.cloudUpload && !snapshot.disclosure.shareableByDefault, 'local/privacy disclosure drifted');
 
 const commands = [{ action: 'holdPosition', flightId: second.id, actorId: 'fixture-controller' }];
 const events = [{ type: 'command:holdPosition', flightId: second.id, accepted: true }];
 const bundle = buildOperationsExportBundle(snapshot, recorder.allFlightSamples(), commands, events, queues);
-assert(bundle.schemaVersion === 3 && bundle.flightRecorder.length >= 8 && bundle.commands.length === 1 && bundle.events.length === 1, 'JSON bundle omitted a dataset');
+assert(bundle.schemaVersion === 4 && bundle.flightRecorder.length >= 8 && bundle.commands.length === 1 && bundle.events.length === 1, 'JSON bundle omitted a dataset');
 for (const dataset of OPERATIONS_EXPORT_DATASETS) {
   const csv = serializeOperationsCsv(bundle, dataset, dataset === 'flight-recorder' ? first.id : undefined);
   assert(csv.includes('\\r\\n'), dataset + ' CSV did not contain a header terminator');
   assert(!csv.includes('[object Object]'), dataset + ' CSV did not serialize nested data');
-  if (dataset === 'flow-revisions') assert(csv.includes('weather recovery arrival metering') && csv.includes('shiftSeconds'), 'flow-revision CSV omitted signed cause data');
+  if (dataset === 'flow-revisions') assert(csv.includes('weather recovery arrival metering') && csv.includes('shiftSeconds') && csv.includes('weather-capacity') && csv.includes('source'), 'flow-revision CSV omitted signed structured cause data');
 }
 
 recorder.reset('next-session', descriptor(config), simulation.shiftMetrics(), 20);

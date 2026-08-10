@@ -1108,8 +1108,47 @@ export type TrafficFlowConstraintCategory =
   | "gate"
   | "performance"
   | "taxi"
+  | "procedure"
+  | "missed-approach"
+  | "downstream"
   | "demand"
   | "schedule";
+
+export type TrafficFlowRevisionCauseCode =
+  | "initial-schedule"
+  | "readiness-change"
+  | "controller-sequence"
+  | "weather-capacity"
+  | "runway-closure"
+  | "runway-capacity"
+  | "wake-separation"
+  | "gate-pressure"
+  | "aircraft-performance"
+  | "surface-congestion"
+  | "procedure-capacity"
+  | "missed-approach"
+  | "downstream-saturation"
+  | "demand-capacity"
+  | "schedule-adjustment";
+
+/** Stable machine-readable attribution retained with every slot decision. */
+export interface TrafficFlowRevisionAttribution {
+  schemaVersion: 1;
+  category: TrafficFlowConstraintCategory;
+  causeCode: TrafficFlowRevisionCauseCode;
+  source:
+    | "scheduler"
+    | "controller"
+    | "weather"
+    | "runway"
+    | "procedure"
+    | "surface"
+    | "gate"
+    | "aircraft"
+    | "demand";
+  relatedFlightId?: number;
+  relatedRunwayId?: number;
+}
 
 /** A bounded, authoritative explanation for one metering-slot change. */
 export interface TrafficFlowSlotRevision {
@@ -1117,6 +1156,7 @@ export interface TrafficFlowSlotRevision {
   releaseSlotSeconds: number;
   reason: string;
   category?: TrafficFlowConstraintCategory;
+  attribution?: TrafficFlowRevisionAttribution;
 }
 
 export type TrafficFlowMeterPointKind =
@@ -1162,6 +1202,7 @@ export interface TrafficFlowEntry {
   reason: string;
   /** Classification is advisory only; the detailed reason remains authoritative. */
   constraintCategory?: TrafficFlowConstraintCategory;
+  constraintAttribution?: TrafficFlowRevisionAttribution;
   slotRevisions: TrafficFlowSlotRevision[];
   meterTargets: TrafficFlowMeterTarget[];
   flightId?: number;
@@ -1196,7 +1237,7 @@ export interface TrafficFlowAdvisoryResponse {
 }
 
 export interface TrafficFlowState {
-  schemaVersion: 3;
+  schemaVersion: 4;
   density: TrafficDensity;
   objective: TrafficFlowObjective;
   forecastHorizonSeconds: TrafficFlowForecastHorizonSeconds;

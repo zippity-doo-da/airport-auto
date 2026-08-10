@@ -134,6 +134,11 @@ test("Supervisor can safely resequence a non-imminent departure slot", async ({
       .find((entry) => entry.id === before.entryId)
       ?.slotRevisions.at(-1)?.reason,
   ).toContain("sequence revised");
+  await expect(
+    panel
+      .locator(".queue-meter-slot")
+      .filter({ hasText: "controller sequence" }),
+  ).not.toHaveCount(0);
   await earlier.scrollIntoViewIfNeeded();
   await page.screenshot({ path: testInfo.outputPath("flow-resequence.png") });
 });

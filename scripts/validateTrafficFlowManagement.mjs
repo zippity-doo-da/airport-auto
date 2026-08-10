@@ -8,6 +8,7 @@ import { buildAirportOperationProfile } from './src/simulation/airportOperationP
 import { TRAFFIC_DENSITIES, TRAFFIC_DENSITY_PROFILES } from './src/simulation/trafficDensity.ts';
 import {
   createTrafficFlowState,
+  delayArrivalBankForMissedApproach,
   enqueueArrivalDemand,
   expireTrafficFlow,
   ignoreTrafficFlowRecommendation,
@@ -58,7 +59,9 @@ assert(isTrafficFlowForecastHorizon(300) && isTrafficFlowForecastHorizon(600) &&
 assert(trafficFlowConstraint('weather recovery arrival metering').category === 'weather', 'weather slot reason lacks a stable category');
 assert(trafficFlowConstraint('no immediately available compatible stand').category === 'gate', 'gate slot reason lacks a stable category');
 assert(trafficFlowConstraint('protected arrival sweep occupied').category === 'runway', 'runway slot reason lacks a stable category');
-assert(trafficFlowConstraint('active-aircraft budget occupied').category === 'demand', 'demand slot reason lacks a stable category');
+assert(trafficFlowConstraint('active-aircraft budget occupied').category === 'downstream', 'downstream slot reason lacks a stable category');
+assert(trafficFlowConstraint('3/2 approach positions occupied').category === 'procedure', 'procedure slot reason lacks a stable category');
+assert(trafficFlowConstraint('missed approach by TEST 11').category === 'missed-approach', 'missed-approach slot reason lacks a stable category');
 let previousDemand = 0;
 for (const density of TRAFFIC_DENSITIES) {
   const profile = TRAFFIC_DENSITY_PROFILES[density];
@@ -172,11 +175,20 @@ setTrafficFlowObjective(flow, 'weather-recovery', 0);
 assert(trafficFlowSnapshot(flow, 0).objective.id === 'weather-recovery' && trafficFlowObjectiveProfile('weather-recovery').arrivalSpacingMultiplier > trafficFlowObjectiveProfile('balanced').arrivalSpacingMultiplier, 'weather recovery objective did not persist its reduced-rate pacing');
 const arrivals = Array.from({ length: 5 }, (_, index) => enqueueArrivalDemand(flow, index, 'test arrival ' + index));
 assert(flow.arrivalQueue.length === 4 && arrivals.at(-1).status === 'diverted' && flow.totals.diversions === 1, 'holding capacity did not divert excess invisible demand');
-markArrivalHolding(flow, flow.arrivalQueue[0], 3, 'synthetic approach saturation', 2);
-assert(flow.arrivalQueue[0].slotRevisions.length === 2 && flow.arrivalQueue[0].slotRevisions.at(-1)?.reason === 'synthetic approach saturation', 'arrival holding did not retain a slot-revision cause');
+markArrivalHolding(flow, flow.arrivalQueue[0], 3, '3/2 approach positions occupied', 2);
+assert(flow.arrivalQueue[0].slotRevisions.length === 2 && flow.arrivalQueue[0].slotRevisions.at(-1)?.attribution?.causeCode === 'procedure-capacity' && flow.arrivalQueue[0].constraintAttribution?.source === 'procedure', 'arrival holding did not retain structured procedure attribution');
 const revisionSnapshot = trafficFlowSnapshot(flow, 3);
 revisionSnapshot.arrivalQueue[0].slotRevisions[0].reason = 'mutated snapshot';
+revisionSnapshot.arrivalQueue[0].slotRevisions[0].attribution.causeCode = 'weather-capacity';
 assert(flow.arrivalQueue[0].slotRevisions[0].reason !== 'mutated snapshot', 'traffic-flow snapshot shared slot-revision references with state');
+assert(flow.arrivalQueue[0].slotRevisions[0].attribution.causeCode !== 'weather-capacity', 'traffic-flow snapshot shared structured attribution references with state');
+const missedFlow = createTrafficFlowState('realistic', 0, 30);
+missedFlow.nextArrivalReleaseSeconds = 30;
+const missedEntries = [enqueueArrivalDemand(missedFlow, 0, 'scheduled arrival bank'), enqueueArrivalDemand(missedFlow, 1, 'scheduled arrival bank')];
+const missedSlots = missedEntries.map((entry) => entry.releaseSlotSeconds);
+const shiftedForMiss = delayArrivalBankForMissedApproach(missedFlow, { id: 77, callsign: 'MISSED 77', runway: 3 }, 5, 24);
+assert(shiftedForMiss === 2 && missedEntries.every((entry, index) => entry.releaseSlotSeconds === missedSlots[index] + 24), 'missed approach did not shift the complete pending arrival bank together');
+assert(missedEntries.every((entry) => entry.slotRevisions.at(-1)?.attribution?.category === 'missed-approach' && entry.slotRevisions.at(-1)?.attribution?.relatedFlightId === 77 && entry.slotRevisions.at(-1)?.attribution?.relatedRunwayId === 3), 'missed-approach slot revisions omitted causal flight/runway attribution');
 const fakeArrival = {
   id: 11,
   callsign: 'TEST 11',
@@ -212,7 +224,7 @@ const originalSequenceSlots = sequenceEntries.map((entry) => entry.releaseSlotSe
 const promoted = resequenceTrafficFlowEntry(sequenceFlow, 'departure', sequenceEntries[1].id, 'earlier', 0);
 assert(promoted.accepted && sequenceFlow.departureQueue.map((entry) => entry.id).join(',') === [sequenceEntries[1].id, sequenceEntries[0].id, sequenceEntries[2].id].join(','), 'adjacent departure resequence did not change authoritative queue order');
 assert(sequenceEntries[1].releaseSlotSeconds === originalSequenceSlots[0] && sequenceEntries[0].releaseSlotSeconds === originalSequenceSlots[1] && sequenceEntries[1].meterTargets[0].targetSeconds === originalSequenceSlots[0], 'resequence did not exchange the complete slot envelope');
-assert(sequenceEntries.slice(0, 2).every((entry) => entry.slotRevisions.at(-1)?.category === 'schedule' && entry.slotRevisions.at(-1)?.reason.includes('sequence revised')), 'resequence did not record both signed revision causes');
+assert(sequenceEntries.slice(0, 2).every((entry) => entry.slotRevisions.at(-1)?.category === 'schedule' && entry.slotRevisions.at(-1)?.reason.includes('sequence revised') && entry.slotRevisions.at(-1)?.attribution?.causeCode === 'controller-sequence' && entry.slotRevisions.at(-1)?.attribution?.source === 'controller'), 'resequence did not record both signed structured revision causes');
 const frozenSequence = JSON.stringify(sequenceFlow);
 const frozenResult = resequenceTrafficFlowEntry(sequenceFlow, 'departure', sequenceEntries[1].id, 'later', 25);
 assert(!frozenResult.accepted && frozenResult.reason.includes('release freeze') && JSON.stringify(sequenceFlow) === frozenSequence, 'imminent release freeze allowed or partially applied a resequence');
@@ -268,7 +280,7 @@ const extendedMeterSnapshot = trafficFlowSnapshot(flow, 20);
 assert(extendedMeterSnapshot.forecastHorizonSeconds === 600 && extendedMeterSnapshot.capacityWindows.every((window, index) => window.horizonSeconds === 600 && window.predictedDemandCount >= meterSnapshot.capacityWindows[index].predictedDemandCount && window.predictedCapacityCount >= meterSnapshot.capacityWindows[index].predictedCapacityCount), 'configurable rolling horizon did not extend both demand and capacity forecasts');
 const uncertainForecast = trafficFlowSnapshot(flow, 20, { arrivalDemandIntervalSeconds: 12, arrivalSpacingSeconds: 24, departureSpacingSeconds: 18, uncertainty: { weather: 0.8, wind: 0.7, runwayCondition: 0.6, pilotResponse: 0.5 }, arrivalUncertainty: { procedure: 0.76, taxiCongestion: 0.72, gateReadiness: 0.64, downstreamSaturation: 0.68 }, departureUncertainty: { procedure: 0.54, taxiCongestion: 0.58, gateReadiness: 0.46, downstreamSaturation: 0.56 }, arrivalAttribution: capacityAttribution.arrival, departureAttribution: capacityAttribution.departure });
 assert(uncertainForecast.capacityWindows.every((window) => window.predictedDemandCount >= window.demandCount && window.predictedCapacityCount >= window.plannedReleaseCount && window.confidence === 'low' && window.uncertainty.weather === 0.8 && window.uncertainty.procedure > 0.5 && window.uncertainty.taxiCongestion > 0.5 && window.uncertainty.gateReadiness > 0.4 && window.uncertainty.downstreamSaturation > 0.5 && window.attribution.schemaVersion === 1 && window.attribution.configurationId && window.attribution.runways.length > 0 && /procedure|taxi congestion|gate readiness|downstream saturation/.test(window.confidenceReason)), 'rolling forecast did not expose bounded directional operational uncertainty and capacity attribution');
-assert(uncertainForecast.schemaVersion === 7 && Array.isArray(uncertainForecast.advisoryResponses), 'traffic flow snapshot did not advance its schema for sequence optimization');
+assert(uncertainForecast.schemaVersion === 8 && Array.isArray(uncertainForecast.advisoryResponses), 'traffic flow snapshot did not advance its schema for structured revision attribution');
 assert(uncertainForecast.recommendations.length > 0 && uncertainForecast.recommendations.every((recommendation) => recommendation.advisoryOnly && recommendation.requiresCommandArbiter && recommendation.authority && /^review-(arrival|departure)-release$/.test(recommendation.action)), 'flow recommendations were not explicitly advisory-only');
 const advisory = uncertainForecast.recommendations[0];
 const advisoryEntries = advisory.direction === 'arrival' ? flow.arrivalQueue : flow.departureQueue;
@@ -285,7 +297,7 @@ const recovered = recoverTrafficFlowRecommendation(flow, advisory.id, 35, recove
 const recoveredResponse = trafficFlowSnapshot(flow, 50, { holdingFuelBurnKg: 120 }).advisoryResponses.find((response) => response.recommendationId === advisory.id);
 assert(recovered.accepted && recoveredResponse?.status === 'recovered' && recoveredResponse.recoveryObjective === recoveryObjective && recoveredResponse.elapsedSeconds === 15, 'ignored advisory did not retain its deterministic recovery decision');
 assert(meterRows.length === 4 && meterRows.filter((row) => row.direction === 'arrival').length === 3 && meterRows.filter((row) => row.direction === 'departure').length === 1, 'meter plan did not expose the pending arrival and departure slots');
-assert(meterRows.every((row) => row.slotInSeconds >= 0 && row.label.length > 0 && row.reason.length > 0 && row.constraintLabel.length > 0 && row.constraintCategory.length > 0 && row.targets.length > 0 && row.targets.every((target) => target.id && target.label && target.targetInSeconds >= 0)), 'meter plan contains incomplete slot or target context');
+assert(meterRows.every((row) => row.slotInSeconds >= 0 && row.label.length > 0 && row.reason.length > 0 && row.constraintLabel.length > 0 && row.constraintCategory.length > 0 && row.causeCode.length > 0 && row.causeSource.length > 0 && row.targets.length > 0 && row.targets.every((target) => target.id && target.label && target.targetInSeconds >= 0)), 'meter plan contains incomplete slot, attribution, or target context');
 const expiry = expireTrafficFlow(flow, 500);
 assert(expiry.diverted.length === 3 && expiry.cancelled.length === 1, 'capacity expiry did not divert/cancel blocked demand');
 const flowSnapshot = trafficFlowSnapshot(flow, 500);
@@ -331,6 +343,21 @@ assert(resequenceSimulation.state.trafficFlow.departureQueue[0] === secondResequ
 assert(!resequenceSimulation.resequenceTrafficFlow('arrival', firstResequenceEntry.id, 'earlier'), 'Tower changed the Approach arrival sequence');
 resequenceSimulation.setMode('auto');
 assert(!resequenceSimulation.resequenceTrafficFlow('departure', firstResequenceEntry.id, 'earlier'), 'Auto accepted a human schedule resequence');
+
+const missedApproachSimulation = new AirportSimulation(ordConfig, 'quiet');
+missedApproachSimulation.setMode('manual');
+missedApproachSimulation.setStation('supervisor');
+missedApproachSimulation.state.trafficFlow.arrivalQueue = [];
+missedApproachSimulation.state.trafficFlow.history = [];
+missedApproachSimulation.state.trafficFlow.nextArrivalReleaseSeconds = 30;
+const pendingAfterMiss = [
+  enqueueArrivalDemand(missedApproachSimulation.state.trafficFlow, 0, 'scheduled arrival bank'),
+  enqueueArrivalDemand(missedApproachSimulation.state.trafficFlow, 1, 'scheduled arrival bank'),
+];
+const pendingSlotsBeforeMiss = pendingAfterMiss.map((entry) => entry.releaseSlotSeconds);
+const missedAircraft = missedApproachSimulation.state.flights.find((flight) => flight.phase === 'approach' && !flight.motion.onGround);
+assert(missedAircraft && missedApproachSimulation.triggerEmergency(missedAircraft.id, 'go-around'), 'integration fixture could not issue a go-around');
+assert(pendingAfterMiss.every((entry, index) => entry.releaseSlotSeconds > pendingSlotsBeforeMiss[index] && entry.slotRevisions.at(-1)?.attribution?.causeCode === 'missed-approach' && entry.slotRevisions.at(-1)?.attribution?.relatedFlightId === missedAircraft.id), 'go-around did not produce causal arrival-bank revisions through the public command path');
 
 const balancedRelease = new AirportSimulation(ordConfig, 'quiet');
 balancedRelease.setMode('auto');

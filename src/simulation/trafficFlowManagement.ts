@@ -6,6 +6,8 @@ import type {
   TrafficFlowForecastHorizonSeconds,
   TrafficFlowMeterTarget,
   TrafficFlowObjective,
+  TrafficFlowRevisionAttribution,
+  TrafficFlowRevisionCauseCode,
   TrafficFlowState,
 } from "./types";
 import { trafficDensityProfile, type TrafficDensity } from "./trafficDensity";
@@ -105,6 +107,12 @@ export interface TrafficFlowConstraint {
  */
 export function trafficFlowConstraint(reason: string): TrafficFlowConstraint {
   const copy = reason.toLowerCase();
+  if (/missed approach|go-around/.test(copy))
+    return { category: "missed-approach", label: "Missed approach" };
+  if (/downstream|active-aircraft budget|surface meter/.test(copy))
+    return { category: "downstream", label: "Downstream" };
+  if (/procedure|approach position|arrival fix|meter fix|star|sid/.test(copy))
+    return { category: "procedure", label: "Procedure" };
   if (/weather|wind|storm|visibility|deicing|rwycc|runway condition/.test(copy))
     return { category: "weather", label: "Weather" };
   if (/wake|separation/.test(copy)) return { category: "wake", label: "Wake" };
@@ -121,8 +129,29 @@ export function trafficFlowConstraint(reason: string): TrafficFlowConstraint {
   return { category: "schedule", label: "Schedule" };
 }
 
+export function trafficFlowRevisionAttribution(
+  reason: string,
+  override: Partial<TrafficFlowRevisionAttribution> = {},
+): TrafficFlowRevisionAttribution {
+  const category = override.category ?? trafficFlowConstraint(reason).category;
+  const causeCode =
+    override.causeCode ?? trafficFlowCauseCode(reason, category);
+  return {
+    schemaVersion: 1,
+    category,
+    causeCode,
+    source: override.source ?? trafficFlowCauseSource(category),
+    ...(override.relatedFlightId === undefined
+      ? {}
+      : { relatedFlightId: override.relatedFlightId }),
+    ...(override.relatedRunwayId === undefined
+      ? {}
+      : { relatedRunwayId: override.relatedRunwayId }),
+  };
+}
+
 export interface TrafficFlowSnapshot {
-  schemaVersion: 7;
+  schemaVersion: 8;
   density: ReturnType<typeof trafficDensityProfile>;
   objective: TrafficFlowObjectiveProfile;
   nextArrivalDemandInSeconds: number;
@@ -265,7 +294,7 @@ export function createTrafficFlowState(
   firstArrivalDemandInSeconds = 2,
 ): TrafficFlowState {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     density,
     objective: "balanced",
     forecastHorizonSeconds: 300,
@@ -330,7 +359,10 @@ export function enqueueArrivalDemand(
   state.totals.arrivalDemands += 1;
   if (state.arrivalQueue.length >= density.holdingCapacity) {
     entry.status = "diverted";
-    entry.reason = `${density.label} holding capacity ${density.holdingCapacity} reached; demand diverted before map entry`;
+    setEntryConstraint(
+      entry,
+      `${density.label} holding capacity ${density.holdingCapacity} reached; demand diverted before map entry`,
+    );
     entry.updatedAtSeconds = nowSeconds;
     state.totals.diversions += 1;
     archive(state, entry);
@@ -415,8 +447,7 @@ export function markArrivalHolding(
   retryAfterSeconds = 0,
 ): void {
   entry.status = "holding";
-  entry.reason = reason;
-  entry.constraintCategory = trafficFlowConstraint(reason).category;
+  setEntryConstraint(entry, reason);
   entry.updatedAtSeconds = nowSeconds;
   entry.attempts += 1;
   reviseSlot(
@@ -429,6 +460,44 @@ export function markArrivalHolding(
     reason,
   );
   refreshTrafficFlow(state, nowSeconds);
+}
+
+/**
+ * A missed approach consumes terminal/runway recovery capacity even though the
+ * aircraft itself is already outside the pending-demand queue. Shift the
+ * queued arrival bank together so its spacing remains intact. This changes
+ * schedule targets only; the go-around aircraft still flies its authoritative
+ * procedure and every later landing requires normal clearance.
+ */
+export function delayArrivalBankForMissedApproach(
+  state: TrafficFlowState,
+  flight: Flight,
+  nowSeconds: number,
+  recoverySeconds: number,
+): number {
+  const shiftSeconds = Math.max(10, Math.min(90, recoverySeconds));
+  const reason = `missed approach by ${flight.callsign} on runway ${flight.runway + 1}; arrival bank shifted ${Math.round(shiftSeconds)} seconds for procedure recovery`;
+  const attribution: Partial<TrafficFlowRevisionAttribution> = {
+    category: "missed-approach",
+    causeCode: "missed-approach",
+    source: "procedure",
+    relatedFlightId: flight.id,
+    relatedRunwayId: flight.runway,
+  };
+  for (const entry of state.arrivalQueue) {
+    reviseSlot(
+      entry,
+      nowSeconds,
+      entry.releaseSlotSeconds + shiftSeconds,
+      reason,
+      false,
+      attribution,
+    );
+  }
+  state.nextArrivalReleaseSeconds =
+    Math.max(nowSeconds, state.nextArrivalReleaseSeconds) + shiftSeconds;
+  refreshTrafficFlow(state, nowSeconds);
+  return state.arrivalQueue.length;
 }
 
 export function isTrafficFlowObjective(
@@ -522,8 +591,14 @@ export function resequenceTrafficFlowEntry(
   entry.updatedAtSeconds = nowSeconds;
   neighbor.reason = displacedReason;
   neighbor.updatedAtSeconds = nowSeconds;
-  reviseSlot(entry, nowSeconds, neighborSlot, movedReason, true);
-  reviseSlot(neighbor, nowSeconds, entrySlot, displacedReason, true);
+  reviseSlot(entry, nowSeconds, neighborSlot, movedReason, true, {
+    causeCode: "controller-sequence",
+    source: "controller",
+  });
+  reviseSlot(neighbor, nowSeconds, entrySlot, displacedReason, true, {
+    causeCode: "controller-sequence",
+    source: "controller",
+  });
   refreshTrafficFlow(state, nowSeconds);
   return {
     accepted: true,
@@ -544,8 +619,17 @@ export function releaseArrivalDemand(
   entry.status = "released";
   entry.updatedAtSeconds = nowSeconds;
   entry.delaySeconds = Math.max(0, nowSeconds - entry.scheduledAtSeconds);
-  entry.reason = `${flight.callsign} released to runway ${flight.runway + 1}`;
-  entry.constraintCategory = "runway";
+  setEntryConstraint(
+    entry,
+    `${flight.callsign} released to runway ${flight.runway + 1}`,
+    {
+      category: "runway",
+      causeCode: "runway-capacity",
+      source: "runway",
+      relatedFlightId: flight.id,
+      relatedRunwayId: flight.runway,
+    },
+  );
   entry.flightId = flight.id;
   entry.callsign = flight.callsign;
   entry.runwayId = flight.runway;
@@ -590,8 +674,10 @@ export function releaseDepartureDemand(
   entry.status = "released";
   entry.updatedAtSeconds = nowSeconds;
   entry.delaySeconds = Math.max(0, nowSeconds - entry.scheduledAtSeconds);
-  entry.reason = `${entry.callsign ?? "departure"} released from the gate bank`;
-  entry.constraintCategory = "schedule";
+  setEntryConstraint(
+    entry,
+    `${entry.callsign ?? "departure"} released from the gate bank`,
+  );
   state.nextDepartureReleaseSeconds =
     nowSeconds + Math.max(0.2, nextSlotSpacingSeconds);
   state.totals.departureReleases += 1;
@@ -616,8 +702,11 @@ export function expireTrafficFlow(
     entry.status = "diverted";
     entry.updatedAtSeconds = nowSeconds;
     entry.delaySeconds = nowSeconds - entry.scheduledAtSeconds;
-    entry.reason = `arrival metering exceeded ${density.maximumArrivalDelaySeconds}s; diverted before map entry`;
-    entry.constraintCategory = "demand";
+    setEntryConstraint(
+      entry,
+      `arrival metering exceeded ${density.maximumArrivalDelaySeconds}s; diverted before map entry`,
+      { category: "demand", causeCode: "demand-capacity", source: "demand" },
+    );
     state.totals.diversions += 1;
     archive(state, entry);
     diverted.push(entry);
@@ -632,8 +721,10 @@ export function expireTrafficFlow(
     entry.status = "cancelled";
     entry.updatedAtSeconds = nowSeconds;
     entry.delaySeconds = nowSeconds - entry.scheduledAtSeconds;
-    entry.reason = `departure release exceeded ${density.maximumDepartureDelaySeconds}s; slot cancelled and replanning required`;
-    entry.constraintCategory = "schedule";
+    setEntryConstraint(
+      entry,
+      `departure release exceeded ${density.maximumDepartureDelaySeconds}s; slot cancelled and replanning required`,
+    );
     state.totals.cancellations += 1;
     archive(state, entry);
     cancelled.push(entry);
@@ -726,7 +817,7 @@ export function trafficFlowSnapshot(
       ),
     );
   return {
-    schemaVersion: 7,
+    schemaVersion: 8,
     density: { ...density, assumptions: [...density.assumptions] },
     objective: { ...trafficFlowObjectiveProfile(state.objective) },
     nextArrivalDemandInSeconds: round(
@@ -1278,7 +1369,7 @@ export function cloneTrafficFlowState(
 ): TrafficFlowState {
   return {
     ...state,
-    schemaVersion: 3,
+    schemaVersion: 4,
     forecastHorizonSeconds: isTrafficFlowForecastHorizon(
       state.forecastHorizonSeconds,
     )
@@ -1303,7 +1394,8 @@ function createEntry(
   reason: string,
 ): TrafficFlowEntry {
   const id = `${direction === "arrival" ? "ARR" : "DEP"}-${state.nextDemandId++}`;
-  const constraintCategory = trafficFlowConstraint(reason).category;
+  const constraintAttribution = trafficFlowRevisionAttribution(reason);
+  const constraintCategory = constraintAttribution.category;
   return {
     id,
     direction,
@@ -1316,12 +1408,14 @@ function createEntry(
     attempts: 0,
     reason,
     constraintCategory,
+    constraintAttribution,
     slotRevisions: [
       {
         atSeconds: nowSeconds,
         releaseSlotSeconds,
         reason,
         category: constraintCategory,
+        attribution: { ...constraintAttribution },
       },
     ],
     meterTargets: [
@@ -1355,8 +1449,14 @@ function removeEntry(
 }
 
 function cloneEntry(entry: TrafficFlowEntry): TrafficFlowEntry {
+  const constraintAttribution = entry.constraintAttribution
+    ? { ...entry.constraintAttribution }
+    : trafficFlowRevisionAttribution(entry.reason, {
+        category: entry.constraintCategory,
+      });
   return {
     ...entry,
+    constraintAttribution,
     slotRevisions: (
       entry.slotRevisions ?? [
         {
@@ -1366,9 +1466,17 @@ function cloneEntry(entry: TrafficFlowEntry): TrafficFlowEntry {
           category:
             entry.constraintCategory ??
             trafficFlowConstraint(entry.reason).category,
+          attribution: { ...constraintAttribution },
         },
       ]
-    ).map((revision) => ({ ...revision })),
+    ).map((revision) => ({
+      ...revision,
+      attribution: revision.attribution
+        ? { ...revision.attribution }
+        : trafficFlowRevisionAttribution(revision.reason, {
+            category: revision.category ?? entry.constraintCategory,
+          }),
+    })),
     meterTargets: (
       entry.meterTargets ?? [
         {
@@ -1397,6 +1505,7 @@ function reviseSlot(
   releaseSlotSeconds: number,
   reason: string,
   forceRevision = false,
+  attributionOverride: Partial<TrafficFlowRevisionAttribution> = {},
 ): void {
   if (
     !forceRevision &&
@@ -1407,13 +1516,18 @@ function reviseSlot(
   entry.releaseSlotSeconds = releaseSlotSeconds;
   for (const target of entry.meterTargets ?? [])
     target.targetSeconds += shiftSeconds;
-  const category = trafficFlowConstraint(reason).category;
-  entry.constraintCategory = category;
+  const attribution = trafficFlowRevisionAttribution(
+    reason,
+    attributionOverride,
+  );
+  entry.constraintCategory = attribution.category;
+  entry.constraintAttribution = attribution;
   entry.slotRevisions.push({
     atSeconds: nowSeconds,
     releaseSlotSeconds,
     reason,
-    category,
+    category: attribution.category,
+    attribution: { ...attribution },
   });
   if (entry.slotRevisions.length > MAX_SLOT_REVISIONS) {
     entry.slotRevisions.splice(
@@ -1425,6 +1539,59 @@ function reviseSlot(
 
 function entryLabel(entry: TrafficFlowEntry): string {
   return entry.callsign ?? entry.id;
+}
+
+function setEntryConstraint(
+  entry: TrafficFlowEntry,
+  reason: string,
+  attributionOverride: Partial<TrafficFlowRevisionAttribution> = {},
+): void {
+  const attribution = trafficFlowRevisionAttribution(
+    reason,
+    attributionOverride,
+  );
+  entry.reason = reason;
+  entry.constraintCategory = attribution.category;
+  entry.constraintAttribution = attribution;
+}
+
+function trafficFlowCauseCode(
+  reason: string,
+  category: TrafficFlowConstraintCategory,
+): TrafficFlowRevisionCauseCode {
+  const copy = reason.toLowerCase();
+  if (category === "missed-approach") return "missed-approach";
+  if (category === "weather") return "weather-capacity";
+  if (category === "downstream") return "downstream-saturation";
+  if (category === "procedure") return "procedure-capacity";
+  if (/sequence revised|moved earlier|moved later/.test(copy))
+    return "controller-sequence";
+  if (/readiness revised/.test(copy)) return "readiness-change";
+  if (/runway closure|runway closed|closure/.test(copy))
+    return "runway-closure";
+  if (category === "wake") return "wake-separation";
+  if (category === "gate") return "gate-pressure";
+  if (category === "performance") return "aircraft-performance";
+  if (category === "taxi") return "surface-congestion";
+  if (category === "runway") return "runway-capacity";
+  if (category === "demand") return "demand-capacity";
+  if (/scheduled|schedule|awaiting departure release slot/.test(copy))
+    return "initial-schedule";
+  return "schedule-adjustment";
+}
+
+function trafficFlowCauseSource(
+  category: TrafficFlowConstraintCategory,
+): TrafficFlowRevisionAttribution["source"] {
+  if (category === "weather") return "weather";
+  if (category === "runway" || category === "wake") return "runway";
+  if (category === "procedure" || category === "missed-approach")
+    return "procedure";
+  if (category === "taxi" || category === "downstream") return "surface";
+  if (category === "gate") return "gate";
+  if (category === "performance") return "aircraft";
+  if (category === "demand") return "demand";
+  return "scheduler";
 }
 
 function round(value: number): number {

@@ -43,7 +43,7 @@ The drawer starts closed, closes other large overlays, blocks camera input while
 
 ## Export formats
 
-The JSON bundle contains analytics schema 3, all retained flight-recorder samples, commands, telemetry events, the current queue snapshot, traffic-flow revision/cause analytics, and the disclosure record.
+The JSON bundle contains analytics schema 4, all retained flight-recorder samples, commands, telemetry events, the current queue snapshot, traffic-flow revision/cause analytics, and the disclosure record. Flow revisions include signed slot movement, exact reason, stable cause code/source, and optional causal flight/runway IDs.
 
 CSV can export one of twelve flat datasets:
 

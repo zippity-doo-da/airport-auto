@@ -196,6 +196,7 @@ import { selectTrafficProgram } from "./airportTrafficPrograms";
 import { trafficDensityProfile, type TrafficDensity } from "./trafficDensity";
 import {
   createTrafficFlowState,
+  delayArrivalBankForMissedApproach,
   enqueueArrivalDemand,
   expireTrafficFlow,
   ignoreTrafficFlowRecommendation,
@@ -5091,6 +5092,12 @@ export class AirportSimulation {
   ): void {
     if (flight.goAround || flight.diversion || flight.motion.onGround) return;
     this.metrics.goArounds += 1;
+    delayArrivalBankForMissedApproach(
+      this.state.trafficFlow,
+      flight,
+      this.state.elapsed,
+      this.arrivalSpacing(aircraftProfile(flight.aircraft)),
+    );
     this.supersedeActiveRouteClearance(
       flight,
       "superseded by go-around clearance",

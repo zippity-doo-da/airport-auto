@@ -42,10 +42,10 @@ const baseState = {
       id: 'ARR-REPLAY', direction: 'arrival', status: 'metered', createdAtSeconds: 0,
       scheduledAtSeconds: 0, releaseSlotSeconds: 90, updatedAtSeconds: 11,
       delaySeconds: 30, attempts: 1, reason: 'weather recovery arrival metering',
-      constraintCategory: 'weather', meterTargets: [], flightId: 7, callsign: 'AAL107', runwayId: 1,
+      constraintCategory: 'weather', constraintAttribution: { schemaVersion: 1, category: 'weather', causeCode: 'weather-capacity', source: 'weather', relatedRunwayId: 1 }, meterTargets: [], flightId: 7, callsign: 'AAL107', runwayId: 1,
       slotRevisions: [
-        { atSeconds: 0, releaseSlotSeconds: 60, reason: 'scheduled arrival bank', category: 'schedule' },
-        { atSeconds: 11, releaseSlotSeconds: 90, reason: 'weather recovery arrival metering', category: 'weather' },
+        { atSeconds: 0, releaseSlotSeconds: 60, reason: 'scheduled arrival bank', category: 'schedule', attribution: { schemaVersion: 1, category: 'schedule', causeCode: 'initial-schedule', source: 'scheduler' } },
+        { atSeconds: 11, releaseSlotSeconds: 90, reason: 'weather recovery arrival metering', category: 'weather', attribution: { schemaVersion: 1, category: 'weather', causeCode: 'weather-capacity', source: 'weather', relatedRunwayId: 1 } },
       ],
     }],
     departureQueue: [], history: [],
@@ -173,6 +173,7 @@ const verified = verifyReplayRecording(recording);
 assert(verified.accepted && verified.exact, 'fresh replay did not verify exactly: ' + verified.reason);
 assert(verified.checkedFrames === 3 && verified.checkedEvents === 3, 'verification totals were wrong');
 assert(recording.frames[1].state.trafficFlow.arrivalQueue[0].slotRevisions[1].reason === 'weather recovery arrival metering', 'exact replay omitted the meter-slot revision cause');
+assert(recording.frames[1].state.trafficFlow.arrivalQueue[0].slotRevisions[1].attribution.causeCode === 'weather-capacity', 'exact replay omitted structured slot attribution');
 
 const reordered = { b: [3, { z: 1, a: 2 }], a: -0 };
 const reorderedTwin = { a: 0, b: [3, { a: 2, z: 1 }] };
@@ -187,6 +188,9 @@ const tamperedFlow = structuredClone(recording);
 tamperedFlow.frames[1].state.trafficFlow.arrivalQueue[0].slotRevisions[1].releaseSlotSeconds = 75;
 const rejectedFlow = verifyReplayRecording(tamperedFlow);
 assert(!rejectedFlow.accepted && rejectedFlow.mismatches.some((mismatch) => mismatch.scope === 'frame' && mismatch.index === 1), 'tampered flow revision was not detected by exact replay verification');
+const tamperedAttribution = structuredClone(recording);
+tamperedAttribution.frames[1].state.trafficFlow.arrivalQueue[0].slotRevisions[1].attribution.causeCode = 'runway-capacity';
+assert(!verifyReplayRecording(tamperedAttribution).accepted, 'tampered flow attribution was not detected by exact replay verification');
 
 const comparison = compareReplayStates(recording.frames[0].state, tampered.frames[1].state);
 assert(!comparison.equal && comparison.differenceCount > 0, 'state comparison missed authoritative changes');

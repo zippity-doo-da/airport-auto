@@ -510,6 +510,16 @@ approval also carries the expected displaced entry and fails closed if the bank
 changed after render. Reading the optimizer cannot change state, and approval
 cannot grant a clearance, reserve a resource, or move an aircraft.
 
+Traffic-flow state schema 4 and snapshot schema 8 now retain structured
+attribution with every initial slot and revision: stable category, cause code,
+source subsystem, and optional causal flight/runway. Procedure capacity,
+missed approaches, and downstream saturation are no longer collapsed into
+generic runway, demand, or schedule labels. A real go-around shifts the pending
+arrival bank by one bounded recovery interval and records the missed aircraft
+and runway on every affected slot; it still grants no later landing clearance.
+The Queue inspector shows the machine-stable cause beside the exact operational
+reason, while local analytics/export schema 4 preserves the same fields.
+
 ### Gameplay and UX
 
 - [x] Add a timeline showing demand, runway capacity, target crossing times,
@@ -549,11 +559,13 @@ cannot grant a clearance, reserve a resource, or move an aircraft.
       The same objective-aware bank evaluator now proposes one best adjacent
       departure change, while the normal Tower arbiter retains wake, occupancy,
       crossing, configuration, and release authority.
-- [~] Explain every slot movement: weather, missed approach, gate pressure,
-  runway closure, aircraft performance, wake, or downstream saturation.
-  The queue meter now labels the latest authoritative reason with a stable
-  weather/runway/wake/gate/performance/taxi/demand/schedule category; fuller
-  procedure and downstream-cause coverage remains open.
+- [x] Explain every slot movement: weather, missed approach, gate pressure,
+      runway closure, aircraft performance, wake, or downstream saturation.
+      Every initial assignment and later revision now carries a schema-1
+      attribution with category, cause code, source, and optional causal
+      flight/runway. Queue, exact replay state, analytics, and CSV retain the
+      same attribution; legacy entries derive it deterministically from their
+      exact reason.
 - [~] Keep Auto capable of guaranteed flow without requiring a human to manage
   the timeline. Seeded ORD Extreme Auto and Watch now pass the enforceable
   three-hour sustained-flow gate; additional airports, weather programs,
@@ -586,7 +598,7 @@ cannot grant a clearance, reserve a resource, or move an aircraft.
       then prove an authorized proposal can pass the ordinary command arbiter.
 - [x] Record schedule revisions and causes in exact replay and local analytics.
       Meter entries retain bounded revision causes in replay-safe state, and exact
-      frame fingerprints reject a changed slot value. Local analytics schema 3
+      frame fingerprints reject a changed slot value. Local analytics schema 4
       deduplicates active/archive history into bounded signed revision records,
       rolls up delay added and recovered by stable cause, displays those causes in
       the Data Lab, and exports a dedicated `flow-revisions` CSV dataset.

@@ -11,10 +11,13 @@ import type {
   ShiftMetrics,
   TrafficFlowConstraintCategory,
   TrafficFlowEntry,
+  TrafficFlowRevisionAttribution,
+  TrafficFlowRevisionCauseCode,
 } from "../simulation/types";
+import { trafficFlowRevisionAttribution } from "../simulation/trafficFlowManagement";
 
-export const OPERATIONS_ANALYTICS_SCHEMA_VERSION = 3 as const;
-export const OPERATIONS_EXPORT_SCHEMA_VERSION = 3 as const;
+export const OPERATIONS_ANALYTICS_SCHEMA_VERSION = 4 as const;
+export const OPERATIONS_EXPORT_SCHEMA_VERSION = 4 as const;
 
 export const OPERATIONS_EXPORT_DATASETS = [
   "flights",
@@ -144,7 +147,7 @@ export interface SurfaceSafetyAnalyticsRecord {
 }
 
 export interface TrafficFlowRevisionAnalyticsRecord {
-  schemaVersion: 1;
+  schemaVersion: 2;
   id: string;
   entryId: string;
   kind: "initial" | "revision";
@@ -155,6 +158,10 @@ export interface TrafficFlowRevisionAnalyticsRecord {
   releaseSlotSeconds: number;
   shiftSeconds: number;
   category: TrafficFlowConstraintCategory;
+  causeCode: TrafficFlowRevisionCauseCode;
+  source: TrafficFlowRevisionAttribution["source"];
+  relatedFlightId: number | null;
+  relatedRunwayId: number | null;
   reason: string;
   flightId: number | null;
   callsign: string | null;
@@ -881,8 +888,13 @@ export class OperationsAnalyticsRecorder {
           existing.callsign = entry.callsign ?? existing.callsign;
           existing.runwayId = entry.runwayId ?? existing.runwayId;
         } else {
+          const attribution =
+            revision.attribution ??
+            trafficFlowRevisionAttribution(revision.reason, {
+              category: revision.category ?? entry.constraintCategory,
+            });
           this.trafficFlowRevisionRecords.set(id, {
-            schemaVersion: 1,
+            schemaVersion: 2,
             id,
             entryId: entry.id,
             kind: initial ? "initial" : "revision",
@@ -892,8 +904,11 @@ export class OperationsAnalyticsRecorder {
             previousReleaseSlotSeconds: rounded(previous, 3),
             releaseSlotSeconds: rounded(revision.releaseSlotSeconds, 3),
             shiftSeconds: rounded(revision.releaseSlotSeconds - previous, 3),
-            category:
-              revision.category ?? entry.constraintCategory ?? "schedule",
+            category: attribution.category,
+            causeCode: attribution.causeCode,
+            source: attribution.source,
+            relatedFlightId: attribution.relatedFlightId ?? null,
+            relatedRunwayId: attribution.relatedRunwayId ?? null,
             reason: revision.reason,
             flightId: entry.flightId ?? null,
             callsign: entry.callsign ?? null,
@@ -1082,7 +1097,7 @@ function flowRevisionId(
   entry: TrafficFlowEntry,
   revision: TrafficFlowEntry["slotRevisions"][number],
 ): string {
-  return `${entry.id}:${revision.atSeconds}:${revision.releaseSlotSeconds}:${revision.reason}`;
+  return `${entry.id}:${revision.atSeconds}:${revision.releaseSlotSeconds}:${revision.attribution?.causeCode ?? revision.category ?? "schedule"}:${revision.reason}`;
 }
 
 function trafficFlowCauseRows(

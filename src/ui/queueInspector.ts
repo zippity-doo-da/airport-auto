@@ -29,6 +29,8 @@ export interface TrafficFlowMeterRow {
   revisionCount: number;
   constraintLabel: string;
   constraintCategory: string;
+  causeCode: string;
+  causeSource: string;
   status: TrafficFlowEntry["status"];
   reason: string;
   targets: Array<{
@@ -70,6 +72,8 @@ export function operationQueueRenderKey(
         Math.floor(row.slotInSeconds),
         Math.floor(row.delaySeconds),
         row.reason,
+        row.causeCode,
+        row.causeSource,
         row.targets
           .map(
             (target) =>
@@ -277,11 +281,11 @@ function renderMeterPlan(
     const timing = document.createElement("small");
     timing.textContent = `${row.status} · slot ${formatWait(row.slotInSeconds)}${row.delaySeconds > 0 ? ` · delay ${formatWait(row.delaySeconds)}` : ""}`;
     const reason = document.createElement("small");
-    reason.textContent = row.reason;
+    reason.textContent = `${row.causeCode.replaceAll("-", " ")} · ${row.reason}`;
     reason.title =
       row.revisionCount > 1
-        ? `${row.revisionCount} slot revisions`
-        : "Initial slot reason";
+        ? `${row.revisionCount} slot revisions · source ${row.causeSource}`
+        : `Initial slot reason · source ${row.causeSource}`;
     const targets = document.createElement("small");
     targets.className = "queue-meter-slot__targets";
     targets.textContent = row.targets
@@ -484,6 +488,8 @@ function meterRow(
   queueLength: number,
 ): TrafficFlowMeterRow {
   const constraint = trafficFlowConstraint(entry.reason);
+  const attribution =
+    entry.slotRevisions.at(-1)?.attribution ?? entry.constraintAttribution;
   return {
     id: entry.id,
     direction,
@@ -493,8 +499,12 @@ function meterRow(
     position,
     queueLength,
     revisionCount: entry.slotRevisions.length,
-    constraintLabel: constraint.label,
-    constraintCategory: constraint.category,
+    constraintLabel: attribution
+      ? attribution.category.replaceAll("-", " ")
+      : constraint.label,
+    constraintCategory: attribution?.category ?? constraint.category,
+    causeCode: attribution?.causeCode ?? "schedule-adjustment",
+    causeSource: attribution?.source ?? "scheduler",
     status: entry.status,
     reason: entry.reason,
     targets: (entry.meterTargets ?? []).map((target) => ({
