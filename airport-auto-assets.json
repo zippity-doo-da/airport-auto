@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "manifestId": "airport-auto-assets",
+  "applicationVersion": "2.41.0",
+  "basePath": "./",
+  "generatedBundlesArePublicApi": false,
+  "assets": [
+    {
+      "key": "audio.soundscape-manifest",
+      "kind": "audio-manifest",
+      "path": "audio/soundscape-manifest.json",
+      "contentType": "application/json",
+      "sha256": "ef0e13996c17d4ad24ed574b1a4f6d5cd4039b6dc1285587dc4c07da431d0e84",
+      "offlineRequired": true,
+      "licenseRef": "public/audio/soundscape-manifest.json"
+    },
+    {
+      "key": "airport.ORD.vector",
+      "kind": "airport-vector",
+      "path": "data/airports/KORD.vector.json",
+      "contentType": "application/json",
+      "sha256": "91092fda2d235b8037022e862aa4c3f79b9e5e688c6c00e913320080f20ad07f",
+      "offlineRequired": true,
+      "licenseRef": "src/data/airports/KORD.manifest.json"
+    },
+    {
+      "key": "airport.ATL.vector",
+      "kind": "airport-vector",
+      "path": "data/airports/KATL.vector.json",
+      "contentType": "application/json",
+      "sha256": "575fdcd26acf900cfafecd64d3ad4b1d8a97efbf028e63703b7c29b2ec2c0d8a",
+      "offlineRequired": true,
+      "licenseRef": "src/data/airports/KATL.manifest.json"
+    },
+    {
+      "key": "airport.ATL.surface-source",
+      "kind": "airport-surface-source",
+      "path": "data/airports/KATL.osm-surface.json",
+      "contentType": "application/json",
+      "sha256": "ffbcd72dc08243fa4589fd9cdd1e5c076e51708da8c60ef3aa663a34936a8979",
+      "offlineRequired": true,
+      "licenseRef": "src/data/airports/KATL.surface.manifest.json"
+    },
+    {
+      "key": "airport.ATL.context",
+      "kind": "airport-context",
+      "path": "data/airports/KATL.context.json",
+      "contentType": "application/json",
+      "sha256": "1470717d6a665efaab102f702752ece7292a03aa08658be24ddb702ae7fb65d2",
+      "offlineRequired": true,
+      "licenseRef": "src/data/airports/KATL.context.manifest.json"
+    },
+    {
+      "key": "airport.DFW.vector",
+      "kind": "airport-vector",
+      "path": "data/airports/KDFW.vector.json",
+      "contentType": "application/json",
+      "sha256": "fb957a735e3df0435eabba096f4994e2256fa67b1edff620599ba5618d856ef1",
+      "offlineRequired": true,
+      "licenseRef": "src/data/airports/KDFW.manifest.json"
+    },
+    {
+      "key": "airport.DFW.surface-source",
+      "kind": "airport-surface-source",
+      "path": "data/airports/KDFW.osm-surface.json",
+      "contentType": "application/json",
+      "sha256": "8e9f486e293f22af0c34a2f7d1f1aec6c057d23e875c6aaf04fe3a432105d6ae",
+      "offlineRequired": true,
+      "licenseRef": "src/data/airports/KDFW.surface.manifest.json"
+    },
+    {
+      "key": "airport.DFW.context",
+      "kind": "airport-context",
+      "path": "data/airports/KDFW.context.json",
+      "contentType": "application/json",
+      "sha256": "615656b7a604ea57f19c854a7f5062c916cfa8dbe8028130d264b602ac843290",
+      "offlineRequired": true,
+      "licenseRef": "src/data/airports/KDFW.context.manifest.json"
+    },
+    {
+      "key": "airport.ORD.surface-source",
+      "kind": "airport-surface-source",
+      "path": "data/airports/KORD.osm-surface.json",
+      "contentType": "application/json",
+      "sha256": "d955485e2c03d3d5f999f3af41f784088773c1680896a38011808efb2ecaf2d0",
+      "offlineRequired": true,
+      "licenseRef": "src/data/airports/KORD.surface.manifest.json"
+    },
+    {
+      "key": "airport.ORD.context",
+      "kind": "airport-context",
+      "path": "data/airports/KORD.context.json",
+      "contentType": "application/json",
+      "sha256": "f46f8b1de52ad59d648956b048ce3910c2b881c40d95e6d3a075d9f53b52ecb6",
+      "offlineRequired": true,
+      "licenseRef": "src/data/airports/KORD.context.manifest.json"
+    }
+  ]
+}

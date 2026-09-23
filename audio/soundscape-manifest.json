@@ -1,0 +1,1116 @@
+{
+  "schemaVersion": 2,
+  "name": "Airport Auto offline sound library",
+  "updated": "2026-08-10",
+  "license": "CC0-1.0 for project-original generated WAV assets; source code remains under the project license.",
+  "networkAudio": false,
+  "runtimeVoiceGeneration": false,
+  "microphoneAccess": false,
+  "syntheticDisclosure": "All included WAV files are project-original deterministic DSP renders. Radio clips use abstract formant-like synthetic voices and are fictional, captioned, and not suitable for navigation.",
+  "sampleRate": 16000,
+  "assets": [
+    {
+      "id": "engine-turbofan",
+      "family": "bed",
+      "channel": "aircraft",
+      "path": "audio/library/engine-turbofan.wav",
+      "durationSeconds": 6.4,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "d0d8f8d2b3a3ca566785e36c68dae6d32376823ed1038aece5c85f20b4e20bb2",
+      "triggers": [
+        "engine"
+      ],
+      "states": [
+        "moving"
+      ],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "apu-ramp",
+      "family": "bed",
+      "channel": "terminal",
+      "path": "audio/library/apu-ramp.wav",
+      "durationSeconds": 7.1,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "0426d7236bfa0a3922a1d76b32615c144ad89ff7fd79ea6707ec2755b193ce72",
+      "triggers": [
+        "apu"
+      ],
+      "states": [
+        "gate-active"
+      ],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "ramp-bed",
+      "family": "bed",
+      "channel": "terminal",
+      "path": "audio/library/ramp-bed.wav",
+      "durationSeconds": 8.2,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "f0d41517cd290628110a27737d3fdfed43f21da7f0994226f3f8d8dfdbd678ed",
+      "triggers": [
+        "ramp"
+      ],
+      "states": [
+        "service-active"
+      ],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "cabin-area",
+      "family": "bed",
+      "channel": "terminal",
+      "path": "audio/library/cabin-area.wav",
+      "durationSeconds": 8.6,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "f2f918b6a01214968d917dcaf39791bb43143670ee9b24a1aa075d41583922de",
+      "triggers": [
+        "cabin"
+      ],
+      "states": [
+        "gate-active"
+      ],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "runway-distance",
+      "family": "bed",
+      "channel": "ambience",
+      "path": "audio/library/runway-distance.wav",
+      "durationSeconds": 7.8,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "f1916356f01412fca50ead7ff5fd0fc711f28fb1912c1c559af51ac6edbfae52",
+      "triggers": [
+        "runway"
+      ],
+      "states": [
+        "moving"
+      ],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "terminal-room",
+      "family": "bed",
+      "channel": "terminal",
+      "path": "audio/library/terminal-room.wav",
+      "durationSeconds": 9.4,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "55167725c4e2e8f9f494449c8098c3a593cf2391e0c4d6340fdb16a7baaddeda",
+      "triggers": [
+        "terminal"
+      ],
+      "states": [
+        "always"
+      ],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "tower-room",
+      "family": "bed",
+      "channel": "terminal",
+      "path": "audio/library/tower-room.wav",
+      "durationSeconds": 9.1,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "707c8b0a07b70b796d6e183819c85862375f14cba9b70411d6869ad9316fe435",
+      "triggers": [
+        "tower"
+      ],
+      "states": [
+        "always"
+      ],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "rain-field",
+      "family": "bed",
+      "channel": "weather",
+      "path": "audio/library/rain-field.wav",
+      "durationSeconds": 9.7,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "e012bf439d3f12030939535d6550a65169e5149277fe552e9adb475426d89106",
+      "triggers": [
+        "rain"
+      ],
+      "states": [
+        "rain"
+      ],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "wind-field",
+      "family": "bed",
+      "channel": "weather",
+      "path": "audio/library/wind-field.wav",
+      "durationSeconds": 9.3,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "bf290e1d9af3c01aa3302833a0862270b26150462625af0b2b373af5c88c8124",
+      "triggers": [
+        "wind"
+      ],
+      "states": [
+        "wind"
+      ],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "snow-field",
+      "family": "bed",
+      "channel": "weather",
+      "path": "audio/library/snow-field.wav",
+      "durationSeconds": 10.1,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "763d62e7511616764ea1bb888086d9735c6841fc3f87e1478da574e24e1c864e",
+      "triggers": [
+        "snow"
+      ],
+      "states": [
+        "snow"
+      ],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "low-visibility-room",
+      "family": "bed",
+      "channel": "weather",
+      "path": "audio/library/low-visibility-room.wav",
+      "durationSeconds": 10.6,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "53c361c5be71ff2613224170c02ee03c3d8fc218362db68897d59e0486161fb1",
+      "triggers": [
+        "fog"
+      ],
+      "states": [
+        "low-visibility"
+      ],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "taxi-whine-1",
+      "family": "event",
+      "channel": "aircraft",
+      "path": "audio/library/taxi-whine-1.wav",
+      "durationSeconds": 2.6,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "5f517a8aa75e509b1a316eb028fb7ef5ab58d45293ef7ba2cc8cf7fecd728a00",
+      "triggers": [
+        "taxi-whine"
+      ],
+      "states": [],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "taxi-whine-2",
+      "family": "event",
+      "channel": "aircraft",
+      "path": "audio/library/taxi-whine-2.wav",
+      "durationSeconds": 2.9,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "2dc94240ab7e6db1ea7abcc38c4199724324e0a1494459f803ad8c4167be4a52",
+      "triggers": [
+        "taxi-whine"
+      ],
+      "states": [],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "power-change-1",
+      "family": "event",
+      "channel": "aircraft",
+      "path": "audio/library/power-change-1.wav",
+      "durationSeconds": 2.3,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "8a21425af78b564dc1ac614cd7e9c2240ea9bb89901624d0500e76470f1f4b86",
+      "triggers": [
+        "takeoff-power",
+        "engine-start"
+      ],
+      "states": [],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "power-change-2",
+      "family": "event",
+      "channel": "aircraft",
+      "path": "audio/library/power-change-2.wav",
+      "durationSeconds": 2.7,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "26a9a866146317efb0ed2214d43a3de32f7539c35eaa73d6e8ee269c92be75c6",
+      "triggers": [
+        "takeoff-power",
+        "engine-start"
+      ],
+      "states": [],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "reverse-1",
+      "family": "event",
+      "channel": "aircraft",
+      "path": "audio/library/reverse-1.wav",
+      "durationSeconds": 2.8,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "f6b23672e7f2dfe174a248a921dddb24c43826e774723eaf7f0b0be4d1ef1e28",
+      "triggers": [
+        "reverse-thrust"
+      ],
+      "states": [],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "reverse-2",
+      "family": "event",
+      "channel": "aircraft",
+      "path": "audio/library/reverse-2.wav",
+      "durationSeconds": 3.1,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "1165ce358560bb75317e082f6efd2f2dcb56eeea0a19b64520c4c5d85a6d869f",
+      "triggers": [
+        "reverse-thrust"
+      ],
+      "states": [],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "runway-rumble-1",
+      "family": "event",
+      "channel": "aircraft",
+      "path": "audio/library/runway-rumble-1.wav",
+      "durationSeconds": 2.5,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "6b09d4c0023a9e7fdc2d6282378b6a880df3d657ea6e747a8e4093b1b4ff5fb7",
+      "triggers": [
+        "runway-rumble"
+      ],
+      "states": [],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "runway-rumble-2",
+      "family": "event",
+      "channel": "aircraft",
+      "path": "audio/library/runway-rumble-2.wav",
+      "durationSeconds": 2.9,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "4e53670b5a06de01d88d5648096d030495ed124c61acf022c2d7e75643fc518a",
+      "triggers": [
+        "runway-rumble"
+      ],
+      "states": [],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "touchdown-1",
+      "family": "event",
+      "channel": "aircraft",
+      "path": "audio/library/touchdown-1.wav",
+      "durationSeconds": 1.7,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "843e3e55ff7e6d3949649c6c7a53be506158a3fd612e7d065ce44cd723ab843e",
+      "triggers": [
+        "touchdown"
+      ],
+      "states": [],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "touchdown-2",
+      "family": "event",
+      "channel": "aircraft",
+      "path": "audio/library/touchdown-2.wav",
+      "durationSeconds": 1.9,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "be9d0a25d08c7dad14559420d8a1f4fecd00294f2a2aaa033f18c629b6c9c638",
+      "triggers": [
+        "touchdown"
+      ],
+      "states": [],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "flap-motion-1",
+      "family": "event",
+      "channel": "aircraft",
+      "path": "audio/library/flap-motion-1.wav",
+      "durationSeconds": 2.2,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "3a5ed6c430a05d65783fdb952cdb5a59e54e3331d0e4b4df9dcb04791337e377",
+      "triggers": [
+        "flap"
+      ],
+      "states": [],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "flap-motion-2",
+      "family": "event",
+      "channel": "aircraft",
+      "path": "audio/library/flap-motion-2.wav",
+      "durationSeconds": 2.5,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "250b0d8b904e0098805ae77c293fc7769e288dfdee7a0884003296235ddaca18",
+      "triggers": [
+        "flap"
+      ],
+      "states": [],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "gear-motion-1",
+      "family": "event",
+      "channel": "aircraft",
+      "path": "audio/library/gear-motion-1.wav",
+      "durationSeconds": 2.1,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "2b0d436ed8f29205a1567774e1c2bcf1e70b51068452b43feab43e64d18719e5",
+      "triggers": [
+        "gear"
+      ],
+      "states": [],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "gear-motion-2",
+      "family": "event",
+      "channel": "aircraft",
+      "path": "audio/library/gear-motion-2.wav",
+      "durationSeconds": 2.4,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "e8dbdd5b89292990a2a65497e463e053a8e6219bab093ce2d7baf200bb5c5ef2",
+      "triggers": [
+        "gear"
+      ],
+      "states": [],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "pushback-1",
+      "family": "event",
+      "channel": "aircraft",
+      "path": "audio/library/pushback-1.wav",
+      "durationSeconds": 2.7,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "e3dad842f2f2799a6ec85e2d1c0a003d4efa49f5b92222fd52621102bb7eedab",
+      "triggers": [
+        "pushback",
+        "tug-movement"
+      ],
+      "states": [],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "pushback-2",
+      "family": "event",
+      "channel": "aircraft",
+      "path": "audio/library/pushback-2.wav",
+      "durationSeconds": 3,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "77d444b8fab9c7b4941dcb4c2d664eee10ccc6a55b9eb52df5aef47f9753ddcf",
+      "triggers": [
+        "pushback",
+        "tug-movement"
+      ],
+      "states": [],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "service-vehicle-1",
+      "family": "event",
+      "channel": "terminal",
+      "path": "audio/library/service-vehicle-1.wav",
+      "durationSeconds": 2.5,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "ebf8e6656c26ad04d1be3898f0d80c2198e790ef49bead935ac570dfcce479ff",
+      "triggers": [
+        "service-vehicle",
+        "ramp-clatter"
+      ],
+      "states": [],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "service-vehicle-2",
+      "family": "event",
+      "channel": "terminal",
+      "path": "audio/library/service-vehicle-2.wav",
+      "durationSeconds": 2.9,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "b85e649ec64bab38425998a6c3777056eec6c46024db93359cba4e6aaa29a79d",
+      "triggers": [
+        "service-vehicle",
+        "ramp-clatter"
+      ],
+      "states": [],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "deicing-1",
+      "family": "event",
+      "channel": "weather",
+      "path": "audio/library/deicing-1.wav",
+      "durationSeconds": 3.4,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "1bef7368d78379dcb743eab992dab7a3d9054d12c2b12fa0ac21dc7216d47177",
+      "triggers": [
+        "deicing-spray"
+      ],
+      "states": [],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "deicing-2",
+      "family": "event",
+      "channel": "weather",
+      "path": "audio/library/deicing-2.wav",
+      "durationSeconds": 3.8,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "b394cfbf5807088ad903b72bc6590d679a5638c5ec8dddd65aba3cbe020a0a7e",
+      "triggers": [
+        "deicing-spray"
+      ],
+      "states": [],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "gust-1",
+      "family": "event",
+      "channel": "weather",
+      "path": "audio/library/gust-1.wav",
+      "durationSeconds": 3.3,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "7f233ff03a8b11a23a079c8f011ff6eb33ad971978e036cf64ae8e72afd31fad",
+      "triggers": [
+        "weather-gust",
+        "weather-shift"
+      ],
+      "states": [],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "gust-2",
+      "family": "event",
+      "channel": "weather",
+      "path": "audio/library/gust-2.wav",
+      "durationSeconds": 3.8,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "3135e044a6f2c6420da14d436f9ca72ff335390e34f2b0b17d49fd297a92bdf0",
+      "triggers": [
+        "weather-gust",
+        "weather-shift"
+      ],
+      "states": [],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "thunder-1",
+      "family": "event",
+      "channel": "weather",
+      "path": "audio/library/thunder-1.wav",
+      "durationSeconds": 5.4,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "f1599f54d364d03cd6c2e6553c9da51076cc31f205d376a82af918704dc60021",
+      "triggers": [
+        "thunder"
+      ],
+      "states": [],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "thunder-2",
+      "family": "event",
+      "channel": "weather",
+      "path": "audio/library/thunder-2.wav",
+      "durationSeconds": 6.2,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "66453eb5648d23a2113ed8f4777251442041723a9352b8894badaba447d03a68",
+      "triggers": [
+        "thunder"
+      ],
+      "states": [],
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "approach-arrival-1",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/approach-arrival-1.wav",
+      "durationSeconds": 3.1,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "0a20df37d39fca0527e581f01aa7e4d3e3837987edd2d889b7167e08bbdab53a",
+      "triggers": [
+        "scope-entry"
+      ],
+      "states": [],
+      "station": "approach",
+      "speaker": "controller-a",
+      "captionTemplate": "{callsign}, radar contact. Continue the arrival.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "approach-arrival-2",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/approach-arrival-2.wav",
+      "durationSeconds": 3.4,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "924d0481a14c5179ae15ed3ff7b2fa9e175e331700b8f20d8af3285149aa832a",
+      "triggers": [
+        "scope-entry"
+      ],
+      "states": [],
+      "station": "approach",
+      "speaker": "controller-b",
+      "captionTemplate": "{callsign}, radar contact. Continue the arrival.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "tower-landing-1",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/tower-landing-1.wav",
+      "durationSeconds": 3,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "323395f3d5fff6a7a622f8b8e8e88b538c12c46500da61aaf5e500cae7d47df2",
+      "triggers": [
+        "radio-clearance"
+      ],
+      "states": [],
+      "station": "tower",
+      "speaker": "controller-a",
+      "captionTemplate": "{callsign}, cleared to land.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "tower-landing-2",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/tower-landing-2.wav",
+      "durationSeconds": 3.2,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "9a525e9c7db3cc690044264bc0dcc56056ff81ad7e4e9c02c8d1f118c8443fd9",
+      "triggers": [
+        "radio-clearance"
+      ],
+      "states": [],
+      "station": "tower",
+      "speaker": "controller-b",
+      "captionTemplate": "{callsign}, cleared for takeoff or landing as assigned.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "ground-taxi-1",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/ground-taxi-1.wav",
+      "durationSeconds": 3.3,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "cbb2e50617d57baae80bad09c9eea9ab96c0555e7182aabcf9c0f9ebddf17d99",
+      "triggers": [
+        "radio-ground"
+      ],
+      "states": [],
+      "station": "ground",
+      "speaker": "controller-c",
+      "captionTemplate": "{callsign}, taxi via the assigned route.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "ground-taxi-2",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/ground-taxi-2.wav",
+      "durationSeconds": 3.5,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "5ca7d63f8ac171f6a4bf4467a94b61017faf685b82a8bc611fa7c12e8d7ca403",
+      "triggers": [
+        "radio-ground"
+      ],
+      "states": [],
+      "station": "ground",
+      "speaker": "controller-d",
+      "captionTemplate": "{callsign}, hold short, then continue as cleared.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "handoff-1",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/handoff-1.wav",
+      "durationSeconds": 2.9,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "7083b942364b3447b79369d24d5d9d7483f9354ee2e1be0278c0bb5e77a50a0b",
+      "triggers": [
+        "radio-handoff"
+      ],
+      "states": [],
+      "station": "approach",
+      "speaker": "controller-a",
+      "captionTemplate": "{callsign}, contact the next controller.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "handoff-2",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/handoff-2.wav",
+      "durationSeconds": 3.1,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "002afecc2d1f8ee5bd011bb0f0fb51498c85e9f5cc715ad33c6e5344b27fda67",
+      "triggers": [
+        "radio-handoff"
+      ],
+      "states": [],
+      "station": "tower",
+      "speaker": "controller-b",
+      "captionTemplate": "{callsign}, frequency change approved.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "emergency-1",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/emergency-1.wav",
+      "durationSeconds": 3,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "0d2ab5fb41a7388a1c99845b4339e09222076d80fdedd2ee0de0e4e4ad39b299",
+      "triggers": [
+        "radio-emergency"
+      ],
+      "states": [],
+      "station": "tower",
+      "speaker": "controller-c",
+      "captionTemplate": "{callsign}, go around. Fly the missed approach.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "emergency-2",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/emergency-2.wav",
+      "durationSeconds": 3.4,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "6754fff8ef2833652b29963c0954e78228cdeebb3a70a1045ba69bb83de25dcb",
+      "triggers": [
+        "radio-emergency"
+      ],
+      "states": [],
+      "station": "approach",
+      "speaker": "controller-d",
+      "captionTemplate": "{callsign}, emergency acknowledged. Priority handling is active.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "approach-arrival-3",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/approach-arrival-3.wav",
+      "durationSeconds": 3.5,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "b164c9f654bdc455294b8b1fff42a4e60d9782a7bbf0c9a9056bb3c56c293631",
+      "triggers": [
+        "scope-entry"
+      ],
+      "states": [],
+      "station": "approach",
+      "speaker": "controller-e",
+      "captionTemplate": "{callsign}, identified. Expect the planned arrival.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "approach-arrival-4",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/approach-arrival-4.wav",
+      "durationSeconds": 3.2,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "89a62c5303cbd9b991b7df36b2399ae51e38178f3d55105d05508670cfd6610f",
+      "triggers": [
+        "scope-entry"
+      ],
+      "states": [],
+      "station": "approach",
+      "speaker": "controller-f",
+      "captionTemplate": "{callsign}, radar service is available. Continue inbound.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "tower-landing-3",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/tower-landing-3.wav",
+      "durationSeconds": 3.3,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "32f946bb96b6f8014c4843db25267c7064aef2cdd7f233d6bba4c2435d03483f",
+      "triggers": [
+        "radio-clearance"
+      ],
+      "states": [],
+      "station": "tower",
+      "speaker": "controller-e",
+      "captionTemplate": "{callsign}, landing clearance issued for the assigned runway.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "tower-landing-4",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/tower-landing-4.wav",
+      "durationSeconds": 3.5,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "bce5b4a6784ac935043c411953e5133e4d31fe61bd84c1f0aa71f9b1dda6de8d",
+      "triggers": [
+        "radio-clearance"
+      ],
+      "states": [],
+      "station": "tower",
+      "speaker": "controller-f",
+      "captionTemplate": "{callsign}, runway is available. Continue as cleared.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "ground-taxi-3",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/ground-taxi-3.wav",
+      "durationSeconds": 3.6,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "b4fd144fc56e00f6d4246291d01d2f2d9201f59605e2e45f1259a155168ab36f",
+      "triggers": [
+        "radio-ground"
+      ],
+      "states": [],
+      "station": "ground",
+      "speaker": "controller-e",
+      "captionTemplate": "{callsign}, use the cleared taxi route and monitor ground.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "ground-taxi-4",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/ground-taxi-4.wav",
+      "durationSeconds": 3.4,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "9ce2f1f4f8438edc82c8273e1c8fc3c7ae606b72eecf307646d44114181a9d2e",
+      "triggers": [
+        "radio-ground"
+      ],
+      "states": [],
+      "station": "ground",
+      "speaker": "controller-f",
+      "captionTemplate": "{callsign}, continue taxi with the current clearance.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "ramp-pushback-1",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/ramp-pushback-1.wav",
+      "durationSeconds": 3.1,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "eef0da55e080d7ea80f1765ae75c943fe60d9d94df02481a3209545eb78299b6",
+      "triggers": [
+        "radio-ground"
+      ],
+      "states": [],
+      "station": "ramp",
+      "speaker": "ramp-a",
+      "captionTemplate": "{callsign}, pushback window is approved. Release when ready.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "ramp-pushback-2",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/ramp-pushback-2.wav",
+      "durationSeconds": 3.3,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "96257cbd8a6d8e942511b13ff818a5793fad9345adbd20bc168f9732228a8cb5",
+      "triggers": [
+        "radio-ground"
+      ],
+      "states": [],
+      "station": "ramp",
+      "speaker": "ramp-b",
+      "captionTemplate": "{callsign}, ramp route is clear. Contact ground when ready.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "handoff-3",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/handoff-3.wav",
+      "durationSeconds": 3.2,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "edb8377ff9e54ce4688d7523728d9b6ced86a685e94ca074e77fd1974600168d",
+      "triggers": [
+        "radio-handoff"
+      ],
+      "states": [],
+      "station": "ground",
+      "speaker": "controller-e",
+      "captionTemplate": "{callsign}, switch to the next control position.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "handoff-4",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/handoff-4.wav",
+      "durationSeconds": 3,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "7afac0ac1736f770e61fbff5a78c6f7e73865afe7749fe5455f5ca02a00efcf4",
+      "triggers": [
+        "radio-handoff"
+      ],
+      "states": [],
+      "station": "ramp",
+      "speaker": "ramp-b",
+      "captionTemplate": "{callsign}, handoff complete. Continue with the next controller.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "emergency-3",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/emergency-3.wav",
+      "durationSeconds": 3.3,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "1cfa251589cc8e2a6433c1a006f8d4139aaf7e2f282d40d0f2e3e1b45107dcce",
+      "triggers": [
+        "radio-emergency"
+      ],
+      "states": [],
+      "station": "tower",
+      "speaker": "controller-e",
+      "captionTemplate": "{callsign}, go around now. Maintain the assigned missed approach.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "emergency-4",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/emergency-4.wav",
+      "durationSeconds": 3.6,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "38a08a9f0ecc3505bfda590079377ee2f91da62ea9cbebd510502e0ab4814766",
+      "triggers": [
+        "radio-emergency"
+      ],
+      "states": [],
+      "station": "approach",
+      "speaker": "controller-f",
+      "captionTemplate": "{callsign}, priority handling acknowledged. Follow the escape procedure.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "tower-reject-takeoff-1",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/tower-reject-takeoff-1.wav",
+      "durationSeconds": 3,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "d96754bea378fe18053c564f52dd17f2f8ac47c7fcb50d8f080e03ea3ba366bc",
+      "triggers": [
+        "radio-emergency"
+      ],
+      "states": [],
+      "station": "tower",
+      "speaker": "controller-c",
+      "captionTemplate": "{callsign}, reject takeoff. Stop immediately.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "tower-reject-takeoff-2",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/tower-reject-takeoff-2.wav",
+      "durationSeconds": 3.2,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "f04ed368c98b1cc99f99616cdefc5d4465a05ea4e658a7fd610f432746ce13bd",
+      "triggers": [
+        "radio-emergency"
+      ],
+      "states": [],
+      "station": "tower",
+      "speaker": "controller-e",
+      "captionTemplate": "{callsign}, cancel takeoff clearance. Hold position.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "ground-traffic-stop-1",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/ground-traffic-stop-1.wav",
+      "durationSeconds": 3.1,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "e070be30e84dd5fcf1ee208f2f1a053d9fd0c1a3cb7c507f5f3176d435c024b0",
+      "triggers": [
+        "radio-emergency"
+      ],
+      "states": [],
+      "station": "ground",
+      "speaker": "controller-d",
+      "captionTemplate": "STOP IMMEDIATELY, {callsign}. Conflicting traffic.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "ground-traffic-stop-2",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/ground-traffic-stop-2.wav",
+      "durationSeconds": 3.3,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "a42adae598a1cd2df1d8b7001922f8a1e54a339d1d285ea6d807bb9c717746b8",
+      "triggers": [
+        "radio-emergency"
+      ],
+      "states": [],
+      "station": "ground",
+      "speaker": "controller-f",
+      "captionTemplate": "{callsign}, traffic alert. Hold position.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "ramp-traffic-stop-1",
+      "family": "radio",
+      "channel": "radio",
+      "path": "audio/library/ramp-traffic-stop-1.wav",
+      "durationSeconds": 3,
+      "sampleRate": 16000,
+      "channels": 1,
+      "sha256": "09652a8e6bc4f9f339fd3aae8ec4b7e4cd005197c57cf5a5c22e764e2e2966ff",
+      "triggers": [
+        "radio-emergency"
+      ],
+      "states": [],
+      "station": "ramp",
+      "speaker": "ramp-b",
+      "captionTemplate": "STOP IMMEDIATELY, {callsign}. Ramp traffic.",
+      "source": "Project-original deterministic synthesis rendered to PCM WAV during development.",
+      "license": "CC0-1.0"
+    }
+  ]
+}

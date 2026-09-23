@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="A runway-free cinematic flight playground for the detailed F-35A and Chengdu J-20 models."
+    />
+    <meta name="theme-color" content="#173d50" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%23e2bd77' d='M4 29l24-5L38 5l6 1-3 19 16 5v5l-16 4 3 19-6 1-10-19-24-5z'/%3E%3C/svg%3E"
+    />
+    <title>Flight Playground · Airport Auto</title>
+    <style>
+      body.ord-only-locked { margin: 0; min-height: 100vh; display: grid; place-items: center; background: radial-gradient(circle at top, #294743, #102320 72%); color: #f4e8ce; font: 500 16px/1.5 system-ui, sans-serif; }
+      body.ord-only-locked > :not(.ord-only-lock) { display: none; }
+      .ord-only-lock { width: min(34rem, calc(100vw - 3rem)); border: 1px solid rgba(232, 207, 151, .45); padding: 2.5rem; text-align: center; background: rgba(10, 31, 30, .88); box-shadow: 0 24px 70px rgba(0,0,0,.35); }
+      .ord-only-lock__eyebrow { color: #d7aa62; font-size: .72rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+      .ord-only-lock h1 { margin: .55rem 0; font: 400 clamp(2rem, 8vw, 3.5rem)/1.05 Georgia, serif; }
+      .ord-only-lock p { color: rgba(244,232,206,.72); }
+      .ord-only-lock a { display: inline-block; margin-top: 1rem; border: 1px solid #d7aa62; padding: .7rem 1rem; color: #102320; background: #d7aa62; font-weight: 800; text-decoration: none; }
+    </style>
+  </head>
+  <body class="ord-only-locked">
+    <section class="ord-only-lock" role="main" aria-labelledby="ord-only-title">
+      <div class="ord-only-lock__eyebrow">Airport Auto · preserved annex</div>
+      <h1 id="ord-only-title">Flight Playground is offline</h1>
+      <p>The public build is focused exclusively on Chicago O’Hare. This playground remains preserved for a later release.</p>
+      <a href="./">Open ORD</a>
+    </section>
+    <canvas
+      id="flight-canvas"
+      aria-label="Cinematic three-dimensional flight playground showing an F-35A and Chengdu J-20 flying over open country. Drag to orbit and scroll or pinch to zoom."
+    ></canvas>
+
+    <main class="playground-shell">
+      <header class="playground-header">
+        <div class="playground-identity">
+          <span>Airport Auto · Research Annex</span>
+          <h1>Flight Playground</h1>
+        </div>
+        <nav class="playground-links" aria-label="Related views">
+          <a href="./heritage-flight.html">Heritage</a>
+          <a href="./dogfight.html">Dogfight</a>
+          <a href="./fighters.html">Archive</a>
+          <a class="mobile-optional-link" href="./">Airport</a>
+        </nav>
+      </header>
+
+      <section class="flight-status" aria-label="Flight status">
+        <span class="status-kicker">Airborne demonstration</span>
+        <strong id="flight-phase">Formation</strong>
+        <span id="camera-shot">Formation camera</span>
+      </section>
+
+      <section class="aircraft-roster" aria-label="Aircraft telemetry">
+        <article>
+          <i class="aircraft-dot aircraft-dot--blue"></i>
+          <div>
+            <strong>F-35A</strong>
+            <span id="telemetry-f35">— KT · M — · — FT</span>
+          </div>
+        </article>
+        <article>
+          <i class="aircraft-dot aircraft-dot--red"></i>
+          <div>
+            <strong>J-20</strong>
+            <span id="telemetry-j20">— KT · M — · — FT</span>
+          </div>
+        </article>
+      </section>
+
+      <div class="aircraft-label aircraft-label--blue" id="label-f35" hidden>
+        <span>F-35A</span>
+      </div>
+      <div class="aircraft-label aircraft-label--red" id="label-j20" hidden>
+        <span>J-20</span>
+      </div>
+
+      <section class="flight-controls" aria-label="Flight playground controls">
+        <button
+          class="control-button pause-button"
+          id="pause-flight"
+          type="button"
+          aria-pressed="false"
+        >
+          Pause
+        </button>
+
+        <label class="control-field">
+          <span>Pattern</span>
+          <select id="flight-pattern">
+            <option value="break-rejoin" selected>Break &amp; rejoin</option>
+            <option value="formation">Close formation</option>
+            <option value="staggered">Staggered trail</option>
+          </select>
+        </label>
+
+        <label class="control-field">
+          <span>Camera</span>
+          <select id="camera-mode">
+            <option value="director" selected>Director</option>
+            <option value="formation">Formation</option>
+            <option value="f-35">F-35A chase</option>
+            <option value="j-20">J-20 chase</option>
+            <option value="wide">Wide aerial</option>
+            <option value="free">Free orbit</option>
+          </select>
+        </label>
+
+        <label class="speed-field">
+          <span>Viewer time</span>
+          <input
+            id="playback-speed"
+            type="range"
+            min="0.35"
+            max="1.6"
+            step="0.05"
+            value="1"
+          />
+          <output id="playback-speed-output" for="playback-speed">1.00×</output>
+        </label>
+
+        <button
+          class="control-button reset-button"
+          id="reset-camera"
+          type="button"
+        >
+          Reset view
+        </button>
+      </section>
+
+      <p class="flight-hint" id="flight-hint">
+        Drag to orbit · wheel or pinch to zoom · Space pauses · C changes camera
+        · P changes pattern
+      </p>
+
+      <p class="graphics-message" id="graphics-message" role="status" hidden>
+        Loading flight view…
+      </p>
+    </main>
+
+    <script type="application/x-airport-auto-preserved-module" data-source="/src/fighters/playground/flightPlayground.ts"></script>
+  </body>
+</html>

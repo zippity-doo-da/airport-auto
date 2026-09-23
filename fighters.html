@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="A browsable low-poly archive of fighter-aircraft families from the 1930s to the present."
+    />
+    <meta name="theme-color" content="#152321" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%23d4ad67' d='M4 29l24-5L38 5l6 1-3 19 16 5v5l-16 4 3 19-6 1-10-19-24-5z'/%3E%3C/svg%3E"
+    />
+    <title>Fighter Archive · Airport Auto</title>
+    <style>
+      body.ord-only-locked { margin: 0; min-height: 100vh; display: grid; place-items: center; background: radial-gradient(circle at top, #294743, #102320 72%); color: #f4e8ce; font: 500 16px/1.5 system-ui, sans-serif; }
+      body.ord-only-locked > :not(.ord-only-lock) { display: none; }
+      .ord-only-lock { width: min(34rem, calc(100vw - 3rem)); border: 1px solid rgba(232, 207, 151, .45); padding: 2.5rem; text-align: center; background: rgba(10, 31, 30, .88); box-shadow: 0 24px 70px rgba(0,0,0,.35); }
+      .ord-only-lock__eyebrow { color: #d7aa62; font-size: .72rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+      .ord-only-lock h1 { margin: .55rem 0; font: 400 clamp(2rem, 8vw, 3.5rem)/1.05 Georgia, serif; }
+      .ord-only-lock p { color: rgba(244,232,206,.72); }
+      .ord-only-lock a { display: inline-block; margin-top: 1rem; border: 1px solid #d7aa62; padding: .7rem 1rem; color: #102320; background: #d7aa62; font-weight: 800; text-decoration: none; }
+    </style>
+  </head>
+  <body class="ord-only-locked">
+    <section class="ord-only-lock" role="main" aria-labelledby="ord-only-title">
+      <div class="ord-only-lock__eyebrow">Airport Auto · preserved annex</div>
+      <h1 id="ord-only-title">Fighter Archive is offline</h1>
+      <p>The public build is focused exclusively on Chicago O’Hare. This archive remains preserved for a later release.</p>
+      <a href="./">Open ORD</a>
+    </section>
+    <canvas
+      id="fighter-canvas"
+      aria-label="Interactive three-dimensional fighter aircraft viewer. Drag to orbit, scroll or pinch to zoom."
+    ></canvas>
+
+    <main class="archive-shell">
+      <header class="archive-header">
+        <div class="archive-identity">
+          <span class="eyebrow">Airport Auto · Research Annex</span>
+          <h1>Fighter Archive</h1>
+        </div>
+        <div class="header-actions">
+          <button
+            class="quiet-button mobile-catalog-button"
+            id="catalog-toggle"
+            type="button"
+            aria-expanded="false"
+            aria-controls="catalog-panel"
+          >
+            Catalog
+          </button>
+          <button class="quiet-button" id="random-fighter" type="button">
+            Surprise me
+          </button>
+          <a
+            class="quiet-button playground-link"
+            href="./flight-playground.html"
+            >Fly both</a
+          >
+          <a class="quiet-button playground-link" href="./dogfight.html"
+            >Dogfight</a
+          >
+          <a class="quiet-button playground-link" href="./heritage-flight.html"
+            >Heritage</a
+          >
+          <a class="quiet-button" href="./">Return to airport</a>
+        </div>
+      </header>
+
+      <aside
+        class="catalog-panel"
+        id="catalog-panel"
+        aria-label="Fighter catalog"
+      >
+        <div class="catalog-heading">
+          <div>
+            <span class="eyebrow">Airframe families</span>
+            <strong id="catalog-total">Loading…</strong>
+          </div>
+          <button
+            class="icon-button catalog-close"
+            id="catalog-close"
+            type="button"
+            aria-label="Close catalog"
+          >
+            ×
+          </button>
+        </div>
+
+        <label class="search-field">
+          <span class="sr-only">Search fighter archive</span>
+          <input
+            id="fighter-search"
+            type="search"
+            placeholder="Search aircraft, maker, nation…"
+            autocomplete="off"
+          />
+          <kbd>/</kbd>
+        </label>
+
+        <div
+          class="era-filters"
+          id="era-filters"
+          role="group"
+          aria-label="Filter by era"
+        >
+          <button class="filter-chip selected" type="button" data-era="all">
+            All eras
+          </button>
+          <button class="filter-chip" type="button" data-era="World War II">
+            WWII
+          </button>
+          <button class="filter-chip" type="button" data-era="Early jet age">
+            Early jets
+          </button>
+          <button class="filter-chip" type="button" data-era="Cold War">
+            Cold War
+          </button>
+          <button class="filter-chip" type="button" data-era="Modern">
+            Modern
+          </button>
+        </div>
+
+        <div class="select-filters">
+          <label>
+            <span>Design nation</span>
+            <select id="nation-filter">
+              <option value="all">All nations</option>
+            </select>
+          </label>
+          <label>
+            <span>Power</span>
+            <select id="power-filter">
+              <option value="all">All propulsion</option>
+              <option value="piston">Piston</option>
+              <option value="rocket">Rocket</option>
+              <option value="turbojet">Turbojet</option>
+              <option value="turbofan">Turbofan</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="catalog-result-line">
+          <span id="result-count">0 aircraft</span>
+          <button class="text-button" id="clear-filters" type="button">
+            Clear filters
+          </button>
+        </div>
+
+        <div
+          class="fighter-list"
+          id="fighter-list"
+          role="listbox"
+          aria-label="Aircraft results"
+        ></div>
+      </aside>
+
+      <section class="selected-card" id="selected-card" aria-live="polite">
+        <div class="selected-title-row">
+          <div>
+            <span class="eyebrow" id="selected-era">—</span>
+            <h2 id="selected-name">Loading fighter…</h2>
+            <p id="selected-maker">—</p>
+          </div>
+          <span class="status-badge" id="selected-status">—</span>
+        </div>
+
+        <dl class="primary-specs">
+          <div>
+            <dt>First flight</dt>
+            <dd id="spec-year">—</dd>
+          </div>
+          <div>
+            <dt>Length</dt>
+            <dd id="spec-length">—</dd>
+          </div>
+          <div>
+            <dt>Span</dt>
+            <dd id="spec-span">—</dd>
+          </div>
+          <div>
+            <dt>Max speed</dt>
+            <dd id="spec-speed">—</dd>
+          </div>
+          <div>
+            <dt>Ceiling</dt>
+            <dd id="spec-ceiling">—</dd>
+          </div>
+          <div>
+            <dt>Power</dt>
+            <dd id="spec-power">—</dd>
+          </div>
+        </dl>
+
+        <p class="fighter-summary" id="selected-summary"></p>
+
+        <details class="archive-details" id="variant-details">
+          <summary>Variants &amp; operators</summary>
+          <div class="detail-columns">
+            <div>
+              <strong>Representative variants</strong>
+              <p id="selected-variants">—</p>
+            </div>
+            <div>
+              <strong>Operators represented</strong>
+              <p id="selected-operators">—</p>
+            </div>
+          </div>
+        </details>
+
+        <details class="archive-details">
+          <summary>Data notes &amp; sources</summary>
+          <p>
+            Public, representative-variant figures rounded for a visual game
+            archive. They are not maintenance, performance-planning, weapons, or
+            flight-manual data.
+          </p>
+          <div class="source-links" id="selected-sources"></div>
+        </details>
+      </section>
+
+      <div class="viewer-readout" aria-hidden="true">
+        <span id="viewer-design">—</span>
+        <span id="viewer-scale">1 m grid</span>
+      </div>
+
+      <div class="viewer-controls" aria-label="Viewer controls">
+        <button
+          class="icon-button"
+          id="previous-fighter"
+          type="button"
+          aria-label="Previous fighter"
+        >
+          ←
+        </button>
+        <button
+          class="tour-button"
+          id="tour-toggle"
+          type="button"
+          aria-pressed="false"
+        >
+          <span></span>Auto tour
+        </button>
+        <button
+          class="icon-button"
+          id="next-fighter"
+          type="button"
+          aria-label="Next fighter"
+        >
+          →
+        </button>
+      </div>
+
+      <p class="interaction-hint" id="interaction-hint">
+        Drag to orbit · wheel or pinch to zoom · arrows change aircraft
+      </p>
+    </main>
+
+    <script type="application/x-airport-auto-preserved-module" data-source="/src/fighters/fighterArchive.ts"></script>
+  </body>
+</html>
