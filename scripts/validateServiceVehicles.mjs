@@ -3,6 +3,7 @@ import { build } from "esbuild";
 const validationSource = `
 import { createHubSimulationHarness } from './src/simulation/fixedStepHarness.ts';
 import { createServiceVehiclePlans, serviceVehicleOwnerId, serviceVehicleReservationClaims, serviceVehicleRouteViolations } from './src/simulation/serviceVehicleOperations.ts';
+import { createTurnaroundPlan } from './src/simulation/turnaroundOperations.ts';
 import { SurfaceReservationLedger, surfaceRouteReservationClaims } from './src/simulation/surfaceOperations.ts';
 
 function assert(condition, message) {
@@ -21,6 +22,27 @@ assert(new Set(plans.map((vehicle) => vehicle.depotNodeId)).size === plans.lengt
 assert(serviceVehicleRouteViolations(harness.config.surfaceGraph, plans).length === 0, 'planned service route enters a protected movement area');
 assert(plans.every((vehicle) => !vehicle.protectedMovementAuthorized), 'service vehicle received implicit protected-area authority');
 assert(plans.every((vehicle) => vehicle.outboundRoute.length && vehicle.returnRoute.length && vehicle.standPath.length >= 2), 'service vehicle is missing a complete route');
+const fullCabinTurnaround = createTurnaroundPlan({
+  flightId: 9101,
+  airportSeed: harness.config.seed,
+  aircraft: 'B789',
+  service: 'passenger',
+  fuelPercent: 42,
+  targetFuelPercent: 76,
+  scope: harness.config.scope,
+  scheduledGateInSeconds: 100,
+});
+assert(fullCabinTurnaround.tasks.find((task) => task.type === 'potable-water')?.required, 'widebody turn did not require potable-water service');
+assert(fullCabinTurnaround.tasks.find((task) => task.type === 'lavatory')?.required, 'widebody turn did not require lavatory service');
+const fullCabinPlans = createServiceVehiclePlans(harness.config, {
+  ...arrival,
+  id: 9101,
+  aircraft: 'B789',
+  turnaround: fullCabinTurnaround,
+}, 100);
+assert(fullCabinPlans.some((vehicle) => vehicle.service === 'potable-water' && vehicle.type === 'water-truck'), 'widebody turn did not plan a potable-water truck');
+assert(fullCabinPlans.some((vehicle) => vehicle.service === 'lavatory' && vehicle.type === 'lavatory-truck'), 'widebody turn did not plan a lavatory-service truck');
+assert(fullCabinPlans.some((vehicle) => vehicle.service === 'crew' && vehicle.type === 'crew-van'), 'widebody turn did not plan a flight-crew van');
 
 const routed = plans.find((vehicle) => vehicle.outboundRouteEdges.length);
 assert(routed, 'service fleet did not receive a graph route');
@@ -93,7 +115,19 @@ const reachedReady = harness.runUntil(() => {
   assert(vehicles.every((vehicle) => !vehicle.protectedMovementArea), 'live service vehicle entered a protected movement area');
   return flight?.turnaround.status === 'ready';
 }, 360);
-assert(reachedReady, 'vehicle-gated turnaround never became ready');
+assert(reachedReady, 'vehicle-gated turnaround never became ready: ' + JSON.stringify({
+  elapsed: harness.simulation.state.elapsed,
+  turnaround: harness.simulation.state.flights.find((flight) => flight.id === arrival.id)?.turnaround,
+  vehicles: harness.simulation.state.serviceVehicles.filter((vehicle) => vehicle.flightId === arrival.id).map((vehicle) => ({
+    service: vehicle.service,
+    type: vehicle.type,
+    status: vehicle.status,
+    held: vehicle.held,
+    holdReason: vehicle.holdReason,
+    progress: vehicle.progress,
+    standSide: vehicle.standSide,
+  })),
+}));
 assert(observedVehicleGatedTask, 'no task was observed waiting for and using its vehicle');
 assert(maximumMoving >= 2, 'service fleet never moved concurrently');
 assert(maximumServicing >= 2, 'independent services never operated concurrently: ' + JSON.stringify({

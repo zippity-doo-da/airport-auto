@@ -139,7 +139,9 @@ export type WorldDiagnostics = {
   heldServiceVehicles: number;
   pooledServiceVehicles: number;
   serviceVehiclesVisible: boolean;
+  /** User preference; may be temporarily simplified by adaptive rendering. */
   airportLifeVisible: boolean;
+  airportLifePresentationVisible: boolean;
   contrailsVisible: boolean;
   accessibilityPalette: AccessibilityPalette;
   activeContrails: number;
@@ -509,7 +511,8 @@ export function createWorld(
   function update(state: AirportState, delta: number): void {
     currentState = state;
     currentFlightById.clear();
-    for (const flight of state.flights) currentFlightById.set(flight.id, flight);
+    for (const flight of state.flights)
+      currentFlightById.set(flight.id, flight);
     cameraTime += delta;
     terminalAccess.update(cameraTime);
     const weatherEnvironment = weatherPresentation(state.weather);
@@ -583,7 +586,10 @@ export function createWorld(
         1,
       );
     }
-    const runwayProtection = runwayProtectionStatuses(state, config.runways.length);
+    const runwayProtection = runwayProtectionStatuses(
+      state,
+      config.runways.length,
+    );
     for (const light of runwayProtectionLights) {
       const status = runwayProtection[light.runwayId];
       const visible =
@@ -759,21 +765,39 @@ export function createWorld(
       visual.root.rotation.z = vehicle.heading;
       visual.root.userData.status = vehicle.status;
       visual.root.userData.held = vehicle.held;
-      visual.root.userData.incidentResponse = Boolean(vehicle.incidentResponseId);
+      visual.root.userData.incidentResponse = Boolean(
+        vehicle.incidentResponseId,
+      );
+      visual.root.userData.emergencyResponse =
+        vehicle.emergencyResponseKind ?? null;
       const beaconPulse =
         0.45 + Math.sin(state.elapsed * 7.6 + vehicle.flightId) * 0.45;
       const incidentResponse = Boolean(vehicle.incidentResponseId);
-      visual.beacon.visible = incidentResponse || vehicle.status !== "servicing";
+      const medicalResponse = vehicle.emergencyResponseKind === "medical";
+      visual.beacon.visible =
+        incidentResponse || medicalResponse || vehicle.status !== "servicing";
       visual.workRig.visible = vehicle.status === "servicing";
       const beaconMaterial = visual.beacon.material as THREE.MeshBasicMaterial;
-      beaconMaterial.color.setHex(incidentResponse ? 0xff4f3d : 0xffb23b);
+      beaconMaterial.color.setHex(
+        medicalResponse
+          ? Math.sin(state.elapsed * 10.5) >= 0
+            ? 0xe04f48
+            : 0x4f9ee8
+          : incidentResponse
+            ? 0xff4f3d
+            : 0xffb23b,
+      );
       beaconMaterial.opacity = vehicle.held
         ? 0.95
-        : incidentResponse
+        : incidentResponse || medicalResponse
           ? 0.55 + beaconPulse * 0.45
           : 0.35 + beaconPulse * 0.55;
       visual.beacon.scale.setScalar(
-        vehicle.held ? 1.45 : incidentResponse ? 1.1 + beaconPulse * 0.48 : 0.9 + beaconPulse * 0.35,
+        vehicle.held
+          ? 1.45
+          : incidentResponse || medicalResponse
+            ? 1.1 + beaconPulse * 0.48
+            : 0.9 + beaconPulse * 0.35,
       );
       for (const wheel of visual.wheels)
         wheel.rotation.y -= delta * vehicle.groundSpeedMps * 3.4;
@@ -968,6 +992,12 @@ export function createWorld(
     renderer.setPixelRatio(pixelRatio);
     renderer.shadowMap.enabled = !lowDetail && !degraded;
     sun.castShadow = !lowDetail && !degraded;
+    // Terminal trains and bridge animation are optional atmosphere. When frame
+    // pacing is under pressure, release that presentation work before touching
+    // authoritative aircraft, vehicles, routes, or the user's visibility
+    // preference. It is restored automatically with normal render headroom.
+    terminalAccess.setVisible(airportLifeVisible && !degraded);
+    terminalGates.setVisible(airportLifeVisible && !degraded);
     renderer.setSize(viewportWidth, viewportHeight, false);
   }
 
@@ -1472,8 +1502,8 @@ export function createWorld(
     },
     setAirportLifeVisible(visible) {
       airportLifeVisible = visible;
-      terminalAccess.setVisible(visible);
-      terminalGates.setVisible(visible);
+      terminalAccess.setVisible(visible && !performanceDegraded);
+      terminalGates.setVisible(visible && !performanceDegraded);
     },
     setAccessibilityPalette(palette) {
       accessibilityPalette = palette;
@@ -1553,6 +1583,8 @@ export function createWorld(
         ),
         serviceVehiclesVisible,
         airportLifeVisible,
+        airportLifePresentationVisible:
+          airportLifeVisible && !performanceDegraded,
         // API 2.x compatibility fields: the feature and render allocation are gone.
         contrailsVisible: false,
         accessibilityPalette,
@@ -2283,7 +2315,12 @@ function buildAirport(
     root,
     config.surfaceGraph.passengerFacilities,
   );
-  const gateLights = createGateActivityLights(root, config, unitLight, lowDetail);
+  const gateLights = createGateActivityLights(
+    root,
+    config,
+    unitLight,
+    lowDetail,
+  );
 
   const towerEnvelope = config.obstacles.find(
     (obstacle) => obstacle.kind === "control-tower",
@@ -2380,8 +2417,8 @@ function addImportedBuildings(
     const shape = shapeFromRings([obstacle.points]);
     if (!shape) continue;
     const facility = facilityFootprints.get(obstacle.id);
-    const role = facility?.role ??
-      (obstacle.kind === "terminal" ? "terminal" : undefined);
+    const role =
+      facility?.role ?? (obstacle.kind === "terminal" ? "terminal" : undefined);
     const height = role === "terminal" ? 4.6 : role === "concourse" ? 3.7 : 2.6;
     const geometry = new THREE.ExtrudeGeometry(shape, {
       depth: height,
@@ -2394,10 +2431,7 @@ function addImportedBuildings(
         : role === "concourse"
           ? [concourseRoofMaterial, concourseMaterial]
           : buildingMaterial;
-    const mesh = new THREE.Mesh(
-      geometry,
-      material,
-    );
+    const mesh = new THREE.Mesh(geometry, material);
     mesh.name = facility
       ? `passenger-facility-footprint:${facility.facilityIds.join("+")}`
       : `airport-building:${obstacle.id}`;
@@ -2735,11 +2769,17 @@ function createServiceVehicle(type: ServiceVehicleType): ServiceVehicleVisual {
   root.name = `service-vehicle-${type}`;
   const color = {
     "fuel-truck": 0xe7ded0,
+    "water-truck": 0x71b7d2,
+    "lavatory-truck": 0x8c9c7b,
     "baggage-cart": 0xd5a44e,
     "cargo-loader": 0xc7865c,
     "catering-truck": 0x8fafaa,
     "cleaning-van": 0x8ca6bd,
+    "crew-van": 0x526b9e,
     "maintenance-van": 0xd7c46a,
+    ambulance: 0xf2f0e8,
+    "wildlife-response": 0x67884f,
+    snowplow: 0xe6dfcf,
     "passenger-bus": 0xe0d4bd,
   }[type];
   const bodyMaterial = new THREE.MeshStandardMaterial({
@@ -2761,10 +2801,15 @@ function createServiceVehicle(type: ServiceVehicleType): ServiceVehicleVisual {
     color: 0x202829,
     roughness: 0.94,
   });
-  const longVehicle = type === "passenger-bus" || type === "baggage-cart";
+  const longVehicle =
+    type === "passenger-bus" ||
+    type === "baggage-cart" || type === "snowplow";
   const length = longVehicle
     ? 2.35
-    : type === "fuel-truck" || type === "catering-truck"
+    : type === "fuel-truck" ||
+        type === "water-truck" ||
+        type === "lavatory-truck" ||
+        type === "catering-truck"
       ? 1.95
       : 1.65;
   const width = type === "passenger-bus" ? 0.78 : 0.72;
@@ -2801,7 +2846,11 @@ function createServiceVehicle(type: ServiceVehicleType): ServiceVehicleVisual {
   );
   root.add(windshield);
 
-  if (type === "fuel-truck") {
+  if (
+    type === "fuel-truck" ||
+    type === "water-truck" ||
+    type === "lavatory-truck"
+  ) {
     const tank = new THREE.Mesh(
       new THREE.CylinderGeometry(0.38, 0.38, 1.12, 14),
       bodyMaterial,
@@ -2839,7 +2888,13 @@ function createServiceVehicle(type: ServiceVehicleType): ServiceVehicleVisual {
     box.position.set(-0.32, 0, 0.78);
     box.castShadow = true;
     root.add(box);
-  } else if (type === "cleaning-van" || type === "maintenance-van") {
+  } else if (
+    type === "cleaning-van" ||
+    type === "crew-van" ||
+    type === "maintenance-van" ||
+    type === "ambulance" ||
+    type === "wildlife-response"
+  ) {
     const van = new THREE.Mesh(
       new THREE.BoxGeometry(0.92, width * 0.92, 0.64),
       bodyMaterial,
@@ -2876,7 +2931,7 @@ function createServiceVehicle(type: ServiceVehicleType): ServiceVehicleVisual {
   const beacon = new THREE.Mesh(
     new THREE.SphereGeometry(0.12, 8, 6),
     new THREE.MeshBasicMaterial({
-      color: 0xffb23b,
+      color: type === "ambulance" ? 0xe04f48 : 0xffb23b,
       transparent: true,
       opacity: 0.8,
       depthWrite: false,
@@ -2935,6 +2990,28 @@ function addServiceVehicleIdentity(
     root.add(reel);
     return;
   }
+  if (type === "water-truck") {
+    const reel = new THREE.Mesh(
+      new THREE.TorusGeometry(0.14, 0.035, 5, 10),
+      dark,
+    );
+    reel.name = "potable-water-hose-reel";
+    reel.rotation.x = Math.PI / 2;
+    reel.position.set(-0.76, -width * 0.46, 0.64);
+    root.add(reel);
+    return;
+  }
+  if (type === "lavatory-truck") {
+    const hose = new THREE.Mesh(
+      new THREE.TorusGeometry(0.15, 0.045, 5, 10),
+      dark,
+    );
+    hose.name = "lavatory-service-hose-reel";
+    hose.rotation.x = Math.PI / 2;
+    hose.position.set(-0.76, -width * 0.46, 0.62);
+    root.add(hose);
+    return;
+  }
   if (type === "cargo-loader") {
     for (const y of [-width * 0.38, width * 0.38]) {
       const brace = new THREE.Mesh(
@@ -2966,6 +3043,81 @@ function addServiceVehicleIdentity(
     rack.name = "maintenance-roof-rack";
     rack.position.set(-0.25, 0, 1.0);
     root.add(rack);
+    return;
+  }
+  if (type === "wildlife-response") {
+    const cage = new THREE.Mesh(
+      new THREE.BoxGeometry(0.66, width * 0.72, 0.28),
+      dark,
+    );
+    cage.name = "wildlife-response-equipment-cage";
+    cage.position.set(-0.26, 0, 0.98);
+    root.add(cage);
+    const beacon = new THREE.Mesh(
+      new THREE.BoxGeometry(0.22, 0.2, 0.08),
+      new THREE.MeshBasicMaterial({ color: 0xffc248, toneMapped: false }),
+    );
+    beacon.name = "wildlife-response-amber-beacon";
+    beacon.position.set(-0.16, 0, 1.17);
+    root.add(beacon);
+    return;
+  }
+  if (type === "snowplow") {
+    const plow = new THREE.Mesh(
+      new THREE.BoxGeometry(0.12, width * 1.62, 0.28),
+      dark,
+    );
+    plow.name = "snowplow-blade";
+    plow.position.set(length * 0.55, 0, 0.38);
+    plow.rotation.z = 0.16;
+    root.add(plow);
+    const saltBox = new THREE.Mesh(
+      new THREE.BoxGeometry(0.78, width * 0.94, 0.34),
+      body,
+    );
+    saltBox.name = "snowplow-spreader";
+    saltBox.position.set(-0.42, 0, 0.78);
+    root.add(saltBox);
+    return;
+  }
+  if (type === "crew-van") {
+    const placard = new THREE.Mesh(
+      new THREE.BoxGeometry(0.42, width * 1.01, 0.16),
+      glass,
+    );
+    placard.name = "crew-van-dispatch-placard";
+    placard.position.set(-0.34, 0, 0.84);
+    root.add(placard);
+    return;
+  }
+  if (type === "ambulance") {
+    const emergencyRed = new THREE.MeshBasicMaterial({
+      color: 0xe04f48,
+      toneMapped: false,
+    });
+    const emergencyBlue = new THREE.MeshBasicMaterial({
+      color: 0x4f9ee8,
+      toneMapped: false,
+    });
+    const stripe = new THREE.Mesh(
+      new THREE.BoxGeometry(0.94, width * 1.01, 0.1),
+      emergencyRed,
+    );
+    stripe.name = "ambulance-red-stripe";
+    stripe.position.set(-0.28, 0, 0.7);
+    root.add(stripe);
+    for (const [y, material] of [
+      [-0.18, emergencyRed],
+      [0.18, emergencyBlue],
+    ] as const) {
+      const light = new THREE.Mesh(
+        new THREE.BoxGeometry(0.22, 0.16, 0.09),
+        material,
+      );
+      light.name = y < 0 ? "ambulance-red-beacon" : "ambulance-blue-beacon";
+      light.position.set(-0.22, y, 1.03);
+      root.add(light);
+    }
     return;
   }
   if (type === "cleaning-van") {
@@ -3024,6 +3176,18 @@ function createServiceVehicleWorkRig(
     hose.rotation.set(Math.PI / 2, 0, Math.PI / 2);
     hose.position.set(-0.76, 0.44, 0.62);
     rig.add(hose);
+  } else if (type === "water-truck" || type === "lavatory-truck") {
+    const hose = new THREE.Mesh(
+      new THREE.TorusGeometry(0.28, 0.03, 5, 12, Math.PI),
+      dark,
+    );
+    hose.name =
+      type === "water-truck"
+        ? "potable-water-hose-connected"
+        : "lavatory-service-hose-connected";
+    hose.rotation.set(Math.PI / 2, 0, Math.PI / 2);
+    hose.position.set(-0.74, 0.4, 0.62);
+    rig.add(hose);
   } else if (type === "cargo-loader") {
     const platform = new THREE.Mesh(
       new THREE.BoxGeometry(0.9, 0.72, 0.1),
@@ -3047,6 +3211,14 @@ function createServiceVehicleWorkRig(
     belt.name = "baggage-cart-open-belt";
     belt.position.set(-0.48, 0, 0.76);
     rig.add(belt);
+  } else if (type === "crew-van") {
+    const dispatchCase = new THREE.Mesh(
+      new THREE.BoxGeometry(0.28, 0.22, 0.18),
+      body,
+    );
+    dispatchCase.name = "crew-van-dispatch-case";
+    dispatchCase.position.set(-0.7, 0.34, 0.45);
+    rig.add(dispatchCase);
   }
   return rig;
 }

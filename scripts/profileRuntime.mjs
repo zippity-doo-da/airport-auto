@@ -7,14 +7,19 @@ const warmupMinutes = Number.isFinite(requestedWarmupMinutes) ? Math.max(0, requ
 const sampleArgument = process.argv.find((argument) => argument.startsWith('--samples='));
 const requestedSamples = Number(sampleArgument?.split('=')[1] ?? 600);
 const sampleCount = Number.isFinite(requestedSamples) ? Math.max(100, Math.floor(requestedSamples)) : 600;
+const airportArgument = process.argv.find((argument) => argument.startsWith('--airport='));
+const requestedAirport = (airportArgument?.split('=')[1] ?? 'ORD').trim().toUpperCase();
 const profileSource = `
-import { generateHubConfig } from './src/simulation/airportConfig.ts';
+import { generateHubConfig, HUB_AIRPORTS } from './src/simulation/airportConfig.ts';
 import { AirportSimulation } from './src/simulation/airportSimulation.ts';
 import { beginCollisionPerformanceTrace, endCollisionPerformanceTrace } from './src/simulation/collisionDetection.ts';
 
 const detailed = ${detailed};
 const methodTimings = new Map();
-const configuration = generateHubConfig(4); // deterministic ORD fixture
+const airportCode = ${JSON.stringify(requestedAirport)};
+const hubIndex = HUB_AIRPORTS.findIndex((airport) => airport.code === airportCode);
+if (hubIndex < 0) throw new Error('Unknown hub ' + airportCode);
+const configuration = generateHubConfig(hubIndex);
 const simulation = new AirportSimulation(configuration, 'extreme');
 simulation.setMode('auto');
 simulation.setPace(3);

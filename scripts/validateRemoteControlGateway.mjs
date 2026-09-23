@@ -195,6 +195,7 @@ const gateway = createRemoteGateway({
   reconnectGraceMs: 2_000,
   heartbeatIntervalMs: 1_000,
   commandRateLimit: { count: 3, windowMs: 2_000 },
+  maxPendingCommandsPerController: 1,
   tokens: [
     {
       id: "host",
@@ -331,6 +332,11 @@ try {
   peers.push(host.peer);
   assert.equal(host.welcome.role, "host");
   assert.ok(host.welcome.resumeToken);
+  assert.equal(
+    host.welcome.session.clients[0].droppedReplaceableMessages,
+    0,
+    "gateway session state omitted bounded replaceable-publication diagnostics",
+  );
   assert.equal(
     (await host.peer.waitFor((message) => message.type === "state-request"))
       .reason,
@@ -471,6 +477,32 @@ try {
   );
   assert.equal(accepted.accepted, true);
   assert.equal(accepted.result.eventId, 17);
+
+  // A host that is momentarily busy must produce an explicit backpressure
+  // result, not an unbounded hidden queue or a silently lost ATC instruction.
+  towerA.peer.send(command("tower-pending-first", "holdPosition"));
+  const pendingForward = await host.peer.waitFor(
+    (message) => message.type === "command" && message.envelope.requestId === "tower-pending-first",
+  );
+  towerA.peer.send(command("tower-pending-second", "holdPosition"));
+  const backpressured = await towerA.peer.waitFor(
+    (message) => message.type === "command-result" && message.requestId === "tower-pending-second",
+  );
+  assert.equal(backpressured.accepted, false);
+  assert.equal(backpressured.code, "command-backpressure");
+  host.peer.send({
+    type: "command-result",
+    gatewayCommandId: pendingForward.gatewayCommandId,
+    result: { accepted: true, reason: "host queue drained" },
+  });
+  assert.equal(
+    (
+      await towerA.peer.waitFor(
+        (message) => message.type === "command-result" && message.requestId === "tower-pending-first",
+      )
+    ).accepted,
+    true,
+  );
 
   for (let index = 0; index < 3; index += 1) {
     ground.peer.send(command(`ground-rate-${index}`, "holdPosition"));

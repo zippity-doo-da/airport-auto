@@ -83,6 +83,27 @@ const inboundAlley = inboundClaims.filter((claim) => claim.kind === 'alley');
 alleyLedger.reserve(1, outboundAlley);
 assert(!alleyLedger.firstConflict(outboundAlley), 'same-direction alley flow was blocked');
 assert(alleyLedger.firstConflict(inboundAlley)?.kind === 'alley', 'opposing alley flow was not blocked');
+const directionalBranchGraph = {
+  ...synthetic,
+  nodes: [
+    ...synthetic.nodes,
+    { id: 'W', kind: 'taxiway', position: [-1, 1], taxiwayIds: ['RAMP-B-C-W'] },
+    { id: 'C2', kind: 'taxiway', position: [-1, -1], taxiwayIds: ['RAMP-B-C-C'] },
+  ],
+  edges: [
+    ...synthetic.edges,
+    { id: 'WA', from: 'W', to: 'A', kind: 'taxiway', name: 'Ramp B/C west branch', direction: 'both', width: 1.8, taxiwayId: 'RAMP-B-C-W' },
+    { id: 'C2A', from: 'C2', to: 'A', kind: 'taxiway', name: 'Ramp B/C center branch', direction: 'both', width: 1.8, taxiwayId: 'RAMP-B-C-C' },
+  ],
+};
+const westBranchClaims = surfaceRouteReservationClaims(directionalBranchGraph, ['W', 'A'], ['WA'], 0.1, 'taxi-in', 0);
+const centerBranchClaims = surfaceRouteReservationClaims(directionalBranchGraph, ['C2', 'A'], ['C2A'], 0.1, 'taxi-out', 0);
+const westBranchAlley = westBranchClaims.find((claim) => claim.kind === 'alley');
+const centerBranchAlley = centerBranchClaims.find((claim) => claim.kind === 'alley');
+assert(westBranchAlley?.id === 'RAMP-B-C' && centerBranchAlley?.id === 'RAMP-B-C', 'directional ramp branches did not share one physical alley');
+const directionalAlleyLedger = new SurfaceReservationLedger();
+directionalAlleyLedger.reserve(1, westBranchClaims.filter((claim) => claim.kind === 'alley'));
+assert(directionalAlleyLedger.firstConflict(centerBranchClaims.filter((claim) => claim.kind === 'alley'), 2)?.kind === 'alley', 'opposing directional ramp branches were admitted into one terminal alley');
 const southboundClaims = surfaceRouteReservationClaims(synthetic, ['A', 'C', 'D'], ['AC', 'CD'], 0.1, 'taxi-out', 2);
 const northboundClaims = surfaceRouteReservationClaims(synthetic, ['D', 'C', 'A'], ['CD', 'AC'], 0.1, 'taxi-in', 2);
 const southboundFlow = southboundClaims.filter((claim) => claim.kind === 'taxiway-flow');

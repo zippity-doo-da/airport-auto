@@ -302,11 +302,14 @@ export type AircraftAirworthinessStatus =
   "serviceable" | "maintenance-due" | "out-of-service";
 export type TurnaroundServiceType =
   | "fueling"
+  | "potable-water"
+  | "lavatory"
   | "baggage"
   | "cargo"
   | "catering"
   | "cleaning"
   | "boarding"
+  | "crew"
   | "maintenance";
 export type TurnaroundTaskStatus =
   "not-required" | "waiting" | "active" | "complete";
@@ -327,7 +330,7 @@ export type SurfaceDisruptionKind =
 export type SurfaceDisruptionStatus = "pending" | "active" | "recovering";
 export type SurfaceDisruptionSource = "scenario" | "controller" | "incident";
 export type SurfaceIncidentResponsePhase =
-  "en-route" | "inspecting" | "ready-to-reopen";
+  "en-route" | "inspecting" | "ready-to-reopen" | "returning";
 
 /**
  * A topology-changing surface restriction. edgeIds are the authoritative
@@ -340,7 +343,10 @@ export interface SurfaceDisruptionState {
   source: SurfaceDisruptionSource;
   /** Optional named incident layered on the common surface-restriction model. */
   incidentKind?:
-    "runway-inspection" | "bird-activity" | "foreign-object-debris";
+    | "runway-inspection"
+    | "bird-activity"
+    | "foreign-object-debris"
+    | "snow-removal";
   targetId: string;
   label: string;
   edgeIds: string[];
@@ -361,6 +367,8 @@ export interface SurfaceDisruptionState {
   responseArrivalAtSeconds?: number;
   responseInspectionStartedAtSeconds?: number;
   responseInspectionDurationSeconds?: number;
+  /** Supervisor release authorized; response unit is on its protected return route. */
+  responseReturnStartedAtSeconds?: number;
   reroutedFlightIds: number[];
   reason: string;
 }
@@ -391,6 +399,24 @@ export interface FlightSurfaceYieldState {
   blockerFlightIds: number[];
   previousTugAttached: boolean;
   previousEngineState: EngineState;
+}
+
+/** A Ramp-controlled reversal before a tug has released the aircraft. */
+export interface FlightReturnToStandState {
+  schemaVersion: 1;
+  requestedAtSeconds: number;
+  startProgress: number;
+  reason: string;
+}
+
+/** A Supervisor-authorized tug relocation from an occupied gate to a maintenance stand. */
+export interface FlightMaintenanceTowState {
+  schemaVersion: 1;
+  requestedAtSeconds: number;
+  sourceStandId: string;
+  destinationStandId: string;
+  destinationGateAssignment: FlightGateAssignment;
+  reason: string;
 }
 
 /**
@@ -424,11 +450,17 @@ export interface FlightDeicingState {
 
 export type ServiceVehicleType =
   | "fuel-truck"
+  | "water-truck"
+  | "lavatory-truck"
   | "baggage-cart"
   | "cargo-loader"
   | "catering-truck"
   | "cleaning-van"
+  | "crew-van"
   | "maintenance-van"
+  | "ambulance"
+  | "wildlife-response"
+  | "snowplow"
   | "passenger-bus";
 export type ServiceVehicleStatus =
   | "scheduled"
@@ -449,6 +481,11 @@ export interface ServiceVehicleState {
   id: string;
   /** Named surface-incident response; absent for ordinary turnaround equipment. */
   incidentResponseId?: string;
+  /** Priority-flight response using the same graph reservations as other vehicles. */
+  emergencyResponseKind?: "medical";
+  emergencyServiceStartedAtSeconds?: number;
+  emergencyServiceDurationSeconds?: number;
+  emergencyResolvedAtSeconds?: number;
   flightId: number;
   callsign: string;
   service: TurnaroundServiceType;
@@ -565,6 +602,29 @@ export interface FlightGateAssignment {
   previousStandId?: string;
 }
 
+/** A modeled arrival-side stand failure that requires an explicit replan. */
+export interface FlightGateEquipmentFailureState {
+  schemaVersion: 1;
+  reportedAtSeconds: number;
+  failedStandId: string;
+  failedGateLabel: string;
+  reason: string;
+  resolvedAtSeconds: number;
+  replacementStandId: string;
+  replacementGateLabel: string;
+}
+
+/** A Supervisor-approved arrival diversion to a compatible remote ramp. */
+export interface FlightRemoteStandState {
+  schemaVersion: 1;
+  assignedAtSeconds: number;
+  previousStandId: string;
+  previousGateLabel: string;
+  standId: string;
+  gateLabel: string;
+  reason: string;
+}
+
 export type RunwayBrakingAction =
   "good" | "good-to-medium" | "medium" | "medium-to-poor" | "poor" | "nil";
 
@@ -616,7 +676,11 @@ export interface RunwayPerformanceAssessment {
 }
 
 export type RejectedTakeoffReason =
-  "traffic" | "runway" | "technical" | "controller";
+  | "traffic"
+  | "runway"
+  | "technical"
+  | "brake-tire"
+  | "controller";
 
 export interface FlightRejectedTakeoffState {
   schemaVersion: 1;
@@ -1444,6 +1508,8 @@ export interface Flight {
   rejectedTakeoff?: FlightRejectedTakeoffState;
   surfaceReroute?: FlightSurfaceRerouteState;
   surfaceYield?: FlightSurfaceYieldState;
+  returnToStand?: FlightReturnToStandState;
+  maintenanceTow?: FlightMaintenanceTowState;
   surfaceRoute?: string[];
   surfaceRouteEdges?: string[];
   surfaceRoutingCost?: number;
@@ -1481,6 +1547,8 @@ export interface Flight {
   controlPatternStart?: number;
   gateSlot: number;
   gateAssignment?: FlightGateAssignment;
+  gateEquipmentFailure?: FlightGateEquipmentFailureState;
+  remoteStand?: FlightRemoteStandState;
   aircraft: AircraftModel;
   airline: AirlineCode;
   flightNumber: number;
@@ -1603,6 +1671,25 @@ export interface AirportEvent {
   /** Reserved for explicit event-to-event causal chains in asynchronous workflows. */
   causedByEventId?: number;
 }
+
+/** An airfield operation that is not truthfully attributable to one aircraft. */
+export interface SurfaceIncidentEvent {
+  type: "incident-response-return" | "incident-response-clear";
+  domainEventId?: string;
+  surfaceDisruptionId: string;
+  incidentKind?: SurfaceDisruptionState["incidentKind"];
+  runway?: number;
+  taxiway?: string;
+  detail: string;
+  responseVehicleId?: string;
+  responseVehicleType?: ServiceVehicleType;
+  responseVehicleStatus?: ServiceVehicleStatus;
+  causedByCommandId?: string;
+  causedByControllerDecisionId?: string;
+  causedByEventId?: number;
+}
+
+export type AirportDomainEvent = AirportEvent | SurfaceIncidentEvent;
 
 export interface RunwayConfigurationTransition {
   targetId: string;

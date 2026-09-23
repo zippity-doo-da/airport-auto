@@ -18,6 +18,16 @@
         aria-label="Live three-dimensional airport traffic simulation."
         >Airport Auto requires a browser with WebGL support.</canvas
       >
+      <div
+        id="bootstrap-loading"
+        class="bootstrap-loading"
+        role="status"
+        aria-live="polite"
+      >
+        <span class="bootstrap-loading__mark" aria-hidden="true">✦</span>
+        <strong>Preparing the airfield</strong>
+        <small>Loading deterministic airport data…</small>
+      </div>
       <button
         id="capture-clean-exit"
         class="capture-clean-exit"
@@ -36,8 +46,8 @@
       <header class="brand" aria-label="Airport Auto">
         <span id="brand-mark" class="brand__mark" aria-hidden="true">S</span>
         <div>
-          <p id="airport-name">Stillwater</p>
-          <span id="airport-meta">Local · airfield control</span>
+          <p id="airport-name">Chicago O’Hare</p>
+          <span id="airport-meta">ORD · ATC schematic</span>
         </div>
       </header>
 
@@ -55,14 +65,15 @@
         <small>Controls</small>
       </button>
 
-      <a
-        class="combat-transition"
-        href="./dogfight.html"
-        aria-label="Open the AI Dogfight Lab"
+      <span
+        class="combat-transition combat-transition--locked"
+        aria-label="Combat Lab is unavailable while the ORD build is in focus"
+        aria-disabled="true"
+        title="Combat Lab is temporarily unavailable"
       >
         <i aria-hidden="true"></i>
-        <small>Combat</small>
-      </a>
+        <small>Combat · offline</small>
+      </span>
 
       <aside
         id="control-panel"
@@ -75,17 +86,17 @@
           <label
             ><span>Airport</span
             ><select id="airport-select">
-              <option value="LOCAL">Random local airfield</option>
-              <option value="ATL">ATL — Atlanta</option>
-              <option value="DXB">DXB — Dubai</option>
-              <option value="HND">HND — Tokyo Haneda</option>
-              <option value="DFW">DFW — Dallas/Fort Worth</option>
-              <option value="ORD">ORD — Chicago O’Hare</option>
-              <option value="LHR">LHR — London Heathrow</option>
-              <option value="IST">IST — Istanbul</option>
-              <option value="DEN">DEN — Denver</option>
-              <option value="LAX">LAX — Los Angeles</option>
-              <option value="JFK">JFK — New York</option>
+              <option value="ORD" selected>ORD — Chicago O’Hare</option>
+              <option value="LOCAL" disabled>Random local airfield · unavailable</option>
+              <option value="ATL" disabled>ATL — Atlanta · unavailable</option>
+              <option value="DXB" disabled>DXB — Dubai · unavailable</option>
+              <option value="HND" disabled>HND — Tokyo Haneda · unavailable</option>
+              <option value="DFW" disabled>DFW — Dallas/Fort Worth · unavailable</option>
+              <option value="LHR" disabled>LHR — London Heathrow · unavailable</option>
+              <option value="IST" disabled>IST — Istanbul · unavailable</option>
+              <option value="DEN" disabled>DEN — Denver · unavailable</option>
+              <option value="LAX" disabled>LAX — Los Angeles · unavailable</option>
+              <option value="JFK" disabled>JFK — New York · unavailable</option>
             </select></label
           >
           <label
@@ -2044,17 +2055,17 @@
             <label
               ><span>Airport</span
               ><select id="intro-airport-select">
-                <option value="LOCAL">Random local airfield</option>
-                <option value="ATL">ATL — Atlanta</option>
-                <option value="DXB">DXB — Dubai</option>
-                <option value="HND">HND — Tokyo Haneda</option>
-                <option value="DFW">DFW — Dallas/Fort Worth</option>
-                <option value="ORD">ORD — Chicago O’Hare</option>
-                <option value="LHR">LHR — London Heathrow</option>
-                <option value="IST">IST — Istanbul</option>
-                <option value="DEN">DEN — Denver</option>
-                <option value="LAX">LAX — Los Angeles</option>
-                <option value="JFK">JFK — New York</option>
+                <option value="ORD" selected>ORD — Chicago O’Hare</option>
+                <option value="LOCAL" disabled>Random local airfield · unavailable</option>
+                <option value="ATL" disabled>ATL — Atlanta · unavailable</option>
+                <option value="DXB" disabled>DXB — Dubai · unavailable</option>
+                <option value="HND" disabled>HND — Tokyo Haneda · unavailable</option>
+                <option value="DFW" disabled>DFW — Dallas/Fort Worth · unavailable</option>
+                <option value="LHR" disabled>LHR — London Heathrow · unavailable</option>
+                <option value="IST" disabled>IST — Istanbul · unavailable</option>
+                <option value="DEN" disabled>DEN — Denver · unavailable</option>
+                <option value="LAX" disabled>LAX — Los Angeles · unavailable</option>
+                <option value="JFK" disabled>JFK — New York · unavailable</option>
               </select></label
             >
             <label
@@ -2097,14 +2108,14 @@
           <button id="enter" class="primary" type="button">
             Watch the airfield <span aria-hidden="true">→</span>
           </button>
-          <a class="intro-archive-link" href="./fighters.html"
-            >Browse the Fighter Archive <span aria-hidden="true">↗</span></a
+          <span class="intro-archive-link intro-archive-link--locked" aria-disabled="true"
+            >Fighter Archive · unavailable</span
           >
-          <a class="intro-archive-link" href="./flight-playground.html"
-            >Watch the fighter playground <span aria-hidden="true">↗</span></a
+          <span class="intro-archive-link intro-archive-link--locked" aria-disabled="true"
+            >Fighter playground · unavailable</span
           >
-          <a class="intro-archive-link" href="./dogfight.html"
-            >Open the AI Dogfight Lab <span aria-hidden="true">↗</span></a
+          <span class="intro-archive-link intro-archive-link--locked" aria-disabled="true"
+            >AI Dogfight Lab · unavailable</span
           >
           <small
             >Drag or WASD to pan · Q/E to rotate · scroll or pinch to zoom · C

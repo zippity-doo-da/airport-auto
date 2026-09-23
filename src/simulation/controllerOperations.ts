@@ -180,7 +180,19 @@ export function suggestedHandoffStation(flight: Flight): OperationalControllerSt
       ? 'ground'
       : null;
   }
-  if (owner === 'ground') return flight.phase === 'taxi-out' && flight.progress >= 0.94 ? 'tower' : null;
+  // Tower needs ownership before an upstream runway-entry hold point. Imported
+  // routes can be long enough that waiting for the old near-endpoint window
+  // leaves Ground owning an aircraft which is already stopped for Tower.
+  // A departure may meet Tower's upstream runway-entry coordination window
+  // while its assigned graph route still crosses another active runway. Keep
+  // Ground ownership through those explicit crossing clearances; otherwise
+  // Tower repeatedly attempts a line-up clearance before the aircraft can
+  // legally reach its own departure hold-short point.
+  if (owner === 'ground') return flight.phase === 'taxi-out'
+    && !hasPendingRunwayCrossing(flight)
+    && flight.progress >= 0.5
+    ? 'tower'
+    : null;
   if (owner === 'tower') return flight.phase === 'takeoff' && !flight.motion.onGround ? 'approach' : null;
   return null;
 }

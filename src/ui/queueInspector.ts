@@ -130,6 +130,7 @@ export function operationQueueRenderKey(
         entry.position,
         entry.queueLength,
         entry.detail,
+        entry.recovery ?? "",
       ].join(":"),
     ),
   ].join("|");
@@ -177,7 +178,10 @@ export function renderOperationQueueInspector(
     row.dataset.queueFocus = entry.id;
     row.className = `queue-entry queue-entry--${entry.priority}`;
     row.classList.toggle("queue-entry--selected", entry.id === focusedQueueId);
-    row.setAttribute("aria-label", `Focus ${entry.label}. ${entry.detail}`);
+    row.setAttribute(
+      "aria-label",
+      `Focus ${entry.label}. ${entry.detail}${entry.recovery ? ` Recovery: ${entry.recovery}` : ""}`,
+    );
 
     const category = document.createElement("span");
     category.className = "queue-entry__category";
@@ -189,6 +193,12 @@ export function renderOperationQueueInspector(
     const detail = document.createElement("small");
     detail.textContent = entry.detail;
     copy.append(title, detail);
+    if (entry.recovery) {
+      const recovery = document.createElement("small");
+      recovery.className = "queue-entry__recovery";
+      recovery.textContent = `Next: ${entry.recovery}`;
+      copy.append(recovery);
+    }
     const timing = document.createElement("span");
     timing.className = "queue-entry__timing";
     timing.textContent =

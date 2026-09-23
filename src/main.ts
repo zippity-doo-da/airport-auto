@@ -1,12 +1,8 @@
 import "./styles.css";
 import { airportAutoAssetPath } from "./assets/assetManifest";
+import { AdaptiveQualityGovernor } from "./render/adaptiveQualityGovernor";
 import { AirportSimulation } from "./simulation/airportSimulation";
-import {
-  generateAirportConfig,
-  generateHubConfig,
-  HUB_AIRPORTS,
-  type AirportConfig,
-} from "./simulation/airportConfig";
+import type { AirportConfig } from "./simulation/airportConfig";
 import { aircraftProfile } from "./simulation/aircraftProfiles";
 import { modeledTakeoffDecisionSpeedKts } from "./simulation/runwayPerformance";
 import { aircraftSystemsState } from "./simulation/aircraftSystems";
@@ -434,6 +430,30 @@ const FLIGHT_PHASE_ORDER: Record<FlightPhase, number> = {
 
 const ACCESSIBILITY_PALETTE_STORAGE_KEY = "airport-auto:accessibility-palette";
 
+// Keep the heavy deterministic configuration/data graph out of the entry
+// module. The simulation still receives the exact same synchronous factory;
+// this only moves its download/parse work behind the app bootstrap boundary.
+const {
+  generateHubConfig,
+  HUB_AIRPORTS,
+} = await import("./simulation/airportConfig");
+
+// This public build intentionally exposes one complete airport while the
+// remaining maps stay preserved in the source tree for later release.
+const ORD_AIRPORT_CODE = "ORD";
+const ORD_HUB_INDEX = HUB_AIRPORTS.findIndex(
+  (airport) => airport.code === ORD_AIRPORT_CODE,
+);
+if (ORD_HUB_INDEX < 0) {
+  throw new Error("ORD must be present in the hub airport catalog.");
+}
+
+function generateOrdConfig(seed?: number): AirportConfig {
+  return generateHubConfig(ORD_HUB_INDEX, seed);
+}
+
+document.getElementById("bootstrap-loading")?.classList.add("bootstrap-loading--ready");
+
 const $ = <T extends Element>(selector: string): T => {
   const element = document.querySelector<T>(selector);
   if (!element) throw new Error(`Missing element: ${selector}`);
@@ -458,7 +478,7 @@ const canvas = $<HTMLCanvasElement>("#scene");
 const menuButton = $<HTMLButtonElement>("#menu-toggle");
 const controlPanel = $<HTMLElement>("#control-panel");
 const audio = new AmbientAudio();
-let config = generateAirportConfig();
+let config = generateOrdConfig();
 const soundscape = new SoundscapeEventScheduler(config.seed);
 let simulation = new AirportSimulation(config);
 const operationsAnalytics = new OperationsAnalyticsRecorder(
@@ -590,6 +610,8 @@ const focusStatusDetail = $<HTMLElement>("#focus-status-detail");
 const focusStatusRelease = $<HTMLButtonElement>("#focus-status-release");
 const scopeButton = $<HTMLButtonElement>("#scope-toggle");
 const scopeLabel = $<HTMLElement>("#scope-label");
+scopeButton.disabled = true;
+scopeButton.title = "ORD center scope is the only enabled map.";
 const brandMark = $<HTMLElement>("#brand-mark");
 const airportName = $<HTMLElement>("#airport-name");
 const airportMeta = $<HTMLElement>("#airport-meta");
@@ -934,7 +956,6 @@ let lastChallengeStatus: ChallengeSnapshot["status"] = "inactive";
 let lastSandboxActive = false;
 let lastArrivals = -1;
 let lastDepartures = -1;
-let hubIndex = 0;
 let activeFlightId: number | null = null;
 let routePoints: Array<{ x: number; y: number }> = [];
 let simulationSpeed = 1;
@@ -1063,8 +1084,7 @@ let renderedFrames = 0;
 let frameWindowStarted = performance.now();
 let measuredFps = 0;
 let adaptiveRenderDegraded = false;
-let adaptiveRenderOverBudgetSeconds = 0;
-let adaptiveRenderRecoverySeconds = 0;
+const adaptiveQualityGovernor = new AdaptiveQualityGovernor();
 let modalReturnFocus: HTMLElement | null = null;
 let lastDebugSecond = -1;
 const replayFrames: ReplayFrame[] = [];
@@ -2157,7 +2177,10 @@ surfaceDisruptionApply.addEventListener("click", () => {
       ? {
           action: "triggerSurfaceIncident" as const,
           kind: surfaceDisruptionKind.value as
-            "runway-inspection" | "bird-activity" | "foreign-object-debris",
+            | "runway-inspection"
+            | "bird-activity"
+            | "foreign-object-debris"
+            | "snow-removal",
           targetId: surfaceDisruptionTarget.value,
         }
       : {
@@ -2309,29 +2332,11 @@ viewButton.addEventListener("click", () => {
   world.nextView();
 });
 fieldButton.addEventListener("click", () => {
-  if (config.scope === "center") {
-    hubIndex = (hubIndex + 1) % HUB_AIRPORTS.length;
-    newSession(false, generateHubConfig(hubIndex));
-  } else {
-    newSession(false, generateAirportConfig());
-  }
-  setStatus(
-    `${config.code === "LOCAL" ? config.name : config.code} is open`,
-    trafficDescription(),
-  );
+  newSession(false, generateOrdConfig());
+  setStatus("ORD reset", trafficDescription());
 });
 scopeButton.addEventListener("click", () => {
-  const enterCenter = config.scope === "airfield";
-  newSession(
-    false,
-    enterCenter ? generateHubConfig(hubIndex) : generateAirportConfig(),
-  );
-  setStatus(
-    enterCenter
-      ? `${config.code} center scope`
-      : `${config.name} airfield scope`,
-    enterCenter ? trafficDescription() : "close view · local traffic",
-  );
+  setStatus("Map scope locked", "ORD center scope is the only enabled map.");
 });
 modeButton.addEventListener("click", () => {
   const modes: ControlMode[] = ["auto", "assisted", "manual", "watch"];
@@ -2717,12 +2722,7 @@ queueList.addEventListener("click", (event) => {
 
 restartButton.addEventListener("click", () => {
   setExclusiveModal(null);
-  newSession(
-    false,
-    config.scope === "center"
-      ? generateHubConfig(hubIndex)
-      : generateAirportConfig(),
-  );
+  newSession(false, generateOrdConfig());
   gameOver.classList.add("modal--hidden");
   gameOver.hidden = true;
   pauseButton.setAttribute("aria-pressed", "false");
@@ -2996,6 +2996,29 @@ function frame(now: number): void {
   }
 
   for (const event of simulation.drainEvents()) {
+    if (!("flight" in event)) {
+      recordTelemetry(event.type, undefined, event.runway, event.taxiway, {
+        detail: event.detail,
+        causedByCommandId: event.causedByCommandId,
+        causedByEventId: event.causedByEventId,
+        domainEventId: event.domainEventId,
+        payload: {
+          surfaceDisruptionId: event.surfaceDisruptionId,
+          incidentKind: event.incidentKind ?? null,
+          responseVehicleId: event.responseVehicleId ?? null,
+          responseVehicleType: event.responseVehicleType ?? null,
+          responseVehicleStatus: event.responseVehicleStatus ?? null,
+        },
+      });
+      if (event.type === "incident-response-return")
+        setStatus(
+          "Response unit returning to staging",
+          event.detail,
+        );
+      if (event.type === "incident-response-clear")
+        setStatus("Movement area reopened", event.detail);
+      continue;
+    }
     const gateEvent =
       event.type === "gate-assignment" ||
       event.type === "gate-reassignment" ||
@@ -3139,6 +3162,16 @@ function frame(now: number): void {
       setStatus(
         `${event.flight.callsign} gate changed`,
         event.detail ?? "stand conflict resolved",
+      );
+    if (event.type === "gate-equipment-failure")
+      setStatus(
+        `${event.flight.callsign} gate equipment recovered`,
+        event.detail ?? "arrival gate reassigned",
+      );
+    if (event.type === "remote-stand-assignment")
+      setStatus(
+        `${event.flight.callsign} remote stand assigned`,
+        event.detail ?? "compatible ramp route confirmed",
       );
     if (event.type === "gate-release")
       setStatus(
@@ -3289,6 +3322,21 @@ function frame(now: number): void {
       setStatus(
         `${event.flight.callsign} emergency`,
         `${event.flight.emergency} · priority handling active`,
+      );
+    if (event.type === "medical-response-dispatch")
+      setStatus(
+        `${event.flight.callsign} medical response dispatched`,
+        event.detail ?? "airport ambulance en route to the assigned stand",
+      );
+    if (event.type === "medical-response-arrive")
+      setStatus(
+        `${event.flight.callsign} medical team on scene`,
+        event.detail ?? "patient transfer in progress",
+      );
+    if (event.type === "medical-response-complete")
+      setStatus(
+        `${event.flight.callsign} medical response complete`,
+        event.detail ?? "ordinary gate operation restored",
       );
     if (event.type === "go-around")
       setStatus(
@@ -3855,6 +3903,10 @@ function cloneAirportState(
             rationale: [...flight.gateAssignment.rationale],
           }
         : undefined,
+      gateEquipmentFailure: flight.gateEquipmentFailure
+        ? { ...flight.gateEquipmentFailure }
+        : undefined,
+      remoteStand: flight.remoteStand ? { ...flight.remoteStand } : undefined,
       flightPlan: cloneFlightPlan(flight.flightPlan),
       flightPlanHistory: flight.flightPlanHistory.map(cloneFlightPlan),
       navigation: {
@@ -4135,12 +4187,9 @@ async function copyReplaySeedLink(): Promise<void> {
 function matchingReplayConfig(
   recording: ReplayRecording,
 ): AirportConfig | null {
-  if (recording.airport.code === "LOCAL")
-    return generateAirportConfig(recording.seed);
-  const index = HUB_AIRPORTS.findIndex(
-    (airport) => airport.code === recording.airport.code,
-  );
-  return index < 0 ? null : generateHubConfig(index, recording.seed);
+  return recording.airport.code === ORD_AIRPORT_CODE
+    ? generateOrdConfig(recording.seed)
+    : null;
 }
 
 function loadReplayRecording(input: unknown): ReplayVerificationResult {
@@ -5233,11 +5282,15 @@ function flightOperationLabel(flight: Flight): string {
     const recovery = displayState().surfaceDisruptions.find(
       (disruption) => disruption.flightId === flight.id,
     );
+    const cause =
+      flight.rejectedTakeoff.reason === "brake-tire"
+        ? "Brake/tire concern"
+        : "Rejected takeoff";
     return flight.rejectedTakeoff.stoppedAtSeconds === undefined
-      ? "Rejected takeoff · braking"
+      ? `${cause} · braking`
       : recovery?.status === "recovering"
-        ? `Rejected takeoff · recovery ${Math.round(recovery.recoveryProgress * 100)}%`
-        : "Rejected takeoff · runway blocked";
+        ? `${cause} · recovery ${Math.round(recovery.recoveryProgress * 100)}%`
+        : `${cause} · runway blocked`;
   }
   if (flight.emergency === "disabled") {
     const recovery = displayState().surfaceDisruptions.find(
@@ -5246,6 +5299,15 @@ function flightOperationLabel(flight: Flight): string {
     return recovery?.status === "recovering"
       ? `Recovery ${Math.round(recovery.recoveryProgress * 100)}%`
       : "Disabled · awaiting recovery";
+  }
+  if (flight.emergency === "medical") {
+    const response = serviceVehiclesForFlight(flight.id).find(
+      (vehicle) => vehicle.emergencyResponseKind === "medical",
+    );
+    if (response?.status === "servicing") return "Medical · patient transfer";
+    if (response?.status === "staged" || response?.status === "approaching")
+      return "Medical · ambulance staged";
+    return "Medical priority · ambulance en route";
   }
   if (flight.surfaceReroute?.status === "holding") return "Route unavailable";
   if (flight.diversion) return `Divert ${flight.diversion.airportCode}`;
@@ -5305,11 +5367,14 @@ function deicingChipSummary(flight: Flight): string | null {
 
 const TURNAROUND_SHORT_LABEL: Record<TurnaroundServiceType, string> = {
   fueling: "fuel",
+  "potable-water": "water",
+  lavatory: "lavatory",
   baggage: "bags",
   cargo: "cargo",
   catering: "catering",
   cleaning: "cleaning",
   boarding: "boarding",
+  crew: "crew",
   maintenance: "maintenance",
 };
 
@@ -5928,6 +5993,11 @@ function renderFlightActions(): void {
     flight.rejectedTakeoff?.stoppedAtSeconds !== undefined
   )
     flightActions.append(createSurfaceReroutePanel(flight));
+  if (flight.emergency === "medical")
+    flightActions.append(createMedicalResponsePanel(flight));
+  if (flight.gateEquipmentFailure)
+    flightActions.append(createGateEquipmentFailurePanel(flight));
+  if (flight.remoteStand) flightActions.append(createRemoteStandPanel(flight));
   if (flight.phase === "resting")
     flightActions.append(createTurnaroundPanel(flight));
   if (flight.deicing.required) flightActions.append(createDeicingPanel(flight));
@@ -5968,6 +6038,27 @@ function renderFlightActions(): void {
         "gate-reassign",
         "Reassign gate",
         simulation.state.station !== "supervisor",
+      );
+    if (
+      (flight.phase === "approach" || flight.phase === "landing") &&
+      flight.progress < 0.8 &&
+      flight.gateAssignment
+    )
+      add(
+        "gate-equipment-failure",
+        "Gate equipment failure",
+        simulation.state.station !== "supervisor" ||
+          Boolean(flight.gateEquipmentFailure),
+      );
+    if (
+      (flight.phase === "approach" || flight.phase === "landing") &&
+      flight.progress < 0.8 &&
+      flight.gateAssignment
+    )
+      add(
+        "remote-stand",
+        "Assign remote stand",
+        simulation.state.station !== "supervisor" || Boolean(flight.remoteStand),
       );
     if (
       flight.phase === "approach" &&
@@ -6158,6 +6249,13 @@ function renderFlightActions(): void {
         !ownsFlight,
     );
   if (
+    (flight.phase === "approach" ||
+      flight.phase === "landing" ||
+      flight.phase === "taxi-in") &&
+    !flight.emergency
+  )
+    add("declare-medical", "Declare medical priority", !ownsFlight);
+  if (
     flight.phase === "resting" &&
     flight.turnaround.status === "ready" &&
     !flight.pushbackCleared &&
@@ -6169,6 +6267,54 @@ function renderFlightActions(): void {
       !simulation.canIssue("ramp") ||
         !ownsFlight ||
         flight.deicing.status === "unavailable",
+    );
+  if (
+    flight.phase === "resting" &&
+    flight.turnaround.status === "ready" &&
+    !flight.pushbackCleared &&
+    !serviceVehiclesBlockingPush(flight.id).length
+  )
+    add(
+      "cancel-gate-departure",
+      "Cancel departure",
+      simulation.state.station !== "supervisor",
+    );
+  if (
+    flight.phase === "resting" &&
+    flight.turnaround.status === "ready" &&
+    !flight.pushbackCleared
+  )
+    add(
+      "fuel-return",
+      "Fuel return",
+      simulation.state.station !== "supervisor",
+    );
+  if (
+    flight.service === "passenger" &&
+    flight.phase === "resting" &&
+    flight.turnaround.status === "ready" &&
+    !flight.pushbackCleared
+  )
+    add(
+      "passenger-return",
+      "Passenger return",
+      simulation.state.station !== "supervisor",
+    );
+  if (
+    flight.phase === "resting" &&
+    flight.turnaround.status === "ready" &&
+    !flight.pushbackCleared
+  )
+    add(
+      "maintenance-tow",
+      "Maintenance tow",
+      simulation.state.station !== "supervisor",
+    );
+  if (flight.phase === "taxi-out" && flight.tugAttached)
+    add(
+      "return-to-stand",
+      "Return to stand",
+      !simulation.canIssue("ramp") || !ownsFlight,
     );
   if (
     recovery?.kind === "disabled-aircraft" &&
@@ -6266,6 +6412,13 @@ function renderFlightActions(): void {
     add(
       "reject-takeoff",
       `Reject takeoff · V1 ${decisionSpeedKts}`,
+      !simulation.canIssue("tower") ||
+        !ownsFlight ||
+        flight.kinematics.groundSpeedKts >= decisionSpeedKts,
+    );
+    add(
+      "reject-brake-tire",
+      "Brake/tire concern",
       !simulation.canIssue("tower") ||
         !ownsFlight ||
         flight.kinematics.groundSpeedKts >= decisionSpeedKts,
@@ -6553,7 +6706,9 @@ function createSurfaceReroutePanel(flight: Flight): HTMLElement {
   const badge = document.createElement("span");
   if (disruption?.kind === "disabled-aircraft") {
     title.textContent = flight.rejectedTakeoff
-      ? "Rejected takeoff recovery"
+      ? flight.rejectedTakeoff.reason === "brake-tire"
+        ? "Brake/tire recovery"
+        : "Rejected takeoff recovery"
       : "Disabled aircraft recovery";
     badge.textContent =
       disruption.status === "recovering"
@@ -6580,6 +6735,90 @@ function createSurfaceReroutePanel(flight: Flight): HTMLElement {
   const reason = document.createElement("small");
   reason.textContent =
     disruption?.reason ?? reroute?.reason ?? "Pavement routing available";
+  panel.append(heading, metrics, reason);
+  return panel;
+}
+
+function createMedicalResponsePanel(flight: Flight): HTMLElement {
+  const response = serviceVehiclesForFlight(flight.id).find(
+    (vehicle) => vehicle.emergencyResponseKind === "medical",
+  );
+  const panel = document.createElement("section");
+  panel.className = "runway-exit-panel medical-response-panel";
+  panel.setAttribute("aria-label", "Medical-priority airport response");
+  const heading = document.createElement("div");
+  heading.className = "runway-exit-panel__heading";
+  const title = document.createElement("b");
+  title.textContent = "Medical priority";
+  const badge = document.createElement("span");
+  badge.textContent = response
+    ? serviceVehicleStatusLabel(response.status)
+    : "dispatch pending";
+  heading.append(title, badge);
+  const metrics = document.createElement("p");
+  const serviceElapsed = Math.max(
+    0,
+    displayState().elapsed -
+      (response?.emergencyServiceStartedAtSeconds ?? displayState().elapsed),
+  );
+  const serviceDuration = Math.max(
+    1,
+    response?.emergencyServiceDurationSeconds ?? 45,
+  );
+  metrics.textContent =
+    response?.status === "servicing"
+      ? `PATIENT TRANSFER · ${Math.round(Math.min(1, serviceElapsed / serviceDuration) * 100)}%`
+      : `${response?.label?.toUpperCase() ?? "AIRPORT AMBULANCE"} · ${response?.standId ?? flight.standId ?? "ASSIGNED STAND"}`;
+  const reason = document.createElement("small");
+  reason.textContent = response?.held
+    ? `Holding safely · ${response.holdReason ?? "surface route reserved"}`
+    : response?.status === "staged"
+      ? "Responder staged clear of the stand lane until the aircraft parks."
+      : response?.status === "servicing"
+        ? "Pushback remains inhibited until transfer and responder clearance."
+        : "Responder uses the authoritative service-road graph and ordinary collision reservations.";
+  panel.append(heading, metrics, reason);
+  return panel;
+}
+
+function createGateEquipmentFailurePanel(flight: Flight): HTMLElement {
+  const failure = flight.gateEquipmentFailure;
+  const panel = document.createElement("section");
+  panel.className = "runway-exit-panel surface-reroute-panel";
+  panel.setAttribute("aria-label", "Gate equipment recovery");
+  const heading = document.createElement("div");
+  heading.className = "runway-exit-panel__heading";
+  const title = document.createElement("b");
+  title.textContent = "Gate equipment recovery";
+  const badge = document.createElement("span");
+  badge.textContent = "reassigned";
+  heading.append(title, badge);
+  const metrics = document.createElement("p");
+  metrics.textContent = `${failure?.failedGateLabel ?? "ASSIGNED GATE"} → ${failure?.replacementGateLabel ?? flight.gateAssignment?.gateRef ?? flight.standId ?? "REPLANNED STAND"}`.toUpperCase();
+  const reason = document.createElement("small");
+  reason.textContent =
+    failure?.reason ?? "Gate equipment unavailable; terminal route replanned.";
+  panel.append(heading, metrics, reason);
+  return panel;
+}
+
+function createRemoteStandPanel(flight: Flight): HTMLElement {
+  const assignment = flight.remoteStand;
+  const panel = document.createElement("section");
+  panel.className = "runway-exit-panel surface-reroute-panel";
+  panel.setAttribute("aria-label", "Remote stand assignment");
+  const heading = document.createElement("div");
+  heading.className = "runway-exit-panel__heading";
+  const title = document.createElement("b");
+  title.textContent = "Remote stand assigned";
+  const badge = document.createElement("span");
+  badge.textContent = "ramp route clear";
+  heading.append(title, badge);
+  const metrics = document.createElement("p");
+  metrics.textContent = `${assignment?.previousGateLabel ?? "ASSIGNED GATE"} → ${assignment?.gateLabel ?? flight.gateAssignment?.gateRef ?? flight.standId ?? "REMOTE RAMP"}`.toUpperCase();
+  const reason = document.createElement("small");
+  reason.textContent =
+    assignment?.reason ?? "Compatible remote-ramp assignment confirmed.";
   panel.append(heading, metrics, reason);
   return panel;
 }
@@ -6624,7 +6863,8 @@ function createTurnaroundPanel(flight: Flight): HTMLElement {
         ? 1
         : task.elapsedSeconds / task.durationSeconds;
     const vehicle = vehicles.find(
-      (candidate) => candidate.service === task.type,
+      (candidate) =>
+        !candidate.emergencyResponseKind && candidate.service === task.type,
     );
     taskStatus.textContent =
       task.status === "active"
@@ -6891,14 +7131,34 @@ function handleFlightAction(
     });
   if (action === "gate-reassign")
     executeAirportRequest({ action: "reassignArrivalGate", flightId });
+  if (action === "gate-equipment-failure")
+    executeAirportRequest({ action: "reportGateEquipmentFailure", flightId });
+  if (action === "remote-stand")
+    executeAirportRequest({ action: "assignRemoteStand", flightId });
   if (action === "go-around")
     executeAirportRequest({
       action: "triggerEmergency",
       flightId,
       type: "go-around",
     });
+  if (action === "declare-medical")
+    executeAirportRequest({
+      action: "triggerEmergency",
+      flightId,
+      type: "medical",
+    });
   if (action === "pushback")
     executeAirportRequest({ action: "clearPushback", flightId });
+  if (action === "return-to-stand")
+    executeAirportRequest({ action: "returnToStand", flightId });
+  if (action === "cancel-gate-departure")
+    executeAirportRequest({ action: "cancelGateDeparture", flightId });
+  if (action === "fuel-return")
+    executeAirportRequest({ action: "requestFuelReturn", flightId });
+  if (action === "passenger-return")
+    executeAirportRequest({ action: "requestPassengerReturn", flightId });
+  if (action === "maintenance-tow")
+    executeAirportRequest({ action: "requestMaintenanceTow", flightId });
   if (action === "entry")
     executeAirportRequest({ action: "clearRunwayEntry", flightId });
   if (action === "takeoff")
@@ -6910,6 +7170,12 @@ function handleFlightAction(
       action: "rejectTakeoff",
       flightId,
       reason: "controller",
+    });
+  if (action === "reject-brake-tire")
+    executeAirportRequest({
+      action: "rejectTakeoff",
+      flightId,
+      reason: "brake-tire",
     });
   if (action === "cross")
     executeAirportRequest({
@@ -7251,34 +7517,10 @@ function updateOperationsHealth(): void {
 }
 
 function updateAdaptiveRenderQuality(): void {
-  const runtime = runtimePerformance.snapshot();
-  // A brief asset upload or a single browser pause is not a quality signal.
-  // Require several consecutive one-second observations before changing the
-  // render adapter, then require a longer calm period before restoring it.
-  const overloaded =
-    runtime.frameWorkMs.samples >= 60 &&
-    (runtime.frameWorkMs.p95 > 16 || runtime.frameGapMs.p95 > 24);
-  const recovered =
-    runtime.frameWorkMs.samples >= 180 &&
-    runtime.frameWorkMs.p95 < 11 &&
-    runtime.frameGapMs.p95 < 20;
-  adaptiveRenderOverBudgetSeconds = overloaded
-    ? adaptiveRenderOverBudgetSeconds + 1
-    : 0;
-  adaptiveRenderRecoverySeconds = recovered
-    ? adaptiveRenderRecoverySeconds + 1
-    : 0;
-  if (!adaptiveRenderDegraded && adaptiveRenderOverBudgetSeconds >= 2) {
-    adaptiveRenderDegraded = true;
-    adaptiveRenderRecoverySeconds = 0;
-    world.setPerformanceDegraded(true);
-    return;
-  }
-  if (adaptiveRenderDegraded && adaptiveRenderRecoverySeconds >= 12) {
-    adaptiveRenderDegraded = false;
-    adaptiveRenderOverBudgetSeconds = 0;
-    world.setPerformanceDegraded(false);
-  }
+  const nextQuality = adaptiveQualityGovernor.observe(runtimePerformance.snapshot());
+  if (nextQuality === null) return;
+  adaptiveRenderDegraded = nextQuality;
+  world.setPerformanceDegraded(nextQuality);
 }
 
 function updatePerformancePanelControl(): void {
@@ -7316,7 +7558,7 @@ function renderDebugPanel(): void {
     `${runtime.simulationTickMs.p95.toFixed(2)} ms sim p95 · ${runtime.droppedSimulationSeconds.toFixed(2)} s dropped · ${runtime.maximumTicksPerFrame} max ticks/frame`,
     `${renderer.drawCalls} draws · ${renderer.geometries} geometries · ${renderer.triangles.toLocaleString()} tris · ${renderer.adaptivePerformanceMode} render`,
     `${simulation.state.flights.length} aircraft · ${diagnostics.runwayReservations.length} runway reservations`,
-    `${renderer.airportLifeVisible ? "Airport life on" : "Airport life off"} · ${renderer.terminalGateActivity.docked}/${renderer.terminalGateActivity.bridges} bridges docked · ${renderer.terminalGateActivity.openDoors} doors open`,
+    `${renderer.airportLifeVisible ? renderer.airportLifePresentationVisible ? "Airport life on" : "Airport life simplified" : "Airport life off"} · ${renderer.terminalGateActivity.docked}/${renderer.terminalGateActivity.bridges} bridges docked · ${renderer.terminalGateActivity.openDoors} doors open`,
     `${diagnostics.metrics.collisionAlerts} conflicts · ${diagnostics.metrics.runwayIncursions} incursions · ${diagnostics.metrics.unexplainedPauses} pauses`,
     budgetIssues
       ? `Budget watch: ${budgetIssues}`
@@ -8308,8 +8550,11 @@ function updateQueueFlowObjectiveControl(
 
 function newSession(
   paused: boolean,
-  nextConfig = generateAirportConfig(),
+  nextConfig = generateOrdConfig(),
 ): void {
+  if (nextConfig.code !== ORD_AIRPORT_CODE) {
+    nextConfig = generateOrdConfig(nextConfig.seed);
+  }
   clearAmbientProgramSelection();
   const mode = simulation.state.mode;
   const lightingMode = simulation.state.environment.lightingMode;
@@ -8371,8 +8616,7 @@ function newSession(
   simulationAccumulator = 0;
   runtimePerformance.reset();
   adaptiveRenderDegraded = false;
-  adaptiveRenderOverBudgetSeconds = 0;
-  adaptiveRenderRecoverySeconds = 0;
+  adaptiveQualityGovernor.reset();
   world.setPerformanceDegraded(false);
   previousPresentation = capturePresentation(simulation.state);
   updateAirportUi();
@@ -8523,11 +8767,11 @@ function updateAirportUi(): void {
   liveDataPanel.setAirport(config.code);
   scopeButton.setAttribute("aria-pressed", String(center));
   scopeButton.classList.toggle("control--active", center);
-  scopeLabel.textContent = center ? "Airfield" : "Center";
-  fieldLabel.textContent = center ? "Next hub" : "New field";
+  scopeLabel.textContent = "ORD only";
+  fieldLabel.textContent = "Reset ORD";
   fieldButton.setAttribute(
     "aria-label",
-    center ? "Load the next major airport" : "Generate a new airfield",
+    "Start a new ORD session",
   );
   airportSelect.value = config.code;
   introAirportSelect.value = config.code;
@@ -8623,17 +8867,18 @@ function updateRunwayConfigurationOptions(): void {
 }
 
 function selectAirport(code: string, paused: boolean, seed?: number): void {
-  if (code === "LOCAL") {
-    newSession(paused, generateAirportConfig(seed));
-  } else {
-    const index = HUB_AIRPORTS.findIndex((airport) => airport.code === code);
-    hubIndex = index < 0 ? 0 : index;
-    newSession(paused, generateHubConfig(hubIndex, seed));
+  if (code !== ORD_AIRPORT_CODE) {
+    airportSelect.value = ORD_AIRPORT_CODE;
+    introAirportSelect.value = ORD_AIRPORT_CODE;
+    setStatus(
+      "Airport unavailable",
+      "ORD is the only enabled airport in this build.",
+      "warning",
+    );
+    return;
   }
-  setStatus(
-    `${config.code === "LOCAL" ? config.name : config.code} selected`,
-    trafficDescription(),
-  );
+  newSession(paused, generateOrdConfig(seed));
+  setStatus("ORD selected", trafficDescription());
 }
 
 function selectControl(mode: ControlMode): boolean {
@@ -10738,14 +10983,13 @@ function executeAirportRequest(
   }
   if (command.action === "selectAirport") {
     const code = command.code.toUpperCase();
-    const known =
-      code === "LOCAL" || HUB_AIRPORTS.some((airport) => airport.code === code);
+    const known = code === ORD_AIRPORT_CODE;
     accepted = known && !simulation.challengeSnapshot().conditionsLocked;
     if (accepted) selectAirport(code, false);
     else
       reason = known
         ? "the active challenge locks its airport until the debrief"
-        : `unknown airport ${code}`;
+        : `${code} is unavailable; ORD is the only enabled airport`;
   }
   if (command.action === "clearFlight") {
     accepted = simulation.clearFlight(command.flightId, command.runway);
@@ -10755,8 +10999,36 @@ function executeAirportRequest(
     accepted = simulation.requestArrivalGateReassignment(command.flightId);
     reason = simulation.lastCommandReason();
   }
+  if (command.action === "reportGateEquipmentFailure") {
+    accepted = simulation.reportGateEquipmentFailure(command.flightId);
+    reason = simulation.lastCommandReason();
+  }
+  if (command.action === "assignRemoteStand") {
+    accepted = simulation.assignRemoteStand(command.flightId);
+    reason = simulation.lastCommandReason();
+  }
+  if (command.action === "cancelGateDeparture") {
+    accepted = simulation.cancelGateDeparture(command.flightId);
+    reason = simulation.lastCommandReason();
+  }
+  if (command.action === "requestFuelReturn") {
+    accepted = simulation.requestFuelReturn(command.flightId);
+    reason = simulation.lastCommandReason();
+  }
+  if (command.action === "requestPassengerReturn") {
+    accepted = simulation.requestPassengerReturn(command.flightId);
+    reason = simulation.lastCommandReason();
+  }
+  if (command.action === "requestMaintenanceTow") {
+    accepted = simulation.requestMaintenanceTow(command.flightId);
+    reason = simulation.lastCommandReason();
+  }
   if (command.action === "clearPushback") {
     accepted = simulation.clearPushback(command.flightId);
+    reason = simulation.lastCommandReason();
+  }
+  if (command.action === "returnToStand") {
+    accepted = simulation.returnToStand(command.flightId);
     reason = simulation.lastCommandReason();
   }
   if (command.action === "clearRunwayEntry") {
@@ -11400,9 +11672,7 @@ function executeAirportRequest(
     } else {
       newSession(
         false,
-        config.code === "LOCAL"
-          ? generateAirportConfig()
-          : generateHubConfig(hubIndex),
+        generateOrdConfig(),
       );
     }
   }
@@ -11942,7 +12212,7 @@ const launchSeed =
     ? launchSeedValue
     : undefined);
 if (launchAirport) selectAirport(launchAirport.toUpperCase(), true, launchSeed);
-else if (launchSeed !== undefined) selectAirport("LOCAL", true, launchSeed);
+else if (launchSeed !== undefined) selectAirport(ORD_AIRPORT_CODE, true, launchSeed);
 const launchSpeed = Number(launchOptions.get("speed"));
 if (Number.isFinite(launchSpeed) && launchOptions.has("speed"))
   setSimulationSpeed(launchSpeed);

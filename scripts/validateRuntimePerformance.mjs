@@ -4,6 +4,7 @@ const source = `
 import assert from 'node:assert/strict';
 import { performance } from 'node:perf_hooks';
 import { RuntimePerformanceMonitor } from './src/telemetry/runtimePerformance.ts';
+import { AdaptiveQualityGovernor } from './src/render/adaptiveQualityGovernor.ts';
 import { generateHubConfig } from './src/simulation/airportConfig.ts';
 import { AirportSimulation } from './src/simulation/airportSimulation.ts';
 
@@ -57,6 +58,25 @@ assert.equal(nominal.growth.sampleCount, 601);
 assert(nominal.frameWorkMs.p95 <= 8);
 assert(nominal.simulationTickMs.p95 <= 6);
 assert(nominal.checks.every((check) => !['attention', 'exceeded'].includes(check.status)));
+
+const governor = new AdaptiveQualityGovernor();
+const overloadSnapshot = {
+  ...nominal,
+  frameWorkMs: { ...nominal.frameWorkMs, samples: 60, p95: 17 },
+  frameGapMs: { ...nominal.frameGapMs, p95: 25 },
+};
+assert.equal(governor.observe(overloadSnapshot), null, 'quality governor reacted to one transient sample');
+assert.equal(governor.observe(overloadSnapshot), true, 'quality governor did not reduce after sustained overload');
+assert.equal(governor.isDegraded(), true);
+const recoveredSnapshot = {
+  ...nominal,
+  frameWorkMs: { ...nominal.frameWorkMs, samples: 180, p95: 10 },
+  frameGapMs: { ...nominal.frameGapMs, p95: 19 },
+};
+for (let index = 0; index < 11; index += 1)
+  assert.equal(governor.observe(recoveredSnapshot), null, 'quality governor restored too early');
+assert.equal(governor.observe(recoveredSnapshot), false, 'quality governor did not restore after sustained recovery');
+assert.equal(governor.isDegraded(), false);
 
 const gcSawtooth = new RuntimePerformanceMonitor();
 const retainedLeak = new RuntimePerformanceMonitor();

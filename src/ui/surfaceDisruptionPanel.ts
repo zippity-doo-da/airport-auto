@@ -133,6 +133,8 @@ export function renderSurfaceDisruptionPanel(
           ? `${disruption.responseVehicleLabel ?? "Response unit"} inspecting · ${Math.round(disruption.recoveryProgress * 100)}%`
           : disruption.responsePhase === "ready-to-reopen"
             ? "Inspection complete · reopen ready"
+            : disruption.responsePhase === "returning"
+              ? `${disruption.responseVehicleLabel ?? "Response unit"} returning to staging · movement area still protected`
             : disruption.status.replace("-", " ");
     detail.textContent = `${response}${remaining} · ${disruption.reroutedFlightIds.length} rerouted`;
     detail.title = disruption.reason;
@@ -158,6 +160,8 @@ export function renderSurfaceDisruptionPanel(
             ? "En route"
             : disruption.responsePhase === "inspecting"
               ? "Inspecting"
+              : disruption.responsePhase === "returning"
+                ? "Returning"
               : "Reopen";
       button.dataset.clearDisruption = disruption.id;
       button.disabled =

@@ -196,9 +196,9 @@ The gateway ignores a controller's supplied source, client, actor, and authority
 }
 ```
 
-Gateway rejections use stable codes such as `read-only-role`, `station-required`, `claim-lost`, `request-duplicate`, `rate-limited`, `emergency-stop`, `host-offline`, and `host-timeout`. A host rejection retains the simulator's structured reason inside `result`.
+Gateway rejections use stable codes such as `read-only-role`, `station-required`, `claim-lost`, `request-duplicate`, `rate-limited`, `command-backpressure`, `emergency-stop`, `host-offline`, and `host-timeout`. A host rejection retains the simulator's structured reason inside `result`.
 
-The host publishes a state envelope once per second and event envelopes as they occur. State is intentionally projected: it includes airport/session context, weather, configuration, runways, compact flights, queues, disruptions, coordination, workloads, and evaluation, but excludes the imported surface graph, renderer/input diagnostics, replays, and credentials. Slow clients can lose noncritical state/event frames; commands and results are treated as important traffic.
+The host publishes a state envelope once per second and event envelopes as they occur. State is intentionally projected: it includes airport/session context, weather, configuration, runways, compact flights, queues, disruptions, coordination, workloads, and evaluation, but excludes the imported surface graph, renderer/input diagnostics, replays, and credentials. Under output backpressure, superseded state/session publications may be shed and counted in the public session record; operational events, commands, and command results retain the fail-closed delivery boundary.
 
 ## Read-only HTTP API
 
@@ -233,7 +233,7 @@ See [Optional live-data adapters](live-data-adapters.md) for environment variabl
 
 An admin emergency stop blocks new remote command routing for one session. It does not pause the simulation, disable local UI, interrupt deterministic Auto, or bypass an in-progress movement. Controllers receive an explicit `emergency-stop` rejection until an admin resumes routing.
 
-Each connection has duplicate-request protection and a sliding command-rate limit. Every forwarded command has a host response timeout. WebSocket payloads, buffered output, reconnect leases, and clients per session are bounded; heartbeat cleanup removes dead connections and idle sessions. The audit records authentication rejections, connects/disconnects, claims/releases/transfers, forwarded commands, results, timeouts, rate rejections, and emergency-stop changes. It records token IDs, never token values or resume secrets. The in-memory audit is bounded; a configured JSONL file is append-only from the gateway's perspective.
+Each connection has duplicate-request protection and a sliding command-rate limit. Every forwarded command has a host response timeout and each controller has a bounded unresolved-command window; a full window returns `command-backpressure` rather than silently queuing more instructions. WebSocket payloads, buffered output, reconnect leases, and clients per session are bounded; heartbeat cleanup removes dead connections and idle sessions. The audit records authentication rejections, connects/disconnects, claims/releases/transfers, forwarded commands, results, timeouts, rate/backpressure rejections, and emergency-stop changes. It records token IDs, never token values or resume secrets. The in-memory audit is bounded; a configured JSONL file is append-only from the gateway's perspective.
 
 Choose an operator retention period appropriate to the session. Audit records can contain controller IDs, callsigns, commands, and reasons and therefore should not be published by default.
 
@@ -259,4 +259,4 @@ npm run test:remote-gateway
 npx playwright test e2e/remote-control.spec.ts --project=desktop-chromium
 ```
 
-The deterministic gateway validator covers authentication, Origin rejection, role/station permissions, exclusive claims, explicit transfer, identity conflict, controller-envelope substitution, command result and timeout, rate limiting, reconnect claim recovery, emergency stop/resume, initial live state, read-only HTTP access, admin-only audit access, and credential redaction. The browser test starts a real local gateway, connects the page as host, claims Supervisor from an external client, verifies the bounded state projection, and executes a formal command through the game arbiter.
+The deterministic gateway validator covers authentication, Origin rejection, role/station permissions, exclusive claims, explicit transfer, identity conflict, controller-envelope substitution, command result and timeout, rate limiting, per-controller command backpressure, reconnect claim recovery, emergency stop/resume, initial live state, read-only HTTP access, admin-only audit access, and credential redaction. The browser test starts a real local gateway, connects the page as host, claims Supervisor from an external client, verifies the bounded state projection, and executes a formal command through the game arbiter.

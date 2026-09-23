@@ -164,6 +164,80 @@ assert(supervisorArrival.flightPlan.amendments.at(-1)?.kind === 'gate-swap', 'su
 assert(supervisorGateSimulation.state.trafficFlow.totals.gateSwaps === gateSwapBaseline + 1, 'supervisor gate reassignment did not update gate-swap flow telemetry');
 assert(supervisorGateSimulation.drainEvents().some((event) => event.type === 'gate-reassignment'), 'supervisor gate reassignment emitted no domain event');
 
+const equipmentFailureSimulation = new AirportSimulation(ord);
+const equipmentFailureArrival = equipmentFailureSimulation.state.flights.find(
+  (flight) => flight.phase === 'approach' && flight.gateAssignment,
+);
+assert(equipmentFailureArrival, 'gate-equipment-failure test has no assigned arrival');
+const failedStand = equipmentFailureArrival.gateAssignment.standId;
+equipmentFailureSimulation.setStation('tower');
+assert(!equipmentFailureSimulation.reportGateEquipmentFailure(equipmentFailureArrival.id), 'non-supervisor station reported a gate equipment failure');
+assert(equipmentFailureSimulation.lastCommandReason().includes('no gate-equipment recovery authority'), 'gate-equipment failure authority rejection was not explained');
+equipmentFailureSimulation.setStation('supervisor');
+assert(equipmentFailureSimulation.reportGateEquipmentFailure(equipmentFailureArrival.id), 'supervisor could not recover a gate equipment failure: ' + equipmentFailureSimulation.lastCommandReason());
+assert(equipmentFailureArrival.gateAssignment?.standId !== failedStand, 'gate-equipment failure retained the failed stand');
+assert(equipmentFailureArrival.gateEquipmentFailure?.failedStandId === failedStand, 'gate-equipment failure did not retain the failed stand identity');
+assert(equipmentFailureArrival.gateEquipmentFailure?.replacementStandId === equipmentFailureArrival.gateAssignment?.standId, 'gate-equipment failure did not retain the replacement stand identity');
+const equipmentEvents = equipmentFailureSimulation.drainEvents();
+assert(equipmentEvents.some((event) => event.type === 'gate-reassignment' && event.detail?.includes('gate equipment failure')), 'gate-equipment failure did not reuse the authoritative gate planner');
+assert(equipmentEvents.some((event) => event.type === 'gate-equipment-failure' && event.detail?.includes('unavailable')), 'gate-equipment failure emitted no durable recovery event');
+assert(!equipmentFailureSimulation.reportGateEquipmentFailure(equipmentFailureArrival.id), 'recovered gate-equipment failure could be reported twice');
+
+// Late ramp recovery has two coupled decisions: a new gate and a route suffix
+// from the aircraft's current position. The stand must not change when the
+// suffix is unavailable; otherwise a held arrival can be routed to its old
+// stand while its schedule claims a new one.
+const atomicLateGateSimulation = new AirportSimulation(ord);
+const atomicLateGateArrival = atomicLateGateSimulation.state.flights.find(
+  (flight) => flight.phase === 'approach' && flight.gateAssignment,
+);
+assert(atomicLateGateArrival, 'atomic late-gate test has no assigned arrival');
+const atomicOriginal = {
+  assignment: structuredClone(atomicLateGateArrival.gateAssignment),
+  gateSlot: atomicLateGateArrival.gateSlot,
+  standId: atomicLateGateArrival.standId,
+  pushbackDirection: atomicLateGateArrival.pushbackDirection,
+  turnaround: structuredClone(atomicLateGateArrival.turnaround),
+  flightPlan: structuredClone(atomicLateGateArrival.flightPlan),
+  gateSwaps: atomicLateGateSimulation.state.trafficFlow.totals.gateSwaps,
+};
+atomicLateGateSimulation.drainEvents();
+const originalLateGateReplan = atomicLateGateSimulation['replanSurfaceFlight'];
+atomicLateGateSimulation['replanSurfaceFlight'] = () => false;
+const failedLateGateChange = atomicLateGateSimulation['reassignArrivalGateAndRoute'](
+  atomicLateGateArrival,
+  'forced late gate route failure',
+  new Set([atomicOriginal.standId]),
+  'forced route failure',
+  ['test:forced-route-failure'],
+);
+atomicLateGateSimulation['replanSurfaceFlight'] = originalLateGateReplan;
+assert(!failedLateGateChange, 'late gate transaction accepted an unavailable route suffix');
+assert(JSON.stringify(atomicLateGateArrival.gateAssignment) === JSON.stringify(atomicOriginal.assignment), 'failed late gate transaction retained the replacement assignment');
+assert(atomicLateGateArrival.gateSlot === atomicOriginal.gateSlot && atomicLateGateArrival.standId === atomicOriginal.standId, 'failed late gate transaction changed the assigned stand identity');
+assert(atomicLateGateArrival.pushbackDirection === atomicOriginal.pushbackDirection, 'failed late gate transaction changed pushback geometry');
+assert(JSON.stringify(atomicLateGateArrival.turnaround) === JSON.stringify(atomicOriginal.turnaround), 'failed late gate transaction changed turnaround timing');
+assert(JSON.stringify(atomicLateGateArrival.flightPlan) === JSON.stringify(atomicOriginal.flightPlan), 'failed late gate transaction retained a gate-swap amendment');
+assert(atomicLateGateSimulation.state.trafficFlow.totals.gateSwaps === atomicOriginal.gateSwaps, 'failed late gate transaction changed flow telemetry');
+assert(atomicLateGateSimulation.drainEvents().length === 0, 'failed late gate transaction emitted a false reassignment event');
+
+const remoteStandSimulation = new AirportSimulation(ord);
+remoteStandSimulation.setStation('supervisor');
+let remoteStandArrival = null;
+for (const arrival of remoteStandSimulation.state.flights.filter((flight) => flight.phase === 'approach' && flight.gateAssignment)) {
+  if (remoteStandSimulation.assignRemoteStand(arrival.id)) {
+    remoteStandArrival = arrival;
+    break;
+  }
+}
+assert(remoteStandArrival, 'ORD had no compatible inbound aircraft for a remote-stand assignment: ' + remoteStandSimulation.lastCommandReason());
+const remoteZone = ord.surfaceGraph.zones.find((zone) => zone.id === remoteStandArrival.gateAssignment?.zoneId);
+assert(remoteZone?.kind === 'remote-ramp', 'remote-stand assignment selected a non-remote operational zone');
+assert(remoteStandArrival.remoteStand?.standId === remoteStandArrival.gateAssignment?.standId, 'remote-stand state did not retain the assigned compatible stand');
+assert(remoteStandArrival.remoteStand?.previousStandId !== remoteStandArrival.remoteStand?.standId, 'remote-stand assignment retained the original gate');
+assert(remoteStandSimulation.drainEvents().some((event) => event.type === 'remote-stand-assignment' && event.detail?.includes('route confirmed')), 'remote-stand assignment emitted no durable event');
+assert(!remoteStandSimulation.assignRemoteStand(remoteStandArrival.id), 'remote-stand assignment could be repeated for one arrival');
+
 const harness = new FixedStepSimulationHarness(ord, { stepSeconds: 0.1 });
 harness.simulation.setScenario('rush');
 harness.simulation.setTrafficDensity('rush');
@@ -222,6 +296,8 @@ console.log(JSON.stringify({
   adjacentStandExclusion: true,
   departureRouteScores: routeScores.length,
   supervisorGateReassignment: true,
+  gateEquipmentFailureRecovery: true,
+  remoteStandRecovery: true,
   maximumPhysicalOccupancy,
   preferredAssignmentSamples: preferredAssignments,
   cargoAssignmentSamples: cargoAssignments,

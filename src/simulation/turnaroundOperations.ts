@@ -26,21 +26,27 @@ export interface TurnaroundTransition {
 
 const SERVICE_ORDER: TurnaroundServiceType[] = [
   "fueling",
+  "potable-water",
+  "lavatory",
   "baggage",
   "cargo",
   "catering",
   "cleaning",
   "boarding",
+  "crew",
   "maintenance",
 ];
 
 const SERVICE_LABELS: Record<TurnaroundServiceType, string> = {
   fueling: "Fueling",
+  "potable-water": "Potable water",
+  lavatory: "Lavatory service",
   baggage: "Baggage",
   cargo: "Cargo",
   catering: "Catering",
   cleaning: "Cleaning",
   boarding: "Boarding",
+  crew: "Flight crew",
   maintenance: "Maintenance",
 };
 
@@ -62,10 +68,23 @@ export function createTurnaroundPlan(
   );
   const fuelingRequired = targetFuelPercent - request.fuelPercent >= 2;
   const passenger = request.service === "passenger";
+  // Full cabin-water and waste turns are modeled for widebodies, where the
+  // service is operationally prominent and can be staged without turning a
+  // compact narrowbody gate into an implausible equipment parade.
+  const potableWaterRequired = passenger && profile.category === "widebody";
+  const lavatoryRequired = passenger && profile.category === "widebody";
   const cateringRequired =
     passenger && (profile.category !== "regional" || variant % 3 === 0);
+  // A crew van is intentionally reserved for turns where a remote crew swap is
+  // operationally visible: widebodies, freighters, and a deterministic subset
+  // of longer narrowbody turns. Small regional turns retain their compact ramp
+  // picture rather than receiving a vehicle parade at every stand.
+  const crewRequired =
+    profile.category === "widebody" ||
+    request.service === "cargo" ||
+    (profile.category === "narrowbody" && variant % 4 === 0);
   const maintenanceRequired = request.operationalDetail
-    ? request.operationalDetail.maintenanceClass !== "none"
+    ? request.operationalDetail.maintenanceClass === "transit-inspection"
     : variant % 9 === 0;
   const extendedMaintenance =
     request.operationalDetail?.maintenanceClass === "out-of-service-repair";
@@ -93,6 +112,22 @@ export function createTurnaroundPlan(
       reason: fuelingRequired
         ? `dispatch target ${Math.round(targetFuelPercent)}%`
         : "arrival fuel already meets dispatch target",
+    },
+    {
+      type: "potable-water",
+      required: potableWaterRequired,
+      durationSeconds: potableWaterRequired ? duration(10, 3) : 0,
+      reason: potableWaterRequired
+        ? "cabin potable-water uplift scheduled"
+        : "standard turn does not require a dedicated water uplift",
+    },
+    {
+      type: "lavatory",
+      required: lavatoryRequired,
+      durationSeconds: lavatoryRequired ? duration(11, 3) : 0,
+      reason: lavatoryRequired
+        ? "cabin waste servicing scheduled"
+        : "standard turn does not require dedicated lavatory servicing",
     },
     {
       type: "baggage",
@@ -134,6 +169,14 @@ export function createTurnaroundPlan(
       reason: passenger
         ? "boarding waits for cabin service"
         : "freighter has no passenger boarding",
+    },
+    {
+      type: "crew",
+      required: crewRequired,
+      durationSeconds: crewRequired ? duration(9, 3) : 0,
+      reason: crewRequired
+        ? "relief crew and dispatch package transfer"
+        : "same crew remains assigned for this short turn",
     },
     {
       type: "maintenance",
@@ -395,6 +438,79 @@ export function releaseTurnaround(
 ): void {
   turnaround.status = "released";
   turnaround.releasedAtSeconds = releasedAtSeconds;
+}
+
+/**
+ * Re-open only the fueling task for a flight that is still physically at the
+ * stand. Completed cabin and ramp work stays complete; a new fuel truck and
+ * the normal vehicle gate own the added dispatch fuel.
+ */
+export function requestAdditionalFuel(
+  turnaround: FlightTurnaroundState,
+  currentFuelPercent: number,
+  targetFuelPercent: number,
+  nowSeconds: number,
+): boolean {
+  const fueling = turnaround.tasks.find((task) => task.type === "fueling");
+  const target = Math.min(96, Math.max(currentFuelPercent, targetFuelPercent));
+  if (!fueling || target - currentFuelPercent < 1) return false;
+  turnaround.status = "servicing";
+  turnaround.actualReadySeconds = undefined;
+  turnaround.releasedAtSeconds = undefined;
+  turnaround.initialFuelPercent = currentFuelPercent;
+  turnaround.targetFuelPercent = target;
+  fueling.required = true;
+  fueling.status = "waiting";
+  fueling.elapsedSeconds = 0;
+  fueling.actualStartSeconds = undefined;
+  fueling.actualCompleteSeconds = undefined;
+  fueling.scheduledStartOffsetSeconds = 0;
+  fueling.dependencies = [];
+  fueling.durationSeconds = round1(Math.max(8, 12 + (target - currentFuelPercent) * 0.45));
+  fueling.reason = `dispatch fuel return to ${Math.round(target)}%`;
+  turnaround.scheduledReadySeconds = Math.max(
+    turnaround.scheduledReadySeconds,
+    nowSeconds + fueling.durationSeconds,
+  );
+  turnaround.plannedDurationSeconds = Math.max(
+    turnaround.plannedDurationSeconds,
+    turnaround.elapsedSeconds + fueling.durationSeconds,
+  );
+  return true;
+}
+
+/**
+ * Re-open only the boarding task for a ready passenger flight. This keeps the
+ * completed technical and ramp work intact while returning the stand to the
+ * normal passenger-service gate. Remote stands consequently receive the same
+ * passenger coach reservation used during the original turn.
+ */
+export function requestPassengerReturn(
+  turnaround: FlightTurnaroundState,
+  nowSeconds: number,
+): boolean {
+  const boarding = turnaround.tasks.find((task) => task.type === "boarding");
+  if (!boarding || !boarding.required) return false;
+  turnaround.status = "servicing";
+  turnaround.actualReadySeconds = undefined;
+  turnaround.releasedAtSeconds = undefined;
+  boarding.status = "waiting";
+  boarding.elapsedSeconds = 0;
+  boarding.actualStartSeconds = undefined;
+  boarding.actualCompleteSeconds = undefined;
+  boarding.scheduledStartOffsetSeconds = 0;
+  boarding.dependencies = [];
+  boarding.durationSeconds = round1(Math.max(12, boarding.durationSeconds));
+  boarding.reason = "passenger return and controlled reboarding";
+  turnaround.scheduledReadySeconds = Math.max(
+    turnaround.scheduledReadySeconds,
+    nowSeconds + boarding.durationSeconds,
+  );
+  turnaround.plannedDurationSeconds = Math.max(
+    turnaround.plannedDurationSeconds,
+    turnaround.elapsedSeconds + boarding.durationSeconds,
+  );
+  return true;
 }
 
 export function turnaroundFuelPercent(

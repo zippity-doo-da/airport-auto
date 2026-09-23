@@ -27,6 +27,8 @@ export interface OperationQueueEntry {
   entity: 'aircraft' | 'vehicle' | 'system';
   label: string;
   detail: string;
+  /** Legal next recovery; never a bypass around the safety arbiter. */
+  recovery?: string;
   waitSeconds: number;
   position: number;
   queueLength: number;
@@ -204,6 +206,7 @@ export function buildOperationQueueSnapshot(
         entity: candidate.entity,
         label: candidate.label,
         detail: candidate.detail,
+        recovery: candidate.recovery,
         waitSeconds: candidate.waitSeconds,
         position: index + 1,
         queueLength: group.length,
@@ -391,6 +394,7 @@ function diagnoseFlightQueue(
         [],
         flight.standId ?? `flight:${flight.id}`,
         flight.gateAssignment?.scheduledDepartureSeconds ?? state.elapsed,
+        turnaroundRecovery(flight, state),
       );
     }
   }
@@ -429,6 +433,7 @@ function flightCandidate(
   blockerFlightIds: number[],
   resourceId?: string,
   order = flight.progress,
+  recovery?: string,
 ): QueueCandidate {
   return {
     id: `flight:${flight.id}:${category}`,
@@ -437,12 +442,52 @@ function flightCandidate(
     entity: 'aircraft',
     label: `${flight.callsign} · ${label}`,
     detail,
+    recovery,
     waitSeconds: Math.max(0, waitSeconds),
     flightId: flight.id,
     resourceId,
     blockerFlightIds,
     order,
   };
+}
+
+/** Explain the next legal turn step without granting a hidden service bypass. */
+function turnaroundRecovery(flight: Flight, state: AirportState): string {
+  const pending = flight.turnaround.tasks.filter(
+    (task) => task.required && task.status !== 'complete',
+  );
+  const active = pending.find((task) => task.status === 'active');
+  if (active) {
+    const remaining = Math.max(0, Math.ceil(active.durationSeconds - active.elapsedSeconds));
+    return `${active.label} is in progress; ${remaining}s modeled work remains before dependent tasks can continue.`;
+  }
+  const waiting = pending.find((task) => task.status === 'waiting');
+  if (!waiting) return 'The turn will reconcile at the next fixed-step boundary.';
+  const dependencies = waiting.dependencies
+    .map((type) => flight.turnaround.tasks.find((task) => task.type === type))
+    .filter((task) => task?.required && task.status !== 'complete')
+    .map((task) => task!.label);
+  if (dependencies.length)
+    return `Complete ${dependencies.join(', ')} before ${waiting.label} can start.`;
+  const ambulance = state.serviceVehicles.find(
+    (vehicle) =>
+      vehicle.flightId === flight.id &&
+      vehicle.emergencyResponseKind === 'medical' &&
+      vehicle.status !== 'complete',
+  );
+  if (ambulance)
+    return `${ambulance.label} owns the stand lane; it must clear before ${waiting.label} equipment can dispatch.`;
+  const vehicle = state.serviceVehicles.find(
+    (candidate) =>
+      candidate.flightId === flight.id &&
+      candidate.service === waiting.type &&
+      candidate.status !== 'complete',
+  );
+  if (vehicle?.held)
+    return `${vehicle.label} is held: ${vehicle.holdReason ?? 'wait for its reserved service route to clear'}.`;
+  if (vehicle)
+    return `${vehicle.label} is ${vehicle.status}; no manual bypass is permitted while its stand lane is protected.`;
+  return `${waiting.label} equipment has not released; keep the aircraft at stand while the normal dispatcher resolves capacity.`;
 }
 
 function queueWaitSeconds(

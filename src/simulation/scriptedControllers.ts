@@ -411,7 +411,10 @@ function towerCandidates(
     }
     if (
       flight.phase === "taxi-out" &&
-      flight.progress >= 0.985 &&
+      // Ground offers Tower before the upstream hold-short point. Tower may
+      // reject an early attempt, but its normal retry cadence will clear the
+      // aircraft as soon as it reaches the authoritative point.
+      flight.progress >= 0.5 &&
       !flight.runwayEntryCleared
     ) {
       candidates.push({

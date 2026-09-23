@@ -98,13 +98,20 @@ export interface AirportControlCommandParameters {
   selectAirport: { code: string };
   clearFlight: { flightId: number; runway: number };
   reassignArrivalGate: { flightId: number };
+  reportGateEquipmentFailure: { flightId: number };
+  assignRemoteStand: { flightId: number };
+  cancelGateDeparture: { flightId: number };
+  requestFuelReturn: { flightId: number };
+  requestPassengerReturn: { flightId: number };
+  requestMaintenanceTow: { flightId: number };
   clearPushback: { flightId: number };
+  returnToStand: { flightId: number };
   clearRunwayEntry: { flightId: number };
   clearTakeoff: { flightId: number };
   cancelTakeoffClearance: { flightId: number };
   rejectTakeoff: {
     flightId: number;
-    reason?: "traffic" | "runway" | "technical" | "controller";
+    reason?: "traffic" | "runway" | "technical" | "brake-tire" | "controller";
   };
   clearRunwayCrossing: { flightId: number; runway: number };
   controlFlights: { flightIds: number[]; instruction: FlightInstruction };
@@ -196,7 +203,11 @@ export interface AirportControlCommandParameters {
     durationSeconds?: number;
   };
   triggerSurfaceIncident: {
-    kind: "runway-inspection" | "bird-activity" | "foreign-object-debris";
+    kind:
+      | "runway-inspection"
+      | "bird-activity"
+      | "foreign-object-debris"
+      | "snow-removal";
     targetId: string;
   };
   clearSurfaceDisruption: { disruptionId: string };
@@ -925,9 +936,58 @@ const COMMAND_SPECS = {
     { flightId: flightIdSchema },
     { flightId: 1 },
   ),
+  reportGateEquipmentFailure: command(
+    "operations",
+    "Report an assigned arrival gate equipment failure and replan it to a compatible open stand before terminal taxi routing is committed.",
+    AUTHORITY.supervisor,
+    { flightId: flightIdSchema },
+    { flightId: 1 },
+  ),
+  assignRemoteStand: command(
+    "operations",
+    "Assign an arriving aircraft to a compatible remote-ramp stand before terminal taxi routing is committed.",
+    AUTHORITY.supervisor,
+    { flightId: flightIdSchema },
+    { flightId: 1 },
+  ),
+  cancelGateDeparture: command(
+    "operations",
+    "Cancel a ready, still-gated departure and release its stand without interrupting an active surface movement.",
+    AUTHORITY.supervisor,
+    { flightId: flightIdSchema },
+    { flightId: 1 },
+  ),
+  requestFuelReturn: command(
+    "operations",
+    "Re-open only the fueling task for a ready aircraft still at its stand; the normal fuel-truck and pushback gates remain authoritative.",
+    AUTHORITY.supervisor,
+    { flightId: flightIdSchema },
+    { flightId: 1 },
+  ),
+  requestPassengerReturn: command(
+    "operations",
+    "Return a ready passenger departure to controlled gate-side reboarding before pushback.",
+    AUTHORITY.supervisor,
+    { flightId: flightIdSchema },
+    { flightId: 1 },
+  ),
+  requestMaintenanceTow: command(
+    "operations",
+    "Tow a ready, still-gated aircraft along reserved pavement to a compatible maintenance stand.",
+    AUTHORITY.supervisor,
+    { flightId: flightIdSchema },
+    { flightId: 1 },
+  ),
   clearPushback: command(
     "surface",
     "Clear a ready departure to push from its stand.",
+    AUTHORITY.ramp,
+    { flightId: flightIdSchema },
+    { flightId: 1 },
+  ),
+  returnToStand: command(
+    "surface",
+    "Return a tug-attached aircraft to its original stand before it enters normal taxi operations.",
     AUTHORITY.ramp,
     { flightId: flightIdSchema },
     { flightId: 1 },
@@ -963,6 +1023,7 @@ const COMMAND_SPECS = {
         "traffic",
         "runway",
         "technical",
+        "brake-tire",
         "controller",
       ]),
     },
@@ -1566,6 +1627,7 @@ const COMMAND_SPECS = {
         "runway-inspection",
         "bird-activity",
         "foreign-object-debris",
+        "snow-removal",
       ]),
       targetId: stringSchema("Runway or taxiway target for the inspection."),
     },

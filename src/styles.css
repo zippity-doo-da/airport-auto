@@ -1190,6 +1190,15 @@ body.center-scope .brand__mark {
   transform: translate(-50%, -50%) rotate(90deg);
 }
 
+.combat-transition--locked {
+  border-color: rgba(244, 232, 206, 0.2);
+  color: rgba(244, 232, 206, 0.4);
+  background: rgba(16, 46, 48, 0.44);
+  cursor: not-allowed;
+  filter: grayscale(1);
+  opacity: 0.66;
+}
+
 .control-panel {
   top: 145px;
   left: clamp(22px, 4vw, 54px);
@@ -1276,6 +1285,11 @@ body.center-scope .brand__mark {
   outline: 2px solid var(--amber);
   outline-offset: 2px;
 }
+.quick-setup select option:disabled,
+.intro-setup select option:disabled {
+  color: rgba(244, 232, 206, 0.38);
+  background: #203a3a;
+}
 
 .intro-archive-link {
   display: block;
@@ -1292,6 +1306,11 @@ body.center-scope .brand__mark {
 .intro-archive-link:hover {
   text-decoration: underline;
   text-underline-offset: 0.24rem;
+}
+.intro-archive-link--locked {
+  color: rgba(244, 232, 206, 0.42);
+  cursor: not-allowed;
+  filter: grayscale(1);
 }
 .station-automation {
   grid-column: 1 / -1;
@@ -1795,6 +1814,46 @@ body.center-scope .brand__mark {
   transition:
     opacity 650ms ease,
     backdrop-filter 650ms ease;
+}
+.bootstrap-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 9px;
+  color: var(--ivory);
+  background: #183638;
+  transition: opacity 240ms ease, visibility 240ms ease;
+}
+.bootstrap-loading--ready {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+.bootstrap-loading__mark {
+  color: var(--amber);
+  font-size: 22px;
+  filter: drop-shadow(0 0 12px rgba(239, 199, 117, 0.5));
+  animation: bootstrap-loading-pulse 1.1s ease-in-out infinite alternate;
+}
+.bootstrap-loading strong {
+  font: 400 26px/1 Georgia, "Times New Roman", serif;
+}
+.bootstrap-loading small {
+  color: rgba(244, 232, 206, 0.66);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+@keyframes bootstrap-loading-pulse {
+  from { transform: scale(0.88); opacity: 0.55; }
+  to { transform: scale(1.08); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bootstrap-loading__mark { animation: none; }
 }
 .modal--hidden {
   visibility: hidden;
@@ -5287,6 +5346,9 @@ button.queue-entry:focus-visible,
 .queue-entry__copy small {
   color: rgba(244, 232, 206, 0.56);
   font-size: 8px;
+}
+.queue-entry__copy .queue-entry__recovery {
+  color: rgba(188, 232, 216, 0.72);
 }
 .queue-entry__timing {
   display: grid;

@@ -90,13 +90,14 @@ onlyCategory(config, base, 'weather', (flight, state) => {
   flight.deicing.queueEnteredSeconds = state.elapsed - 12;
   flight.deicing.reason = 'Waiting for winter treatment lane';
 });
-onlyCategory(config, base, 'downstream', (flight, state) => {
+const turnaroundEntry = onlyCategory(config, base, 'downstream', (flight, state) => {
   flight.phase = 'resting';
   flight.turnaround.status = 'servicing';
   flight.turnaround.actualStartSeconds = state.elapsed - 9;
   flight.turnaround.tasks[0].required = true;
   flight.turnaround.tasks[0].status = 'active';
 });
+assert(turnaroundEntry.recovery?.includes('in progress'), 'turnaround queue has no actionable active-service recovery: ' + JSON.stringify(turnaroundEntry));
 totals.identityChecks += 7;
 
 {

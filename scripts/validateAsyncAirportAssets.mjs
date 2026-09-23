@@ -1,10 +1,12 @@
 import { build } from "esbuild";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-const tempDir = await mkdtemp(join(tmpdir(), "airport-auto-async-assets-"));
+// Keep esbuild's temporary entry inside the workspace. On locked-down Windows
+// profiles it cannot always traverse the system temp directory back to the
+// repository imports, while this directory is both disposable and resolvable.
+const tempDir = await mkdtemp(join(process.cwd(), ".tmp-async-assets-"));
 const entryPath = join(tempDir, "entry.ts");
 const workspacePath = process.cwd().replace(/\\/g, "/");
 

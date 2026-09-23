@@ -1,6 +1,6 @@
 # Airport Auto
 
-Airport Auto is a browser-based air-traffic game and hands-off airport simulation. Watch a continuous operation in Full Auto or low-chrome Watch mode, approve explained clearances in Assisted ATC, or work Approach, Tower, Ground, Ramp, and Supervisor positions in Full Manual.
+Airport Auto is a browser-based air-traffic game and hands-off airport simulation currently focused on Chicago O’Hare (ORD). Watch a continuous operation in Full Auto or low-chrome Watch mode, approve explained clearances in Assisted ATC, or work Approach, Tower, Ground, Ramp, and Supervisor positions in Full Manual.
 
 [Open the live 2.40 build](https://zippity-doo-da.github.io/random_art_projects/airport-auto/). It was published additively on July 27, 2026, without replacing the existing `random_art_projects` menagerie.
 
@@ -8,7 +8,7 @@ The airport layouts are readable operational schematics inspired by real runway 
 
 ## What is included
 
-- Ten named hubs: ATL, ORD, DXB, HND, DFW, LHR, IST, DEN, LAX, and JFK, plus a newly generated local airport each session.
+- ORD is the single enabled public airport. The other airport configurations and research annexes are preserved in source but explicitly unavailable in this release.
 - Continuous arrivals from the map boundary, curved approaches, flare, touchdown, aircraft/weather/traffic-aware runway-exit selection, pavement-continuous taxi, full takeoff roll, rotation, and climb-out.
 - Clear, haze, rain, fog, snow, and thunderstorm operations with modeled three-segment runway-condition reports, contaminated-surface aircraft performance, weather-aware taxiing, and separately opt-in deterministic wind-shear/microburst escapes. These are schematic entertainment systems and explicitly not navigation data.
 - A deterministic local-time environment moves continuously through dawn, day, dusk, and night, with seasonal daylight/terrain, weather-driven clouds, drying pavement, snow accumulation/melt, and responsive runway lighting. Automatic lighting/season defaults can be overridden for calm watching or repeatable tests.

@@ -809,7 +809,15 @@ function rampZoneCapacity(zone: SurfaceOperationalZone): number {
 
 function rampAlleyId(edge: SurfaceEdge, leadStand: SurfaceStand | undefined): string | null {
   if (leadStand) return leadStand.apronTaxiwayId;
-  return edge.taxiwayId?.startsWith('RAMP-') ? edge.taxiwayId : null;
+  if (!edge.taxiwayId?.startsWith('RAMP-')) return null;
+  // Imported terminal centerlines frequently split one physical alley into
+  // compass-labelled branches (for example RAMP-B-C-W and RAMP-B-C-C). Those
+  // branches meet inside the same wingtip-constrained junction; treating
+  // them as independent resources lets opposite taxi traffic commit before
+  // the collision layer can see the faceoff. Reserve their common alley as
+  // one directional resource while retaining individual edge/node claims for
+  // the exact geometry.
+  return edge.taxiwayId.replace(/-(?:N|S|E|W|C)$/, '');
 }
 
 function rampAlleyLabel(graph: AirportSurfaceGraph, alleyId: string): string {

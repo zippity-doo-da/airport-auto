@@ -46,6 +46,20 @@ hold-short interval, so the full local operations suite validates ATL and ORD
 routes consistently.
 This batch is intentionally not deployed yet.
 
+### Current verification correction — August 24, 2026
+
+The historic acceptance statements below are retained as release evidence for
+the configurations and source revisions they measured; they do **not** certify
+the current unpublished surface scheduler. Current forced-GC Extreme ORD Watch
+soaks remain collision/incursion/unexplained-pause free and retain bounded heap
+growth, but can exceed the individual 15-minute surface-hold limit when an
+imported runway-crossing/terminal dependency has no modeled paved remote-hold
+or return route. Recent work added authoritative runway-entry metering, early
+Tower handoff, atomic late gate-and-route reassignment, occupied-flow exit
+rights, and bounded yield recovery. The remaining P0 task is an explicit,
+sourced remote-hold/return route augmentation to the ORD surface import plus a
+fresh long-form acceptance run. It is intentionally not marked complete.
+
 This file is the status ledger. A checked item is implemented and tested; any release intentionally held locally is labeled as such. Future ideas are kept in a separate, explicitly deferred section so implemented work is never duplicated as an unchecked task.
 
 ## Airport Auto 2.1 — reliability, control, and long-session release

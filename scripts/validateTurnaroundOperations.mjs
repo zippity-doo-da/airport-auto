@@ -14,7 +14,7 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-const allServices = ['fueling', 'baggage', 'cargo', 'catering', 'cleaning', 'boarding', 'maintenance'];
+const allServices = ['fueling', 'potable-water', 'lavatory', 'baggage', 'cargo', 'catering', 'cleaning', 'boarding', 'crew', 'maintenance'];
 const passengerPlans = Array.from({ length: 24 }, (_, index) => createTurnaroundPlan({
   flightId: index + 1,
   airportSeed: 417,
@@ -32,6 +32,9 @@ for (const required of ['fueling', 'baggage', 'catering', 'cleaning', 'boarding'
   assert(passenger.tasks.find((task) => task.type === required)?.required, 'passenger turn omitted required ' + required);
 }
 assert(!passenger.tasks.find((task) => task.type === 'cargo')?.required, 'passenger turn scheduled main-deck cargo handling');
+const widebody = passengerPlans.find((plan) => plan.tasks.find((task) => task.type === 'potable-water')?.required);
+assert(widebody?.tasks.find((task) => task.type === 'lavatory')?.required, 'widebody turn omitted lavatory service');
+assert(widebody?.tasks.find((task) => task.type === 'crew')?.required, 'widebody turn omitted a crew-change operation');
 const boarding = passenger.tasks.find((task) => task.type === 'boarding');
 assert(boarding.dependencies.includes('cleaning') && boarding.dependencies.includes('catering'), 'boarding lacks cabin-service dependencies');
 const cabinReadyOffset = Math.max(...boarding.dependencies.map((dependency) => {
@@ -65,6 +68,7 @@ const cargo = createTurnaroundPlan({
   scheduledGateInSeconds: 300,
 });
 assert(cargo.tasks.find((task) => task.type === 'cargo')?.required, 'freighter omitted cargo handling');
+assert(cargo.tasks.find((task) => task.type === 'crew')?.required, 'freighter omitted a crew-change operation');
 for (const excluded of ['baggage', 'catering', 'cleaning', 'boarding']) {
   assert(!cargo.tasks.find((task) => task.type === excluded)?.required, 'freighter scheduled passenger service ' + excluded);
 }

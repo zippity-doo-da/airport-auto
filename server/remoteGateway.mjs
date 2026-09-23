@@ -26,6 +26,7 @@ const CLIENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$/;
 const DEFAULT_MAX_PAYLOAD_BYTES = 2 * 1024 * 1024;
 const DEFAULT_MAX_BUFFERED_BYTES = 2 * 1024 * 1024;
 const DEFAULT_MAX_CONNECTIONS_PER_SESSION = 64;
+const DEFAULT_MAX_PENDING_COMMANDS_PER_CONTROLLER = 4;
 const controllerConsoleHtml = readFileSync(
   new URL("./remoteControllerConsole.html", import.meta.url),
   "utf8",
@@ -222,6 +223,9 @@ function sessionPublicState(session) {
         station: connection.station,
         subscriptions: [...(connection.subscriptions ?? SUBSCRIPTION_TOPICS)].sort(),
         connectedAt: connection.connectedAt,
+        // A non-zero count means only superseded state/session publications
+        // were shed. Command results and event records are never counted here.
+        droppedReplaceableMessages: connection.droppedReplaceableMessages ?? 0,
       }))
       .sort((first, second) => first.clientId.localeCompare(second.clientId)),
     claims: [...session.claims.entries()]
@@ -244,10 +248,26 @@ function sessionPublicState(session) {
   };
 }
 
-function safeSend(connection, message) {
+/**
+ * State and session snapshots are replaceable: a slow observer only needs the
+ * next current snapshot, never every intermediate frame. Command receipts and
+ * operational events are not replaceable and must retain the existing
+ * fail-closed buffer boundary. This prevents a high-frequency host state
+ * stream from disconnecting an otherwise healthy controller before it can
+ * receive an urgent command result.
+ */
+function safeSend(connection, message, delivery = "critical") {
   if (!connection || connection.socket.readyState !== WebSocket.OPEN)
     return false;
   if (connection.socket.bufferedAmount > connection.maxBufferedBytes) {
+    if (delivery === "replaceable") {
+      // This is diagnostic state, not an unbounded audit stream.
+      connection.droppedReplaceableMessages = Math.min(
+        1_000_000,
+        connection.droppedReplaceableMessages + 1,
+      );
+      return false;
+    }
     connection.socket.close(1013, "client output buffer exceeded");
     return false;
   }
@@ -368,6 +388,11 @@ export function createRemoteGateway(options = {}) {
     DEFAULT_MAX_CONNECTIONS_PER_SESSION,
     2,
   );
+  const maxPendingCommandsPerController = integer(
+    options.maxPendingCommandsPerController,
+    DEFAULT_MAX_PENDING_COMMANDS_PER_CONTROLLER,
+    1,
+  );
   const auditFile =
     typeof options.auditFile === "string" && options.auditFile
       ? options.auditFile
@@ -428,7 +453,7 @@ export function createRemoteGateway(options = {}) {
     };
     for (const connection of session.connections) {
       if ((connection.subscriptions ?? SUBSCRIPTION_TOPICS).has("session"))
-        safeSend(connection, message, false);
+        safeSend(connection, message, "replaceable");
     }
   };
 
@@ -882,6 +907,27 @@ export function createRemoteGateway(options = {}) {
       );
       return;
     }
+    const pendingForController = [...connection.session.pendingCommands.values()]
+      .filter((pending) => pending.connection === connection).length;
+    if (pendingForController >= maxPendingCommandsPerController) {
+      sendCommandRejection(
+        connection,
+        requestId,
+        "controller command queue is full; wait for a host result before sending another instruction",
+        "command-backpressure",
+      );
+      recordAudit({
+        type: "command-rejected",
+        sessionId: connection.session.id,
+        clientId: connection.clientId,
+        station: connection.station,
+        requestId,
+        action: boundedText(message.envelope.command.action, 64),
+        reason: "command-backpressure",
+        pendingForController,
+      });
+      return;
+    }
     const host = connection.session.host;
     if (!host?.authenticated) {
       sendCommandRejection(
@@ -1010,7 +1056,7 @@ export function createRemoteGateway(options = {}) {
         target !== connection &&
         (target.subscriptions ?? SUBSCRIPTION_TOPICS).has("state")
       )
-        safeSend(target, outgoing, false);
+        safeSend(target, outgoing, "replaceable");
     }
   };
 
@@ -1573,6 +1619,7 @@ export function createRemoteGateway(options = {}) {
       commandTimes: [],
       requestIds: new Set(),
       subscriptions: new Set(SUBSCRIPTION_TOPICS),
+      droppedReplaceableMessages: 0,
       handshakeTimer: null,
     };
     connection.handshakeTimer = setTimeout(() => {

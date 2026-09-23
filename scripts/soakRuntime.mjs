@@ -38,11 +38,17 @@ const requestedProgram =
   process.argv
     .find((argument) => argument.startsWith("--program="))
     ?.split("=")[1]
-    ?.trim()
-    .toLowerCase() ?? null;
+  ?.trim()
+  .toLowerCase() ?? null;
+const reportFile =
+  process.argv
+    .find((argument) => argument.startsWith("--report-file="))
+    ?.slice("--report-file=".length)
+    .trim() || null;
 
 const source = `
 import { performance } from 'node:perf_hooks';
+import { writeFile } from 'node:fs/promises';
 import { RuntimePerformanceMonitor } from './src/telemetry/runtimePerformance.ts';
 import { generateHubConfig, HUB_AIRPORTS } from './src/simulation/airportConfig.ts';
 import { AirportSimulation } from './src/simulation/airportSimulation.ts';
@@ -60,6 +66,7 @@ const stopOnCollision = ${JSON.stringify(stopOnCollision)};
 const requestedAirport = ${JSON.stringify(requestedAirport)};
 const requestedMode = ${JSON.stringify(requestedMode)};
 const requestedProgram = ${JSON.stringify(requestedProgram)};
+const reportFile = ${JSON.stringify(reportFile)};
 // Match the production fixed-step loop exactly; a 100 ms diagnostic step
 // measures twice the work of any tick the browser is allowed to execute.
 const stepSeconds = 0.05;
@@ -477,6 +484,7 @@ while (simulation.state.elapsed < targetModeledSeconds) {
       secondsSinceDeparture: Number((simulation.state.elapsed - lastDepartureAtSeconds).toFixed(1)),
       secondsWithoutTrafficMotion: Number((simulation.state.elapsed - lastTrafficMotionAtSeconds).toFixed(1)),
       maximumStationarySeconds: Number(maximumStationarySeconds.toFixed(1)),
+      maximumStationaryFlight,
       simP95Ms: monitor.snapshot().simulationTickMs.p95,
       heapMiBPerHour: monitor.snapshot().growth.heapMiBPerHour,
       heapMeasurement,
@@ -500,7 +508,9 @@ if (diagnostics.metrics.collisionAlerts !== 0) failures.push('collision alerts')
 if (diagnostics.metrics.runwayIncursions !== 0) failures.push('runway incursions');
 if (diagnostics.metrics.unexplainedPauses !== 0) failures.push('unexplained pauses');
 if (snapshot.simulationTickMs.p95 > snapshot.budgets.simulationTickP95Ms) failures.push('simulation p95 budget');
-if (snapshot.growth.heapMiBPerHour !== null && snapshot.growth.heapMiBPerHour > snapshot.budgets.heapGrowthMiBPerHour) failures.push('heap growth budget');
+// Heap-per-hour is a long-window trend. Do not turn a deliberately short
+// smoke run into a false failure from startup allocation and forced-GC noise.
+if (requestedHours >= 1 && snapshot.growth.heapMiBPerHour !== null && snapshot.growth.heapMiBPerHour > snapshot.budgets.heapGrowthMiBPerHour) failures.push('heap growth budget');
 if (maximumAircraft > snapshot.budgets.aircraft) failures.push('aircraft entity budget');
 if (maximumVehicles > snapshot.budgets.serviceVehicles) failures.push('service-vehicle entity budget');
 if (maximumQueues > snapshot.budgets.queues) failures.push('queue budget');
@@ -904,11 +914,49 @@ const compact = {
       hold: flight.hold,
       surfaceYield: flight.surfaceYield,
     })),
+  surfaceHolds: report.heldFlights
+    .filter((flight) => flight.phase === 'taxi-in' || flight.phase === 'taxi-out')
+    .sort((first, second) => second.stationarySeconds - first.stationarySeconds)
+    .slice(0, 12)
+    .map((flight) => ({
+      id: flight.id,
+      callsign: flight.callsign,
+      phase: flight.phase,
+      progress: flight.progress,
+      stationarySeconds: flight.stationarySeconds,
+      gate: flight.gate,
+      reason: flight.reason,
+      surfaceReroute: flight.surfaceReroute,
+      surfaceYield: flight.surfaceYield,
+      nearbyRoute: flight.nearbyRoute,
+    })),
+  surfaceBlockers: report.heldFlights
+    .filter((flight) => flight.phase === 'taxi-in' || flight.phase === 'taxi-out')
+    .map((flight) => {
+      const blockerId = Number(flight.reason?.match(/flight (\\d+)\\)?$/)?.[1]);
+      const blocker = Number.isFinite(blockerId)
+        ? report.activeFlights.find((candidate) => candidate.id === blockerId)
+        : null;
+      return blocker ? {
+        heldFlightId: flight.id,
+        heldCallsign: flight.callsign,
+        blockerId: blocker.id,
+        blockerCallsign: blocker.callsign,
+        blockerPhase: blocker.phase,
+        blockerProgress: blocker.progress,
+        blockerGate: blocker.gate,
+        blockerHold: blocker.hold,
+      } : null;
+    })
+    .filter(Boolean),
   pushbackAdmissionCount: report.pushbackAdmissionDiagnostics.length,
   simulationTickP95Ms: report.performance.simulationTickMs.p95,
   safety: report.safety,
 };
-console.log(JSON.stringify(compactReport ? compact : report));
+const output = compactReport ? compact : report;
+if (reportFile)
+  await writeFile(reportFile, JSON.stringify(output, null, 2) + '\\n', 'utf8');
+console.log(JSON.stringify(output));
 if (failures.length) process.exitCode = 1;
 `;
 

@@ -83,6 +83,13 @@ assert(flight.pushbackCleared, 'pushback clearance was not stored on the flight'
 const pushbackInstruction = flight.surfaceInstructions?.find((instruction) => instruction.kind === 'pushback');
 assert(pushbackInstruction?.id === 'pushback:' + flight.id + ':1' && pushbackInstruction.evidence.causalEventIds.length === 1, 'pushback instruction lacks stable issue/event evidence');
 advanceUntil(simulation, () => flight.phase === 'taxi-out', 'pushback did not begin taxi-out', 5, assertCurrentSurfacePose);
+assert(flight.tugAttached, 'tug detached before a return-to-stand instruction could be issued');
+assert(simulation.returnToStand(flight.id), 'Ramp return-to-stand command was rejected: ' + simulation.lastCommandReason());
+advanceUntil(simulation, () => flight.phase === 'resting' && !flight.returnToStand, 'tug did not return aircraft to its original stand', 30, assertCurrentSurfacePose);
+assert(flight.progress === 1 && !flight.tugAttached && flight.turnaround.status === 'ready', 'return-to-stand did not restore a push-ready gate state');
+assert(simulation.events.some((event) => event.type === 'return-to-stand') && simulation.events.some((event) => event.type === 'return-to-stand-complete'), 'return-to-stand lifecycle events were not recorded');
+assert(simulation.clearPushback(flight.id), 'flight could not receive a new pushback clearance after return-to-stand: ' + simulation.lastCommandReason());
+advanceUntil(simulation, () => flight.phase === 'taxi-out', 'second pushback did not begin taxi-out', 5, assertCurrentSurfacePose);
 
 let crossingsCleared = 0;
 for (let tick = 0; tick < 12_000 && flight.phase === 'taxi-out'; tick += 1) {

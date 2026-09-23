@@ -1,7 +1,7 @@
 # Airport Auto Goals
 
 Status: active product and implementation ledger  
-Last reconciled: August 10, 2026
+Last reconciled: August 24, 2026
 Baseline: Airport Auto 2.41 plus the additive Research Annex navigation
 Companion ledger: [Combat Simulation Goals](COMBAT_GOALS.md)
 
@@ -1018,6 +1018,26 @@ airborne/surface envelope rule was also corrected: a surface aircraft's fixed
 ground altitude could previously make a safely high arrival look like a
 runway incursion. The rule now gates that alert on the airborne aircraft's
 lower envelope, while retaining protection through flare and rollout. The
+controller handoff path now also retains Ground ownership of a departure until
+every routed runway crossing is cleared; this prevents a premature Tower
+handoff from repeatedly requesting runway entry before the aircraft can legally
+reach that hold-short point. The invariant has a deterministic controller
+regression check. Out-of-service repairs now leave an occupied passenger gate
+through the existing Supervisor-authorized, graph-routed maintenance-tow path;
+they no longer masquerade as a normal gate-side inspection and indefinitely
+block ordinary hub flow. The phase boundary blocks a repair aircraft from
+entering normal pushback; Auto and Watch dispatch the recorded Supervisor tow
+before the Ramp controller can release it, while staffed modes retain the
+explicit Supervisor decision. Both paths have deterministic tow coverage. A
+post-fix ATL Extreme Auto hour completed 26 arrivals
+and 9 departures with no collision, incursion, unexplained-pause, or flow gate
+failure. A later local one-hour ATL Auto validation, after the maintenance and
+controller changes, completed 25 arrivals and 8 departures with zero collision,
+incursion, or unexplained-pause diagnostics and passed its soak gate. An
+experimental service-road relocation and per-stand movement serialization were
+removed after they produced collision alerts; safety is retained over an
+abstract queue-clearing shortcut. The remaining multi-hour work is a bounded
+gate/service convoy scheduler that operates on authoritative paved routes.
 full deterministic collision suite (74 generated airport configurations) and
 ATL Rush runs through one modeled hour now report zero collision alerts, zero
 runway incursions, and zero unexplained pauses. ATL's multi-hour retained-heap
@@ -1199,11 +1219,13 @@ surface-disruption validator covers restriction authority, route exclusions,
 rerouting, closure state, timed reopening, recovery dispatch, towing completion,
 event history, and zero recovery collisions. The named inspection program now
 has a deterministic operational lifecycle: an appropriately labeled airport
-response unit is dispatched, reports on scene, performs its modeled inspection,
-and then waits for an explicit Supervisor reopen action. It retains the common
-restriction/reroute/protected-pavement boundary throughout; a separately
-rendered, route-reserved emergency vehicle and calm-severity policy are still
-open.
+  response unit is dispatched, reports on scene, performs its modeled inspection,
+  and then waits for an explicit Supervisor reopen action. It retains the common
+  restriction/reroute/protected-pavement boundary throughout. Inspection and FOD
+  work use an airfield-operations unit, bird activity uses a distinct
+  wildlife-response vehicle, and snow removal uses a distinct plow/spreader;
+  each remains a route-reserved, separately rendered surface mover. Broader
+  emergency fleets, dedicated depots, and calm-severity follow-up remain open.
 
 ### Content
 
@@ -1215,32 +1237,82 @@ open.
   response-unit dispatch, on-scene inspection, explicit reopen readiness, and
   common restriction/reroute/protected-pavement/replay/remote-control path.
   Inspection incidents now also create a separately rendered, authoritative
-  airfield-operations vehicle that graph-routes to the affected surface, uses
-  the shared reservation and collision checks, is explicitly authorized only
-  within the active closure, remains on scene through inspection, and releases
-  when the Supervisor reopens the movement area. Its continuous red response
-  beacon distinguishes it from the amber gate-service fleet even while it is
-  stopped on scene. Rejected takeoff now has an immediate pre-V1 command,
+  response vehicle that graph-routes to the affected surface, uses the shared
+  reservation and collision checks, is explicitly authorized only within the
+  active closure, remains on scene through inspection, and receives an
+  authoritative return-to-staging route after the Supervisor authorizes the
+  reopen; the closure remains active until that route clears. The replay/control
+  stream records both the return authorization and the physical pavement-clear
+  moment as airfield events, without fabricating an aircraft identity. Wildlife checks use a distinct
+  wildlife-response vehicle and snow sweeps use a modeled plow/spreader rather
+  than a generic maintenance van; their continuous red response beacons
+  distinguish them from the amber gate-service fleet even while stopped on
+  scene. Rejected takeoff now has an immediate pre-V1 command,
   condition-adjusted continuous braking, typed lifecycle events, and a protected
   stopped-on-runway state. Its recovery is now complete: the stop creates a
   runway-wide protected disruption, reroutes incompatible traffic, gives
   Ground or Supervisor an ordinary dispatch action, and runs a deterministic
   tow plus brake/fire and runway inspection before removing the aircraft and
   reopening every affected graph edge. Auto dispatches the same recovery
-  through its scripted Ground controller. The remaining named programs are
-  still open.
+  through its scripted Ground controller. Medical priority now remains active
+  through landing and taxi-in: a distinct ambulance uses an authoritative
+  service-road route to the assigned stand, stages until gate arrival,
+  completes a deterministic patient transfer, clears the stand lane, and only
+  then releases ordinary turnaround equipment. A tug-attached aircraft can
+  now also be returned to its original stand before taxi begins, preserving
+  the same authoritative surface route, reservations, and event record rather
+  than teleporting or reversing through scenery. It emits dispatch, on-scene,
+  and completion evidence and is covered by a seeded ATL zero-conflict
+  validator. A brake/tire concern is now a separate below-V1 Tower action:
+  it creates a cause-labeled rejected-takeoff state, holds the complete runway,
+  requires fire cover, tow, and wheel inspection before reopening, and carries
+  an additional deterministic inspection allowance. Gate-equipment failure
+  now gives Supervisor a pre-terminal-routing recovery action: the failed
+  stand is excluded, the existing compatible-stand and pavement-route planner
+  finds a replacement, and a durable replay/UI record explains the resolved
+  reassignment. Supervisor can now also assign an inbound flight to a remote
+  stand before terminal routing: only compatible `remote-ramp` stands with a
+  clear authoritative pavement route are considered, and the prior/remote
+  assignment is retained in replay and the flight panel. A separate Supervisor
+  passenger-return action now re-opens only the boarding task of a ready
+  passenger departure, preserves completed technical/ramp work, blocks
+  pushback until controlled reboarding finishes, and uses the normal remote-
+  stand passenger coach reservation where one is required. Snow removal now
+  runs as a named Supervisor runway-sweep program through the protected
+  closure, graph-routed response-vehicle, rerouting, on-scene, and explicit
+  reopening lifecycle. Maintenance tow now selects a compatible
+  maintenance/remote stand, travels over the authoritative surface graph with
+  the tug attached, releases the originating stand at dispatch, assigns the
+  destination only upon arrival, and records typed dispatch/completion events.
+  A seeded ORD lifecycle validator now proves dispatch, full graph movement,
+  destination assignment, tug release, typed lifecycle evidence, and no
+  aircraft/obstacle collision through the complete tow.
+  The standard local operations suite now includes the named-incident, medical
+  response, and maintenance-tow validators, so these recovery loops cannot be
+  skipped by a normal operations run.
 - [~] Add airport emergency and inspection vehicles with explicit dispatch,
   route authority, staging areas, runway entry, task time, and release.
-  The named inspection response vehicle now covers this path; emergency
-  and medical-response fleets, dedicated depots, and return-to-staging
-  choreography remain open.
+  The named inspection/FOD, wildlife-response, and snow-removal vehicles now
+  cover distinct routed response paths, and medical priority adds a dedicated
+  ambulance with explicit dispatch and stand-service release. Incident units
+  now return to their selected graph staging nodes before the restriction is
+  lifted. Broader emergency-response fleets and dedicated depots remain open.
 - [~] Add diversion, cancellation, tow, gate swap, runway closure, reduced-rate
   configuration, and staged reopening recovery playbooks.
   Diversion, tow/recovery, runway/taxiway closure, reroute, and timed reopening
   are implemented. A Supervisor can now explicitly reassign an arrival to a
   compatible unoccupied gate before terminal routing is committed, using the
   same stand and pavement-conflict planner as automatic recovery; cancellation
-  and named controller playbooks remain open.
+  is now a guarded Supervisor gate-side action for a ready, still-gated
+  departure. It archives a cancellation amendment, releases the stand and
+  departure demand, emits a typed event, and rejects any attempt to remove an
+  aircraft with active stand equipment or an issued pushback. A separate
+  Supervisor fuel-return action can re-open only a ready stand's fueling task;
+  it dispatches a graph-reserved fuel truck, raises the dispatch target, blocks
+  pushback until the truck clears, and preserves completed cabin/ramp work.
+  Passenger return follows the same gate-side safety boundary and reuses the
+  existing boarding/service-vehicle model rather than teleporting passengers.
+  Broader named controller playbooks remain open.
 - [x] Add calm severity controls: Off, Advisory Only, Operational, and Rare High
       Impact. The shared status broker filters ambient/operational/warning
       chatter, retains critical safety alerts, persists the choice in Watch
@@ -1253,8 +1325,10 @@ open.
 - [~] Emergency vehicles never cross a protected runway without explicit shared
   authority and never collide with aircraft or service traffic. The seeded
   named-inspection unit is checked for explicit closure-bound authority,
-  route legality, and zero service/aircraft conflicts; broader emergency
-  fleet coverage remains open.
+  route legality, and zero service/aircraft conflicts. The focused all-program
+  fixture now also covers runway inspection, bird activity, taxiway FOD, and
+  snow removal through response type, graph route, completion, Supervisor
+  reopening, and cleanup; broader emergency fleet coverage remains open.
 - [ ] The airport returns to sustainable flow after each seeded event without a
       reset or teleport. The rejected-takeoff slice now proves this invariant:
       an ORD deterministic fixture continuously brakes from 71 kt for 23.55 s,
@@ -1262,8 +1336,17 @@ open.
       issue/stop/recovery-start/recovery-complete evidence, and reopens the
       runway without a reset. An opt-in real-time browser gate also passed the
       full ATL taxi, takeoff, rejection, Manual/Supervisor dispatch, recovery,
-      and zero-conflict lifecycle in 3.8 minutes on August 10, 2026. Equivalent
-      sustainable-flow proof remains open for every other seeded event.
+      and zero-conflict lifecycle in 3.8 minutes on August 10, 2026. The named
+      runway-inspection, bird-activity, taxiway-FOD, and snow-removal fixtures
+      also retain their original seeded sessions after response-unit return and
+      require a normal arrival or departure before passing. Equivalent
+      sustainable-flow proof remains open for every other seeded event. Fuel
+      return and passenger return now retain their original ORD sessions too:
+      after the physical truck/boarding recovery and stand-lane release, the
+      same aircraft returns to the ordinary Auto controller and must complete
+      a normal departure with zero aircraft or service-vehicle conflicts. A
+      maintenance tow intentionally ends at a maintenance/remote stand rather
+      than inventing an automatic return to airline service.
 
 ## A6 — Deeper airport life
 
@@ -1295,8 +1378,13 @@ lighting that naturally strengthens at night without adding moving entities.
 - [~] Add visually distinct baggage tractors/carts, belt loaders, catering,
   potable-water, lavatory, fuel, maintenance, crew, passenger-bus, jet-bridge,
   towbar, and towbarless-tug families where operationally relevant.
-  Fuel, baggage, cargo, catering, cleaning, maintenance, and passenger vehicles
-  now have distinct low-poly silhouettes and servicing poses; remaining service
+  Fuel, potable-water, lavatory, baggage, cargo, catering, cleaning, crew,
+  maintenance, and passenger vehicles
+  now have distinct low-poly silhouettes and servicing poses. Potable-water
+  and lavatory trucks are authoritative reserved movers on widebody turns;
+  flight-crew vans now handle widebody, cargo, and selected longer narrowbody
+  crew changes through the same graph-reserved stand-side choreography;
+  remaining service
   families, jet bridges, and towing variants are open.
 - [~] Give each service an authoritative staging point, route, aircraft side,
   safety envelope, dependency, duration, and completion state.
@@ -1328,8 +1416,13 @@ lighting that naturally strengthens at night without adding moving entities.
   Current vehicle routing, reservations, and validator cover protected movement,
   stand-lane, and route conflicts; exhaustive building/grass visual checks remain
   open.
-- [ ] Service choreography cannot deadlock aircraft release; the queue inspector
-      names the exact dependency and available recovery.
+- [~] Service choreography cannot deadlock aircraft release; the queue inspector
+      names the exact dependency and available recovery. Turnaround queue rows
+      now retain an authoritative `Next` explanation: active modeled work and
+      remaining time, prerequisite service, ambulance stand-lane ownership,
+      a held vehicle's route reason, or ordinary dispatcher capacity. The text
+      never offers a bypass around stand-lane or reservation protection. Full
+      multi-airport long-run deadlock evidence remains open.
 - [ ] Optional detail remains disableable and meets existing draw-call, triangle,
       memory, entity, and frame-time budgets on all release viewports.
 
@@ -1428,7 +1521,12 @@ service or a full workload/debrief experience.
   heartbeat, reconnect, and emergency-stop behavior to the remote protocol.
   The gateway now supports bounded state/event/session topic subscriptions,
   alongside command limits, heartbeat/reconnect, audited handoff, and
-  emergency-stop paths; batching/backpressure policy remains open.
+  emergency-stop paths. Under output backpressure, replaceable state/session
+  publications are now shed and counted per client rather than disconnecting a
+  controller; command results and operational events retain the fail-closed
+  buffer boundary. Each controller also has a bounded host-result queue and
+  receives a structured `command-backpressure` rejection before excess work can
+  accumulate. Command batching policy remains open.
 - [~] Preserve deterministic local automation whenever a client disconnects,
   times out, releases authority, or fails closed. Release, timeout, and
   reconnect paths are covered by the gateway validation; simulation-side
@@ -1473,14 +1571,21 @@ service or a full workload/debrief experience.
       through an async configuration boundary that preserves deterministic replay.
       A browser-safe per-airport async asset loader now has exact equivalence
       coverage against the synchronous ATL, DFW, and ORD manifests and cloned
-      surface graphs; the browser configuration factory has not yet been migrated
-      to consume it, so startup delivery remains open.
+      surface graphs, and is now part of the standard local operations suite.
+      The browser entry now dynamically imports the deterministic configuration
+      graph after its lightweight UI/runtime bootstrap, reducing the production
+      entry script from 4.74 MB to 1.19 MB uncompressed (August 26 local build).
+      The configuration/data graph remains a separate 3.45 MB startup chunk;
+      migrating the browser configuration factory to the per-airport asset
+      boundary remains open.
 - [ ] Split coordinators when ownership becomes ambiguous; do not split files
       solely to satisfy a line-count target.
       The stand-activity light lifecycle is now isolated in a dedicated renderer
       module rather than expanding the world coordinator. Terminal gate and
       landside-access runtimes now follow the same ownership boundary; further
-      splits should follow the same ownership boundary.
+      splits should follow the same ownership boundary. The presentation-only
+      adaptive-quality policy is also isolated from the page coordinator and
+      covered without Three.js.
 
 ### Performance targets
 
@@ -1493,13 +1598,18 @@ service or a full workload/debrief experience.
 - [ ] No simulation catch-up burst, asset load, panel update, or garbage
       collection pause may visibly freeze aircraft motion after warm-up.
       The renderer now starts high-detail scenes at a restrained 1.25× pixel-ratio
+      and, when adaptive render recovery engages, temporarily simplifies optional
+      terminal trains and jet-bridge presentation before reducing any
+      authoritative aircraft, vehicle, routing, or safety work.
       cap instead of 1.5×, and the existing adaptive quality governor enters its
       shadow-free 1× fallback after two sustained overloaded observations (with a
       60-frame measurement floor). This keeps simulation authority, aircraft
       detail, and safety rules intact while reducing avoidable GPU work. Local
       TypeScript, lint, production-build, and Extreme ORD runtime checks passed on
-      August 8; device-specific visual-frame pacing and the required async hub-data
-      split remain open.
+      August 8. The governor now has explicit two-observation degradation and
+      twelve-observation recovery coverage, so optional scene detail cannot flap
+      during a short upload or browser pause. Device-specific visual-frame pacing
+      and the required async hub-data split remain open.
 - [ ] Pools, histories, alerts, analytics, audio voices, labels, and remote queues
       remain explicitly bounded during a four-hour run.
       The local soak runner now samples retained heap at an explicit forced-GC

@@ -11,6 +11,7 @@ import {
   createStationAutomation,
   requiredControllerStation,
   stationCanIssue,
+  suggestedHandoffStation,
 } from './src/simulation/controllerOperations.ts';
 
 function assert(condition, message) {
@@ -63,6 +64,9 @@ assert(requiredControllerStation(sample) === 'ramp', 'pushback aircraft was not 
 sample.tugAttached = false;
 sample.progress = 0.5;
 assert(requiredControllerStation(sample) === 'ground', 'outbound movement-area aircraft was not assigned to Ground');
+sample.navigation.frequencyOwner = 'ground';
+sample.pendingCrossingCount = 1;
+assert(suggestedHandoffStation(sample) === null, 'Ground handed a departure to Tower before its routed runway crossing was cleared');
 sample.progress = 0.99;
 assert(requiredControllerStation(sample) === 'tower', 'hold-short departure was not assigned to Tower');
 sample.phase = 'takeoff';

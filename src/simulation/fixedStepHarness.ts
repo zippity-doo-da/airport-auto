@@ -7,6 +7,7 @@ import {
 } from "./airportConfig";
 import { AirportSimulation } from "./airportSimulation";
 import type {
+  AirportDomainEvent,
   AirportEvent,
   ControlMode,
   EnvironmentState,
@@ -43,11 +44,11 @@ export interface FixedStepHarnessEvent {
   tick: number;
   simulationTimeSeconds: number;
   type: AirportEvent["type"];
-  flightId: number;
-  callsign: string;
-  phase: FlightPhase;
-  progress: number;
-  runway: number;
+  flightId?: number;
+  callsign?: string;
+  phase?: FlightPhase;
+  progress?: number;
+  runway?: number;
   taxiway?: string;
   detail?: string;
   turnaroundService?: AirportEvent["turnaroundService"];
@@ -57,6 +58,8 @@ export interface FixedStepHarnessEvent {
   domainEventId?: string;
   causedByCommandId?: string;
   causedByControllerDecisionId?: string;
+  surfaceDisruptionId?: string;
+  incidentKind?: SurfaceDisruptionState["incidentKind"];
 }
 
 export interface FixedStepFlightSnapshot {
@@ -91,6 +94,8 @@ export interface FixedStepFlightSnapshot {
     score: number;
     revision: number;
   };
+  gateEquipmentFailure?: Flight["gateEquipmentFailure"];
+  remoteStand?: Flight["remoteStand"];
   turnaround: {
     status: Flight["turnaround"]["status"];
     progress: number;
@@ -547,8 +552,26 @@ export class FixedStepSimulationHarness {
     }
   }
 
-  private captureEvents(events: AirportEvent[]): void {
+  private captureEvents(events: AirportDomainEvent[]): void {
     for (const event of events) {
+      if (!("flight" in event)) {
+        this.eventLog.push({
+          tick: this.tick,
+          simulationTimeSeconds: round(this.simulation.state.elapsed),
+          type: event.type,
+          runway: event.runway,
+          taxiway: event.taxiway,
+          detail: event.detail,
+          serviceVehicleId: event.responseVehicleId,
+          serviceVehicleType: event.responseVehicleType,
+          serviceVehicleStatus: event.responseVehicleStatus,
+          domainEventId: event.domainEventId,
+          causedByCommandId: event.causedByCommandId,
+          surfaceDisruptionId: event.surfaceDisruptionId,
+          incidentKind: event.incidentKind,
+        });
+        continue;
+      }
       this.eventLog.push({
         tick: this.tick,
         simulationTimeSeconds: round(this.simulation.state.elapsed),
@@ -649,6 +672,10 @@ function snapshotFlight(
           revision: flight.gateAssignment.revision,
         }
       : undefined,
+    gateEquipmentFailure: flight.gateEquipmentFailure
+      ? { ...flight.gateEquipmentFailure }
+      : undefined,
+    remoteStand: flight.remoteStand ? { ...flight.remoteStand } : undefined,
     turnaround: {
       status: flight.turnaround.status,
       progress: round(flight.turnaround.progress),

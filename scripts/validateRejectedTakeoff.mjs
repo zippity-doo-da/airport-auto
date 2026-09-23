@@ -48,9 +48,9 @@ const startProgress = flight.progress;
 const startSpeed = flight.kinematics.groundSpeedKts;
 simulation.drainEvents();
 const rejectEventCursor = simulation.eventCursor();
-assert(simulation.rejectTakeoff(flight.id, 'traffic'), 'below-V1 rejected takeoff failed: ' + simulation.lastCommandReason());
+assert(simulation.rejectTakeoff(flight.id, 'brake-tire'), 'below-V1 brake/tire rejected takeoff failed: ' + simulation.lastCommandReason());
 simulation.tagEventsSince(rejectEventCursor, 'cmd-validator-reject-takeoff');
-assert(!flight.takeoffCleared && flight.rejectedTakeoff?.reason === 'traffic', 'RTO did not replace the takeoff clearance with explicit state');
+assert(!flight.takeoffCleared && flight.rejectedTakeoff?.reason === 'brake-tire', 'brake/tire RTO did not replace the takeoff clearance with explicit state');
 assert(flight.rejectedTakeoff.projectedStopProgress > startProgress, 'RTO omitted its forward braking distance');
 assert(flight.rejectedTakeoff.projectedStopProgress < 1, 'RTO projected a stop beyond the departure path');
 
@@ -73,6 +73,8 @@ assert(runwayRecovery, 'stopped RTO did not create an authoritative recovery dis
 const runwayEdges = config.surfaceGraph.edges.filter((edge) => edge.runwayId === flight.runway && (edge.kind === 'runway' || edge.kind === 'runway-access')).map((edge) => edge.id);
 assert(runwayEdges.length > 0, 'RTO fixture runway has no authoritative surface edges');
 assert(runwayRecovery.runwayId === flight.runway, 'RTO recovery did not protect the occupied runway');
+assert(runwayRecovery.label.includes('brake/tire concern'), 'brake/tire RTO did not retain its visible operational cause');
+assert(runwayRecovery.reason.includes('brake/tire concern'), 'brake/tire RTO did not retain its recovery policy');
 assert(runwayEdges.every((edgeId) => runwayRecovery.edgeIds.includes(edgeId)), 'RTO recovery did not protect the full runway graph');
 assert(runwayClosedByDisruption(simulation.state.surfaceDisruptions, flight.runway), 'RTO runway remained operational while the aircraft was stopped on it');
 const blockedRunwayEdges = surfaceDisruptionBlockedEdgeIds(simulation.state.surfaceDisruptions);
@@ -85,6 +87,7 @@ for (let tick = 0; tick < 100; tick += 1) simulation.update(0.05);
 assert(!flight.takeoffCleared && flight.rejectedTakeoff?.stoppedAtSeconds !== undefined, 'automatic Tower re-cleared a stopped rejected takeoff');
 assert(runwayRecovery.status === 'recovering', 'automatic Ground did not dispatch RTO runway recovery');
 assert(runwayRecovery.expectedClearAtSeconds !== undefined, 'RTO recovery omitted its deterministic tow/inspection timer');
+assert((runwayRecovery.recoveryDurationSeconds ?? 0) >= 52, 'brake/tire RTO did not include the modeled wheel inspection time');
 
 const departureMessage = digitalClearanceSnapshot(simulation.state).messages.find((message) => message.flightId === flight.id && message.kind === 'departure' && message.status === 'unable');
 assert(departureMessage?.status === 'unable' && departureMessage.parameters.rejectedTakeoff === 'yes', 'RTO outcome was not projected without becoming a queued instruction');
