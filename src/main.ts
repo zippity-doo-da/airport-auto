@@ -5365,18 +5365,21 @@ function deicingChipSummary(flight: Flight): string | null {
   return deicing.reason.toUpperCase();
 }
 
-const TURNAROUND_SHORT_LABEL: Record<TurnaroundServiceType, string> = {
-  fueling: "fuel",
-  "potable-water": "water",
-  lavatory: "lavatory",
-  baggage: "bags",
-  cargo: "cargo",
-  catering: "catering",
-  cleaning: "cleaning",
-  boarding: "boarding",
-  crew: "crew",
-  maintenance: "maintenance",
-};
+function turnaroundShortLabel(type: TurnaroundServiceType): string {
+  const labels: Record<TurnaroundServiceType, string> = {
+    fueling: "fuel",
+    "potable-water": "water",
+    lavatory: "lavatory",
+    baggage: "bags",
+    cargo: "cargo",
+    catering: "catering",
+    cleaning: "cleaning",
+    boarding: "boarding",
+    crew: "crew",
+    maintenance: "maintenance",
+  };
+  return labels[type];
+}
 
 function turnaroundChipSummary(flight: Flight): string {
   const turnaround = flight.turnaround;
@@ -5392,11 +5395,11 @@ function turnaroundChipSummary(flight: Flight): string {
     .slice(0, 2)
     .map(
       (task) =>
-        `${TURNAROUND_SHORT_LABEL[task.type]} ${Math.round((task.elapsedSeconds / Math.max(0.1, task.durationSeconds)) * 100)}%`,
+        `${turnaroundShortLabel(task.type)} ${Math.round((task.elapsedSeconds / Math.max(0.1, task.durationSeconds)) * 100)}%`,
     );
   if (active.length > 2) labels.push(`+${active.length - 2}`);
   if (!labels.length && waiting.length)
-    labels.push(`${TURNAROUND_SHORT_LABEL[waiting[0].type]} waiting`);
+    labels.push(`${turnaroundShortLabel(waiting[0].type)} waiting`);
   return labels.join(" · ").toUpperCase();
 }
 
